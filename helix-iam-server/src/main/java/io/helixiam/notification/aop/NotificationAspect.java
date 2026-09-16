@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Vendored from group.mfnr.subscriber.starter.notification.aop.NotificationAspect.
+ * Vendored from io.helixiam.subscriber.starter.notification.aop.NotificationAspect.
  * Deviation: depends on the new io.helixiam.notification.Notifier instead of the AMQP
  * NotificationPublisher; the three dispatch call sites (sendAppNotification/sendEmailNotification/
  * sendSmsNotification) are otherwise unchanged. Also replaced

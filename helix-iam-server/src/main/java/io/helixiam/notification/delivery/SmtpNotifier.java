@@ -1,10 +1,10 @@
 package io.helixiam.notification.delivery;
 
-import group.mfnr.authorization.amqp.messaging.ResolvedProviderDto;
-import group.mfnr.authorization.domain.messaging.MessagingProvider;
-import group.mfnr.authorization.messaging.driver.EmailDriver;
-import group.mfnr.authorization.repository.messaging.MessagingProviderRepository;
-import group.mfnr.authorization.security.realm.RealmContextHolder;
+import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
+import io.helixiam.authorization.domain.messaging.MessagingProvider;
+import io.helixiam.authorization.messaging.driver.EmailDriver;
+import io.helixiam.authorization.repository.messaging.MessagingProviderRepository;
+import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.notification.NotificationConstant;
 import io.helixiam.notification.Notifier;
 import io.helixiam.notification.delivery.spi.AppSender;
@@ -30,7 +30,7 @@ import java.util.Optional;
  * <h2>Per-realm vs. global SMTP</h2>
  * Email delivery prefers the realm's own configured provider — {@code MessagingProvider} rows entered
  * via Realm Settings &gt; Messaging &gt; Providers, the same store
- * {@code group.mfnr.authorization.messaging.MessagingService} reads for the OTP/magic-link email
+ * {@code io.helixiam.authorization.messaging.MessagingService} reads for the OTP/magic-link email
  * senders — dispatched through whichever {@link EmailDriver} (SMTP or HTTP) matches that provider's
  * {@code driver} id. Falls back to the {@link SmtpProperties} global SMTP config
  * ({@code helix.notification.smtp.*}) only when the realm has none enabled (or there is no realm in

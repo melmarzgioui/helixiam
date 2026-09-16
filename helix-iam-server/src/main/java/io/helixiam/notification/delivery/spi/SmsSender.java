@@ -4,7 +4,7 @@ package io.helixiam.notification.delivery.spi;
  * Task 4 (strip-RabbitMQ notification delivery). Extension point for SMS dispatch used by
  * {@link io.helixiam.notification.delivery.SmtpNotifier}. The default implementation
  * ({@code io.helixiam.notification.delivery.RealmSmsSender}) reuses the realm's already-configured
- * {@code group.mfnr.authorization.messaging.driver.SmsDriver} (Twilio/HTTP) when one is enabled for
+ * {@code io.helixiam.authorization.messaging.driver.SmsDriver} (Twilio/HTTP) when one is enabled for
  * the in-flight realm; it returns {@code false} when nothing is configured so the caller can log and
  * move on instead of failing the underlying request.
  *

@@ -1,8 +1,8 @@
 package io.helixiam.notification.delivery;
 
-import group.mfnr.authorization.messaging.driver.EmailDriver;
-import group.mfnr.authorization.messaging.driver.SmsDriver;
-import group.mfnr.authorization.repository.messaging.MessagingProviderRepository;
+import io.helixiam.authorization.messaging.driver.EmailDriver;
+import io.helixiam.authorization.messaging.driver.SmsDriver;
+import io.helixiam.authorization.repository.messaging.MessagingProviderRepository;
 import io.helixiam.notification.Notifier;
 import io.helixiam.notification.delivery.spi.AppSender;
 import io.helixiam.notification.delivery.spi.SmsSender;

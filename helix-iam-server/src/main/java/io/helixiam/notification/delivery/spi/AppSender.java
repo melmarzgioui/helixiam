@@ -4,7 +4,7 @@ package io.helixiam.notification.delivery.spi;
  * Task 4 (strip-RabbitMQ notification delivery). Extension point for in-app/push dispatch used by
  * {@link io.helixiam.notification.delivery.SmtpNotifier}. Not wired to a real push gateway yet — see
  * {@code io.helixiam.notification.delivery.LoggingAppSender} for why (HelixIAM's existing push
- * pipeline, {@code group.mfnr.authorization.messaging.MessagingService#sendPush}, keys off a user's
+ * pipeline, {@code io.helixiam.authorization.messaging.MessagingService#sendPush}, keys off a user's
  * registered device tokens, not the single {@code deviceId} string carried on the legacy
  * {@code NotificationRequest} this SPI dispatches).
  *

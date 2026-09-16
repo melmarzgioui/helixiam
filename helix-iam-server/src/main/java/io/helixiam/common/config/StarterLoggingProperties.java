@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.logging.LogLevel;
 
 /**
- * Vendored from group.mfnr.subscriber.starter.config.StarterLoggingProperties.
+ * Vendored from io.helixiam.subscriber.starter.config.StarterLoggingProperties.
  * Deviation: dropped {@code amqpBridge}/{@code amqpFederate} fields (there is no message
  * broker in HelixIAM) and renamed the config prefix from {@code mfnr.subscriber.starter.logging}
  * to {@code helixiam.logging}. See VENDOR-MAP.md.

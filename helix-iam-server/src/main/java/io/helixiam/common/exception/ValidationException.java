@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Vendored from group.mfnr.subscriber.starter.validation.exception.ValidationException.
+ * Vendored from io.helixiam.subscriber.starter.validation.exception.ValidationException.
  * Not in the Task 1 file list; pulled in transitively because
  * io.helixiam.persistence.exception.DatabaseException/DatabaseExceptionHandler
  * (both explicitly on the Task 1 list) extend it.

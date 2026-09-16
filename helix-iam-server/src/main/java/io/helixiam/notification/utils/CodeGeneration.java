@@ -4,7 +4,7 @@ import java.security.SecureRandom;
 import java.util.UUID;
 
 /**
- * Vendored from group.mfnr.subscriber.starter.notification.utils.CodeGeneration.
+ * Vendored from io.helixiam.subscriber.starter.notification.utils.CodeGeneration.
  * Deviation: the original used org.apache.commons.lang3.RandomStringUtils.random(10, 0, 0,
  * true, false, null, new SecureRandom()) (letters-only, no digits, length 10). commons-lang3 is
  * not a helix-iam-server dependency, so generateSimpleCode() is reimplemented with a plain

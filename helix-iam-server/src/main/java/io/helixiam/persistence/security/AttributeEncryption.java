@@ -18,7 +18,7 @@ import java.util.Base64;
 
 /**
  * Vendored verbatim (package renamed only) from
- * group.mfnr.subscriber.starter.database.security.AttributeEncryption.
+ * io.helixiam.subscriber.starter.database.security.AttributeEncryption.
  * AES/GCM (with a legacy plain-AES fallback for decrypting older values) semantics preserved
  * exactly, byte-for-byte, per the Task 1 constraint (this converts DB columns like TOTP secrets).
  */

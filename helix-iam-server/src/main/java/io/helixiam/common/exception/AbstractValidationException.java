@@ -6,7 +6,7 @@ import java.util.Set;
 
 /**
  * Vendored verbatim (package renamed only) from
- * group.mfnr.subscriber.starter.validation.exception.AbstractValidationException.
+ * io.helixiam.subscriber.starter.validation.exception.AbstractValidationException.
  * Not in the Task 1 file list; pulled in transitively because
  * io.helixiam.persistence.exception.DatabaseException needs a ValidationException base
  * (see VENDOR-MAP.md decisions).

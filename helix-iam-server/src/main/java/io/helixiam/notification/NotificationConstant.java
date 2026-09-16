@@ -1,7 +1,7 @@
 package io.helixiam.notification;
 
 /**
- * Vendored from group.mfnr.subscriber.starter.notification.NotificationConstant.
+ * Vendored from io.helixiam.subscriber.starter.notification.NotificationConstant.
  * Deviation: dropped the AMQP routing constants (VIRTUALHOST_NOTIFICATION, EXCHANGE_NOTIFICATION,
  * NOTIFICATION_*_ROUTING) since there is no broker to route through anymore; a Notifier
  * implementation dispatches on NotificationRequest.getType()/mediaType directly instead. See

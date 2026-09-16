@@ -1,0 +1,13 @@
+HelixIAM
+Copyright 2026 HelixIAM contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+This product bundles third-party open-source software (including, among
+others, Spring Framework / Spring Boot / Spring Authorization Server /
+Spring Security, OpenSAML (Shibboleth), BouncyCastle, PostgreSQL JDBC
+Driver, and Redis client libraries), each of which is distributed under its
+own license. See each dependency's project page or the build's dependency
+manifest (Maven `pom.xml` / `npm` `package.json`) for the applicable terms.
+No claim of ownership is made over any third-party component.

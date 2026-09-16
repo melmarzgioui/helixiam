@@ -1,7 +1,7 @@
 package io.helixiam.common.utils;
 
 /**
- * Vendored verbatim (package renamed only) from group.mfnr.subscriber.starter.utils.LanguageUtility.
+ * Vendored verbatim (package renamed only) from io.helixiam.subscriber.starter.utils.LanguageUtility.
  */
 public final class LanguageUtility {
 

@@ -6,7 +6,7 @@ import io.helixiam.notification.domain.NotificationRequest;
  * Task 4 (strip-RabbitMQ notification delivery). Builds the subject/body sent for one
  * {@link NotificationRequest}, keyed off {@link NotificationRequest#getType()} (the {@code type()} of
  * the {@code @Notification} annotation that fired {@code io.helixiam.notification.aop.NotificationAspect}
- * — e.g. {@code USER_SIGNUP}, {@code USER_RESET_PASSWORD} in {@code group.mfnr.authorization.service.UserService}).
+ * — e.g. {@code USER_SIGNUP}, {@code USER_RESET_PASSWORD} in {@code io.helixiam.authorization.service.UserService}).
  * Unknown types fall back to a generic message so a future {@code @Notification(type = "...")} call
  * site works without touching this class. Pure + side-effect-free, so it is unit-testable without any
  * delivery infrastructure.

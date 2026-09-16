@@ -2,7 +2,7 @@ package io.helixiam.common.exception;
 
 /**
  * Vendored verbatim (package renamed only) from
- * group.mfnr.subscriber.starter.validation.exception.DuplicateException.
+ * io.helixiam.subscriber.starter.validation.exception.DuplicateException.
  * Not in the Task 1 file list; pulled in transitively because
  * io.helixiam.persistence.exception.DatabaseExceptionHandler (on the Task 1 list) throws it.
  */

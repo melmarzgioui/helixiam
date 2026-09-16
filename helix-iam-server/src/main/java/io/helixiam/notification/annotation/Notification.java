@@ -4,7 +4,7 @@ import java.lang.annotation.*;
 
 /**
  * Vendored verbatim (package renamed only) from
- * group.mfnr.subscriber.starter.annotation.notification.Notification.
+ * io.helixiam.subscriber.starter.annotation.notification.Notification.
  * Not in the Task 1 file list (it lived in the separate mfnr-subscriber-starter-annotations
  * module); pulled in because io.helixiam.notification.aop.NotificationAspect (on the Task 1
  * list) is driven by it. See VENDOR-MAP.md.

@@ -12,7 +12,7 @@ import java.util.Map;
 
 /**
  * Vendored verbatim (package renamed only) from
- * group.mfnr.subscriber.starter.database.config.DataSourceConfiguration.
+ * io.helixiam.subscriber.starter.database.config.DataSourceConfiguration.
  *
  * Single-datasource fallback (unchanged from the original): when
  * {@code spring.readonly.datasource.url} is not set, both the UPDATABLE and READONLY routing

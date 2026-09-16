@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server:
+    name: helix-iam-server (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # Testcontainers uses the Docker daemon already running on the Actions ubuntu-latest
+      # runner, so no docker-compose/service step is needed for PostgreSQL. The test suite runs
+      # with spring.session.store-type=none, so no Redis service is needed either.
+      - name: Build and test
+        working-directory: helix-iam-server
+        run: mvn -B -ntp clean verify
+
+  dashboard:
+    name: helix-dashboard (build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for a buildable helix-dashboard package.json
+        id: detect
+        run: |
+          if [ -f helix-dashboard/package.json ] && node -e "process.exit(require('./helix-dashboard/package.json').scripts && require('./helix-dashboard/package.json').scripts.build ? 0 : 1)"; then
+            echo "buildable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "buildable=false" >> "$GITHUB_OUTPUT"
+            echo "No helix-dashboard/package.json with a \"build\" script found — skipping dashboard build."
+          fi
+
+      - name: Set up Node.js 20
+        if: steps.detect.outputs.buildable == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: helix-dashboard/package-lock.json
+
+      - name: Install dependencies
+        if: steps.detect.outputs.buildable == 'true'
+        working-directory: helix-dashboard
+        run: npm ci
+
+      - name: Build
+        if: steps.detect.outputs.buildable == 'true'
+        working-directory: helix-dashboard
+        run: npm run build

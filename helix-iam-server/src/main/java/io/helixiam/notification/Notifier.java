@@ -3,7 +3,7 @@ package io.helixiam.notification;
 import io.helixiam.notification.domain.NotificationRequest;
 
 /**
- * New interface (Task 1) replacing group.mfnr.subscriber.starter.notification.amqp.NotificationPublisher.
+ * New interface (Task 1) replacing io.helixiam.subscriber.starter.notification.amqp.NotificationPublisher.
  *
  * The original NotificationPublisher was a @FederatedPublisher AMQP interface: each method fired
  * an @AnonymousSender message onto a RabbitMQ exchange/routing-key (email/sms/app), and a separate

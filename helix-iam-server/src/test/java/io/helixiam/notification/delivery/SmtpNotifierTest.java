@@ -1,10 +1,10 @@
 package io.helixiam.notification.delivery;
 
-import group.mfnr.authorization.amqp.messaging.ResolvedProviderDto;
-import group.mfnr.authorization.domain.messaging.MessagingProvider;
-import group.mfnr.authorization.messaging.driver.EmailDriver;
-import group.mfnr.authorization.repository.messaging.MessagingProviderRepository;
-import group.mfnr.authorization.security.realm.RealmContextHolder;
+import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
+import io.helixiam.authorization.domain.messaging.MessagingProvider;
+import io.helixiam.authorization.messaging.driver.EmailDriver;
+import io.helixiam.authorization.repository.messaging.MessagingProviderRepository;
+import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.notification.delivery.spi.AppSender;
 import io.helixiam.notification.delivery.spi.SmsSender;
 import io.helixiam.notification.domain.NotificationCode;
@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
  * propagates out of any {@code send*} method. No SMTP server is ever dialed: {@link EmailDriver} and
  * {@link SmsSender} are captured with hand-written test doubles (mirroring the
  * {@code SmtpEmailDriver.MailTransport} seam already used by
- * {@code group.mfnr.authorization.messaging.driver.SmtpEmailDriverTest}-style tests in this codebase),
+ * {@code io.helixiam.authorization.messaging.driver.SmtpEmailDriverTest}-style tests in this codebase),
  * and {@link MessagingProviderRepository} is mocked (it is a Spring Data interface, not something you
  * can hand-instantiate).
  */

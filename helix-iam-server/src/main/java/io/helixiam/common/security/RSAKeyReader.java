@@ -17,9 +17,9 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
 /**
- * Vendored from group.mfnr.subscriber.starter.security.utils.RSAKeyReader (starter-security
+ * Vendored from io.helixiam.subscriber.starter.security.utils.RSAKeyReader (starter-security
  * module). Not in the Task 1 file list; pulled in transitively because Task 2 folded
- * group.mfnr.authorization.service.key.KeyMaterialService, which uses it to read the master
+ * io.helixiam.authorization.service.key.KeyMaterialService, which uses it to read the master
  * realm's signing key pair from a classpath/filesystem PEM/DER pair.
  *
  * <p>Deviation: the original read file contents via {@code org.apache.commons.io.IOUtils}, and

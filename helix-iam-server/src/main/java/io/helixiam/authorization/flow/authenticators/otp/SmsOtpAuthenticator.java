@@ -1,0 +1,21 @@
+package io.helixiam.authorization.flow.authenticators.otp;
+
+import java.util.function.LongSupplier;
+
+/** Helix IAM E3.1: one-time code delivered by SMS. */
+public class SmsOtpAuthenticator extends OtpDeliveryAuthenticator {
+
+    public SmsOtpAuthenticator(final OtpSender sender, final LongSupplier clock) {
+        super(sender, clock);
+    }
+
+    @Override
+    protected String id() {
+        return "sms-otp";
+    }
+
+    @Override
+    protected String displayName() {
+        return "One-Time Code (SMS)";
+    }
+}

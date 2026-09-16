@@ -6,9 +6,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 /**
- * Vendored from group.mfnr.subscriber.starter.security.utils.SecurityContext (starter-security
+ * Vendored from io.helixiam.subscriber.starter.security.utils.SecurityContext (starter-security
  * module). Not in the Task 1 file list; pulled in transitively because Task 2 folded
- * group.mfnr.authorization.service.TenantService, which reads the calling user's id off the
+ * io.helixiam.authorization.service.TenantService, which reads the calling user's id off the
  * request's Spring Security {@code Authentication}. Verbatim (no AMQP/broker dependency in the
  * original — plain Spring Security API).
  */

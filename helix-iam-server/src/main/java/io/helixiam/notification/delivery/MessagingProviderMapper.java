@@ -2,8 +2,8 @@ package io.helixiam.notification.delivery;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import group.mfnr.authorization.amqp.messaging.ResolvedProviderDto;
-import group.mfnr.authorization.domain.messaging.MessagingProvider;
+import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
+import io.helixiam.authorization.domain.messaging.MessagingProvider;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -12,7 +12,7 @@ import java.util.Map;
  * Task 4 (strip-RabbitMQ notification delivery). Maps a persisted {@link MessagingProvider} row (the
  * realm's own SMTP/HTTP/Twilio/... config, entered via the "Messaging" realm-settings screen) to the
  * {@link ResolvedProviderDto} the existing {@code EmailDriver}/{@code SmsDriver} beans expect —
- * mirrors {@code group.mfnr.authorization.service.messaging.MessagingAdminService#readJson}, kept
+ * mirrors {@code io.helixiam.authorization.service.messaging.MessagingAdminService#readJson}, kept
  * private to that service, so this is a small local copy rather than a new cross-package dependency.
  */
 final class MessagingProviderMapper {

@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Task 4 (strip-RabbitMQ notification delivery). Global SMTP fallback for {@link SmtpNotifier}, used
  * only when the in-flight realm has no enabled {@code EMAIL} messaging provider (Realm Settings &gt;
- * Messaging &gt; Providers — see {@code group.mfnr.authorization.domain.messaging.MessagingProvider}).
+ * Messaging &gt; Providers — see {@code io.helixiam.authorization.domain.messaging.MessagingProvider}).
  * Deliberately a plain custom {@code @ConfigurationProperties} (prefix {@code helix.notification.smtp})
  * rather than Spring Boot's {@code spring.mail.*} + {@code JavaMailSender}: the pom already carries
  * {@code jakarta.mail-api}/{@code angus-mail} for the realm messaging feature's
