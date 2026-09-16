@@ -64,11 +64,17 @@
 >   value is visible instead of being returned silently as-is.
 > - **C1 residual (privilege escalation) — FIXED.** An unconfigured realm (the DEFAULT state of every realm)
 >   or an RBAC resolution failure previously granted admin access to ANY authenticated principal — a normal
->   end user could reach the admin API. Both paths now require `admin_<realmId>` (or legacy
->   `ROLE_ADMIN_<realmId>`), so real admins are never locked out by an RBAC outage while ordinary users are
->   denied; realm-independent admin routes now require admin of *some* realm. The two tests that encoded the
->   old permissive behaviour (`unconfiguredRealm_isDefaultSafeAllow`, `failsOpenWhenResolutionThrows`) were
->   rewritten to assert both sides (admin allowed / ordinary user denied).
+>   end user could reach the admin API. Both paths now require **`admin_<realmId>`**, so real admins are
+>   never locked out by an RBAC outage while ordinary users are denied; realm-independent admin routes now
+>   require admin of *some* realm. The two tests that encoded the old permissive behaviour
+>   (`unconfiguredRealm_isDefaultSafeAllow`, `failsOpenWhenResolutionThrows`) were rewritten to assert both
+>   sides (admin allowed / ordinary user denied).
+>   *Admin is exactly one authority:* the legacy `ROLE_ADMIN_<realmId>` is deliberately **not** accepted.
+>   Nothing reachable grants it — its only producer (`TenantService.createTenant`) has no callers, and the
+>   bootstrap grants the curated `admin` role — so honouring it would widen a security-critical check for no
+>   live caller. Pinned by `legacyRoleAdminAuthority_isNotAcceptedAsRealmAdmin`.
+>   **Migration note:** a database carried over from an older deployment whose admins hold only
+>   `ROLE_ADMIN_<realm>` rows would need those users granted the `admin` role before they regain admin access.
 >
 > **STILL OPEN — deliberately deferred**, each needs design work or a breaking upgrade rather than a quick
 > patch: **M3** (no CSP on server-rendered login/consent pages — needs a template audit so the CSP does not

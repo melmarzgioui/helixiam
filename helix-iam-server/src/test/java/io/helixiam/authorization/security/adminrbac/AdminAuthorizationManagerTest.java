@@ -130,6 +130,17 @@ class AdminAuthorizationManagerTest {
     }
 
     @Test
+    void legacyRoleAdminAuthority_isNotAcceptedAsRealmAdmin() {
+        // Admin means exactly one authority: admin_<realmId>. The legacy ROLE_ADMIN_<realmId> is NOT
+        // accepted — nothing reachable grants it (its only producer, TenantService.createTenant, has no
+        // callers), so honouring it would widen a security-critical check for no live caller.
+        when(publisher.effective(any())).thenReturn(new AdminEffectivePermissionsDto("gov", false, List.of()));
+        final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
+        assertThat(mgr.check(principal("ROLE_ADMIN_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.check(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+    }
+
+    @Test
     void nonAdminPath_isNotEnforced() {
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
         assertThat(mgr.check(principal(), ctx("GET", "/login")).isGranted()).isTrue();

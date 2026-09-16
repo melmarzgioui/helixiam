@@ -112,26 +112,27 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
     }
 
     /**
-     * Legacy platform admin role name; principal authorities are {@code <roleName>_<realmId>}
-     * (see {@code UserRoles.getTenantRoleName()} / {@code UserCredentials.getAuthorities()}).
+     * True when the principal holds the admin role FOR THAT realm. Principal authorities are
+     * {@code <roleName>_<realmId>} (see {@code UserRoles.getTenantRoleName()} /
+     * {@code UserCredentials.getAuthorities()}), so realm admin is exactly {@code admin_<realmId>}.
+     *
+     * <p>The legacy {@code ROLE_ADMIN_<realmId>} authority is deliberately NOT accepted: nothing
+     * reachable grants it (its only producer, {@code TenantService.createTenant}, has no callers) and
+     * the bootstrap grants the curated {@code admin} role. Accepting it would widen a security-critical
+     * check for no live caller.
      */
-    private static final String LEGACY_ADMIN_ROLE = "ROLE_ADMIN";
-
-    /** True when the principal holds the curated or legacy admin role FOR THAT realm. */
     private static boolean hasAdminAuthority(final Authentication auth, final String realmId) {
-        final String curated = DefaultRoles.ADMIN + "_" + realmId;
-        final String legacy = LEGACY_ADMIN_ROLE + "_" + realmId;
+        final String realmAdmin = DefaultRoles.ADMIN + "_" + realmId;
         return auth.getAuthorities().stream()
                 .map(a -> a == null ? null : a.getAuthority())
-                .anyMatch(a -> curated.equals(a) || legacy.equals(a));
+                .anyMatch(realmAdmin::equals);
     }
 
     /** True when the principal is an admin of ANY realm (for realm-independent admin routes). */
     private static boolean hasAnyAdminAuthority(final Authentication auth) {
         return auth.getAuthorities().stream()
                 .map(a -> a == null ? null : a.getAuthority())
-                .anyMatch(a -> a != null
-                        && (a.startsWith(DefaultRoles.ADMIN + "_") || a.startsWith(LEGACY_ADMIN_ROLE + "_")));
+                .anyMatch(a -> a != null && a.startsWith(DefaultRoles.ADMIN + "_"));
     }
 
     private AdminEffectivePermissionsDto resolve(final String realmId, final List<String> roleNames) {
