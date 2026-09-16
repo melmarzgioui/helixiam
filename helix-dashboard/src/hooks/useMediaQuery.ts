@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { useEffect, useState } from "react";
 
 /** Reactive media-query match — drives the responsive shell (drawer vs fixed sidebar). */

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Helix IAM WIF: a per-realm workload identity credential — a keyless trust policy binding an external
  * OIDC token's (issuer, subject, audience) to a Helix client identity. No field is secret, so everything

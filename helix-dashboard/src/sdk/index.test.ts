@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, expect, it } from "vitest";
 import { createHelixAdminClient, HelixApiError } from "./index";
 import type { User } from "./types";

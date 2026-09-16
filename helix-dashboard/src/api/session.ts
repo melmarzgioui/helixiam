@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Helix admin console — session auth wiring for the browser. The console is a session-cookie app: the
 // admin logs in at the auth server's login page, and every /admin call rides that session. Two concerns:
 //   1. mutating requests must echo the JS-readable XSRF-TOKEN cookie in the X-XSRF-TOKEN header, and

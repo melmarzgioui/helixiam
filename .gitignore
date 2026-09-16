@@ -39,9 +39,3 @@ Thumbs.db
 # ── Migration scratch / planning (internal, not product) ──
 .sdd-*.md
 PLAN-strip-rabbitmq.md
-
-# ── Superseded pre-merge source (merged into helix-iam-server) ──
-# Kept locally for reference; excluded from the repo. Still contains the old
-# template SAML key on disk — delete these dirs before any public release.
-/authorization-server-publisher/
-/authorization-server-subscriber/

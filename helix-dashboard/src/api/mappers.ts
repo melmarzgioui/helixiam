@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A per-client protocol mapper from the Wave 3 mappers admin API. */
 export interface ProtocolMapper {
   mapperId: string;

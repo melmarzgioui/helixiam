@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import type { Meta, StoryObj } from "@storybook/react";
 import { FormField, Input, Select } from "./FormField";
 import { Button } from "./Button";

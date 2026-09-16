@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 'use strict';
 /*
  * Negative test — proves the MCP server enforces RFC 8707 audience binding.

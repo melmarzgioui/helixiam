@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Helix admin console — CSRF for session-authenticated writes. The auth server issues a JS-readable
 // XSRF-TOKEN cookie (CookieCsrfTokenRepository.withHttpOnlyFalse); every mutating request must echo it in
 // the X-XSRF-TOKEN header or the CsrfFilter rejects the write (HTTP 405/403). Pure helpers, unit-tested.

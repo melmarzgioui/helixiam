@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** The OIDC/OAuth2 endpoint URLs a relying party integrates against (E8.5 — the "Installation" view). */
 export interface OidcEndpoints {
   issuer: string;

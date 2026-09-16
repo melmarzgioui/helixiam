@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.config;
 
 import io.swagger.v3.oas.models.ExternalDocumentation;

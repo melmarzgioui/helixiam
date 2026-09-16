@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** One client touched within a session (SSO P7 / Sessions v2). */
 export interface SessionClient {
   clientId: string;

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Helix IAM (6) Self-service Account: pure form validators for the account surface — kept side-effect-free so
  * they are unit-testable and reused by both the change-password and profile forms (block submit + show inline

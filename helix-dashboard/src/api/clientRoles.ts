@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A role defined on a client (Wave 4). */
 export interface ClientRole {
   roleId: string;

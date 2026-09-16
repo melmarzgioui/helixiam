@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Helix IAM (6) Self-service Account: the END-USER "my account" API client. Unlike the admin clients (which
  * address a user by id), every call here is keyed off the authenticated principal server-side — the URLs

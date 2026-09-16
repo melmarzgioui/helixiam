@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Package provider implements the Helix IAM Terraform provider (IAM-as-code). This file is the admin
 // API client: it authenticates with the OAuth2 client-credentials grant (token cached until expiry)
 // and exposes typed CRUD for the realm-scoped admin resources the provider manages.

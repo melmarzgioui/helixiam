@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Pure helpers for inspecting tokens in the sandbox UI.
 // No verification here — the RP library already validated signatures during the
 // code exchange. These functions exist only to *display* what the tokens carry.

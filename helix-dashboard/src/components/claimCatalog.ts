@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * The set of user claims/attributes Helix supports out of the box. Admins pick from this fixed list
  * at the user level (never inventing keys), so the same concept is never stored under two different

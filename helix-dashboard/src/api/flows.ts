@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** One node of an authentication flow from the E8.5-S4 Auth-flow editor API. */
 export interface FlowExecution {
   executionId: string;

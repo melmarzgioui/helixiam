@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A per-realm outbound webhook subscription (B6). The signing secret is write-only — never returned. */
 export interface Webhook {
   id: string;

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.federation.eid;
 
 import io.helixiam.authorization.federation.saml.InMemorySamlAssertionReplayCache;

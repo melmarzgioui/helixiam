@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Helix IAM #322: the account console is a session-cookie SPA, so its writes (PUT/DELETE/POST) need a
  * CSRF token. The auth server uses `CookieCsrfTokenRepository.withHttpOnlyFalse()`, which sets a

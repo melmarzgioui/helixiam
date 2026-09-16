@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, it, expect, vi } from "vitest";
 import { validateRealmSettings, isBlankOrHexColor, isBlankOrHttpUrl, createRealmHttpClient, RealmSettings, RealmSettingsWrite } from "./realm";
 

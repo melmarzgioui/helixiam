@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A realm role from the E8.5-S2 Roles admin API. */
 export interface Role {
   realmId: string;

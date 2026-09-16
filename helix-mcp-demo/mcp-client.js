@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 'use strict';
 /*
  * Helix MCP demo — the client half. Runs the full MCP authorization handshake against a Helix-protected

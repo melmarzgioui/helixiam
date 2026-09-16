@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Helix admin console — tiny i18n core (no runtime dependency).
 //
 // translate(locale, key, params?) resolves a key against the locale's dictionary, falling back to the

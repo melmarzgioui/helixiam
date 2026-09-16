@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A realm's provisioning settings from the E11 Provisioning admin API (SCIM token + DCR policy). */
 export interface ProvisioningConfig {
   realmId: string;

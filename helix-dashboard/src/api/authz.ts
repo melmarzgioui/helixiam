@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** Wave 6: Authorization Services (UMA-style fine-grained authorization) admin API. */
 export interface AuthzServer { realmId: string; clientId: string; enabled: boolean; decisionStrategy: string; }
 export interface AuthzScope { id: string; realmId: string; clientId: string; name: string; }

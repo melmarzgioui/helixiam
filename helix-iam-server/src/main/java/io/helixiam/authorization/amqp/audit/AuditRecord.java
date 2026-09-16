@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.amqp.audit;
 
 /** Helix IAM B3: publisher-side copy of a persisted audit event (two-copy DTO; subscriber mirror in domain.audit). */

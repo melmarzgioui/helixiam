@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Helix IAM Admin SDK (TypeScript) — a small typed wrapper over a few endpoints of the
  * Admin API (OpenAPI group "admin", served under `/admin/realms/{realmId}/**`).

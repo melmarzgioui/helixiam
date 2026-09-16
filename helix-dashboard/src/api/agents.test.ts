@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, it, expect } from "vitest";
 import { validateAgent, createAgentsHttpClient, agentStats, parseCsv, paginate, ownerIssueCount, ownerStatusById, type Agent } from "./agents";
 

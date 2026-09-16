@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Helix IAM: realm import/export API client. Mirrors the create*HttpClient factory style of the other
 // api/*.ts modules. The realm is always carried in the path; secrets are masked server-side on export.
 

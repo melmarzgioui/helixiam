@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import type { Meta, StoryObj } from "@storybook/react";
 import { EmptyState } from "./EmptyState";
 import { Button } from "./Button";

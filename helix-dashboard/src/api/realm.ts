@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A realm's settings from the E8.5-S4 Realm settings admin API. */
 export interface RealmSettings {
   realmId: string;

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A per-realm JWT signing key as the Realm Keys screen shows it (B8). Public material only. */
 export interface RealmKey {
   keyId: string;

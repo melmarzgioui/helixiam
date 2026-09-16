@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** One enrolled authentication factor for a user, as the E8.5 credentials admin API returns it. */
 export interface CredentialSummary {
   /** Factor family: "passkey" | "device" | "totp" | "hotp" | "recovery-code". */

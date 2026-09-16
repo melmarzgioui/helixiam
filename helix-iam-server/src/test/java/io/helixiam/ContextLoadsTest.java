@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam;
 
 import org.junit.jupiter.api.Test;
@@ -45,6 +50,10 @@ class ContextLoadsTest {
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         // Point the routing datasource's read-only fallback at the same container.
         registry.add("spring.readonly.datasource.url", POSTGRES::getJdbcUrl);
+
+        // The at-rest attribute-encryption key has no shipped default (H1) — provide a test key
+        // so the context loads (the app correctly fail-fasts when this is unset).
+        registry.add("database.encryption", () -> "0123456789abcdef0123456789abcdef");
 
         // Schema via schema.sql (default path); keep Flyway off for the test.
         registry.add("spring.sql.init.mode", () -> "always");

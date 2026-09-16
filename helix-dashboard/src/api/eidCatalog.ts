@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Facilitated defaults for the Dutch/EU eID schemes (DigiD, eHerkenning, eIDAS).
  *

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 'use strict';
 /*
  * Helix MCP demo — a minimal MCP-style resource server protected by Helix (OAuth 2.1 / MCP authorization).

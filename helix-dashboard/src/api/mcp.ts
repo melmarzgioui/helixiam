@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** MCP (Model Context Protocol) authorization helpers — pure functions behind the console's MCP screen.
  *
  * Helix is the OAuth 2.1 authorization server for MCP: an MCP server is an OAuth resource server, and the

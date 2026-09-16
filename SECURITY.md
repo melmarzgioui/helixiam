@@ -21,7 +21,7 @@ accordingly:
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Email: **`security@helixiam.example`** — *(TODO: configure a real, monitored security-contact
+Email: **`security@helixiam.com`** — *(TODO: configure a real, monitored security-contact
 address before accepting external reports; this is a placeholder and does not currently receive
 mail.)*
 

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.security.adminrbac;
 
 import io.helixiam.authorization.amqp.adminrbac.AdminEffectivePermissionsDto;
@@ -6,6 +11,7 @@ import io.helixiam.authorization.amqp.adminrbac.AdminRbacPublisher;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.core.Authentication;
@@ -26,8 +32,9 @@ import java.util.function.Supplier;
  * STRICTLY ADDITIVE + DEFAULT-SAFE (see the feature contract):
  * <ul>
  *   <li>No-op (grant) when {@code helix.admin.dev-open=true} — the e2e dev-open path is unaffected.</li>
- *   <li>No-op (grant) when there is no authenticated principal yet (the {@code @Order(2)} chain's
- *       {@code anyRequest().authenticated()} already requires login; this manager only narrows further).</li>
+ *   <li>DENY when there is no authenticated (non-anonymous) principal — this manager is the SOLE
+ *       authorization rule for {@code /admin/**} (a later {@code anyRequest().authenticated()} never runs,
+ *       because the first matching {@code authorizeHttpRequests} rule wins), so it enforces login itself.</li>
  *   <li>No-op (grant) when the realm's admin-RBAC model is empty ({@code modelConfigured=false}) — a realm
  *       with no grants behaves exactly as today (any authenticated admin is allowed).</li>
  *   <li>If the AMQP resolution fails/returns null, fail OPEN (grant) so an RBAC outage can never lock admins
@@ -66,8 +73,11 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
         }
 
         final Authentication auth = authentication.get();
-        if (auth == null || !auth.isAuthenticated()) {
-            return new AuthorizationDecision(true); // login gate handled by anyRequest().authenticated().
+        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
+            // This manager is the SOLE authorization rule for /admin/** (the later anyRequest().authenticated()
+            // never runs, because the first matching authorizeHttpRequests rule wins). So it must enforce
+            // authentication itself — an anonymous/unauthenticated caller is DENIED, never granted.
+            return new AuthorizationDecision(false);
         }
 
         final String realmId = realmFromPath(adminPath);

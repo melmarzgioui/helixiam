@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, it, expect } from "vitest";
 import { toRequest, fromConfig, createMemoryClient } from "./client";
 import type { IdentityProviderConfig } from "./client";

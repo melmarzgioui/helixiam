@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.idp.scim;
 
 /** Helix IAM E7 (SCIM 2.0): the SCIM schema URNs (RFC 7643) Helix advertises and emits. */

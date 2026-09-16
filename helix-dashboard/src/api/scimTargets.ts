@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A per-realm outbound SCIM 2.0 provisioning target (B7). The bearer token is write-only — never returned. */
 export interface ScimTarget {
   id: string;

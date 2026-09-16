@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.notification;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;

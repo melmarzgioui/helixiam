@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.service.audit;
 
 import io.helixiam.authorization.domain.audit.AuditLogEntity;

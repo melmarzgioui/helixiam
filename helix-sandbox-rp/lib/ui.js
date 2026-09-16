@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Tiny server-rendered UI. No template engine — just tagged helpers — so the
 // whole sandbox stays a couple of dependency-light files you can read top to bottom.
 

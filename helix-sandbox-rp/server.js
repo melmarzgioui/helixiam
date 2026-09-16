@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import express from 'express';
 import session from 'express-session';
 import { Issuer, generators, errors as oidcErrors } from 'openid-client';

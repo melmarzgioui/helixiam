@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A first-class agent / non-human identity (NHI). Authenticates via its bound OIDC client; lifecycle is
  * the kill-switch. No secret is carried on this object — agents authenticate through their bound client. */
 export interface Agent {

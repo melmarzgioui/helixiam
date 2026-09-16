@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** Sanitized audit/SIEM delivery config from the E8.5 Events admin API (never includes the auth secret). */
 export interface AuditConfig {
   enabled: boolean;

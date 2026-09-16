@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.repository.federation;
 
 import io.helixiam.authorization.domain.federation.IdentityProviderEntity;

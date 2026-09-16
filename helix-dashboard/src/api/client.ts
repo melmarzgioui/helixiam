@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { findProviderType } from "../components/providerCatalog";
 import type { WizardResult } from "../components/ProviderWizard";
 

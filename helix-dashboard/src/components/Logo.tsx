@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 export type LogoVariant = "lockup" | "wordmark" | "mark";
 export type LogoSize = "sm" | "md" | "lg";
 

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decodeJwt, groupClaims } from '../lib/jwt.js';

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // PKCE (RFC 7636) helpers for the console's authorization_code login. Uses the WebCrypto global
 // (present in the browser and in the node/vitest test env), so no bundler or node:crypto import is
 // needed. base64url everywhere — the verifier, the state/nonce, and the S256 challenge.

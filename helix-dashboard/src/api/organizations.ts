@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** An Organization (B2B tenant grouping of users) from the Organizations admin API. */
 export interface Organization {
   realmId: string;

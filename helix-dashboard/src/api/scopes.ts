@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A claim type from the realm's catalogue (E8.5 Claims/Client-scopes API). */
 export interface Claim {
   realmId: string;

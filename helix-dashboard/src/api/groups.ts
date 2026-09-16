@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A group from the E8.5-S4 Groups admin API. */
 export interface Group {
   realmId: string;

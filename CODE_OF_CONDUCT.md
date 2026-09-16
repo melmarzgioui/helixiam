@@ -61,7 +61,7 @@ appointed representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at:
 
-**`conduct@helixiam.example`** — *(TODO: configure a real, monitored
+**`conduct@helixiam.com`** — *(TODO: configure a real, monitored
 enforcement-contact address; this is a placeholder.)*
 
 All complaints will be reviewed and investigated promptly and fairly.

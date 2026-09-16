@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // terraform-provider-helix — manage Helix IAM (realms, applications, roles) as code.
 package main
 

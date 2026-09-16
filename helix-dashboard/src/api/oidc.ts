@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // OIDC authorization_code + PKCE login for the admin console. Session-backed: the token exchange
 // exists to register the sid'd OAuth2Authorization (→ Sessions screen); /admin still authorizes on
 // the SESSION cookie the authorize flow establishes. Endpoints are realm-prefixed.

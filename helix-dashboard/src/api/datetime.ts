@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Shared date/time formatting helpers for the console.
 //
 // Timestamps in the UI read best as TWO distinct pieces: a prominent relative value

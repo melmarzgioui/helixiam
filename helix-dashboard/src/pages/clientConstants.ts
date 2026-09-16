@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** Shared client constants for the Clients list + the client detail page. */
 
 /** Every grant type the auth server honours. Standard OAuth 2.1 grants + the advanced ones wired in

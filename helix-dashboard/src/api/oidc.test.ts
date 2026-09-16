@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { buildAuthorizeUrl, exchangeCode, buildLogoutUrl } from "./oidc";
 

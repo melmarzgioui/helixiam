@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import React from "react";
 
 /** A small, icon-only copy-to-clipboard button that flips to a checkmark for ~1.2s after copying. */

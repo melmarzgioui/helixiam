@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 export interface DividerProps {
   label?: string;
   /** Vertical spacing (CSS length). */

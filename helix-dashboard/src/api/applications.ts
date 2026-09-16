@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** An Application (Service Provider) — the protocol-agnostic parent that owns shared claims + login flow. */
 export interface Application {
   realmId: string;

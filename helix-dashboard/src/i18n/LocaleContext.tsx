@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Helix admin console — React locale context + the useT() hook.
 //
 // Wrap the app (or any subtree) in <LocaleProvider>; call useT() to get a bound t(key, params?) plus

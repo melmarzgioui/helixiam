@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Helix admin console — i18n dictionaries.
 //
 // Full-coverage translation dictionaries for the admin console + account app (en source-of-truth, nl).

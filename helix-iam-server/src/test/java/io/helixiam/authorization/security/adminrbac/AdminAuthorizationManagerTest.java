@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.helixiam.authorization.security.adminrbac;
 
 import io.helixiam.authorization.amqp.adminrbac.AdminEffectivePermissionsDto;
@@ -6,6 +11,7 @@ import io.helixiam.authorization.amqp.adminrbac.AdminRbacPublisher;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
@@ -98,6 +104,22 @@ class AdminAuthorizationManagerTest {
         when(publisher.effective(any())).thenThrow(new RuntimeException("AMQP down"));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
         assertThat(mgr.check(principal("user-admin"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+    }
+
+    @Test
+    void anonymousPrincipal_onAdminPath_isDenied() {
+        // C1 regression guard: this manager is the SOLE rule for /admin/**, so an anonymous caller
+        // must be DENIED here — never granted on the assumption another rule gates login first.
+        final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
+        final Authentication anon = new AnonymousAuthenticationToken(
+                "key", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
+        assertThat(mgr.check(() -> anon, ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+    }
+
+    @Test
+    void unauthenticatedPrincipal_onAdminPath_isDenied() {
+        final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
+        assertThat(mgr.check(() -> null, ctx("GET", "/admin/realms/gov/users")).isGranted()).isFalse();
     }
 
     @Test

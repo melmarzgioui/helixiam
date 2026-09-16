@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, expect, it } from "vitest";
 import { validateScimTarget, createScimTargetMemoryClient, SCIM_EVENT_OPTIONS } from "./scimTargets";
 

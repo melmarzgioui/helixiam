@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A realm user as returned by the E8.5 Users admin API. */
 export interface UserSummary {
   realmId: string;

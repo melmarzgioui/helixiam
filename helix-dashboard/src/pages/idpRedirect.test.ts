@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, it, expect } from "vitest";
 import { FlowExecution } from "../api/flows";
 import { readIdpRedirect, upsertIdpRedirect, MODE_REDIRECT, MODE_OPTION, MODE_LOCAL_ONLY } from "./idpRedirect";

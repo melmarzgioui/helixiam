@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * True when a string is (or embeds) a UUID — e.g. a bare UUID or a Dynamic-Client-Registration id like
  * `dcr-5bcd8361-…`. Used to keep machine-generated identifiers from ever surfacing as a UI name.

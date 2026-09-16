@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** Helix IAM: fine-grained admin RBAC — the admin-roles / permissions matrix admin API. */
 
 /** One column of the matrix: an admin permission (scope). */

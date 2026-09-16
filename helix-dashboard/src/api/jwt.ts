@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Decode selected claims from an OIDC id_token (base64url JSON payload). No signature check — used only to
 // flag the admin's own row on the Sessions screen. Returns null on any parse failure.
 function payload(idToken: string | null): Record<string, unknown> | null {

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import React from "react";
 import { AppShell, NavSection } from "./components/AppShell";
 import { fetchProfile, logout, type AdminIdentity } from "./api/session";

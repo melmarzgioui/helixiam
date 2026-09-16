@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { SAML } from '@node-saml/node-saml';
 
 // SAML2 Service Provider wiring for the sandbox. The SP consumes the Helix IdP metadata to discover

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A SAML 2.0 relying party (service provider) from the SAML-clients admin API. */
 export interface SamlClient {
   realmId: string;

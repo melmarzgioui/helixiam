@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Hand-written types mirroring the Helix IAM Admin API OpenAPI shape (group "admin").
  *

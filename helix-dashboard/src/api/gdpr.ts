@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * Helix IAM GDPR Art. 15/17/7: admin-console client for the data-subject-rights API. All calls are
  * realm + user scoped (the URL carries both ids), matching the backend at

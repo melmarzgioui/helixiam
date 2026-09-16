@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import React from "react";
 import { useT } from "../i18n/LocaleContext";
 import { LOCALES, type Locale } from "../i18n/i18n";

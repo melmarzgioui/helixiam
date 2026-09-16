@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A single platform component's health, as reported by `/admin/realms/{realm}/health`. */
 export interface HealthComponent {
   name: string;

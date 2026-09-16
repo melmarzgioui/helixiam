@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /** A configured messaging provider (SMS / EMAIL / PUSH). Secrets are masked: `secretSet` only reports
  *  whether one is stored. (Helix notifications N4) */
 export interface MessagingProvider {

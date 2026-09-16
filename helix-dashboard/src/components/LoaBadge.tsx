@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { Badge } from "./Badge";
 
 export type LoaLevel = "low" | "substantial" | "high";
