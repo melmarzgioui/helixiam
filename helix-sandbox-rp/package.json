@@ -1,0 +1,18 @@
+{
+  "name": "helix-sandbox-rp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sandbox OIDC relying-party that exercises Helix IAM: login, logout, claims, OTP/MFA, refresh, silent SSO.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@node-saml/node-saml": "^5.1.0",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "openid-client": "^5.7.1",
+    "otplib": "^12.0.1"
+  }
+}

@@ -1,0 +1,24 @@
+package group.mfnr.authorization.domain.user;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "user_credentials")
+public class MfaUser {
+
+    @Id
+    @Column(name = "user_id", updatable = false)
+    private String userId;
+
+    @JsonProperty
+    @Column(name = "mfa_enabled")
+    private boolean mfaEnabled = true;
+
+    public void setUserId(final String userId) {
+        this.userId = userId;
+    }
+}

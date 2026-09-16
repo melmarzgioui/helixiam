@@ -1,0 +1,48 @@
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    font-style: normal;
+    font-weight: 300;
+    src: url("/css/font/MaterialSymbolsOutlined.woff2") format('woff2');
+}
+
+
+i {
+    font-family: 'Material Symbols Outlined';
+    font-variation-settings: 'FILL' 0;
+    font-weight: 400;
+    font-style: normal;
+    font-size: 24px;
+    display: flex;
+    line-height: 1;
+    text-transform: none;
+    letter-spacing: normal;
+    word-wrap: normal;
+    white-space: nowrap;
+    direction: ltr;
+    justify-content: center;
+    align-items: center;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'liga';
+
+    &.error::after {
+        content: "warning";
+    }
+
+    &.login::after {
+        content: "key";
+    }
+    &.cancel::after {
+        content: "cancel";
+    }
+    &.info::after {
+        content: "info";
+    }
+    &.done::after {
+        content: "done";
+    }
+    &.email::after {
+        content: "mail";
+    }
+}

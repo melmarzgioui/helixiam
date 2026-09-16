@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title th:text="#{login.page.title}">KubeDNA - Login</title>
+    <script defer src="/js/App.js?@project.version@" type="module"></script>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/img/favicon.avif">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar"><a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a></div>
+    </header>
+    <main>
+        <div class="container title">
+            <h3 th:text="#{flow.consent.title}">Terms of Service</h3>
+            <div class="description" th:text="#{flow.consent.description}">Please review and accept the terms to continue.</div>
+        </div>
+        <div class="container">
+            <article>
+            <form th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
+                <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
+                <input type="hidden" name="accept" value="true"/>
+                <span class="error" th:text="#{flow.consent.error}">You must accept the terms to continue</span>
+                <div class="spacer">&nbsp;</div>
+                <div class="buttonHolder"><button type="submit"><span th:text="#{flow.consent.submit}">Accept &amp; Continue</span></button></div>
+            </form>
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+</body>
+</html>

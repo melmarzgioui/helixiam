@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#a3d4c4">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2f3033">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>KubeDNA — Authorise</title>
+    <link rel="icon" th:href="@{/img/favicon.avif}">
+    <meta name="robots" content="noindex">
+    <meta name="googlebot" content="noindex">
+    <style>
+        main .container article { max-width: 30rem; margin-left: auto; margin-right: auto; }
+        .consentScopes { list-style: none; margin: 1rem 0; padding: 0; }
+        .consentScopes li { display: flex; align-items: flex-start; gap: .6rem; padding: .55rem .2rem; border-bottom: 1px solid #e9e8e3; }
+        .consentScopes li:last-child { border-bottom: 0; }
+        .consentScopes input { margin-top: .3rem; }
+        .consentScopes label { display: flex; flex-direction: column; }
+        .consentScopes .scopeName { font-weight: 600; }
+        .consentScopes .scopeDesc { color: #5b6560; font-size: .82rem; }
+        .consentCode { font-family: monospace; font-weight: 700; letter-spacing: .06em; }
+        /* Cancel = secondary; beats the theme's ".buttonHolder > button" primary style on specificity. */
+        .buttonHolder > button.secondary { background-color: transparent; color: #22251f; border-color: #dedcd5; }
+        .buttonHolder > button.secondary > span { color: #22251f; }
+    </style>
+    <!-- B2: per-realm branding; falls back to the built-in Helix IAM theme. -->
+    <style th:if="${brandingPrimaryColor != null}" th:inline="text">
+        .buttonHolder > button:not(.secondary) { background: [[${brandingPrimaryColor}]] !important; border-color: [[${brandingPrimaryColor}]] !important; }
+    </style>
+    <style th:if="${brandingBackgroundColor != null}" th:inline="text">
+        body { background: [[${brandingBackgroundColor}]] !important; }
+    </style>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header>
+        <div class="headerBar">
+            <a><div class="logo"><img th:src="${brandingLogo} ?: @{/img/kubedna-zw.png}" src="/img/kubedna-zw.png" alt="Logo"></div></a>
+        </div>
+    </header>
+
+    <main>
+        <div class="container title">
+            <h3>Authorise <span th:text="${clientName}">the app</span></h3>
+            <p style="margin:.35rem 0 0;color:var(--fg-muted,#667)">
+                <strong th:text="${clientName}">the app</strong> wants to access your account. Review the permissions and approve if you're happy.
+            </p>
+            <p th:if="${userCode != null and !userCode.isEmpty()}" style="margin:.5rem 0 0;color:var(--fg-muted,#667)">
+                You entered the code <span class="consentCode" th:text="${userCode}">WDJB-MJHT</span> — check it matches what your device shows.
+            </p>
+        </div>
+
+        <div class="container">
+            <article>
+                <form th:action="@{${requestURI}}" method="post" role="form">
+                    <input type="hidden" name="client_id" th:value="${clientId}"/>
+                    <input type="hidden" name="state" th:value="${state}"/>
+                    <input th:if="${userCode != null and !userCode.isEmpty()}" type="hidden" name="user_code" th:value="${userCode}"/>
+                    <input th:if="${_csrf != null}" type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+
+                    <p style="margin:.25rem 0 .25rem;font-weight:600">This app will be able to:</p>
+                    <ul class="consentScopes">
+                        <li th:each="s : ${scopes}">
+                            <input type="checkbox" name="scope" th:value="${s.scope}" th:id="${s.scope}" checked/>
+                            <label th:for="${s.scope}">
+                                <span class="scopeName" th:text="${s.description}">Permission</span>
+                                <span class="scopeDesc" th:text="'(' + ${s.scope} + ')'">(scope)</span>
+                            </label>
+                        </li>
+                    </ul>
+                    <p th:if="${scopes.isEmpty()}" style="color:var(--fg-muted,#667)">No additional permissions requested.</p>
+
+                    <div class="buttonHolder">
+                        <button type="submit" name="cancel" value="true" class="secondary"><span>Cancel</span></button>
+                        <button type="submit"><span>Approve</span></button>
+                    </div>
+                </form>
+            </article>
+        </div>
+    </main>
+</div>
+</body>
+</html>

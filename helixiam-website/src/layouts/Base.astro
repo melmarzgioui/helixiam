@@ -1,0 +1,50 @@
+---
+import "../styles/global.css";
+import Seo from "../components/Seo.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import { localeOf, unlocalize, LOCALE_META } from "../i18n";
+// `translated` = this page has FR/NL versions (drives hreflang + the language switcher).
+interface Props { title?: string; description?: string; noindex?: boolean; translated?: boolean; }
+const { title, description, noindex, translated = false } = Astro.props;
+const path = Astro.url.pathname;
+const locale = localeOf(path);
+const canonicalPath = unlocalize(path);
+---
+<!doctype html>
+<html lang={LOCALE_META[locale].htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#060a12" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <Seo title={title} description={description} path={path} noindex={noindex} locale={locale} canonicalPath={canonicalPath} translated={translated} />
+  </head>
+  <body>
+    <a href="#main" class="skip">Skip to content</a>
+    <Header translated={translated} />
+    <main id="main"><slot /></main>
+    <Footer />
+    <script>
+      // Reveal-on-scroll — content is visible by default (CSS). Only arm the fade-up when motion
+      // is allowed AND IntersectionObserver exists; otherwise leave everything visible.
+      const els = document.querySelectorAll(".reveal");
+      const motionOk = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (motionOk && "IntersectionObserver" in window) {
+        document.documentElement.classList.add("js-anim");
+        const io = new IntersectionObserver((entries) => {
+          entries.forEach((e) => {
+            if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+          });
+        }, { threshold: 0.08, rootMargin: "0px 0px -6% 0px" });
+        els.forEach((el) => io.observe(el));
+        // Safety net: if anything is still armed after 3s (e.g. tall page, no scroll), reveal it.
+        setTimeout(() => els.forEach((el) => el.classList.add("in")), 3000);
+      }
+    </script>
+    <style is:global>
+      .skip { position: absolute; left: -999px; top: 0; background: var(--spring); color: var(--on-primary); padding: 0.6rem 1rem; border-radius: 8px; z-index: 100; font-weight: 600; }
+      .skip:focus { left: 12px; top: 12px; }
+    </style>
+  </body>
+</html>

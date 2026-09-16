@@ -1,0 +1,125 @@
+---
+import Icon from "../components/Icon.astro";
+import { t, docsUrl, localizePath, localeOf, type Locale } from "../i18n";
+// Validated lead form. Client-side validation blocks submit on empty/invalid required fields and
+// shows inline errors. On success it shows a thank-you panel. NOTE: set data-endpoint (or wire the
+// submit handler) to your form backend / CRM before go-live — it currently validates + confirms only.
+interface Props { kind?: "demo" | "contact"; }
+const { kind = "demo" } = Astro.props;
+const isDemo = kind === "demo";
+const locale: Locale = localeOf(Astro.url.pathname);
+const F = t(locale).form;
+---
+<form class="lead-form" id="leadForm" novalidate data-kind={kind}>
+  <div class="lf-row">
+    <div class="lf-field">
+      <label for="name">{F.name} <span class="req">*</span></label>
+      <input id="name" name="name" type="text" autocomplete="name" required aria-describedby="err-name" />
+      <p class="lf-err" id="err-name" hidden>{F.errName}</p>
+    </div>
+    <div class="lf-field">
+      <label for="email">{F.email} <span class="req">*</span></label>
+      <input id="email" name="email" type="email" autocomplete="email" required aria-describedby="err-email" />
+      <p class="lf-err" id="err-email" hidden>{F.errEmail}</p>
+    </div>
+  </div>
+  <div class="lf-row">
+    <div class="lf-field">
+      <label for="company">{F.company} <span class="req">*</span></label>
+      <input id="company" name="company" type="text" autocomplete="organization" required aria-describedby="err-company" />
+      <p class="lf-err" id="err-company" hidden>{F.errCompany}</p>
+    </div>
+    <div class="lf-field">
+      <label for="role">{F.role}</label>
+      <select id="role" name="role">
+        <option value="">{F.roleSelect}</option>
+        <option>{F.roleDev}</option>
+        <option>{F.roleSec}</option>
+        <option>{F.roleAi}</option>
+        <option>{F.roleProduct}</option>
+        <option>{F.rolePublic}</option>
+        <option>{F.roleOther}</option>
+      </select>
+    </div>
+  </div>
+  <div class="lf-field">
+    <label for="message">{isDemo ? F.msgDemo : F.msgContact} <span class="req">*</span></label>
+    <textarea id="message" name="message" rows="4" required aria-describedby="err-message" placeholder={isDemo ? F.phDemo : F.phContact}></textarea>
+    <p class="lf-err" id="err-message" hidden>{F.errMessage}</p>
+  </div>
+  <label class="lf-check">
+    <input id="consent" name="consent" type="checkbox" required aria-describedby="err-consent" />
+    <span>{F.consentPre}<a href={localizePath("/legal/privacy/", locale)}>{F.privacyPolicy}</a>{F.consentPost} <span class="req">*</span></span>
+  </label>
+  <p class="lf-err" id="err-consent" hidden>{F.errConsent}</p>
+
+  <button type="submit" class="btn btn-primary btn-lg lf-submit">{isDemo ? F.submitDemo : F.submitContact}<Icon name="arrow" size={17} /></button>
+  <p class="lf-fine">{F.fine}</p>
+</form>
+
+<div class="lf-success card" id="leadSuccess" hidden>
+  <span class="lf-check-ico"><Icon name="check" size={26} /></span>
+  <h3>{F.successTitle}</h3>
+  <p>{F.successPre}<a href={docsUrl(locale)} target="_blank" rel="noopener">{F.documentation}</a>{F.successPost}</p>
+</div>
+
+<style>
+  .lead-form { display: grid; gap: 1.1rem; }
+  .lf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+  .lf-field { display: grid; gap: 0.4rem; }
+  label { color: var(--ink); font-weight: 600; font-size: 0.9rem; }
+  .req { color: var(--spring); }
+  input, select, textarea { width: 100%; background: var(--void); color: var(--ink); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 0.7rem 0.85rem; font-family: var(--font); font-size: 0.98rem; transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.15); }
+  .lf-field.invalid input, .lf-field.invalid textarea, .lf-field.invalid select { border-color: #ff6b6b; }
+  .lf-err { color: #ff8f8f; font-size: 0.82rem; margin: 0; }
+  .lf-check { display: flex; align-items: flex-start; gap: 0.6rem; font-weight: 400; color: var(--slate); font-size: 0.9rem; }
+  .lf-check input { width: auto; margin-top: 0.2rem; }
+  .lf-submit { justify-self: start; margin-top: 0.4rem; }
+  .lf-fine { color: var(--faint); font-size: 0.82rem; margin: 0; }
+  .lf-success { text-align: center; padding: 2.5rem 1.5rem; }
+  .lf-check-ico { display: inline-flex; width: 56px; height: 56px; align-items: center; justify-content: center; border-radius: 50%; color: var(--void); background: var(--grad-cta); box-shadow: var(--glow-cyan); margin-bottom: 1rem; }
+  @media (max-width: 620px) { .lf-row { grid-template-columns: 1fr; } }
+</style>
+
+<script>
+  const form = document.getElementById("leadForm") as HTMLFormElement | null;
+  const success = document.getElementById("leadSuccess");
+  if (form) {
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const setErr = (id: string, show: boolean) => {
+      const field = document.getElementById(id)?.closest(".lf-field");
+      const err = document.getElementById("err-" + id);
+      field?.classList.toggle("invalid", show);
+      if (err) err.hidden = !show;
+      if (id === "consent") { const c = document.getElementById("err-consent"); if (c) c.hidden = !show; }
+    };
+    const validate = () => {
+      let ok = true;
+      const name = (form.querySelector("#name") as HTMLInputElement).value.trim();
+      const email = (form.querySelector("#email") as HTMLInputElement).value.trim();
+      const company = (form.querySelector("#company") as HTMLInputElement).value.trim();
+      const message = (form.querySelector("#message") as HTMLTextAreaElement).value.trim();
+      const consent = (form.querySelector("#consent") as HTMLInputElement).checked;
+      setErr("name", !name); if (!name) ok = false;
+      setErr("email", !emailRe.test(email)); if (!emailRe.test(email)) ok = false;
+      setErr("company", !company); if (!company) ok = false;
+      setErr("message", message.length < 3); if (message.length < 3) ok = false;
+      setErr("consent", !consent); if (!consent) ok = false;
+      return ok;
+    };
+    ["name", "email", "company", "message"].forEach((id) => {
+      form.querySelector("#" + id)?.addEventListener("blur", () => {
+        // Re-validate this single field on blur for immediate feedback.
+        validate();
+      });
+    });
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!validate()) { form.querySelector(".invalid input, .invalid textarea")?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+      // TODO: POST to your form backend / CRM here (form.dataset.kind carries "demo" | "contact").
+      form.hidden = true;
+      if (success) { success.hidden = false; success.scrollIntoView({ behavior: "smooth", block: "center" }); }
+    });
+  }
+</script>

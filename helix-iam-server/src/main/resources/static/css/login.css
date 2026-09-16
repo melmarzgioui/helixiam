@@ -1,0 +1,344 @@
+/* =========================================================================
+   HelixIAM sign-in — split brand panel.
+   Loaded AFTER theme.css; it owns the login layout and overrides theme.css
+   where the two disagree. The B2 per-realm theming <style> blocks in
+   login.html are injected AFTER this file, so an admin's brand colours,
+   logo, welcome text and custom CSS always win.
+   Brand: KubeDNA brandbook — Cucumber #476957, Jade #a3d4c4, Black Cat #2f3033,
+   Work Sans (bundled via theme.css @font-face).
+   ========================================================================= */
+
+/* Tokens + self-hosted fonts come from the shared brand system (single source of truth):
+   platform/brand/brand.css, synced here as ./brand.css. Edit platform/brand/brand.css and
+   run `node platform/brand/sync.mjs`. The login's --hx-* names alias the shared --kd-* palette. */
+@import "brand.css";
+
+:root {
+  --hx-cucumber: var(--kd-cucumber);
+  --hx-cucumber-deep: #3c5a49;      /* login-only deep cucumber shade */
+  --hx-jade: var(--kd-jade);
+  --hx-blackcat: var(--kd-blackcat);
+  --hx-brand-fg: #ffffff;
+  --hx-brand-fg-soft: rgba(255, 255, 255, 0.72);
+  --hx-brand-fg-faint: rgba(255, 255, 255, 0.5);
+}
+
+/* The split needs a scrolling, full-height page — theme.css locks the body to
+   100vh / overflow:hidden which clips the stacked layout on small screens. */
+html, body {
+  height: auto;
+  min-height: 100vh;
+  max-height: none !important;
+  overflow: auto !important;
+}
+body {
+  display: block;
+  background: var(--hx-blackcat);
+}
+
+/* ---------------------------------------------------------------- shell -- */
+.helix-auth {
+  width: 100%;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+}
+@media (max-width: 900px) {
+  .helix-auth { grid-template-columns: 1fr; }
+}
+
+/* ---------------------------------------------------------- brand panel -- */
+.helix-brand {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2.5rem;
+  padding: clamp(2rem, 4.5vw, 4rem);
+  color: var(--hx-brand-fg);
+  background:
+    radial-gradient(130% 90% at 12% 8%, rgba(163, 212, 196, 0.16), transparent 55%),
+    linear-gradient(158deg, #2f3033 0%, #263329 52%, #1b271f 100%);
+}
+
+/* faint oversized spark, bottom-right, behind the copy */
+.helix-brand .brand-watermark {
+  position: absolute;
+  z-index: -1;
+  right: -6%;
+  bottom: -14%;
+  width: min(64%, 540px);
+  color: var(--hx-jade);
+  opacity: 0.07;
+  pointer-events: none;
+}
+.helix-brand .brand-watermark svg { width: 100%; height: auto; display: block; }
+
+/* thin helix-strand hairlines sweeping the panel */
+.helix-brand::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(115deg, transparent 0 49.6%, rgba(163, 212, 196, 0.08) 49.6% 50%, transparent 50%),
+    linear-gradient(115deg, transparent 0 61.6%, rgba(163, 212, 196, 0.05) 61.6% 62%, transparent 62%);
+  pointer-events: none;
+}
+
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+.brand-lockup .word {
+  font: 800 1.55rem/1 "Work Sans", sans-serif;
+  letter-spacing: -0.02em;
+  color: var(--hx-brand-fg);
+}
+/* lockup "IAM" + spark = deep KubeDNA cyan (--wordmark-accent): ONE colour on every surface & ground */
+.brand-lockup .word b { font-weight: 800; color: var(--wordmark-accent); }
+.brand-lockup .spark {
+  width: 1.3rem;
+  height: 1.3rem;
+  color: var(--wordmark-accent);
+  flex: 0 0 auto;
+  align-self: center;
+}
+.brand-lockup img.brand-logo-custom { max-height: 40px; width: auto; display: block; }
+
+.brand-mid { max-width: 30rem; }
+.brand-mid h1 {
+  font: 800 clamp(1.9rem, 3vw, 2.7rem)/1.12 "Work Sans", sans-serif;
+  letter-spacing: -0.02em;
+  color: var(--hx-brand-fg);
+  margin: 0 0 1rem;
+}
+.brand-mid p {
+  font-size: 1.02rem;
+  line-height: 1.65;
+  color: var(--hx-brand-fg-soft);
+  margin: 0;
+  max-width: 44ch;
+}
+.brand-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1.9rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.brand-badges li {
+  font: 600 0.72rem/1 "Work Sans", sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hx-jade);
+  border: 1px solid rgba(163, 212, 196, 0.3);
+  border-radius: 999px;
+  padding: 0.42rem 0.75rem;
+}
+
+.brand-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.74);
+}
+.brand-bottom .kd-spark {
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--hx-jade);
+  opacity: 1;
+}
+
+/* ----------------------------------------------------------- form panel -- */
+.helix-form {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(2rem, 4.5vw, 4rem);
+  background: var(--color-body); /* light, flips to blackcat in dark mode via theme.css */
+}
+.helix-form .form-inner { width: 100%; max-width: 400px; }
+
+.helix-form .lang {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  font-size: 0.82rem;
+}
+.helix-form .lang a { font-weight: 600; }
+.helix-form .lang span { color: var(--color-grade-out); }
+
+.helix-form .form-head { margin-bottom: 1.75rem; }
+.helix-form .form-head h2 {
+  font: 800 1.85rem/1.1 "Work Sans", sans-serif;
+  letter-spacing: -0.02em;
+  color: var(--color-black);
+  margin: 0 0 0.4rem;
+}
+.helix-form .form-head p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--color-grade-out);
+}
+
+/* alerts sit full-width above the form */
+.helix-form .alert {
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 1.1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.helix-form .alert.error { background: rgba(156, 75, 62, 0.08); border: 1px solid rgba(156, 75, 62, 0.35); color: #9c4b3e; }
+.helix-form .alert.success { background: rgba(71, 105, 87, 0.08); border: 1px solid rgba(71, 105, 87, 0.35); color: var(--hx-cucumber); }
+
+/* fields — larger, calmer than theme.css defaults */
+.helix-form form { gap: 0; }
+.helix-form form label {
+  display: block;
+  margin: 1.05rem 0 0.4rem;
+  font: 600 0.82rem/1 "Work Sans", sans-serif;
+  letter-spacing: 0;
+  color: var(--color-black);
+}
+.helix-form form label:first-of-type { margin-top: 0; }
+.helix-form form input[type=text],
+.helix-form form input[type=password] {
+  font-size: 14px;
+  padding: 11px 13px;
+  border-radius: 8px;
+}
+.helix-form form input[type=text]:focus,
+.helix-form form input[type=password]:focus {
+  border-color: var(--hx-cucumber);
+  box-shadow: 0 0 0 3px rgba(71, 105, 87, 0.14);
+}
+
+.helix-form .resetPasswordContainer { margin: 0.75rem 0 0; }
+.helix-form .resetPasswordContainer > a { font-size: 0.82rem; }
+
+/* primary submit — full width, unified KubeDNA ink button, arrow glyph (no icon-font dependency).
+   Form sits on a LIGHT ground → ink (Black-Cat #2f3033); tokens from brand.css. */
+.helix-form .buttonHolder { margin-top: 1.6rem; }
+.helix-form .buttonHolder > button {
+  width: 100%;
+  height: auto;
+  padding: 12px 14px;
+  gap: 0.5rem;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--btn-primary-fg);
+  background-color: var(--btn-primary-bg);
+  border: 1px solid var(--btn-primary-bg);
+  transition: background-color 0.15s ease, transform 0.02s ease, box-shadow 0.15s ease;
+}
+.helix-form .buttonHolder > button:hover { background-color: var(--btn-primary-bg-hover); border-color: var(--btn-primary-bg-hover); }
+.helix-form .buttonHolder > button:active { transform: translateY(1px); }
+.helix-form .buttonHolder > button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.helix-form .buttonHolder > button .btn-arrow { width: 16px; height: 16px; stroke: var(--btn-primary-fg); flex: 0 0 auto; }
+
+.helix-form .subtext {
+  margin: 1.5rem 0 0;
+  font-size: 0.88rem;
+  color: var(--color-grade-out);
+}
+.helix-form .subtext span { font-size: 0.88rem; }
+.helix-form .subtext a { font-size: 0.88rem; }
+
+/* federated providers — full-width neutral buttons */
+.helix-form .federationProviders { margin-top: 0.5rem; }
+.helix-form .federationDivider {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 1.6rem 0 1.2rem;
+  font-size: 0.8rem;
+  color: var(--color-grade-out);
+}
+.helix-form .federationDivider::before,
+.helix-form .federationDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-box-border);
+}
+.helix-form a.federationProvider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-bottom: 0.6rem;
+  padding: 11px 14px;
+  border: 1px solid var(--color-box-border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-black);
+  background: transparent;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.helix-form a.federationProvider:hover {
+  border-color: var(--hx-cucumber);
+  background: rgba(71, 105, 87, 0.06);
+}
+/* brand mark on the button (official eID logo or admin-set custom logo) */
+.helix-form a.federationProvider .fed-logo {
+  height: 20px;
+  width: auto;
+  max-width: 88px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+/* per-scheme brand accent — a thin brand-colour edge + tinted hover, so DigiD/eHerkenning/eIDAS
+   read as their official brand while staying legible on the light form panel. */
+.helix-form a.federationProvider.idp-digid { border-left: 3px solid #e17000; }
+.helix-form a.federationProvider.idp-digid:hover { border-color: #e17000; background: rgba(225, 112, 0, 0.06); }
+.helix-form a.federationProvider.idp-eherkenning { border-left: 3px solid #2b3a8c; }
+.helix-form a.federationProvider.idp-eherkenning:hover { border-color: #2b3a8c; background: rgba(43, 58, 140, 0.06); }
+.helix-form a.federationProvider.idp-eidas { border-left: 3px solid #003399; }
+.helix-form a.federationProvider.idp-eidas:hover { border-color: #003399; background: rgba(0, 51, 153, 0.06); }
+
+/* --------------------------------------------------------- dark mode ---- */
+@media (prefers-color-scheme: dark) {
+  .helix-form .form-head h2 { color: var(--color-black); } /* --color-black flips light in theme.css */
+  /* The form ground flips to Black-Cat in dark, so the primary button must invert to jade + ink
+     (like every other dark HelixIAM surface) — ink #2f3033 would be black-on-black here. Overriding
+     the tokens auto-flips the button fill, hover AND the arrow glyph (it uses --btn-primary-fg). */
+  :root {
+    --btn-primary-bg: var(--kd-jade);          /* #a3d4c4 */
+    --btn-primary-bg-hover: #b6e0d0;
+    --btn-primary-fg: var(--kd-ink);           /* #22251f — ink on jade (WCAG ~11:1) */
+  }
+  /* Federated providers ("the other" buttons) on the dark ground → white label + hairline so they
+     read against Black-Cat instead of dark-on-dark. */
+  .helix-form a.federationProvider { color: #ffffff; border-color: rgba(255, 255, 255, 0.22); }
+  .helix-form a.federationProvider:hover { border-color: rgba(255, 255, 255, 0.45); background: rgba(163, 212, 196, 0.08); }
+}
+
+/* ---------------------------------------------------------- responsive -- */
+@media (max-width: 900px) {
+  .helix-brand {
+    padding: 1.75rem 1.5rem;
+    gap: 1.25rem;
+  }
+  .helix-brand .brand-watermark,
+  .helix-brand::before { display: none; }
+  .brand-mid h1 { font-size: 1.45rem; margin-bottom: 0.5rem; }
+  .brand-mid p { display: none; }
+  .brand-badges { display: none; }
+  .helix-form { padding: 2rem 1.5rem 3rem; }
+  .helix-form .lang { margin-bottom: 1.5rem; }
+}

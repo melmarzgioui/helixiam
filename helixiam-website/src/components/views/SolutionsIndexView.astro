@@ -1,0 +1,39 @@
+---
+import PageHero from "../PageHero.astro";
+import CtaBand from "../CtaBand.astro";
+import Icon from "../Icon.astro";
+import { solutionsFor } from "../../data/solutions";
+import { localeOf, localizePath, t, type Locale } from "../../i18n";
+import { solutionsIndex } from "../../pagedata/solutions-index";
+
+const locale: Locale = localeOf(Astro.url.pathname);
+const L = (href: string) => localizePath(href, locale);
+const S = solutionsIndex[locale];
+const U = t(locale).ui;
+const SOLUTIONS = solutionsFor(locale);
+---
+<PageHero eyebrow={S.eyebrow} title={S.title} lead={S.lead} icon="users" />
+<section class="section">
+  <div class="container">
+    <div class="sol-grid">
+      {SOLUTIONS.map((s) => (
+        <a href={L(`/solutions/${s.slug}/`)} class="card sol reveal">
+          <span class="sol-ico"><Icon name={s.icon} size={22} /></span>
+          <h3>{s.navLabel}</h3>
+          <p>{s.lead}</p>
+          <span class="sol-more">{U.seeTheFit}<Icon name="arrow" size={15} /></span>
+        </a>
+      ))}
+    </div>
+  </div>
+</section>
+<CtaBand />
+
+<style>
+  .sol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+  .sol { display: flex; flex-direction: column; }
+  .sol-ico { display: inline-flex; width: 46px; height: 46px; align-items: center; justify-content: center; border-radius: 12px; color: var(--void); background: var(--grad-cta); box-shadow: var(--glow-cyan); margin-bottom: 1rem; }
+  .sol p { flex: 1; }
+  .sol-more { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--jade); font-weight: 600; font-size: 0.9rem; margin-top: 0.6rem; }
+  @media (max-width: 720px) { .sol-grid { grid-template-columns: 1fr; } }
+</style>

@@ -1,0 +1,212 @@
+/* Helix docs — match the Helix Admin Console design system (BRANDBOOK_KUBEDNA_V2).
+   Source of truth: helix-admin/src/styles/tokens.css. Cucumber/Jade/Black-Cat palette,
+   Work Sans + Roboto Mono, console radii/shadows. Maps the console tokens onto MkDocs Material's
+   --md-* variables for both the light (default) and dark (slate) schemes. */
+/* Tokens + self-hosted fonts come from the shared brand system (single source of truth):
+   platform/brand/brand.css, synced here as ./brand.css. Work Sans + Roboto Mono self-hosted,
+   no CDN, no Gilroy. Edit platform/brand/brand.css and run `node platform/brand/sync.mjs`. */
+@import "brand.css";
+
+:root {
+  /* Map the shared self-hosted fonts onto MkDocs Material's variables */
+  --md-text-font: "Work Sans";
+  --md-code-font: "Roboto Mono";
+}
+
+/* ---------------------------------------------------------------- LIGHT (default) */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: var(--kd-cucumber);
+  --md-primary-fg-color--light: var(--kd-cucumber-l);
+  --md-primary-fg-color--dark: var(--kd-cucumber-d);
+  --md-primary-bg-color: #ffffff;             /* text on the header */
+  --md-primary-bg-color--light: rgba(255, 255, 255, 0.72);
+
+  --md-accent-fg-color: var(--kd-cucumber);
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--kd-cucumber) 10%, transparent);
+
+  --md-default-bg-color: var(--kd-paper);
+  --md-typeset-color: var(--kd-ink);
+  --md-default-fg-color: var(--kd-ink);
+  --md-default-fg-color--light: var(--kd-slate);
+  --md-default-fg-color--lighter: var(--kd-faint);
+  --md-default-fg-color--lightest: var(--kd-line);
+
+  --md-typeset-a-color: var(--kd-cucumber);
+
+  --md-code-bg-color: var(--kd-willow);
+  --md-code-fg-color: #2c352f;
+
+  /* footer/nav tint to brand cucumber */
+  --md-footer-bg-color: var(--kd-cucumber-d);
+  --md-footer-bg-color--dark: var(--kd-ink);
+}
+
+/* ---------------------------------------------------------------- DARK (slate → Black Cat) */
+[data-md-color-scheme="slate"] {
+  --md-hue: 200;
+  --md-primary-fg-color: #212427;             /* Black-Cat header surface */
+  --md-primary-fg-color--light: #2f3338;
+  --md-primary-fg-color--dark: #16181a;
+  --md-primary-bg-color: #eceeec;
+  --md-primary-bg-color--light: rgba(236, 238, 236, 0.72);
+
+  --md-accent-fg-color: var(--kd-jade);       /* jade accent in dark — brand */
+
+  --md-default-bg-color: #1a1c1f;             /* Black-Cat canvas */
+  --md-default-fg-color: #eceeec;
+  --md-default-fg-color--light: #b1b7b3;
+  --md-default-fg-color--lighter: #828a85;
+  --md-default-fg-color--lightest: #2f3338;
+  --md-typeset-color: #eceeec;
+
+  --md-typeset-a-color: var(--kd-jade);
+
+  --md-code-bg-color: #212427;
+  --md-code-fg-color: #d7dcd8;
+
+  --md-footer-bg-color: #16181a;
+  --md-footer-bg-color--dark: #121315;
+}
+
+/* ---------------------------------------------------------------- Typography (console feel) */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--md-default-fg-color);
+}
+.md-typeset h1 { font-weight: 800; }
+.md-typeset { line-height: 1.65; }
+
+/* ---------------------------------------------------------------- Shape (console radii + soft cards) */
+.md-typeset pre > code,
+.md-typeset .highlight,
+.md-typeset .admonition,
+.md-typeset details,
+.md-typeset .tabbed-set > .tabbed-content,
+.md-typeset table:not([class]) {
+  border-radius: 14px;
+}
+.md-typeset code,
+.md-typeset .md-button {
+  border-radius: 10px;
+}
+/* premium hairline cards for tables, like the console */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  box-shadow: 0 1px 2px rgba(34, 37, 31, 0.04), 0 4px 12px -6px rgba(34, 37, 31, 0.1);
+  overflow: hidden;
+}
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px -6px rgba(0, 0, 0, 0.5);
+}
+
+/* Primary action button — unified KubeDNA language (matches console/login/website).
+   Docs dark scheme is [data-md-color-scheme="slate"] (NOT [data-theme="dark"]), so the brand.css
+   token inversion doesn't fire here — wire each scheme explicitly. Light = ink (Black-Cat), slate =
+   jade + ink so it never disappears on the dark canvas. */
+.md-typeset .md-button--primary {
+  color: var(--btn-primary-fg);
+  background-color: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus {
+  color: var(--btn-primary-fg);
+  background-color: var(--btn-primary-bg-hover);
+  border-color: var(--btn-primary-bg-hover);
+}
+.md-typeset .md-button--primary:focus-visible { box-shadow: var(--focus-ring); }
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary {
+  color: var(--kd-ink);
+  background-color: var(--kd-jade);
+  border-color: var(--kd-jade);
+}
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary:hover,
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary:focus {
+  color: var(--kd-ink);
+  background-color: #b6e0d0;
+  border-color: #b6e0d0;
+}
+
+/* accent the primary action / brand-tinted content tabs underline */
+.md-typeset .tabbed-labels > label:hover { color: var(--md-accent-fg-color); }
+
+/* search + selection in brand */
+::selection { background: color-mix(in srgb, var(--kd-jade) 55%, transparent); }
+
+/* ---------------------------------------------------------------- Header: Black-Cat, always (KubeDNA style)
+   KubeDNA's masthead is dark. Keep the header Black-Cat in BOTH light and dark page themes, so the
+   on-brand white wordmark + white heptagon always sit on a dark surface (Cucumber stays the body accent
+   for links/active nav). Only the light scheme needs overriding — the slate header is already dark. */
+[data-md-color-scheme="default"] .md-header,
+[data-md-color-scheme="default"] .md-tabs {
+  background-color: #1f2123;            /* Black-Cat masthead */
+  color: #ffffff;
+}
+/* no leading mark — the brand lockup is the wordmark + trailing pinwheel spark */
+.md-header__button.md-logo { display: none; }
+.md-header__title { margin-left: 0.6rem; }
+[data-md-color-scheme="default"] .md-header[data-md-state="shadow"] {
+  box-shadow: 0 0 0.2rem rgba(0,0,0,.3), 0 0.2rem 0.4rem rgba(0,0,0,.25);
+}
+/* keep the in-header search field legible on the dark masthead in light mode */
+[data-md-color-scheme="default"] .md-search__input { background-color: rgba(255,255,255,0.12); color: #fff; }
+[data-md-color-scheme="default"] .md-search__input::placeholder { color: rgba(255,255,255,0.6); }
+
+/* ---------------------------------------------------------------- Wordmark: [mark] Helix·IAM (KubeDNA structure)
+   Replace the plain site-name text in the header with the two-tone wordmark — "Helix" in the header
+   foreground, "IAM" in jade — beside the heptagon mark (the logo image). The docs header is brand-
+   coloured in both light (Cucumber) and dark (Black-Cat), so white + jade reads on both. */
+.md-header__title .md-header__topic:first-child .md-ellipsis {
+  font-size: 0; /* hide the literal site_name; the wordmark is drawn below */
+  line-height: 1;
+}
+.md-header__title .md-header__topic:first-child {
+  display: flex;
+  align-items: center;
+  height: 100%;          /* fill the masthead height so the wordmark + spark center vertically */
+  /* the wordmark IS the logo — keep it pinned; never let Material swap it for the page title on scroll */
+  opacity: 1 !important;
+  transform: none !important;
+  z-index: 1;
+  pointer-events: auto !important;
+}
+/* suppress the on-scroll page-title topic (it would replace the wordmark) */
+.md-header__title .md-header__topic + .md-header__topic {
+  display: none !important;
+}
+.md-header__title .md-header__topic:first-child .md-ellipsis::before {
+  content: "Helix";
+  font-family: "Work Sans", sans-serif;  /* Work Sans 800 — KubeDNA's own logotype face, self-hosted */
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+.md-header__title .md-header__topic:first-child .md-ellipsis::after {
+  content: "IAM";
+  font-family: "Work Sans", sans-serif;
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+  color: var(--wordmark-accent);   /* deep KubeDNA cyan — one lockup colour on every ground */
+  /* JOINED to "Helix" like Kube·DNA — no gap (the capital I delimits) */
+}
+/* trailing HelixIAM spark — cap-height, dropped to the bottom-right on the baseline, cyan to match
+   "IAM" (canonical lockup). Masked so it takes the wordmark accent colour. */
+.md-header__title .md-header__topic:first-child::after {
+  content: "";
+  flex: 0 0 auto;
+  align-self: flex-end;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0 0 0.16rem 0.08rem;
+  background-color: var(--wordmark-accent);
+  -webkit-mask: url("../assets/helix-mark.svg") center/contain no-repeat;
+  mask: url("../assets/helix-mark.svg") center/contain no-repeat;
+}

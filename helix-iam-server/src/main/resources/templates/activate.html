@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#a3d4c4">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2f3033">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>KubeDNA — Activate device</title>
+    <link rel="icon" th:href="@{/img/favicon.avif}">
+    <meta name="robots" content="noindex">
+    <meta name="googlebot" content="noindex">
+    <!-- B2: per-realm branding; falls back to the built-in Helix IAM theme. -->
+    <style th:if="${brandingPrimaryColor != null}" th:inline="text">
+        button[type="submit"] { background: [[${brandingPrimaryColor}]] !important; border-color: [[${brandingPrimaryColor}]] !important; }
+    </style>
+    <style th:if="${brandingBackgroundColor != null}" th:inline="text">
+        body { background: [[${brandingBackgroundColor}]] !important; }
+    </style>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header>
+        <div class="headerBar">
+            <a>
+                <div class="logo"><img th:src="${brandingLogo} ?: @{/img/kubedna-zw.png}" src="/img/kubedna-zw.png" alt="Logo"></div>
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <div class="container title">
+            <h3>Activate device</h3>
+            <p style="margin:.35rem 0 0;color:var(--fg-muted,#667)">Enter the code shown by the KubeDNA CLI to authorise it on your account.</p>
+        </div>
+
+        <div class="container">
+            <article>
+                <form th:action="@{/oauth2/device_verification}" method="post" role="form">
+                    <label for="user_code">Device code</label>
+                    <input type="text" id="user_code" name="user_code" th:value="${userCode}"
+                           autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"
+                           placeholder="WDJB-MJHT"/>
+
+                    <!-- CSRF token when the chain enforces it; harmless when it doesn't. -->
+                    <input th:if="${_csrf != null}" type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+
+                    <div class="buttonHolder">
+                        <button type="submit">
+                            <span>Approve device</span>
+                        </button>
+                    </div>
+                </form>
+            </article>
+        </div>
+    </main>
+</div>
+</body>
+</html>

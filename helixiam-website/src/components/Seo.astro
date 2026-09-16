@@ -1,0 +1,55 @@
+---
+import { SITE } from "../consts";
+import { LOCALES, LOCALE_META, localizePath, DEFAULT_LOCALE, t, type Locale } from "../i18n";
+interface Props {
+  title?: string; description?: string; path?: string; noindex?: boolean;
+  locale?: Locale; canonicalPath?: string; translated?: boolean;
+}
+const { title, description, path = "", noindex = false, locale = DEFAULT_LOCALE, canonicalPath = "/", translated = false } = Astro.props;
+const pageTitle = title ? `${title} — ${SITE.name}` : `${SITE.name} — ${t(locale).tagline}`;
+const desc = description ?? SITE.description;
+const canonical = new URL(path, SITE.url).href;
+const og = new URL("/og.svg", SITE.url).href;
+
+// hreflang alternates: emit all locales only for translated pages (else self-only, so we never
+// point search engines at non-existent localized URLs).
+const alternates = translated
+  ? LOCALES.map((l) => ({ hreflang: LOCALE_META[l].htmlLang, href: new URL(localizePath(canonicalPath, l), SITE.url).href }))
+  : [];
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE.name,
+  applicationCategory: "SecurityApplication",
+  operatingSystem: "Linux, Kubernetes, Docker",
+  description: desc,
+  inLanguage: LOCALE_META[locale].htmlLang,
+  offers: { "@type": "Offer", availability: "https://schema.org/InStock", category: "Contact for pricing" },
+  brand: { "@type": "Organization", name: SITE.parent },
+  publisher: { "@type": "Organization", name: SITE.parent, url: "https://kubedna.com" },
+  url: canonical,
+};
+---
+<title>{pageTitle}</title>
+<meta name="description" content={desc} />
+<link rel="canonical" href={canonical} />
+{noindex && <meta name="robots" content="noindex, nofollow" />}
+
+{alternates.map((a) => <link rel="alternate" hreflang={a.hreflang} href={a.href} />)}
+{translated && <link rel="alternate" hreflang="x-default" href={new URL(localizePath(canonicalPath, DEFAULT_LOCALE), SITE.url).href} />}
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content={SITE.name} />
+<meta property="og:title" content={pageTitle} />
+<meta property="og:description" content={desc} />
+<meta property="og:url" content={canonical} />
+<meta property="og:image" content={og} />
+<meta property="og:locale" content={LOCALE_META[locale].ogLocale} />
+{translated && LOCALES.filter((l) => l !== locale).map((l) => <meta property="og:locale:alternate" content={LOCALE_META[l].ogLocale} />)}
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={pageTitle} />
+<meta name="twitter:description" content={desc} />
+<meta name="twitter:image" content={og} />
+
+<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />

@@ -1,0 +1,9 @@
+---
+import Base from "../layouts/Base.astro";
+import ContactView from "../components/views/ContactView.astro";
+import { contact } from "../pagedata/contact";
+const S = contact.en;
+---
+<Base title={S.metaTitle} description={S.metaDesc} translated={true}>
+  <ContactView />
+</Base>

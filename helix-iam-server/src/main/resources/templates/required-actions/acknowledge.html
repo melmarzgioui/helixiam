@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>KubeDNA — Action required</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" th:href="@{/img/favicon.avif}">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar">
+            <a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a>
+        </div>
+    </header>
+    <main>
+        <div class="container title">
+            <h3>Action required</h3>
+            <p style="margin:.35rem 0 0;color:var(--fg-muted,#667)">Your administrator has asked you to complete the following before continuing:</p>
+        </div>
+        <div class="container">
+            <article>
+                <p style="font-weight:600" th:text="${action}">ACTION</p>
+                <form th:action="@{/required-actions/acknowledge}" method="post" role="form">
+                    <div class="buttonHolder">
+                        <button type="submit"><span>I have completed this — continue</span></button>
+                    </div>
+                </form>
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+</body>
+</html>

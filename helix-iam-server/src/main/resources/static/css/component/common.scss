@@ -1,0 +1,70 @@
+:root {
+  --color-header-background: rgba(47, 48, 51, 1);
+  --color-menu-background: rgba(246, 245, 243, 1);
+  --color-menu-background-active: rgba(71, 105, 87, 0.1);
+  --color-footer-background: rgba(47, 48, 51, 1);
+  --color-icon: rgba(102, 102, 255, 1);
+  --color-header-text: rgba(71, 105, 87, 1);
+
+
+  // Global color for all boxes
+  --color-box-border: rgba(47, 48, 51, 0.2);
+  //--color-body: #fff;
+  --color-body: #FFFFFF;
+  --color-header: rgba(71, 105, 87, 0.1) !important;
+  --color-link: #476957;
+  --color-black: #2f3033;
+  --color-gray: #e8e7e1;
+  --color-blue: #b7d3ff;
+  --color-green: #476957;
+  --color-button-green: #2F3033;
+  --color-red: #476957;
+  --color-ligth-green: #a3d4c4;
+  --color-white: #ffffff;
+  --color-grade-out: #aaaaaa;
+  //--color-box-border: #e8e7e0;
+  --color-box: rgba(246, 245, 243, 0.4);
+  --color-disable-text: #AAAAAA;
+  --color-disable-border:#ddd;
+  --color-disable-background:#ddd;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-body: #2f3033;
+    --color-box-border: #1e1e1e;
+    --color-box: #3e3e3e;
+    --color-button-green: rgba(163,212,196,0.5);
+    --color-black: #e8e7e1;
+    --color-green: #a3d4c4;
+    --color-link: #a3d4c4;
+  }
+
+  header {
+    > div.headerBar {
+      a {
+        > div.logo {
+          background-image: url("/img/kubedna-wh.png") !important;
+          opacity: 0.75;
+        }
+      }
+    }
+  }
+
+  .image > img {
+    opacity: 0.5;
+  }
+  textarea, input, select {
+    background: #4d4d4d;
+    border: 1px solid #2e2e2e;
+  }
+  input:-webkit-autofill{
+    -webkit-text-fill-color: var(--color-black) !important;
+    -webkit-box-shadow: 0 0 0 30px #4d4d4d inset !important;
+  }
+
+  footer {
+    opacity: 0.75;
+  }
+}

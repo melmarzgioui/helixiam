@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>KubeDNA - Login</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/img/favicon.avif">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar"><a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a></div>
+    </header>
+    <main>
+        <div class="container title">
+            <h3>Approve on your device</h3>
+            <div class="description">Approve this sign-in on your enrolled device. The device signs the
+                challenge with its hardware key.</div>
+        </div>
+        <div class="container">
+            <article>
+                <div th:if="${error}" class="error" style="display:block">Device verification failed, please try again.</div>
+                <!--
+                    E4.1 ships the server-side device factor (challenge issuance + ES256 verification via
+                    the Credential SPI). Cross-device delivery is wired in later stories: a QR/SSE flow
+                    (E4.2) and FCM/APNs push with number matching (E4.3) replace this manual form. Until
+                    then the enrolled device posts deviceId + base64url(DER signature) over the challenge.
+                -->
+                <form id="deviceForm" th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
+                    <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
+                    <label>Device ID<input type="text" name="deviceId" autocomplete="off"/></label>
+                    <label>Signature (base64url)<input type="text" name="signature" autocomplete="off"/></label>
+                    <div class="buttonHolder"><button type="submit"><span>Verify device</span></button></div>
+                </form>
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+</body>
+</html>

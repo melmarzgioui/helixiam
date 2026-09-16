@@ -1,0 +1,47 @@
+# ── Build output ──────────────────────────────────────────
+**/target/
+**/dist/
+**/build/
+**/node_modules/
+**/.next/
+*.class
+
+# ── IDE / editor ──────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+*.tsbuildinfo
+
+# ── OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Logs / temp ───────────────────────────────────────────
+*.log
+
+# ── Secrets / local env — NEVER commit real key material ──
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.pkcs8
+*.key
+!**/src/test/**            # test fixtures generate their own throwaway keys in-code
+.env
+.env.*
+**/application-local.properties
+**/application-secrets.properties
+
+# ── Migration scratch / planning (internal, not product) ──
+.sdd-*.md
+PLAN-strip-rabbitmq.md
+
+# ── Superseded pre-merge source (merged into helix-iam-server) ──
+# Kept locally for reference; excluded from the repo. Still contains the old
+# template SAML key on disk — delete these dirs before any public release.
+/authorization-server-publisher/
+/authorization-server-subscriber/

@@ -1,0 +1,38 @@
+---
+import { LOCALES, LOCALE_META, localizePath, type Locale } from "../i18n";
+import Icon from "./Icon.astro";
+interface Props { locale: Locale; canonicalPath: string; translated: boolean; }
+const { locale, canonicalPath, translated } = Astro.props;
+// If the current page is translated, switch in place; otherwise route to the localized home.
+const target = (l: Locale) => (translated ? localizePath(canonicalPath, l) : localizePath("/", l));
+---
+<div class="lang" role="group" aria-label={LOCALE_META[locale].label}>
+  <button class="lang-btn" aria-haspopup="true" aria-expanded="false" id="langBtn">
+    <Icon name="globe" size={16} />
+    <span>{LOCALE_META[locale].short}</span>
+    <Icon name="chevron" size={13} class="lang-chev" />
+  </button>
+  <div class="lang-menu" role="menu">
+    {LOCALES.map((l) => (
+      <a href={target(l)} class={`lang-item ${l === locale ? "active" : ""}`} hreflang={l} lang={l} role="menuitem" aria-current={l === locale ? "true" : undefined}>
+        <span>{LOCALE_META[l].label}</span>
+        {l === locale && <Icon name="check" size={14} />}
+      </a>
+    ))}
+  </div>
+</div>
+
+<style>
+  .lang { position: relative; }
+  .lang-btn { display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(255,255,255,0.02); color: var(--slate); border: 1px solid var(--line-2); border-radius: 999px; padding: 0.4rem 0.7rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: border-color 0.2s var(--ease), color 0.2s var(--ease); }
+  .lang-btn:hover { color: var(--ink); border-color: var(--cyan); }
+  .lang-chev { opacity: 0.6; transition: transform 0.2s var(--ease); }
+  .lang:hover .lang-chev, .lang:focus-within .lang-chev { transform: rotate(180deg); }
+  .lang-menu { position: absolute; top: 100%; right: 0; margin-top: 8px; min-width: 168px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r); padding: 0.4rem; box-shadow: 0 30px 70px -30px rgba(0,0,0,0.85); opacity: 0; visibility: hidden; transform: translateY(6px); transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0s linear 0.18s; z-index: 70; }
+  .lang-menu::before { content: ""; position: absolute; top: -14px; left: 0; right: 0; height: 14px; }
+  .lang:hover .lang-menu, .lang:focus-within .lang-menu { opacity: 1; visibility: visible; transform: none; transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0s; }
+  .lang-item { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.55rem 0.7rem; border-radius: 10px; color: var(--slate); font-size: 0.9rem; }
+  .lang-item:hover { background: rgba(94,234,212,0.07); color: var(--ink); }
+  .lang-item.active { color: var(--jade); }
+  .lang-item svg { color: var(--spring); }
+</style>

@@ -1,0 +1,223 @@
+@font-face {
+  font-family: "Material Symbols Outlined";
+  font-style: normal;
+  font-weight: 300;
+  src: url("/css/font/MaterialSymbolsOutlined.woff2") format("woff2");
+}
+i {
+  font-family: "Material Symbols Outlined";
+  font-variation-settings: "FILL" 0;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 24px;
+  display: flex;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+  justify-content: center;
+  align-items: center;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "liga";
+}
+i.settings::before {
+  content: "settings";
+}
+i.edit::before {
+  content: "edit_note";
+}
+i.clock::after {
+  content: "schedule";
+}
+i.error::after {
+  content: "warning";
+}
+i.done::after {
+  content: "done";
+}
+i.display {
+  color: #AAAAAA;
+}
+i.display.active {
+  color: #86A450;
+}
+i.display.list::after {
+  content: "list";
+}
+i.display.raster::after {
+  content: "grid_view";
+}
+i.image.add::after {
+  content: "add_photo_alternate";
+}
+i.accountCircle::before {
+  content: "account_circle";
+  font-variation-settings: "FILL" 1;
+}
+i.view::after {
+  content: "visibility";
+}
+i.passwordReset::after {
+  content: "lock_reset";
+}
+i.login::after {
+  content: "key";
+}
+i.info::after {
+  content: "help";
+}
+i.sold::after {
+  content: "sell";
+}
+i.camera::after {
+  content: "photo_camera";
+}
+i.vote.up::after {
+  content: "thumb_up";
+}
+i.vote.down::after {
+  content: "thumb_down";
+}
+i.talk::after {
+  content: "forum";
+}
+i.location::after {
+  font-variation-settings: "FILL" 1;
+  content: "location_on";
+}
+i.menu {
+  font-size: 22px;
+}
+i.menu.menu::after {
+  content: "menu_open";
+}
+i.menu.market::after {
+  content: "storefront";
+}
+i.menu.message::after {
+  content: "chat_bubble";
+}
+i.menu.inventory::after {
+  content: "inventory_2";
+}
+i.menu.community::after {
+  content: "groups_2";
+}
+i.menu.message.active::after {
+  content: "mark_chat_unread";
+}
+i.inventory::after {
+  content: "inventory_2";
+}
+i.supportAgent::before {
+  content: " support_agent ";
+}
+i.logout::before {
+  content: "exit_to_app";
+}
+i.delete::before {
+  content: "delete";
+}
+i.mute::after {
+  content: "notifications_off";
+}
+i.send::after {
+  content: "send";
+}
+i.share::after {
+  content: "forward";
+}
+i.moreDot::after {
+  content: "more_vert";
+}
+i.favorite.favorite::after {
+  content: "favorite";
+}
+i.favorite.active::after {
+  content: "favorite";
+  font-variation-settings: "FILL" 1;
+  color: #9C4B3E;
+}
+i.favorite.disable::after {
+  content: "heart_broken";
+  font-variation-settings: "FILL" 1;
+  color: #aaaaaa;
+}
+i.unmute::after, i.notification::after {
+  content: "notifications";
+}
+i.notification.active::after {
+  font-variation-settings: "FILL" 1;
+  content: "notifications_active";
+  color: #c27f0c;
+  transform: rotate(0.1turn);
+}
+i.more::after {
+  content: "unfold_more";
+}
+i.save::after {
+  content: "save";
+}
+i.email::after {
+  content: "email";
+}
+i.person::after {
+  content: "person";
+}
+i.delivered::after {
+  content: "done";
+}
+i.read::after {
+  content: "done_all";
+}
+i.add::after {
+  content: "add";
+}
+i.view.list::after {
+  content: "list";
+}
+i.view.grid::after {
+  content: "grid_view";
+}
+i.characteristics {
+  color: #86A450;
+}
+i.characteristics.boolean::after {
+  content: "check";
+}
+i.characteristics.booleanFalse::after {
+  content: "close";
+  color: #9C4B3E;
+}
+i.characteristics.weight::after {
+  content: "scale";
+}
+i.characteristics.volume::after {
+  font-variation-settings: "FILL" 1;
+  content: "water_drop";
+}
+i.characteristics.calendar::after {
+  content: "calendar_month";
+}
+i.characteristics.rooms::after {
+  content: "ac_unit";
+}
+i.characteristics.thermostat.min::after {
+  content: "device_thermostat";
+  color: #00AEC4;
+}
+i.characteristics.thermostat.max::after {
+  content: "device_thermostat";
+  color: #F3745F;
+}
+i.arrow.back::after {
+  content: " chevron_left ";
+  width: 100%;
+}
+i.arrow.up::after {
+  content: "expand_less";
+}

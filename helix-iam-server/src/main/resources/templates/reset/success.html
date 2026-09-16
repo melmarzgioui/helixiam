@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#a3d4c4">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2f3033">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
+    <title th:text="#{reset.page.title}">KubeDNA - Password reset</title>
+    <script defer src="/js/App.js?@project.version@" type="module"></script>
+    <meta name="googlebot" content="noindex">
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/img/favicon.avif" sizes="32x32">
+    <link rel="icon" href="/img/favicon.avif" sizes="192x192">
+    <link rel="icon" href="/img/favicon.avif">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar">
+            <a>
+                <div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div>
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <div  class="container center">
+            <article>
+                <div class="actionSuccess" >
+                    <i class="done"></i>
+                    <h3 th:text="#{reset.success.title}">Password Reset Requested</h3>
+                    <span class="addition" th:text="#{reset.success.message}">If your email address is chilling in our system, we'll fire off a password reset link your way!</span>
+                </div>
+                <div class="spacer">&nbsp;</div>
+                <div class="spacer">&nbsp;</div>
+                <div class="buttonHolder">
+                    <button type="button" class="continueLogin">
+                        <i class="login"></i>
+                        <span th:text="#{common.login}">Login</span>
+                    </button>
+                </div>
+<!--            <div class="spacer">&nbsp;</div>-->
+<!--            <div class="spacer">&nbsp;</div>-->
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+</body>
+</html>

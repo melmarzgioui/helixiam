@@ -1,0 +1,10 @@
+footer {
+  height: 20px;
+  background: var(--color-footer-background);
+  //background: linear-gradient(0deg, var(--color-ligth-green) 90%, var(--color-body) 100%);
+
+
+  @media screen and (max-width: 600px) {
+    display: none;
+  }
+}

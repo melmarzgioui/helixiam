@@ -1,0 +1,12 @@
+---
+import Base from "../../layouts/Base.astro";
+import DemoView from "../../components/views/DemoView.astro";
+import { demo } from "../../pagedata/demo";
+import type { Locale } from "../../i18n";
+export function getStaticPaths() { return [{ params: { lang: "fr" } }, { params: { lang: "nl" } }]; }
+const locale = Astro.params.lang as Locale;
+const S = demo[locale];
+---
+<Base title={S.metaTitle} description={S.metaDesc} translated={true}>
+  <DemoView />
+</Base>

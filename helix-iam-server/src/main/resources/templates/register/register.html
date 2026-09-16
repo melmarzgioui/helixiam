@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#2f3033">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <link th:href="@{/css/login.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
+    <title th:text="#{register.page.title}">HelixIAM — Registration</title>
+    <script defer src="/js/App.js?@project.version@" type="module"></script>
+    <meta name="googlebot" content="noindex">
+    <meta name="robots" content="noindex">
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/helix-favicon.svg}">
+    <link rel="icon" th:href="@{/img/favicon.avif}" sizes="32x32">
+
+    <!-- Per-realm theming (B2): same blocks as login.html, injected after login.css so an admin's brand wins. -->
+    <style th:if="${brandingPrimaryColor != null}" th:inline="text">
+        .helix-form button[type="submit"] { background-color: [[${brandingPrimaryColor}]] !important; border-color: [[${brandingPrimaryColor}]] !important; }
+        .helix-form form input[type=text]:focus,
+        .helix-form form input[type=password]:focus { border-color: [[${brandingPrimaryColor}]] !important; }
+        .brand-lockup .word b, .brand-lockup .spark, .brand-badges li, .brand-bottom .kd-spark { color: [[${brandingPrimaryColor}]] !important; }
+    </style>
+    <style th:if="${brandingBackgroundColor != null}" th:inline="text">
+        .helix-brand { background: [[${brandingBackgroundColor}]] !important; }
+    </style>
+    <style th:if="${brandingCustomCss != null}" th:utext="${brandingCustomCss}"></style>
+</head>
+<body>
+<div class="helix-auth">
+    <aside class="helix-brand">
+        <div class="brand-watermark" aria-hidden="true">
+            <svg viewBox="0 0 125 125"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+        </div>
+        <a class="brand-lockup">
+            <img th:if="${brandingLogo != null}" class="brand-logo-custom" th:src="${brandingLogo}" alt="Logo">
+            <th:block th:if="${brandingLogo == null}">
+                <span class="word">Helix<b>IAM</b></span>
+                <svg class="spark" viewBox="0 0 125 125" aria-hidden="true"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+            </th:block>
+        </a>
+        <div class="brand-mid">
+            <h1 th:text="#{login.brand.headline}">Secure access for every human and machine.</h1>
+            <p th:text="#{login.brand.subhead}">One identity platform for your people, services and AI agents.</p>
+            <ul class="brand-badges" aria-hidden="true">
+                <li>OpenID Connect</li><li>SAML 2.0</li><li>SCIM</li><li>Passkeys</li>
+            </ul>
+        </div>
+        <div class="brand-bottom">
+            <svg class="kd-spark" viewBox="0 0 125 125" aria-hidden="true"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+            <span th:text="#{login.brand.byline}">A KubeDNA product</span>
+        </div>
+    </aside>
+
+    <main class="helix-form">
+        <div class="form-inner">
+            <div class="form-head">
+                <h2 th:text="#{register.title}">Create your account</h2>
+                <p th:if="${brandingWelcomeText != null}" th:text="${brandingWelcomeText}"></p>
+            </div>
+
+            <div class="alert error" th:if="${!registerEnabled}" th:text="#{register.disabled}">
+                Registration is closed for this realm.
+            </div>
+
+            <form th:if="${registerEnabled}" th:action="@{/register}" th:object="${userRegister}" method="post" role="form" id="loginForm">
+                <label for="username" th:text="#{register.username.label}">Email Address (Username)*</label>
+                <input type="text" id="username" name="username" th:field="*{username}" th:classappend="${errors.get('invalid.username') != null ? 'invalid' : 'valid'}" autocomplete="username"/>
+
+                <!-- Claim-driven fields from the realm's catalogue. Verified/subject claims are collected elsewhere and skipped. -->
+                <th:block th:each="claim : ${registrationClaims}"
+                          th:if="${claim.key() != 'sub' and claim.key() != 'email' and claim.key() != 'email_verified' and claim.key() != 'phone_number_verified' and claim.key() != 'updated_at'}">
+                    <label th:for="${claim.key()}" th:text="${claim.mandatory()} ? ${claim.label()} + ' *' : ${claim.label()}">Claim</label>
+                    <input type="text" th:id="${claim.key()}" th:name="${claim.key()}"
+                           th:value="${userRegister.getAttributes().get(claim.key())}"
+                           th:placeholder="${claim.placeholder()}"
+                           th:required="${claim.mandatory()}"
+                           th:classappend="${errors.get('invalid.claim.' + claim.key()) != null ? 'invalid' : 'valid'}"/>
+                </th:block>
+
+                <div class="spacer"></div>
+                <label for="password" th:text="#{register.password.label}">Password*</label>
+                <input type="password" id="password" name="password" th:field="*{password}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+
+                <label for="repeatPassword" th:text="#{register.repeatPassword.label}">Repeat Password*</label>
+                <input type="password" id="repeatPassword" name="repeatPassword" th:field="*{repeatPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+
+                <div class="spacer"></div>
+                <div class="description"><span th:text="#{register.terms.prefix}">By creating an account, you accept the</span>
+                    <a href="https://kubedna.com/terms-of-service/" target="_blank" th:text="#{register.terms.link}">Terms of Service</a>
+                    <span th:text="#{register.terms.suffix}">.</span></div>
+                <span class="error" th:if="${errors != null && errors.get('invalid.captcha') != null}" th:text="#{register.captcha.error}">Please complete the CAPTCHA challenge.</span>
+                <div th:replace="~{fragments/captcha :: widget}"></div>
+
+                <div class="buttonHolder">
+                    <button type="submit">
+                        <span th:text="#{register.submit}">Register</span>
+                        <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </button>
+                </div>
+            </form>
+
+            <div class="subtext">
+                <span th:text="#{register.haveAccount}">Already have an account?</span>
+                <a href="/login" th:text="#{login.submit}">Sign in</a>
+            </div>
+        </div>
+    </main>
+</div>
+</body>
+</html>

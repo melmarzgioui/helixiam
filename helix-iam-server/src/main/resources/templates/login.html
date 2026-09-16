@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#2f3033">
+
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <link th:href="@{/css/login.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
+    <title th:text="#{login.page.title}">HelixIAM — Sign in</title>
+    <script defer src="/js/App.js?@project.version@" type="module"></script>
+    <meta name="googlebot" content="noindex">
+    <meta name="robots" content="noindex">
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/helix-favicon.svg}">
+    <link rel="icon" th:href="@{/img/favicon.avif}" sizes="32x32">
+
+    <!-- B2: per-realm login theming. These blocks are injected AFTER login.css so an admin's brand
+         always wins. brandingPrimaryColor recolours the submit button + accents; brandingBackgroundColor
+         recolours the brand panel; brandingCustomCss (admin-authored) is appended last so it overrides all. -->
+    <style th:if="${brandingPrimaryColor != null}" th:inline="text">
+        .helix-form button[type="submit"] { background-color: [[${brandingPrimaryColor}]] !important; border-color: [[${brandingPrimaryColor}]] !important; }
+        .helix-form form input[type=text]:focus,
+        .helix-form form input[type=password]:focus { border-color: [[${brandingPrimaryColor}]] !important; }
+        .helix-form a.federationProvider:hover { border-color: [[${brandingPrimaryColor}]] !important; }
+        .brand-lockup .word b, .brand-lockup .spark, .brand-badges li, .brand-bottom .kd-spark { color: [[${brandingPrimaryColor}]] !important; }
+    </style>
+    <style th:if="${brandingBackgroundColor != null}" th:inline="text">
+        .helix-brand { background: [[${brandingBackgroundColor}]] !important; }
+    </style>
+    <style th:if="${brandingCustomCss != null}" th:utext="${brandingCustomCss}"></style>
+</head>
+<body>
+<div class="helix-auth">
+
+    <!-- =========================== Brand panel =========================== -->
+    <aside class="helix-brand">
+        <!-- oversized watermark spark -->
+        <div class="brand-watermark" aria-hidden="true">
+            <svg viewBox="0 0 125 125"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+        </div>
+
+        <!-- lockup: per-realm logo override, else the built-in HelixIAM lockup -->
+        <a class="brand-lockup">
+            <img th:if="${brandingLogo != null}" class="brand-logo-custom" th:src="${brandingLogo}" alt="Logo">
+            <th:block th:if="${brandingLogo == null}">
+                <span class="word">Helix<b>IAM</b></span>
+                <svg class="spark" viewBox="0 0 125 125" aria-hidden="true"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+            </th:block>
+        </a>
+
+        <div class="brand-mid">
+            <h1 th:text="#{login.brand.headline}">Secure access for every human and machine.</h1>
+            <p th:text="#{login.brand.subhead}">One identity platform for your people, services and AI agents — single sign-on, strong authentication and fine-grained access, on your terms.</p>
+            <ul class="brand-badges" aria-hidden="true">
+                <li>OpenID Connect</li>
+                <li>SAML 2.0</li>
+                <li>SCIM</li>
+                <li>Passkeys</li>
+            </ul>
+        </div>
+
+        <div class="brand-bottom">
+            <svg class="kd-spark" viewBox="0 0 125 125" aria-hidden="true"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+            <span th:text="#{login.brand.byline}">A KubeDNA product</span>
+        </div>
+    </aside>
+
+    <!-- =========================== Form panel ============================ -->
+    <main class="helix-form">
+        <div class="form-inner">
+
+            <!-- i18n: language switcher (persists choice in the HELIX_LOCALE cookie via ?lang=). -->
+            <div class="lang">
+                <a th:href="@{''(lang='en')}" th:text="#{language.en}">English</a>
+                <span>·</span>
+                <a th:href="@{''(lang='nl')}" th:text="#{language.nl}">Nederlands</a>
+            </div>
+
+            <div class="form-head">
+                <h2 th:text="#{login.title}">Sign in</h2>
+                <!-- B2: optional per-realm welcome message under the title. -->
+                <p th:if="${brandingWelcomeText != null}" th:text="${brandingWelcomeText}"></p>
+            </div>
+
+            <!-- Auth-hardening (feature 1): generic account-lockout message (deliberately non-specific to avoid
+                 user enumeration — it never reveals whether the account exists or the password was right). -->
+            <div class="alert error" id="loginFailed"
+                 th:if="${param.error != null && #strings.toString(param.error).equals('accountLocked')}"
+                 th:text="#{login.error.accountLocked}">
+                Your account is temporarily locked due to too many failed sign-in attempts. Please try again later or reset your password.
+            </div>
+
+            <!-- Auth-hardening (feature 6): concurrent-session cap reached and the realm denies new logins. -->
+            <div class="alert error"
+                 th:if="${param.error != null && #strings.toString(param.error).equals('tooManySessions')}"
+                 th:text="#{login.error.tooManySessions}">
+                You have too many active sessions. Sign out of another device and try again.
+            </div>
+
+            <div class="alert success"
+                 th:if="${param.info != null && #strings.toString(param.info).equals('verified')}"
+                 th:text="#{login.info.verified}">
+                Your account is all set—welcome aboard!
+            </div>
+
+            <form th:action="@{/login}" method="post" role="form" id="loginForm"
+                  th:classappend="${param.error != null && ! #strings.toString(param.error).equals('accountLocked') && ! #strings.toString(param.error).equals('tooManySessions') ? 'invalid' : 'valid'}">
+                <label for="username" th:text="#{login.username.label}">Email Address</label>
+                <input type="text" id="username" name="username" autocomplete="username"/>
+                <span class="error" th:text="#{login.username.error}">Provide your email address</span>
+
+                <label for="password" th:text="#{login.password.label}">Password</label>
+                <input type="password" id="password" name="password" autocomplete="current-password"/>
+                <span class="error" th:text="#{login.password.error}">Provide your password</span>
+
+                <!-- Auth-hardening (feature 5): CAPTCHA widget (renders only when the realm enables it). -->
+                <div th:replace="~{fragments/captcha :: widget}"></div>
+
+                <div class="resetPasswordContainer">
+                    <a href="/reset/password" th:text="#{login.forgotPassword}">Forgot Password?</a>
+                </div>
+
+                <div class="buttonHolder">
+                    <button type="submit">
+                        <span th:text="#{login.submit}">Sign in</span>
+                        <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M5 12h14M13 6l6 6-6 6"/>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+
+            <!-- Helix IAM E5.4: federated login — one "Sign in with X" button per configured provider.
+                 Each button carries its brand mark: an admin-set logoUrl wins, else the built-in official
+                 eID mark (DigiD / eHerkenning / eIDAS) keyed by the provider's iconKey. -->
+            <div class="federationProviders" th:if="${federationProviders != null and !federationProviders.isEmpty()}">
+                <div class="federationDivider"><span th:text="#{login.federation.divider}">or sign in with</span></div>
+                <a class="federationProvider" th:each="provider : ${federationProviders}"
+                   th:href="@{'/broker/' + ${provider.alias()}}"
+                   th:classappend="${provider.iconKey() != null ? 'idp-' + provider.iconKey() : ''}">
+                    <img th:if="${provider.logoUrl() != null}" class="fed-logo" th:src="${provider.logoUrl()}" alt="" aria-hidden="true">
+                    <img th:if="${provider.logoUrl() == null and provider.iconKey() == 'digid'}" class="fed-logo" th:src="@{/img/idp/digid.svg}" alt="" aria-hidden="true">
+                    <img th:if="${provider.logoUrl() == null and provider.iconKey() == 'eherkenning'}" class="fed-logo" th:src="@{/img/idp/eherkenning.png}" alt="" aria-hidden="true">
+                    <img th:if="${provider.logoUrl() == null and provider.iconKey() == 'eidas'}" class="fed-logo" th:src="@{/img/idp/eidas.png}" alt="" aria-hidden="true">
+                    <span th:text="${provider.displayName()}">Provider</span>
+                </a>
+            </div>
+
+            <div class="subtext">
+                <span th:text="#{login.noAccount}">Don't have an account?</span>
+                <a href="/register" th:text="#{login.createAccount}">Create Account</a>
+            </div>
+
+        </div>
+    </main>
+</div>
+</body>
+</html>

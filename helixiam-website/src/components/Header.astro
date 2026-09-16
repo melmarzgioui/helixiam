@@ -1,0 +1,176 @@
+---
+import Logo from "./Logo.astro";
+import Icon from "./Icon.astro";
+import LangSwitcher from "./LangSwitcher.astro";
+import { t, docsUrl, localeOf, unlocalize, localizePath, LOCALES, LOCALE_META, type Locale } from "../i18n";
+
+const locale: Locale = localeOf(Astro.url.pathname);
+const canonicalPath = unlocalize(Astro.url.pathname);
+const translated = Boolean(Astro.props.translated);
+const T = t(locale);
+const L = (href: string) => localizePath(href, locale); // prefix internal links with the active locale
+
+// Mobile language targets: mirror LangSwitcher — a translated page keeps the current path in the
+// target locale, otherwise fall back to that locale's home so we never link to a missing page.
+const langTargets = LOCALES.map((l) => ({
+  l, meta: LOCALE_META[l], href: translated ? localizePath(canonicalPath, l) : localizePath("/", l),
+}));
+
+// Nav targets stay on canonical (English) pages during the phased translation rollout,
+// so no locale link ever 404s. Labels are translated. Logo + switcher are locale-aware.
+const NAV = [
+  {
+    label: T.nav.product, href: "/product/",
+    children: [
+      { label: T.nav.platform, href: "/product/" },
+      { label: T.nav.auth, href: "/product/authentication/" },
+      { label: T.nav.sso, href: "/product/sso-federation/" },
+      { label: T.nav.agents, href: "/product/ai-agents/" },
+      { label: T.nav.workload, href: "/product/workload-identity/" },
+      { label: T.nav.eid, href: "/product/european-eid/" },
+      { label: T.nav.developers, href: "/product/developers/" },
+      { label: T.nav.security, href: "/product/security/" },
+    ],
+  },
+  {
+    label: T.nav.solutions, href: "/solutions/",
+    children: [
+      { label: T.nav.forDevs, href: "/solutions/developers/" },
+      { label: T.nav.forSec, href: "/solutions/security-teams/" },
+      { label: T.nav.forAi, href: "/solutions/ai-teams/" },
+      { label: T.nav.forGov, href: "/solutions/public-sector/" },
+    ],
+  },
+  { label: T.nav.why, href: "/why-helixiam/" },
+  { label: T.nav.docs, href: docsUrl(locale), external: true },
+  {
+    label: T.nav.company, href: "/company/",
+    children: [
+      { label: T.nav.about, href: "/company/" },
+      { label: T.nav.trust, href: "/trust/" },
+      { label: T.nav.blog, href: "/blog/" },
+      { label: T.nav.contact, href: "/contact/" },
+    ],
+  },
+];
+---
+<header class="hdr" id="siteHeader">
+  <div class="container-wide container hdr-in">
+    <Logo />
+
+    <nav class="nav-desktop" aria-label="Primary">
+      {NAV.map((item) => (
+        item.children ? (
+          <div class="nav-item has-menu">
+            <a href={L(item.href)} class="nav-link">{item.label}<Icon name="chevron" size={15} class="chev" /></a>
+            <div class="mega" role="menu">
+              {item.children.map((c) => <a href={L(c.href)} class="mega-link" role="menuitem"><span class="mega-title">{c.label}</span></a>)}
+            </div>
+          </div>
+        ) : (
+          <a href={item.external ? item.href : L(item.href)} class="nav-link" target={item.external ? "_blank" : undefined} rel={item.external ? "noopener" : undefined}>{item.label}</a>
+        )
+      ))}
+    </nav>
+
+    <div class="hdr-cta">
+      <LangSwitcher locale={locale} canonicalPath={canonicalPath} translated={translated} />
+      <a href={L("/contact/")} class="nav-link contact-link">{T.nav.contact}</a>
+      <a href={L("/demo/")} class="btn btn-primary btn-sm">{T.nav.demo}</a>
+    </div>
+
+    <button class="burger" id="burger" aria-label="Menu" aria-expanded="false" aria-controls="mobileNav">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+
+  <div class="mobile-nav" id="mobileNav" hidden>
+    {NAV.map((item) => (
+      item.children ? (
+        <details class="m-group">
+          <summary>{item.label}<Icon name="chevron" size={16} /></summary>
+          {item.children.map((c) => <a href={L(c.href)} class="m-link">{c.label}</a>)}
+        </details>
+      ) : (
+        <a href={item.external ? item.href : L(item.href)} class="m-link m-top" target={item.external ? "_blank" : undefined}>{item.label}</a>
+      )
+    ))}
+    <div class="m-lang" role="group" aria-label={T.langLabel}>
+      <span class="m-lang-label">{T.langLabel}</span>
+      <div class="m-lang-opts">
+        {langTargets.map((o) => (
+          <a href={o.href} class:list={["m-lang-opt", { active: o.l === locale }]} hreflang={o.meta.htmlLang} aria-current={o.l === locale ? "true" : undefined}>{o.meta.short}</a>
+        ))}
+      </div>
+    </div>
+    <div class="m-cta">
+      <a href={L("/contact/")} class="btn btn-ghost">{T.nav.contact}</a>
+      <a href={L("/demo/")} class="btn btn-primary">{T.nav.demo}</a>
+    </div>
+  </div>
+</header>
+
+<style>
+  .hdr { position: sticky; top: 0; z-index: 60; backdrop-filter: blur(14px); background: color-mix(in srgb, var(--void) 74%, transparent); border-bottom: 1px solid transparent; transition: border-color 0.3s var(--ease), background 0.3s var(--ease); }
+  .hdr.scrolled { border-color: var(--line); background: color-mix(in srgb, var(--void) 88%, transparent); }
+  .hdr-in { display: flex; align-items: center; gap: 1.2rem; height: 68px; }
+  .nav-desktop { display: flex; align-items: center; gap: 0.15rem; margin-left: 0.5rem; }
+  .nav-item { position: relative; }
+  .nav-link { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--slate); font-weight: 500; font-size: 0.95rem; padding: 0.5rem 0.65rem; border-radius: 8px; transition: color 0.2s var(--ease), background 0.2s var(--ease); }
+  .nav-link:hover { color: var(--ink); background: rgba(255, 255, 255, 0.04); }
+  .chev { opacity: 0.55; margin-left: 0.05rem; transition: transform 0.2s var(--ease); }
+  .has-menu:hover .chev, .has-menu:focus-within .chev { transform: rotate(180deg); opacity: 0.9; }
+
+  .mega { position: absolute; top: 100%; left: 50%; transform: translateX(-50%) translateY(6px); min-width: 280px; margin-top: 10px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r); padding: 0.5rem; box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.85); opacity: 0; visibility: hidden; transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0s linear 0.18s; }
+  .mega::before { content: ""; position: absolute; top: -14px; left: 0; right: 0; height: 14px; }
+  .has-menu:hover .mega, .has-menu:focus-within .mega { opacity: 1; visibility: visible; transform: translateX(-50%); transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0s; }
+  .mega-link { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.55rem 0.7rem; border-radius: 10px; }
+  .mega-link:hover { background: rgba(94, 234, 212, 0.07); }
+  .mega-title { color: var(--ink); font-weight: 600; font-size: 0.92rem; }
+
+  .hdr-cta { margin-left: auto; display: flex; align-items: center; gap: 0.6rem; }
+  .contact-link { color: var(--slate); }
+  .btn-sm { padding: 0.55rem 1rem; font-size: 0.9rem; }
+
+  .burger { display: none; margin-left: auto; background: none; border: 0; width: 42px; height: 42px; cursor: pointer; flex-direction: column; gap: 5px; align-items: center; justify-content: center; }
+  .burger span { width: 22px; height: 2px; background: var(--ink); border-radius: 2px; transition: transform 0.25s var(--ease), opacity 0.2s var(--ease); }
+  .burger[aria-expanded="true"] span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .burger[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+  .burger[aria-expanded="true"] span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+  .mobile-nav { display: none; flex-direction: column; padding: 0.5rem 1.1rem 1.4rem; border-top: 1px solid var(--line); background: var(--void-2); }
+  .m-group summary, .m-top { display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 0.2rem; color: var(--ink); font-weight: 600; border-bottom: 1px solid var(--line); cursor: pointer; list-style: none; }
+  .m-group summary::-webkit-details-marker { display: none; }
+  .m-link { display: block; padding: 0.6rem 0.9rem; color: var(--slate); }
+  .m-group .m-link { padding-left: 1.1rem; }
+  .m-lang { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+  .m-lang-label { color: var(--faint); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .m-lang-opts { display: flex; gap: 0.4rem; }
+  .m-lang-opt { min-width: 44px; text-align: center; padding: 0.5rem 0.7rem; border: 1px solid var(--line-2); border-radius: 10px; color: var(--slate); font-weight: 600; font-size: 0.9rem; }
+  .m-lang-opt:hover { color: var(--ink); border-color: var(--jade); }
+  .m-lang-opt.active { color: var(--void); background: var(--grad-cta); border-color: transparent; }
+
+  .m-cta { display: grid; gap: 0.6rem; margin-top: 1.1rem; }
+  .m-cta .btn { width: 100%; }
+
+  @media (max-width: 1024px) {
+    .nav-desktop, .hdr-cta { display: none; }
+    .burger { display: flex; }
+    .mobile-nav[data-open] { display: flex; }
+  }
+</style>
+
+<script>
+  const hdr = document.getElementById("siteHeader");
+  const burger = document.getElementById("burger");
+  const mobile = document.getElementById("mobileNav");
+  const onScroll = () => hdr?.classList.toggle("scrolled", window.scrollY > 8);
+  onScroll();
+  window.addEventListener("scroll", onScroll, { passive: true });
+  burger?.addEventListener("click", () => {
+    const open = mobile?.hasAttribute("data-open");
+    if (open) { mobile?.removeAttribute("data-open"); mobile?.setAttribute("hidden", ""); }
+    else { mobile?.setAttribute("data-open", ""); mobile?.removeAttribute("hidden"); }
+    burger.setAttribute("aria-expanded", String(!open));
+  });
+</script>

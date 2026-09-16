@@ -1,0 +1,46 @@
+---
+import PageHero from "../PageHero.astro";
+import FeatureRows from "../FeatureRows.astro";
+import CtaBand from "../CtaBand.astro";
+import Icon from "../Icon.astro";
+import { featureFor, type FeaturePage } from "../../data/product";
+import { t, localeOf, localizePath, type Locale } from "../../i18n";
+interface Props { f: FeaturePage; }
+const { f } = Astro.props;
+const locale: Locale = localeOf(Astro.url.pathname);
+const L = (href: string) => localizePath(href, locale);
+const U = t(locale).ui;
+const related = f.related.map((s) => featureFor(s, locale)!).filter(Boolean);
+---
+<PageHero eyebrow={f.eyebrow} title={f.title} lead={f.lead} icon={f.icon} />
+<section class="section">
+  <div class="container">
+    <FeatureRows rows={f.rows} />
+  </div>
+</section>
+
+<section class="section related">
+  <div class="container">
+    <h2 class="reveal">{U.exploreMore}</h2>
+    <div class="rel-grid">
+      {related.map((r) => (
+        <a href={L(`/product/${r.slug}/`)} class="card rel reveal">
+          <span class="rel-ico"><Icon name={r.icon} size={20} /></span>
+          <h3>{r.navLabel}</h3>
+          <span class="rel-more">{U.view}<Icon name="arrow" size={15} /></span>
+        </a>
+      ))}
+    </div>
+  </div>
+</section>
+
+<CtaBand />
+
+<style>
+  .related h2 { margin-bottom: 1.6rem; }
+  .rel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
+  .rel { display: flex; flex-direction: column; gap: 0.4rem; }
+  .rel-ico { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; border-radius: 11px; color: var(--jade); background: rgba(94, 234, 212, 0.08); border: 1px solid rgba(94, 234, 212, 0.2); margin-bottom: 0.5rem; }
+  .rel-more { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--jade); font-weight: 600; font-size: 0.9rem; margin-top: auto; }
+  @media (max-width: 820px) { .rel-grid { grid-template-columns: 1fr; } }
+</style>

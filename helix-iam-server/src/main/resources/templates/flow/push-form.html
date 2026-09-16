@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>KubeDNA - Login</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/img/favicon.avif">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar"><a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a></div>
+    </header>
+    <main>
+        <div class="container title">
+            <h3>Approve on your phone</h3>
+            <div class="description">We sent a notification to your enrolled device. Tap the number below
+                to approve.</div>
+        </div>
+        <div class="container">
+            <article>
+                <div th:if="${error}" class="error" style="display:block">Approval failed or was denied, please try again.</div>
+                <div id="pushNumber" class="title" style="font-size:2.5rem;text-align:center" th:text="${pushNumber}">--</div>
+                <div id="pushStatus" class="description">Waiting for approval…</div>
+                <form id="pushForm" th:action="${flowAction}" method="post">
+                    <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
+                </form>
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+<script th:inline="javascript">
+    const pushId = /*[[${pushId}]]*/ '';
+
+    // Short-poll the shared store (NOT SSE) — stateless and node-agnostic, so it scales horizontally.
+    async function poll() {
+        try {
+            const res = await fetch('/push/' + encodeURIComponent(pushId), {headers: {'Accept': 'application/json'}});
+            const data = await res.json();
+            if (data.status === 'APPROVED') {
+                document.getElementById('pushStatus').textContent = 'Approved — signing you in…';
+                document.getElementById('pushForm').submit(); // run the authenticator action (consume + login)
+                return;
+            }
+            if (data.status === 'DENIED' || data.status === 'EXPIRED' || data.status === 'UNKNOWN') {
+                document.getElementById('pushStatus').textContent = 'Request ' + data.status.toLowerCase() + '. Refresh to try again.';
+                return;
+            }
+        } catch (e) { /* transient — keep polling */ }
+        setTimeout(poll, 2500);
+    }
+
+    setTimeout(poll, 2500);
+</script>
+</body>
+</html>

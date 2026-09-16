@@ -1,0 +1,86 @@
+---
+import Logo from "./Logo.astro";
+import { t, docsUrl, localeOf, localizePath, type Locale } from "../i18n";
+const locale: Locale = localeOf(Astro.url.pathname);
+const T = t(locale);
+const L = (href: string) => localizePath(href, locale);
+const year = 2026;
+const cols = [
+  { title: T.footer.product, links: [
+    { label: T.nav.platform, href: "/product/" },
+    { label: T.nav.auth, href: "/product/authentication/" },
+    { label: T.nav.sso, href: "/product/sso-federation/" },
+    { label: T.nav.agents, href: "/product/ai-agents/" },
+    { label: T.nav.workload, href: "/product/workload-identity/" },
+    { label: T.nav.eid, href: "/product/european-eid/" },
+  ]},
+  { title: T.footer.solutions, links: [
+    { label: T.nav.forDevs, href: "/solutions/developers/" },
+    { label: T.nav.forSec, href: "/solutions/security-teams/" },
+    { label: T.nav.forAi, href: "/solutions/ai-teams/" },
+    { label: T.nav.forGov, href: "/solutions/public-sector/" },
+    { label: T.nav.why, href: "/why-helixiam/" },
+  ]},
+  { title: T.footer.developers, links: [
+    { label: T.nav.docs, href: docsUrl(locale), ext: true },
+    { label: T.nav.developers, href: "/product/developers/" },
+    { label: T.nav.security, href: "/product/security/" },
+    { label: T.nav.trust, href: "/trust/" },
+  ]},
+  { title: T.footer.company, links: [
+    { label: T.nav.about, href: "/company/" },
+    { label: T.nav.blog, href: "/blog/" },
+    { label: T.nav.contact, href: "/contact/" },
+    { label: T.nav.demo, href: "/demo/" },
+  ]},
+];
+---
+<footer class="ftr">
+  <div class="container container-wide">
+    <div class="ftr-grid">
+      <div class="ftr-brand">
+        <Logo />
+        <p class="ftr-tag">{T.footer.tag}</p>
+        <div class="ftr-badges">
+          <span class="chip">🇪🇺 {T.footer.sovereign}</span>
+          <span class="chip">{T.footer.standards}</span>
+        </div>
+      </div>
+      {cols.map((col) => (
+        <nav class="ftr-col" aria-label={col.title}>
+          <h4>{col.title}</h4>
+          {col.links.map((l) => (
+            <a href={l.ext ? l.href : L(l.href)} target={l.ext ? "_blank" : undefined} rel={l.ext ? "noopener" : undefined}>{l.label}</a>
+          ))}
+        </nav>
+      ))}
+    </div>
+    <hr class="hairline" />
+    <div class="ftr-bottom">
+      <p class="ftr-copy">© {year} {"HelixIAM"}. <a href="https://kubedna.com" target="_blank" rel="noopener">KubeDNA</a> · {T.footer.rights}</p>
+      <nav class="ftr-legal" aria-label="Legal">
+        <a href={L("/legal/privacy/")}>{T.footer.privacy}</a>
+        <a href={L("/legal/terms/")}>{T.footer.terms}</a>
+        <a href={L("/trust/")}>{T.footer.security}</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .ftr { border-top: 1px solid var(--line); background: linear-gradient(180deg, transparent, rgba(94, 234, 212, 0.02)); padding-block: 3.5rem 2rem; margin-top: 2rem; }
+  .ftr-grid { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 2.5rem 1.5rem; }
+  .ftr-brand { max-width: 300px; }
+  .ftr-tag { color: var(--slate); font-size: 0.94rem; margin-top: 0.9rem; }
+  .ftr-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+  .ftr-col h4 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); margin-bottom: 0.9rem; }
+  .ftr-col a { display: block; color: var(--slate); font-size: 0.92rem; padding: 0.28rem 0; }
+  .ftr-col a:hover { color: var(--jade); }
+  .ftr-bottom { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.4rem; flex-wrap: wrap; }
+  .ftr-copy { color: var(--faint); font-size: 0.88rem; margin: 0; }
+  .ftr-legal { display: flex; gap: 1.2rem; }
+  .ftr-legal a { color: var(--faint); font-size: 0.88rem; }
+  .ftr-legal a:hover { color: var(--jade); }
+  @media (max-width: 900px) { .ftr-grid { grid-template-columns: 1fr 1fr; } .ftr-brand { grid-column: 1 / -1; max-width: none; } }
+  @media (max-width: 520px) { .ftr-grid { grid-template-columns: 1fr; } }
+</style>

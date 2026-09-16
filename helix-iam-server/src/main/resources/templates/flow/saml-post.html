@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- Helix IAM E6: SAML HTTP-POST binding — auto-submits the (signed) AuthnRequest to the IdP.
+     Used by DigiD/eHerkenning, which require the POST binding rather than HTTP-Redirect. -->
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Redirecting to your identity provider…</title>
+</head>
+<body onload="document.forms[0].submit()">
+<noscript>
+    <p>JavaScript is disabled. Click the button to continue to your identity provider.</p>
+</noscript>
+<form method="post" th:action="${action}">
+    <input type="hidden" th:each="field : ${fields}" th:name="${field.key}" th:value="${field.value}"/>
+    <noscript><button type="submit">Continue</button></noscript>
+</form>
+</body>
+</html>

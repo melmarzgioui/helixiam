@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# AI / LLM crawlers welcome — curated site map for models lives at /llms.txt
+Sitemap: https://helixiam.com/sitemap.xml

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title th:text="#{login.page.title}">KubeDNA - Login</title>
+    <script defer src="/js/App.js?@project.version@" type="module"></script>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/img/favicon.avif">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar"><a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a></div>
+    </header>
+    <main>
+        <div class="container title">
+            <h3 th:text="#{flow.otp.title}">One-Time Code</h3>
+            <div class="description" th:text="#{flow.otp.description}">Enter the verification code from your authenticator app or message.</div>
+        </div>
+        <div class="container">
+            <article>
+            <form th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
+                <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
+                <label for="code" th:text="#{flow.otp.code.label}">Authentication Code:</label>
+                <input type="number" id="code" name="code" autofocus placeholder="XXXXXX" autocomplete="off"/>
+                <span class="error" th:text="#{flow.otp.code.error}">Invalid code, please try again</span>
+                <div class="spacer">&nbsp;</div>
+                <div class="buttonHolder"><button type="submit"><span th:text="#{common.verify}">Verify</span></button></div>
+            </form>
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+</body>
+</html>

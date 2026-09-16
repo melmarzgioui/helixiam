@@ -1,0 +1,282 @@
+---
+import IdentityGenome from "./IdentityGenome.astro";
+import Icon from "./Icon.astro";
+import CtaBand from "./CtaBand.astro";
+import { capabilitiesFor } from "../consts";
+import { t, localeOf, localizePath, type Locale } from "../i18n";
+
+const locale: Locale = localeOf(Astro.url.pathname);
+const H = t(locale).home;
+const L = (href: string) => localizePath(href, locale);
+const CAPABILITIES = capabilitiesFor(locale);
+const strandKeys = ["human", "nonhuman"];
+const diffIcons = ["agent", "eu", "protocol", "dev"];
+const diffHrefs = ["/product/ai-agents/", "/product/european-eid/", "/product/security/", "/product/developers/"].map(L);
+const easeIcons = ["cloud", "code", "eye"];
+const easeNums = ["01", "02", "03"];
+---
+<section class="hero">
+  <div class="container container-wide hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow">{H.eyebrow}</span>
+      <h1>{H.h1a}<span class="grad-text">{H.h1b}</span>{H.h1c}</h1>
+      <p class="lead hero-lead" set:html={H.lead}></p>
+      <div class="hero-actions">
+        <a href={L("/demo/")} class="btn btn-primary btn-lg">{t(locale).cta.book}<Icon name="arrow" size={18} /></a>
+        <a href={L("/product/")} class="btn btn-ghost btn-lg">{t(locale).cta.explore}</a>
+      </div>
+      <ul class="hero-trust">
+        {H.trust.map((li) => <li><Icon name="check" size={16} />{li}</li>)}
+      </ul>
+    </div>
+    <div class="hero-visual">
+      <IdentityGenome />
+    </div>
+  </div>
+</section>
+
+<section class="logos">
+  <div class="container">
+    <p class="logos-cap">{H.logos}</p>
+    <div class="logo-row" aria-label="Placeholder logos">
+      {H.logoSlots.map((n) => <div class="logo-slot"><span>{n}</span></div>)}
+    </div>
+  </div>
+</section>
+
+<section class="section" id="strands">
+  <div class="container">
+    <div class="sec-head reveal">
+      <span class="eyebrow">{H.strandsEyebrow}</span>
+      <h2>{H.strandsTitleA}<span class="grad-text">{H.strandsTitleB}</span>.</h2>
+      <p class="lead">{H.strandsLead}</p>
+    </div>
+    <div class="strand-grid">
+      {H.strands.map((s, i) => (
+        <div class={`card strand reveal ${strandKeys[i]}`}>
+          <div class="strand-top"><span class={`strand-dot ${strandKeys[i]}`}></span><h3>{s.title}</h3></div>
+          <p>{s.blurb}</p>
+          <ul class="ticks">{s.points.map((p) => <li><Icon name="check" size={15} />{p}</li>)}</ul>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section class="section diff">
+  <div class="container">
+    <div class="sec-head reveal"><span class="eyebrow">{H.whyEyebrow}</span><h2>{H.whyTitle}</h2></div>
+    <div class="diff-grid">
+      {H.diff.map((d, i) => (
+        <a href={diffHrefs[i]} class="card diff-card reveal">
+          <span class="diff-ico"><Icon name={diffIcons[i]} size={22} /></span>
+          <h3>{d.title}</h3>
+          <p>{d.blurb}</p>
+          <span class="diff-more">{t(locale).cta.learn}<Icon name="arrow" size={15} /></span>
+        </a>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section class="section agent-band">
+  <div class="container container-wide">
+    <div class="agent-inner reveal">
+      <div class="agent-copy">
+        <span class="chip"><Icon name="agent" size={14} />{H.agentChip}</span>
+        <h2>{H.agentTitleA}<span class="grad-text">{H.agentTitleB}</span>{H.agentTitleC}</h2>
+        <p class="lead" set:html={H.agentLead}></p>
+        <ul class="ticks two">{H.agentPoints.map((p) => <li><Icon name="check" size={15} />{p}</li>)}</ul>
+        <div class="agent-actions">
+          <a href={L("/product/ai-agents/")} class="btn btn-primary">{H.agentCta1}</a>
+          <a href={L("/product/workload-identity/")} class="btn btn-ghost">{H.agentCta2}</a>
+        </div>
+      </div>
+      <div class="agent-visual" aria-hidden="true">
+        <div class="token-card">
+          <div class="tok-row"><span class="tok-k">sub</span><span class="tok-v">alice@acme.eu</span></div>
+          <div class="tok-row"><span class="tok-k">act</span><span class="tok-v">agent:invoice-bot</span></div>
+          <div class="tok-row"><span class="tok-k">scope</span><span class="tok-v">invoices:read</span></div>
+          <div class="tok-row"><span class="tok-k">realm</span><span class="tok-v">acme</span></div>
+          <div class="tok-badge">on-behalf-of · attenuated</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="capabilities">
+  <div class="container">
+    <div class="sec-head reveal">
+      <span class="eyebrow">{H.capEyebrow}</span>
+      <h2>{H.capTitleA}<span class="grad-text">{H.capTitleB}</span>.</h2>
+      <p class="lead">{H.capLead}</p>
+    </div>
+    <div class="cap-grid">
+      {CAPABILITIES.map((c) => (
+        <div class="card cap reveal">
+          <h4>{c.group}</h4>
+          <ul>{c.items.map((i) => <li><span class="cdot"></span>{i}</li>)}</ul>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section class="section ease">
+  <div class="container">
+    <div class="sec-head reveal"><span class="eyebrow">{H.easeEyebrow}</span><h2>{H.easeTitle}</h2></div>
+    <div class="ease-grid">
+      {H.ease.map((s, i) => (
+        <div class="card ease-step reveal">
+          <div class="ease-top"><span class="ease-n">{easeNums[i]}</span><span class="ease-ico"><Icon name={easeIcons[i]} size={20} /></span></div>
+          <h3>{s.t}</h3><p>{s.d}</p>
+        </div>
+      ))}
+    </div>
+    <div class="ease-code reveal">
+      <div class="code-head"><span class="cdotr"></span><span class="cdoty"></span><span class="cdotg"></span><span class="code-file">login.ts</span></div>
+      <pre><code><span class="c-com">{H.codeComment}</span>
+<span class="c-kw">import</span> {'{'} HelixIAM {'}'} <span class="c-kw">from</span> <span class="c-str">"@helixiam/sdk"</span>;
+
+<span class="c-kw">const</span> helix = <span class="c-fn">new</span> <span class="c-fn">HelixIAM</span>({'{'} realm: <span class="c-str">"acme"</span>, issuer: <span class="c-str">"https://id.acme.eu"</span> {'}'});
+<span class="c-kw">await</span> helix.<span class="c-fn">login</span>();  <span class="c-com">{H.codeComment2}</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section eu-band">
+  <div class="container">
+    <div class="eu-inner reveal">
+      <div class="eu-copy">
+        <span class="eyebrow">{H.euEyebrow}</span>
+        <h2>{H.euTitleA}<span class="grad-text">{H.euTitleB}</span></h2>
+        <p class="lead">{H.euLead}</p>
+        <ul class="ticks two">{H.euPoints.map((p) => <li><Icon name="check" size={15} />{p}</li>)}</ul>
+        <a href={L("/product/european-eid/")} class="btn btn-ghost">{H.euCta}</a>
+      </div>
+      <div class="eu-stats">
+        {H.stats.map((s) => (
+          <div class="stat reveal"><div class="stat-v grad-text">{s.value}</div><div class="stat-l">{s.label}</div><div class="stat-s">{s.sub}</div></div>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>
+
+<CtaBand />
+
+<style>
+  .hero { position: relative; padding-block: clamp(3.5rem, 7vw, 6.5rem) clamp(2.5rem, 5vw, 4.5rem); overflow: hidden; }
+  /* Concentrated hero atmosphere: a soft jade glow anchored behind the genome + a faint
+     iris counter-glow bottom-left, layered over a hairline grid for depth. */
+  .hero::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(48% 60% at 82% 42%, rgba(52, 224, 176, 0.14), transparent 62%),
+      radial-gradient(40% 50% at 6% 88%, rgba(143, 139, 255, 0.08), transparent 60%); }
+  .hero::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.5;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(70% 70% at 30% 30%, #000, transparent 75%);
+    -webkit-mask-image: radial-gradient(70% 70% at 30% 30%, #000, transparent 75%); }
+  .hero-grid { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 3rem; align-items: center; }
+
+  /* Eyebrow → a premium status pill with a live pulsing dot. */
+  .hero .eyebrow { border: 1px solid var(--line-2); border-radius: 999px; padding: 0.42rem 0.9rem; background: rgba(94, 234, 212, 0.04); margin-bottom: 1.4rem; }
+  .hero .eyebrow::before { width: 7px; height: 7px; border-radius: 50%; background: var(--spring); box-shadow: 0 0 10px var(--spring); animation: hero-pulse 2.4s ease-in-out infinite; }
+  @keyframes hero-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+
+  .hero-copy h1 { margin-bottom: 1.3rem; }
+  .hero-lead { max-width: 42ch; margin-bottom: 2.2rem; }
+  .hero-lead :global(strong) { color: var(--ink); }
+  .hero-actions { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 2.2rem; }
+  .hero-trust { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.7rem; }
+  .hero-trust li { display: flex; align-items: center; gap: 0.7rem; color: var(--slate); font-size: 0.95rem; }
+  /* Check → a small jade token, so each proof point reads as a ticked capability. */
+  .hero-trust svg { color: var(--spring); flex-shrink: 0; width: 15px; height: 15px; padding: 5px; border-radius: 999px; background: rgba(52, 224, 176, 0.1); box-shadow: inset 0 0 0 1px rgba(52, 224, 176, 0.25); box-sizing: content-box; }
+
+  .hero-visual { position: relative; display: flex; justify-content: center; }
+  /* A soft halo grounds the floating genome so it reads as an intentional focal object. */
+  .hero-visual::before { content: ""; position: absolute; inset: 4% 0; z-index: 0; pointer-events: none;
+    background: radial-gradient(circle at 50% 50%, rgba(52, 224, 176, 0.12), rgba(94, 234, 212, 0.05) 40%, transparent 68%);
+    filter: blur(6px); }
+  .hero-visual :global(.genome) { position: relative; z-index: 1; max-width: 600px; }
+  .hero-strand-label { position: absolute; display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: var(--slate); background: rgba(6, 10, 18, 0.6); border: 1px solid var(--line); border-radius: 999px; padding: 0.3rem 0.7rem; backdrop-filter: blur(4px); }
+  .lbl-human { top: 6%; left: 50%; transform: translateX(-50%); }
+  .lbl-nh { bottom: 4%; left: 50%; transform: translateX(-50%); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dh { background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+  .dn { background: var(--iris); box-shadow: 0 0 10px var(--iris); }
+
+  .logos { padding-block: 2.5rem; border-block: 1px solid var(--line); background: rgba(255, 255, 255, 0.01); }
+  .logos-cap { text-align: center; color: var(--faint); font-size: 0.86rem; margin-bottom: 1.4rem; }
+  .logo-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.8rem 1rem; }
+  .logo-slot { display: flex; align-items: center; justify-content: center; min-width: 150px; height: 46px; border: 1px dashed var(--line-2); border-radius: 10px; color: var(--faint); font-family: var(--mono); font-size: 0.78rem; opacity: 0.75; }
+
+  .sec-head { max-width: 720px; margin-bottom: 2.6rem; }
+  .sec-head .lead { margin-top: 0.6rem; }
+
+  .strand-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
+  .strand { position: relative; overflow: hidden; }
+  .strand.human { background: linear-gradient(180deg, rgba(94, 234, 212, 0.06), rgba(255, 255, 255, 0.004)); }
+  .strand.nonhuman { background: linear-gradient(180deg, rgba(143, 139, 255, 0.06), rgba(255, 255, 255, 0.004)); }
+  .strand-top { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.6rem; }
+  .strand-dot { width: 12px; height: 12px; border-radius: 50%; }
+  .strand-dot.human { background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
+  .strand-dot.nonhuman { background: var(--iris); box-shadow: 0 0 12px var(--iris); }
+  .ticks { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.5rem; }
+  .ticks.two { grid-template-columns: 1fr 1fr; }
+  .ticks li { display: flex; align-items: center; gap: 0.55rem; color: var(--slate); font-size: 0.92rem; }
+  .ticks svg { color: var(--spring); flex-shrink: 0; }
+
+  .diff-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; }
+  .diff-card { display: flex; flex-direction: column; }
+  .diff-ico { display: inline-flex; width: 46px; height: 46px; align-items: center; justify-content: center; border-radius: 12px; color: var(--void); background: var(--grad-cta); margin-bottom: 1rem; box-shadow: var(--glow-cyan); }
+  .diff-card p { flex: 1; font-size: 0.92rem; }
+  .diff-more { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--jade); font-weight: 600; font-size: 0.9rem; margin-top: 0.6rem; }
+  .diff-card:hover .diff-more { color: var(--cyan); }
+
+  .agent-inner { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 3rem; align-items: center; border: 1px solid var(--line-2); border-radius: var(--r-lg); padding: clamp(2rem, 4vw, 3.4rem); background: radial-gradient(80% 120% at 100% 0%, rgba(143, 139, 255, 0.1), transparent 55%), var(--panel); }
+  .agent-copy .chip { margin-bottom: 1rem; }
+  .agent-copy h2 { margin-bottom: 0.7rem; }
+  .agent-actions { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-top: 1.6rem; }
+  .agent-visual { display: flex; justify-content: center; }
+  .token-card { width: 100%; max-width: 320px; background: var(--void); border: 1px solid var(--line-2); border-radius: var(--r); padding: 1.2rem; font-family: var(--mono); font-size: 0.82rem; box-shadow: var(--glow-soft); }
+  .tok-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.42rem 0; border-bottom: 1px dashed var(--line); }
+  .tok-k { color: var(--faint); } .tok-v { color: var(--jade); }
+  .tok-badge { margin-top: 0.9rem; text-align: center; font-size: 0.72rem; color: var(--iris); border: 1px solid rgba(143, 139, 255, 0.3); border-radius: 999px; padding: 0.3rem; }
+
+  .cap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
+  .cap h4 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--jade); margin-bottom: 1rem; }
+  .cap ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.55rem; }
+  .cap li { display: flex; align-items: center; gap: 0.6rem; color: var(--slate); font-size: 0.92rem; }
+  .cdot { width: 6px; height: 6px; border-radius: 50%; background: var(--jade-2); flex-shrink: 0; box-shadow: 0 0 8px rgba(94, 234, 212, 0.6); }
+
+  .ease-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; margin-bottom: 1.6rem; }
+  .ease-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+  .ease-n { font-family: var(--mono); font-size: 0.9rem; color: var(--faint); }
+  .ease-ico { color: var(--jade); }
+  .ease-code { border: 1px solid var(--line-2); border-radius: var(--r); overflow: hidden; background: var(--void); }
+  .code-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); }
+  .cdotr, .cdoty, .cdotg { width: 11px; height: 11px; border-radius: 50%; }
+  .cdotr { background: #ff5f57; } .cdoty { background: #febc2e; } .cdotg { background: #28c840; }
+  .code-file { margin-left: 0.6rem; font-family: var(--mono); font-size: 0.78rem; color: var(--faint); }
+  .ease-code pre { margin: 0; padding: 1.3rem; overflow-x: auto; font-family: var(--mono); font-size: 0.86rem; line-height: 1.8; color: var(--ink); }
+  .c-com { color: var(--faint); } .c-kw { color: var(--iris); } .c-str { color: var(--jade); } .c-fn { color: var(--cyan); }
+
+  .eu-inner { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 3rem; align-items: center; }
+  .eu-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+  .stat { border: 1px solid var(--line); border-radius: var(--r); padding: 1.3rem; background: rgba(255, 255, 255, 0.015); }
+  .stat-v { font-size: 2.4rem; font-weight: 800; line-height: 1; }
+  .stat-l { color: var(--ink); font-weight: 600; margin-top: 0.5rem; }
+  .stat-s { color: var(--faint); font-size: 0.82rem; margin-top: 0.15rem; }
+
+  @media (max-width: 960px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 2rem; }
+    .hero-visual { order: -1; max-width: 420px; margin-inline: auto; }
+    .strand-grid, .cap-grid, .diff-grid, .ease-grid, .eu-inner, .agent-inner, .eu-stats { grid-template-columns: 1fr 1fr; }
+    .agent-inner, .eu-inner { grid-template-columns: 1fr; }
+    .agent-visual { order: -1; }
+  }
+  @media (max-width: 620px) { .strand-grid, .cap-grid, .diff-grid, .ease-grid, .eu-stats, .ticks.two { grid-template-columns: 1fr; } }
+</style>

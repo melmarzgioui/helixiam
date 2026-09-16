@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#a3d4c4">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2f3033">
+    <meta name="theme-color" content="#a3d4c4">
+
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
+    <title>KubeDNA - Login</title>
+    <script defer src="/js/App.js?@project.version@" type="module"></script>
+    <meta name="googlebot" content="noindex">
+    <meta name="robots" content="noindex">
+    <link rel="icon" th:href="@{/img/favicon.avif}" sizes="32x32">
+    <link rel="icon" th:href="@{/img/favicon.avif}" sizes="192x192">
+    <link rel="icon" th:href="@{/img/favicon.avif}">
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header>
+        <div class="headerBar">
+            <a>
+                <div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div>
+            </a>
+        </div>
+    </header>
+
+    <main>
+<!--        <div class="container title">-->
+<!--            <h3>Maintenance</h3>-->
+<!--        </div>-->
+
+
+
+        <div class="container center">
+            <article>
+                <div class="actionSuccess" >
+<!--                    <i class="done"></i>-->
+                    <h3>KubeDNA In Maintenance</h3>
+                    <span class="addition">We’re currently performing scheduled maintenance to improve your experience.<br/><br/>We apologize for the inconvenience and appreciate your patience.<br/>Try again later!</span>
+                </div>
+                <div class="spacer">&nbsp;</div>
+                <div class="spacer">&nbsp;</div>
+                <div class="buttonHolder">
+                    <button type="button" class="continueLogin">
+                        <i class="login"></i>
+                        <span>Retry</span>
+                    </button>
+                </div>
+                <!--            <div class="spacer">&nbsp;</div>-->
+                <!--            <div class="spacer">&nbsp;</div>-->
+            </article>
+        </div>
+
+<!--        <div class="container" th:if="${param.error != null && #strings.toString(param.error).equals('accountLocked')}">-->
+<!--            <div class="actionError" id="loginFailed">-->
+<!--                <span>Your account is almost ready—check your inbox and click the link to activate!</span>-->
+<!--            </div>-->
+<!--        </div>-->
+
+<!--        <div class="container" th:if="${param.info != null && #strings.toString(param.info).equals('verified')}">-->
+<!--            <div class="actionVerified">-->
+<!--                <span>Your account is all set—welcome aboard!</span>-->
+<!--            </div>-->
+<!--        </div>-->
+    </main>
+    <footer></footer>
+</div>
+</body>
+</html>

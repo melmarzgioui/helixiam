@@ -1,0 +1,9 @@
+---
+import Base from "../layouts/Base.astro";
+import TrustView from "../components/views/TrustView.astro";
+import { trust } from "../pagedata/trust";
+const S = trust.en;
+---
+<Base title={S.metaTitle} description={S.metaDesc} translated={true}>
+  <TrustView />
+</Base>

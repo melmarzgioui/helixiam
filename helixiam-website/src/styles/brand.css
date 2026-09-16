@@ -1,0 +1,189 @@
+/* GENERATED FROM platform/brand — do not edit. Run: node platform/brand/sync.mjs */
+/* ============================================================================
+   KubeDNA — unified brand tokens  ·  BRANDBOOK_KUBEDNA_V2
+   SINGLE SOURCE OF TRUTH. Edit here, then run: node platform/brand/sync.mjs
+   Consumed by: helix-dashboard (console), helix-docs-site, helixiam-website, login.
+
+   Font stack is KubeDNA's own — Work Sans + Roboto Mono — SELF-HOSTED (no CDN,
+   no Gilroy). Wordmark = Work Sans 800. Palette = Cucumber/Jade/Black-Cat.
+   Three resolutions off one palette: product-light (default), product-dark
+   ([data-theme="dark"]), marketing-void ([data-mode="void"]).
+   ========================================================================== */
+
+@font-face {
+  font-family: "Work Sans";
+  font-style: normal;
+  font-weight: 300 800;           /* variable — covers light 300 → wordmark 800 */
+  font-display: swap;
+  src: url("./fonts/WorkSans.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Roboto Mono";
+  font-style: normal;
+  font-weight: 400 600;           /* variable */
+  font-display: swap;
+  src: url("./fonts/RobotoMono.woff2") format("woff2");
+}
+
+:root {
+  /* --- KubeDNA palette --- */
+  --kd-cucumber: #476957;
+  --kd-cucumber-d: #365141;
+  --kd-cucumber-l: #5f8a72;
+  --kd-jade: #a3d4c4;
+  --kd-jade-soft: #e6f1ec;
+  --kd-blackcat: #2f3033;
+  --kd-ink: #22251f;
+  --kd-ink-2: #2f3033;
+  --kd-willow: #f6f5f3;
+  --kd-willow-2: #f0efea;
+  --kd-slate: #5b6560;        /* secondary text */
+  --kd-faint: #8b938d;        /* tertiary text */
+  --kd-line: #e9e8e3;         /* hairline */
+  --kd-line-2: #dedcd5;
+  --kd-paper: #ffffff;
+  --kd-daylight: #b7d3ff;     /* accent only */
+  --kd-genie: #6666ff;        /* accent only */
+
+  /* --- Marketing-void layer (helixiam-website + login brand panel) --- */
+  --kd-void: #060a12;
+  --kd-void-2: #0a1120;
+  --kd-panel: #0c1424;
+  --kd-panel-2: #111d33;
+  --kd-cyan: #5eead4;
+  --kd-cyan-ink: #0e9e8a;     /* deep cyan — same hue as --kd-cyan, but legible on BOTH white and void
+                                 (≥3:1 on #fff, ~6:1 on #060a12). This is the ONE wordmark-"IAM" colour. */
+  --kd-spring: #34e0b0;
+  --kd-glowline: #58f0d0;
+  --kd-iris: #8f8bff;
+  --kd-ink-on-dark: #eaf1fb;
+  --kd-slate-on-dark: #a7b6cc;
+
+  /* --- Semantic (product light — default) --- */
+  --bg: var(--kd-paper);
+  --surface: var(--kd-willow);
+  --fg: var(--kd-ink);
+  --fg-muted: var(--kd-slate);
+  --fg-faint: var(--kd-faint);
+  --border: var(--kd-line);
+  --border-strong: var(--kd-line-2);
+  --primary: var(--kd-cucumber);
+  --primary-hover: var(--kd-cucumber-d);
+  --accent: var(--kd-cucumber);
+  /* Wordmark "IAM" + spark — KubeDNA Jade (--kd-jade #a3d4c4). ONE colour on every surface.
+     Deliberately NOT --accent: the UI accent stays cucumber; only the lockup is jade.
+     (Jade is a light-mint made for dark grounds — the lockup's chrome is dark on the void website,
+     the dark login panel, the Black-Cat docs masthead, and the console top bar.) */
+  --wordmark-accent: var(--kd-jade);
+  --on-primary: #ffffff;
+  --danger: #b3261e;
+  --danger-fg: #9a2b2b;
+
+  /* --- Primary action button (unified across ALL surfaces) --- KubeDNA ink (Black-Cat #2f3033) on
+     LIGHT grounds (matches the KubeDNA product dashboard); inverts to jade+ink on dark grounds
+     ([data-theme="dark"] and [data-mode="void"]) so it never disappears. Links stay their own colour;
+     jade is the accent + the focus ring. */
+  --btn-primary-bg: var(--kd-blackcat);          /* #2f3033 */
+  --btn-primary-bg-hover: #3d3e42;               /* LIGHTEN on hover — darkening near-black is invisible */
+  --btn-primary-fg: #ffffff;
+  --btn-primary-glow: color-mix(in srgb, var(--kd-blackcat) 55%, transparent);
+  --btn-disabled-bg: #dcdedf;
+  --btn-disabled-fg: #8a8d91;
+  /* Focus ring = jade — the deliberate logo↔UI tie. 2px ground gap + 2px jade ring. */
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--kd-jade) 92%, transparent);
+
+  /* --- Type --- */
+  --font: "Work Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* --- Shape + motion --- */
+  --r-sm: 10px;
+  --r: 14px;
+  --r-lg: 22px;
+  --shadow-sm: 0 1px 2px rgba(34, 37, 31, 0.04), 0 1px 3px rgba(34, 37, 31, 0.06);
+  --shadow: 0 2px 6px rgba(34, 37, 31, 0.05), 0 18px 40px -24px rgba(34, 37, 31, 0.22);
+  --shadow-lg: 0 24px 64px -28px rgba(34, 37, 31, 0.38), 0 8px 24px -16px rgba(34, 37, 31, 0.2);
+  --shadow-card: 0 1px 2px rgba(34, 37, 31, 0.04), 0 4px 12px -6px rgba(34, 37, 31, 0.1);
+  --shadow-card-hover: 0 2px 4px rgba(34, 37, 31, 0.05), 0 16px 32px -12px rgba(34, 37, 31, 0.16);
+  --ring: 0 0 0 4px color-mix(in srgb, var(--primary) 16%, transparent);
+  --grad-primary: linear-gradient(135deg, var(--kd-cucumber-l), var(--kd-cucumber-d));
+  --grad-canvas: radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--kd-jade) 8%, transparent), transparent 60%);
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --container: 1240px;
+
+  /* --- Spacing scale --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --card-px: 20px;
+  --card-py: 18px;
+  --stack-gap: 16px;
+  --field-gap: 16px;
+  --field-gap-x: 20px;
+  --label-gap: 6px;
+  --help-gap: 6px;
+}
+
+/* --- Semantic (product dark) — Black-Cat surfaces + jade accent, brand colours only --- */
+[data-theme="dark"] {
+  --bg: #1a1c1f;
+  --surface: #212427;
+  --fg: #eceeec;
+  --fg-muted: #b1b7b3;
+  --fg-faint: #828a85;
+  --border: #2f3338;
+  --border-strong: #3c4146;
+  --primary: var(--kd-cucumber-l);
+  --primary-hover: var(--kd-jade);
+  --accent: var(--kd-jade);
+  --on-primary: #ffffff;
+  /* Dark ground: near-black would vanish → primary button inverts to jade + ink. */
+  --btn-primary-bg: var(--kd-jade);
+  --btn-primary-bg-hover: #b6e0d0;
+  --btn-primary-fg: var(--kd-ink);
+  --btn-primary-glow: color-mix(in srgb, var(--kd-jade) 42%, transparent);
+  --btn-disabled-bg: #2a2d30;
+  --btn-disabled-fg: #6b736e;
+  --danger: #d64545;
+  --danger-fg: #f0a0a0;
+  --glow: 0 0 24px -2px color-mix(in srgb, var(--kd-jade) 45%, transparent);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 18px 40px -24px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 24px 64px -28px rgba(0, 0, 0, 0.7);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px -6px rgba(0, 0, 0, 0.5);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.45), 0 18px 36px -12px rgba(0, 0, 0, 0.6);
+  --grad-primary: linear-gradient(135deg, var(--kd-cucumber-l), var(--kd-cucumber-d));
+  --grad-canvas: radial-gradient(80% 55% at 88% -8%, color-mix(in srgb, var(--kd-jade) 12%, transparent), transparent 60%);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--kd-jade) 26%, transparent);
+}
+
+/* --- Semantic (marketing void) — deep navy + bioluminescent jade→cyan, for hero surfaces --- */
+[data-mode="void"] {
+  --bg: var(--kd-void);
+  --surface: var(--kd-panel);
+  --fg: var(--kd-ink-on-dark);
+  --fg-muted: var(--kd-slate-on-dark);
+  --fg-faint: #6b7c96;
+  --border: rgba(148, 178, 214, 0.14);
+  --border-strong: rgba(148, 178, 214, 0.22);
+  --primary: var(--kd-spring);
+  --primary-hover: var(--kd-cyan);
+  --accent: var(--kd-cyan);
+  --on-primary: #04120d;
+  /* Void (dark navy) ground: primary button = jade + ink — same inversion as product-dark, and it
+     matches kubedna.com's own dark-hero .btn--primary (jade fill, ink text). */
+  --btn-primary-bg: var(--kd-jade);
+  --btn-primary-bg-hover: #b6e0d0;
+  --btn-primary-fg: var(--kd-ink);
+  --btn-primary-glow: color-mix(in srgb, var(--kd-jade) 40%, transparent);
+  --btn-disabled-bg: rgba(148, 178, 214, 0.16);
+  --btn-disabled-fg: #6b7c96;
+  --grad-primary: linear-gradient(120deg, var(--kd-spring), var(--kd-cyan));
+  --grad-text: linear-gradient(100deg, #d8fff2, var(--kd-cyan) 45%, var(--kd-jade));
+  --grad-helix: linear-gradient(120deg, var(--kd-jade), var(--kd-cyan) 55%, var(--kd-iris));
+  --glow: 0 0 0 1px rgba(94, 234, 212, 0.18), 0 12px 48px -12px rgba(52, 224, 176, 0.35);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--kd-cyan) 26%, transparent);
+}

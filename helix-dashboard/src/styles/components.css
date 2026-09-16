@@ -1,0 +1,418 @@
+/* Helix IAM design system — premium component styling for ALL components.
+   Class-based so hover/focus/motion actually apply (inline styles would block them).
+   Loaded by Storybook preview + the app, so stories and the console look identical. */
+
+/* ===================== Buttons ===================== */
+.hx-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  border: 1px solid transparent; border-radius: 999px;
+  font: 600 .95rem var(--font); letter-spacing: -.01em; cursor: pointer;
+  padding: .68rem 1.4rem;
+  white-space: nowrap; /* never wrap a button label (e.g. "Delete" must not break per-character) */
+  transition: transform .12s var(--ease), box-shadow .16s var(--ease), background .16s var(--ease), border-color .16s var(--ease), filter .16s var(--ease);
+}
+.hx-btn--lg { padding: 1.05rem 2.1rem; font-size: 1.02rem; }
+.hx-btn--block { width: 100%; }
+.hx-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.hx-btn:active:not(:disabled) { transform: translateY(0); }
+.hx-btn:disabled { opacity: .55; cursor: not-allowed; }
+/* Primary action = KubeDNA ink (Black-Cat) on light, jade+ink on dark — theme-aware via tokens. */
+.hx-btn--primary { background: var(--btn-primary-bg); color: var(--btn-primary-fg); box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 8px 22px -10px var(--btn-primary-glow); }
+.hx-btn--primary:hover:not(:disabled) { background: var(--btn-primary-bg-hover); transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,.2), 0 16px 34px -10px var(--btn-primary-glow); }
+.hx-btn--primary:focus-visible { box-shadow: var(--focus-ring); }
+.hx-btn--primary:disabled { background: var(--btn-disabled-bg); color: var(--btn-disabled-fg); box-shadow: none; opacity: 1; }
+.hx-btn--ghost { background: var(--bg); border-color: var(--border-strong); color: var(--fg); }
+.hx-btn--ghost:hover:not(:disabled) { background: var(--surface); border-color: var(--fg-faint); transform: translateY(-1px); }
+/* In dark mode --bg == the page ground, so a ghost button reads black-on-black. Give the secondary
+   ("other") buttons a white-outlined treatment — translucent white fill + white border + white label —
+   so they're clearly visible under the jade primary. */
+[data-theme="dark"] .hx-btn--ghost { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.28); color: #fff; }
+[data-theme="dark"] .hx-btn--ghost:hover:not(:disabled) { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.5); }
+.hx-btn--danger { background: var(--danger); color: #fff; box-shadow: 0 1px 2px rgba(120,20,16,.2), 0 8px 18px -10px rgba(179,38,30,.5); }
+.hx-btn--danger:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
+
+/* ===================== Form controls ===================== */
+.hx-input, .hx-select-trigger {
+  width: 100%; box-sizing: border-box;
+  padding: .68rem .85rem; border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong); background: var(--bg); color: var(--fg);
+  font: 400 .95rem var(--font); outline: none;
+  transition: border-color .14s var(--ease), box-shadow .14s var(--ease), background .14s var(--ease);
+}
+.hx-input::placeholder { color: var(--fg-faint); }
+.hx-input:hover, .hx-select-trigger:hover { border-color: var(--fg-faint); }
+.hx-input:focus, .hx-input:focus-visible { border-color: var(--primary); box-shadow: var(--ring); }
+.hx-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: .75rem; cursor: pointer; text-align: left; }
+.hx-select-trigger[aria-expanded="true"] { border-color: var(--primary); box-shadow: var(--ring); }
+.hx-select-trigger:disabled { opacity: .6; cursor: not-allowed; }
+.hx-select-chevron { flex-shrink: 0; color: var(--fg-muted); transition: transform .15s var(--ease); }
+.hx-select-trigger[aria-expanded="true"] .hx-select-chevron { transform: rotate(180deg); }
+
+.hx-select-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+  margin: 0; padding: .3rem; list-style: none; max-height: 280px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: var(--shadow);
+  animation: hx-pop .12s var(--ease);
+}
+@keyframes hx-pop { from { opacity: 0; transform: translateY(-4px); } }
+.hx-option { display: flex; align-items: flex-start; gap: .6rem; padding: .55rem .65rem; border-radius: calc(var(--r-sm) - 4px); cursor: pointer; color: var(--fg); transition: background .1s var(--ease); }
+.hx-option--active { background: var(--surface); }
+
+/* ===================== Combobox (searchable select) ===================== */
+.hx-combo { position: relative; }
+.hx-combo__input { padding-right: 2.25rem; text-overflow: ellipsis; }
+.hx-combo__chevron { position: absolute; right: .75rem; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--fg-muted); }
+.hx-combo__input[aria-expanded="true"] ~ .hx-combo__chevron { transform: translateY(-50%) rotate(180deg); }
+.hx-combo__opt { display: block; min-width: 0; }
+.hx-combo__opt-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hx-combo__opt-desc { display: block; font-size: .8rem; color: var(--fg-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hx-combo__msg { color: var(--fg-faint); cursor: default; }
+.hx-combo__msg.hx-option--active { background: transparent; }
+
+/* ===================== MultiCombobox (searchable multi-select) ===================== */
+.hx-multicombo__control { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; height: auto; min-height: 42px; padding: .35rem 2.25rem .35rem .55rem; cursor: text; }
+.hx-multicombo__control--open { border-color: var(--primary); box-shadow: var(--ring); }
+.hx-multicombo__chip { display: inline-flex; align-items: center; gap: .25rem; padding: .1rem .2rem .1rem .5rem; }
+.hx-multicombo__chipx { border: 0; background: transparent; cursor: pointer; color: inherit; font-size: 1rem; line-height: 1; padding: 0 .15rem; opacity: .7; border-radius: 999px; }
+.hx-multicombo__chipx:hover { opacity: 1; }
+.hx-multicombo__input { flex: 1 1 6ch; min-width: 6ch; border: 0; outline: none; background: transparent; font: inherit; color: var(--fg); padding: .15rem 0; }
+.hx-multicombo__grouphead { list-style: none; padding: .5rem .65rem .25rem; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted); }
+.hx-multicombo__opt { align-items: center; }
+.hx-multicombo__check { flex-shrink: 0; width: 1rem; height: 1rem; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--border-strong); border-radius: 4px; font-size: .7rem; color: #fff; }
+.hx-multicombo__check--on { background: var(--grad-primary); border-color: transparent; }
+
+/* ===================== Switch ===================== */
+.hx-switch { position: relative; width: 42px; height: 24px; flex-shrink: 0; border-radius: 999px; border: none; padding: 0; cursor: pointer; background: var(--border-strong); transition: background .16s var(--ease); }
+.hx-switch:focus-visible { outline: none; box-shadow: var(--ring); }
+.hx-switch[aria-checked="true"] { background: var(--grad-primary); }
+.hx-switch:disabled { opacity: .55; cursor: not-allowed; }
+.hx-switch-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(34,37,31,.3); transition: left .16s var(--ease); }
+.hx-switch[aria-checked="true"] .hx-switch-thumb { left: 21px; }
+
+/* ===================== Checkbox / Radio ===================== */
+.hx-check { width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--border-strong); background: var(--bg); cursor: pointer; padding: 0; transition: background .12s var(--ease), border-color .12s var(--ease); }
+.hx-check--box { border-radius: 6px; }
+.hx-check--radio { border-radius: 50%; }
+.hx-check:hover:not(:disabled) { border-color: var(--fg-faint); }
+.hx-check:focus-visible { outline: none; box-shadow: var(--ring); }
+.hx-check[aria-checked="true"] { border-color: var(--primary); }
+.hx-check--box[aria-checked="true"] { background: var(--primary); }
+
+/* ===================== Selectable tiles ===================== */
+.hx-tile {
+  display: flex; align-items: flex-start; gap: .85rem; text-align: left; width: 100%; box-sizing: border-box;
+  padding: 1rem 1.1rem; border-radius: var(--r); border: 1px solid var(--border-strong); background: var(--bg); cursor: pointer;
+  transition: transform .15s var(--ease), border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.hx-tile:hover:not(:disabled) { border-color: var(--fg-faint); box-shadow: var(--shadow-card); transform: translateY(-1px); }
+.hx-tile:focus-visible { outline: none; box-shadow: var(--ring); }
+.hx-tile[aria-checked="true"] { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), 0 8px 20px -12px color-mix(in srgb, var(--primary) 45%, transparent); }
+.hx-tile:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ===================== Tabs ===================== */
+/* The tablist itself is the horizontal scroll container, so a long tab strip scrolls *within itself*
+   on narrow viewports instead of widening <main> and shoving the panel off-screen. */
+.hx-tablist { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.hx-tablist::-webkit-scrollbar { display: none; }
+.hx-tab { appearance: none; background: none; border: none; padding: .7rem .72rem; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--fg-muted); font: 500 .95rem var(--font); cursor: pointer; transition: color .14s var(--ease), border-color .14s var(--ease); flex: 0 0 auto; white-space: nowrap; }
+.hx-tab:hover { color: var(--fg); }
+.hx-tab:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 6px 6px 0 0; }
+.hx-tab[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--primary); }
+
+/* ===================== Surfaces ===================== */
+.hx-surface { box-shadow: var(--shadow-card); transition: box-shadow .16s var(--ease), transform .16s var(--ease), border-color .16s var(--ease); }
+.hx-surface--hover:hover { box-shadow: var(--shadow-card-hover); transform: translateY(-1px); border-color: var(--border-strong); }
+
+/* ===================== Icon buttons (close / kebab) ===================== */
+.hx-ghosticon { display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--fg-muted); cursor: pointer; border-radius: var(--r-sm); transition: background .14s var(--ease), color .14s var(--ease); }
+.hx-ghosticon:hover { background: var(--surface); color: var(--fg); }
+.hx-ghosticon:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* ===================== Overlays ===================== */
+.hx-scrim-modal { position: fixed; inset: 0; z-index: 60; background: rgba(34,37,31,.45); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; padding: 1.5rem; overflow-y: auto; animation: hx-fade .16s var(--ease); }
+.hx-dialog { width: 100%; max-height: calc(100dvh - 3rem); display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow-lg); overflow: hidden; animation: hx-rise .18s var(--ease); }
+@media (max-width: 560px) {
+  .hx-scrim-modal { padding: 0; align-items: stretch; }
+  .hx-dialog { max-width: 100% !important; max-height: 100dvh; border-radius: 0; border: none; }
+}
+@keyframes hx-fade { from { opacity: 0; } }
+@keyframes hx-rise { from { opacity: 0; transform: translateY(8px) scale(.99); } }
+
+/* ===================== Stepper (responsive) ===================== */
+@media (max-width: 560px) { .hx-step-label { display: none; } }
+
+/* ===================== Metadata upload (dropzone) ===================== */
+.hx-dropzone {
+  display: flex; align-items: center; gap: .8rem; box-sizing: border-box; width: 100%;
+  padding: .85rem 1rem; border-radius: var(--r-sm);
+  border: 1.5px dashed var(--border-strong); background: var(--surface);
+  transition: border-color .14s var(--ease), background .14s var(--ease), box-shadow .14s var(--ease);
+}
+.hx-dropzone--drag { border-color: var(--primary); background: var(--bg); box-shadow: var(--ring); }
+.hx-dropzone--has-file { border-style: solid; border-color: var(--primary); background: var(--bg); }
+
+/* ===================== Toast ===================== */
+.hx-toast { animation: hx-toast-in .2s var(--ease); }
+@keyframes hx-toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* Modal lede — the intro line above a dialog's body content. */
+.hx-modal__lede { margin: 0 0 1rem; color: var(--fg-muted); font-size: .9rem; line-height: 1.5; }
+
+/* ============================================================================
+   PAGE LAYOUT KIT — the canonical scaffold EVERY page derives from (Page.tsx).
+   Uniform rhythm from the token spacing scale; pages never inline-style layout.
+   ============================================================================ */
+.hx-page { display: flex; flex-direction: column; }
+.hx-pagehead__text { min-width: 0; }
+.hx-pagehead__actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; flex-wrap: wrap; }
+/* Vertical stack of sections/cards with the one canonical gap. */
+.hx-pagebody { display: flex; flex-direction: column; gap: var(--stack-gap); min-width: 0; }
+/* Toolbar strip above a table/list (search + filters + actions). */
+.hx-toolbar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+.hx-toolbar__grow { flex: 1 1 240px; min-width: 0; }
+.hx-toolbar__spacer { flex: 1; }
+.hx-section__headctl { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
+
+/* ============================================================================
+   ALERT — inline status banner (error / warning / info / success). Alert.tsx.
+   Toast is transient; Alert is the in-page banner. Tone colours from tokens.
+   ============================================================================ */
+.hx-alert {
+  display: flex; align-items: flex-start; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm);
+  border: 1px solid var(--tone-border); background: var(--tone-bg); color: var(--tone-fg);
+  font-size: .9rem; line-height: 1.5;
+}
+.hx-alert__icon { flex-shrink: 0; margin-top: 1px; color: var(--tone-accent); }
+.hx-alert__body { flex: 1; min-width: 0; }
+.hx-alert__title { font-weight: 600; color: var(--tone-fg); }
+.hx-alert__title + .hx-alert__text { margin-top: 2px; }
+.hx-alert__text { color: var(--tone-fg); opacity: .92; }
+.hx-alert__x { flex-shrink: 0; border: none; background: none; cursor: pointer; color: var(--tone-accent); padding: 2px; line-height: 0; border-radius: 6px; opacity: .7; }
+.hx-alert__x:hover { opacity: 1; }
+.hx-alert--info    { --tone-bg: var(--kd-jade-soft); --tone-fg: var(--kd-cucumber-d); --tone-border: var(--kd-jade); --tone-accent: var(--kd-cucumber); }
+.hx-alert--success { --tone-bg: var(--kd-jade-soft); --tone-fg: var(--kd-cucumber-d); --tone-border: var(--kd-jade); --tone-accent: var(--kd-cucumber); }
+.hx-alert--warning { --tone-bg: #fdf6e9; --tone-fg: #7a5713; --tone-border: #f0dcae; --tone-accent: #b6822a; }
+.hx-alert--danger  { --tone-bg: #fdecec; --tone-fg: #8f2a2a; --tone-border: #f1c9c9; --tone-accent: var(--danger); }
+[data-theme="dark"] .hx-alert--info,
+[data-theme="dark"] .hx-alert--success { --tone-bg: color-mix(in srgb, var(--kd-jade) 12%, transparent); --tone-fg: var(--kd-jade); --tone-border: color-mix(in srgb, var(--kd-jade) 30%, transparent); --tone-accent: var(--kd-jade); }
+[data-theme="dark"] .hx-alert--warning { --tone-bg: color-mix(in srgb, #d9a441 12%, transparent); --tone-fg: #e6c079; --tone-border: color-mix(in srgb, #d9a441 30%, transparent); --tone-accent: #e6c079; }
+[data-theme="dark"] .hx-alert--danger  { --tone-bg: color-mix(in srgb, var(--danger) 14%, transparent); --tone-fg: var(--danger-fg); --tone-border: color-mix(in srgb, var(--danger) 34%, transparent); --tone-accent: var(--danger-fg); }
+
+/* ============================================================================
+   CARD (Card.tsx) — class-based surface card; no inline styles in the component.
+   ============================================================================ */
+.hx-cardbox { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: var(--card-py) var(--card-px); }
+.hx-cardbox__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+.hx-cardbox__title { margin: 0; font: 700 1.05rem var(--font); color: var(--fg); }
+.hx-cardbox__subtitle { margin: 2px 0 0; color: var(--fg-muted); font-size: .9rem; }
+.hx-cardbox__body { margin-top: var(--sp-3); }
+.hx-cardbox__body--flush { margin-top: 0; }
+
+/* ============================================================================
+   FORM FIELD (FormField.tsx) — label + control + hint/error, class-based.
+   ============================================================================ */
+.hx-field { display: block; margin-bottom: var(--field-gap); }
+.hx-field__label { display: block; margin-bottom: var(--label-gap); font-weight: 600; color: var(--fg); font-size: .92rem; }
+.hx-field__req { color: var(--accent); }
+.hx-field__hint { display: block; margin-top: var(--help-gap); color: var(--fg-faint); font-size: .85rem; }
+.hx-field__error { display: block; margin-top: var(--help-gap); color: var(--danger-fg); font-size: .85rem; }
+textarea.hx-input { min-height: 96px; resize: vertical; line-height: 1.5; }
+
+/* ============================================================================
+   EMPTY STATE (EmptyState.tsx) — class-based.
+   ============================================================================ */
+.hx-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--sp-3); padding: 3rem 1.5rem; border: 1px dashed var(--border-strong); border-radius: var(--r); background: var(--surface); }
+.hx-empty__icon { color: var(--fg-faint); }
+.hx-empty__title { margin: 0; font-size: 1.05rem; color: var(--fg); }
+.hx-empty__msg { margin: 0; max-width: 380px; color: var(--fg-muted); font-size: .92rem; }
+.hx-empty__action { margin-top: var(--sp-2); }
+
+/* ============================================================================
+   TOAST (Toast.tsx) — class-based; tone via --tone-accent left border.
+   ============================================================================ */
+.hx-toast { display: flex; align-items: flex-start; gap: var(--sp-3); width: 360px; max-width: 100%; padding: var(--sp-3) var(--sp-4); background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--tone-accent, var(--fg-faint)); border-radius: var(--r-sm); box-shadow: var(--shadow); }
+.hx-toast__icon { flex-shrink: 0; margin-top: 1px; color: var(--tone-accent, var(--fg-faint)); }
+.hx-toast__body { flex: 1; min-width: 0; }
+.hx-toast__title { font: 600 .92rem var(--font); color: var(--fg); }
+.hx-toast__msg { margin-top: 2px; font-size: .85rem; color: var(--fg-muted); }
+.hx-toast__x { flex-shrink: 0; border: none; background: none; cursor: pointer; color: var(--fg-faint); padding: 2px; line-height: 0; }
+.hx-toast--success { --tone-accent: var(--primary); }
+.hx-toast--error   { --tone-accent: var(--danger-fg); }
+.hx-toast--info    { --tone-accent: var(--kd-slate); }
+
+/* Generic muted/technical text + inline description helpers used across pages. */
+.hx-muted { color: var(--fg-muted); }
+.hx-faint { color: var(--fg-faint); }
+.hx-help { color: var(--fg-faint); font-size: .85rem; line-height: 1.5; }
+
+/* Table cell/column utilities (avoid per-page inline styles on th/td). */
+.hx-col-actions { width: 56px; }
+.hx-cell-right { text-align: right; }
+.hx-rowcard__grow { min-width: 0; }
+
+/* Form action row (footer of a form/modal) — buttons split left/right with top spacing. */
+.hx-formactions { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); margin-top: var(--sp-5); }
+.hx-formactions--end { justify-content: flex-end; }
+
+/* Clickable table row (whole-row navigate/edit) — cursor affordance; hover already handled by .hx-table. */
+.hx-row-clickable { cursor: pointer; }
+/* Spacing between a <Tabs> strip and its panel content. */
+.hx-tabpanel { margin-top: var(--sp-5); }
+/* An input with an adjacent inline action button on one row (e.g. import-by-URL). */
+.hx-inputrow { display: flex; align-items: center; gap: var(--sp-2); }
+.hx-inputrow > .hx-input, .hx-inputrow > .hx-toolbar__grow { flex: 1 1 auto; min-width: 0; }
+/* Scrollable code / JSON viewer. */
+.hx-codeblock { max-height: 320px; overflow: auto; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3); font: 400 .82rem/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; color: var(--fg); }
+/* A titled code output: label + copy button on one row, code block below (MCP metadata generator). */
+.hx-codeout { display: grid; gap: var(--sp-2); }
+.hx-codeout__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.hx-codeout__title { font: 600 .82rem var(--font); color: var(--fg-muted); }
+/* Inline text link in body copy (accent, underline on hover). */
+.hx-link { color: var(--accent); font-weight: 600; text-decoration: none; }
+.hx-link:hover { text-decoration: underline; }
+/* Numbered how-it-works steps — comfortable spacing, readable line length. */
+.hx-steps { margin: 0; padding-left: 1.2rem; display: grid; gap: var(--sp-2); }
+.hx-steps li { color: var(--fg); line-height: 1.5; }
+
+/* Stat / metric block (dashboards) — value over label. */
+.hx-stat { display: flex; flex-direction: column; gap: var(--sp-1); }
+/* Agent (NHI) governance overview: a row of count tiles that fills the width and wraps gracefully. */
+.hx-agentstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-3); margin-bottom: var(--stack-gap, var(--sp-5)); }
+/* Client-side list pager (Prev · "Page N of M" · Next). */
+.hx-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-top: var(--sp-4); }
+.hx-pager__info { color: var(--fg-muted, #5b6560); font-size: 0.9rem; }
+.hx-pager__nav { display: flex; gap: 0.5rem; }
+/* A row card that opens a detail drawer when tapped (mobile). */
+.hx-rowcard--link { cursor: pointer; transition: border-color 0.12s ease, box-shadow 0.12s ease; }
+.hx-rowcard--link:hover { border-color: var(--accent, #4f7a3a); }
+.hx-stat__value { font: 700 1.8rem/1 var(--font); color: var(--fg); letter-spacing: -.02em; }
+.hx-stat__value--warn { color: var(--danger-fg); }
+.hx-stat__label { font-size: .82rem; color: var(--fg-muted); }
+/* Bottom-gap utility (content passed above another region). */
+.hx-mb-4 { margin-bottom: var(--sp-4); }
+.hx-scheme-th { border-left: 3px solid var(--tone); }
+.hx-email-preview { width: 100%; min-height: 200px; border: 1px solid var(--border); border-radius: var(--r-sm); background: #fff; }
+
+/* Wide matrix table (RBAC permission grid): sticky first column, centered toggle cells, nowrap headers. */
+.hx-col-sticky { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+td.hx-col-sticky { background: var(--bg); }
+.hx-cell-strong { font-weight: 600; }
+.hx-cell-center { text-align: center; }
+.hx-nowrap { white-space: nowrap; }
+/* Fixed 36px square icon button (row remove, etc.). */
+.hx-ghosticon--36 { width: 36px; height: 36px; flex-shrink: 0; }
+/* "What ships here" checklist + gradient icon tile (placeholder/in-progress pages). */
+.hx-icontile { width: 48px; height: 48px; border-radius: var(--r); display: inline-flex; align-items: center; justify-content: center; background: var(--grad-primary); color: #fff; box-shadow: var(--glow, none); }
+.hx-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.hx-checklist__item { display: flex; align-items: flex-start; gap: var(--sp-2); }
+.hx-checklist__item > svg { flex-shrink: 0; color: var(--accent); margin-top: 2px; }
+/* Auth-flow editor bits (flowbar picker, stage title/req-select, rail note, picker search). */
+.hx-flowbar__select { min-width: 220px; }
+.hx-stage__title { min-width: 0; }
+.hx-stage__reqselect { width: 138px; flex-shrink: 0; }
+.hx-stage__railnote { margin-left: 52px; color: var(--fg-faint); }
+.hx-picksearch { margin-bottom: var(--sp-3); }
+
+/* Visually-hidden (screen-reader-only) — e.g. a file <input> behind a styled label. */
+.hx-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Dimmed/inactive card ("Not set up" family). */
+.hx-card--muted { opacity: .6; }
+/* Dynamic-size avatar — size driven by the --avatar-size custom property. */
+.hx-avatar--sized { width: var(--avatar-size); height: var(--avatar-size); font-size: calc(var(--avatar-size) * .36); }
+/* Tree row indent — depth driven by the --depth custom property (× 18px). */
+.hx-tree-row { margin-left: calc(var(--depth) * 18px); }
+
+/* Native colour-picker swatch input sizing. */
+.hx-colorswatch { width: 44px; height: 38px; border: 1px solid var(--border); border-radius: var(--r-sm); background: none; cursor: pointer; padding: 2px; }
+/* Vertical list of CopyRow items (e.g. OIDC endpoints). */
+.hx-copylist { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+/* ---- Drawer: reusable right-side overlay panel (Sessions v2 + future tables) ---- */
+.hx-drawer-root { position: fixed; inset: 0; z-index: 60; }
+.hx-drawer-scrim { position: absolute; inset: 0; background: rgba(34, 37, 31, 0.38); animation: hx-fade 0.12s ease; }
+.hx-drawer-panel {
+  position: absolute; top: 0; right: 0; height: 100%; height: 100dvh; width: min(480px, 100vw);
+  background: var(--surface, #ffffff); border-left: 1px solid var(--line, #e9e8e3);
+  box-shadow: -24px 0 60px -30px rgba(34, 37, 31, 0.4);
+  display: flex; flex-direction: column; animation: hx-drawer-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.hx-drawer-head, .hx-drawer-foot { flex-shrink: 0; }
+.hx-drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px; border-bottom: 1px solid var(--line, #e9e8e3);
+}
+.hx-drawer-title { margin: 0; font-size: 1.05rem; font-weight: 700; }
+.hx-drawer-close {
+  border: 0; background: transparent; font-size: 1.5rem; line-height: 1;
+  cursor: pointer; color: var(--fg-muted, #5b6560); padding: 0 4px;
+}
+.hx-drawer-close:hover { color: var(--fg, #22251f); }
+.hx-drawer-body { padding: 20px 24px; overflow: auto; flex: 1; min-height: 0; }
+.hx-drawer-foot { padding: 16px 24px; border-top: 1px solid var(--line, #e9e8e3); }
+.hx-drawer-field { margin-bottom: 16px; }
+.hx-drawer-field-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-muted, #8b938d); margin-bottom: 4px; }
+.hx-drawer-field-value { font-size: 0.92rem; word-break: break-word; }
+.hx-drawer-mono { font-family: var(--font-mono, "Roboto Mono", monospace); font-size: 0.82rem; color: var(--fg-muted, #5b6560); }
+/* Grouped detail sections inside a drawer — a small heading + optional explainer above a DetailList/chips. */
+.hx-drawer-group { margin-top: 22px; }
+.hx-drawer-group:first-child { margin-top: 0; }
+.hx-drawer-group__head { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-muted, #8b938d); margin: 0 0 6px; }
+.hx-drawer-group__desc { font-size: 0.82rem; line-height: 1.5; color: var(--fg-faint, #a3aaa4); margin: 0 0 12px; }
+.hx-drawer-acts { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; }
+/* Read-only claim rows (agent token identity): key on the left, mono value on the right. */
+.hx-claimrow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line, #e9e8e3); }
+.hx-claimrow:last-child { border-bottom: 0; }
+.hx-claimrow__key { font-family: var(--font-mono, "Roboto Mono", monospace); font-size: 0.8rem; color: var(--fg-muted, #5b6560); white-space: nowrap; }
+.hx-claimrow__val { font-family: var(--font-mono, "Roboto Mono", monospace); font-size: 0.82rem; color: var(--fg, #22251f); word-break: break-word; text-align: right; }
+@keyframes hx-drawer-in { from { transform: translateX(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+@keyframes hx-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 640px) { .hx-drawer-panel { width: 100vw; } }
+
+/* ---- DetailList: reusable label / value definition list (drawers, detail panels) ---- */
+/* Label sits in its own faint uppercase left column, clearly separated from the value; a hairline
+   divides each row. Values may carry a muted `sub` line (formatted absolute time) and a monospace
+   `mono` line (UUIDs) so composite values never run together. Stacks to one column on mobile. */
+.hx-dl { display: flex; flex-direction: column; margin: 0; }
+.hx-dl__row {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line, #e9e8e3);
+  align-items: start;
+}
+.hx-dl__row:first-child { padding-top: 0; }
+.hx-dl__row:last-child { border-bottom: 0; padding-bottom: 0; }
+.hx-dl__row--center { align-items: center; }
+.hx-dl__label {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint, #a3a89f);
+  line-height: 1.5;
+  padding-top: 2px;
+}
+.hx-dl__value { margin: 0; min-width: 0; }
+.hx-dl__main { font-size: 0.92rem; color: var(--fg, #22251f); word-break: break-word; line-height: 1.45; }
+.hx-dl__sub { margin-top: 2px; font-size: 0.8rem; color: var(--fg-muted, #5b6560); }
+.hx-dl__mono {
+  margin-top: 5px;
+  font-family: var(--font-mono, "Roboto Mono", monospace);
+  font-size: 0.78rem;
+  color: var(--fg-muted, #5b6560);
+  word-break: break-all;
+}
+/* vertical stack for multi-item values (e.g. the apps list) */
+.hx-dl__stack { display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 640px) {
+  .hx-dl__row { grid-template-columns: 1fr; gap: 3px; padding: 10px 0; }
+  .hx-dl__label { padding-top: 0; }
+}
+
+/* ---- Sessions v2 filter bar ---- */
+.hx-filterbar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.hx-filterbar .hx-input { max-width: 320px; }
+.hx-current-dot { color: var(--kd-cucumber, #476957); font-weight: 700; }

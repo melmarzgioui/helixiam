@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#a3d4c4">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2f3033">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
+    <title th:text="#{reset.page.title}">KubeDNA - Password reset</title>
+    <script defer src="/js/App.js?@project.version@" type="module"></script>
+    <meta name="googlebot" content="noindex">
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/img/favicon.avif" sizes="32x32">
+    <link rel="icon" href="/img/favicon.avif" sizes="192x192">
+    <link rel="icon" href="/img/favicon.avif">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar">
+            <a>
+                <div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div>
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <div class="container title">
+            <h3 th:text="#{reset.set.title}">Password reset</h3>
+        </div>
+
+<!--        <div th:if="${errors.size() > 0}" class="container no-border">-->
+<!--            <div class="actionError" id="loginFailed">-->
+<!--                <i class="error"></i>-->
+<!--                <span>Invalid information provided</span>-->
+<!--            </div>-->
+<!--        </div>-->
+
+        <div class="container">
+            <article>
+                <form th:action="@{/reset/password/set}" th:object="${changePassword}" method="post" role="form" id="passwordReset"  th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}">
+
+                    <label for="password" th:text="#{reset.set.password.label}">Password</label>
+                    <input type="password" id="password" name="newPassword" th:field="*{newPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+                    <input type="hidden" name="code" th:field="*{code}"/>
+
+                    <label for="repeatPassword" th:text="#{reset.set.repeatPassword.label}">Repeat Password</label>
+                    <input type="password" id="repeatPassword" name="repeatPassword" th:field="*{repeatPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+
+                    <div class="spacer">&nbsp;</div>
+
+                    <div class="buttonHolder">
+                        <button type="button" class="cancel" th:text="#{common.back}">Back</button>
+                        <button type="submit">
+                            <i class="login"></i>
+                            <span th:text="#{reset.set.submit}">Update</span>
+                        </button>
+                    </div>
+                </form>
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+</body>
+</html>

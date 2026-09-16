@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+  Auth-hardening (feature 5): per-realm CAPTCHA widget fragment. Renders nothing unless the realm enables
+  CAPTCHA (model attribute `captchaEnabled`). Supports Cloudflare Turnstile (response field
+  `cf-turnstile-response`) and Google reCAPTCHA v2 (`g-recaptcha-response`); the server-side verifier reads
+  whichever the active provider submits. Include inside a <form> with: th:replace="~{fragments/captcha :: widget}".
+-->
+<th:block th:fragment="widget" th:if="${captchaEnabled}">
+    <!-- No Subresource Integrity hash: Cloudflare/Google serve these loader scripts as versionless,
+         intentionally-mutable endpoints (the documented integration), so a pinned SRI hash would break the
+         widget on each provider rotation. Origin is the provider's first-party CDN over TLS. -->
+    <div th:if="${captchaProvider == 'turnstile'}" class="cf-turnstile" th:attr="data-sitekey=${captchaSiteKey}"></div>
+    <script th:if="${captchaProvider == 'turnstile'}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer crossorigin="anonymous"></script>
+
+    <div th:if="${captchaProvider == 'recaptcha'}" class="g-recaptcha" th:attr="data-sitekey=${captchaSiteKey}"></div>
+    <script th:if="${captchaProvider == 'recaptcha'}" src="https://www.google.com/recaptcha/api.js" async defer crossorigin="anonymous"></script>
+</th:block>
+</body>
+</html>

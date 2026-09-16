@@ -1,0 +1,8 @@
+{
+  "clientId" : "oidc-client",
+  "clientSecret" : "secret",
+  "authorizationGrantTypes" : "authorization_code,refresh_token",
+  "redirectUris" : "https://oauth.pstmn.io/v1/callback,http://localhost,http://localhost:8090/login/oauth2/code/kube,http://kubedna-dashboard:8090/login/oauth2/code/kube,https://dashboard-pre.kubedna.io/login/oauth2/code/kube,https://dashboard.kubedna.io/login/oauth2/code/kube",
+  "postLogoutRedirectUris" : "http://kubedna-dashboard:8090",
+  "scopes" : "openid"
+}

@@ -1,0 +1,35 @@
+---
+import PageHero from "../PageHero.astro";
+import FeatureRows from "../FeatureRows.astro";
+import CtaBand from "../CtaBand.astro";
+import Icon from "../Icon.astro";
+import { type Solution } from "../../data/solutions";
+import { t, localeOf, localizePath, type Locale } from "../../i18n";
+interface Props { s: Solution; }
+const { s } = Astro.props;
+const locale: Locale = localeOf(Astro.url.pathname);
+const L = (href: string) => localizePath(href, locale);
+const U = t(locale).ui;
+---
+<PageHero eyebrow={s.eyebrow} title={s.title} lead={s.lead} icon={s.icon} />
+<section class="section">
+  <div class="container"><FeatureRows rows={s.rows} /></div>
+</section>
+<section class="section">
+  <div class="container">
+    <div class="rel-strip reveal">
+      <span class="chip">{U.relevantCapabilities}</span>
+      <div class="rel-links">
+        {s.productLinks.map((l) => <a href={L(l.href)} class="rel-link">{l.label}<Icon name="arrow" size={14} /></a>)}
+      </div>
+    </div>
+  </div>
+</section>
+<CtaBand />
+
+<style>
+  .rel-strip { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; border: 1px solid var(--line); border-radius: var(--r); padding: 1.2rem 1.4rem; background: rgba(255, 255, 255, 0.015); }
+  .rel-links { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .rel-link { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--ink); border: 1px solid var(--line-2); border-radius: 999px; padding: 0.4rem 0.9rem; font-size: 0.9rem; }
+  .rel-link:hover { border-color: var(--cyan); color: var(--jade); }
+</style>

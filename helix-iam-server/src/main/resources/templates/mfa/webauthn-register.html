@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#a3d4c4">
+    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>KubeDNA - Register Passkey</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/img/favicon.avif">
+</head>
+<body>
+<div class="mainWrapper">
+    <header>
+        <div class="headerBar"><a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a></div>
+    </header>
+    <main>
+        <div class="container title">
+            <h3>Register a Passkey</h3>
+            <div class="description">Create a passkey for faster, phishing-resistant sign-in.</div>
+        </div>
+        <div class="container">
+            <article>
+                <div th:if="${registered}" class="valid"><p>Passkey registered successfully.</p></div>
+                <div th:if="${error}" class="error" style="display:block">Registration failed, please try again.</div>
+                <form id="regForm" th:action="@{/webauthn/register}" method="post">
+                    <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
+                    <input type="hidden" id="attestationObject" name="attestationObject"/>
+                    <input type="hidden" id="clientDataJSON" name="clientDataJSON"/>
+                    <div class="buttonHolder"><button type="button" id="regBtn"><span>Create Passkey</span></button></div>
+                </form>
+            </article>
+        </div>
+    </main>
+    <footer></footer>
+</div>
+<script th:inline="javascript">
+    const challengeB64 = /*[[${challenge}]]*/ '';
+    const rpId = /*[[${rpId}]]*/ 'localhost';
+    const userId = /*[[${userId}]]*/ '';
+    const username = /*[[${username}]]*/ '';
+
+    function b64urlToBytes(s) {
+        s = s.replace(/-/g, '+').replace(/_/g, '/');
+        while (s.length % 4) s += '=';
+        const bin = atob(s);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes.buffer;
+    }
+    function bytesToB64url(buf) {
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function strToBytes(s) {
+        return new TextEncoder().encode(s).buffer;
+    }
+
+    async function createPasskey() {
+        try {
+            const cred = await navigator.credentials.create({
+                publicKey: {
+                    challenge: b64urlToBytes(challengeB64),
+                    rp: { id: rpId, name: 'KubeDNA' },
+                    user: { id: strToBytes(userId), name: username, displayName: username },
+                    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+                    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+                    timeout: 60000,
+                    attestation: 'none'
+                }
+            });
+            document.getElementById('attestationObject').value = bytesToB64url(cred.response.attestationObject);
+            document.getElementById('clientDataJSON').value = bytesToB64url(cred.response.clientDataJSON);
+            document.getElementById('regForm').submit();
+        } catch (e) {
+            console.error('Passkey registration failed', e);
+        }
+    }
+    document.getElementById('regBtn').addEventListener('click', createPasskey);
+</script>
+</body>
+</html>

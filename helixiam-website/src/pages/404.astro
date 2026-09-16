@@ -1,0 +1,9 @@
+---
+import Base from "../layouts/Base.astro";
+import NotFoundView from "../components/views/NotFoundView.astro";
+import { notfound } from "../pagedata/notfound";
+const S = notfound.en;
+---
+<Base title={S.metaTitle} noindex={true}>
+  <NotFoundView />
+</Base>

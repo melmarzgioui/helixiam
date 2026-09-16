@@ -1,0 +1,124 @@
+* {
+  box-sizing: border-box;
+  font-family: "Work Sans", sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  text-decoration: none;
+  font-weight: 400;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  font-size-adjust: none;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  min-height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+  overflow: hidden;
+  justify-content: center;
+}
+
+.mainWrapper {
+  max-width: 800px;
+  width: 100%;
+  min-height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.mainWrapper > header {
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+.mainWrapper > main {
+  flex-grow: 1;
+  flex-shrink: 1;
+  overflow-y: auto;
+  width: 100%;
+}
+.mainWrapper > main > div.container {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 0 12px;
+  width: 100%;
+  min-height: 100%;
+  max-width: 800px;
+  margin: auto;
+}
+.mainWrapper > main > div.container .spacer {
+  flex-grow: 2;
+  flex-shrink: 1;
+}
+.mainWrapper > nav {
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+
+.buttonHolder {
+  display: flex;
+  justify-content: space-around;
+  gap: 8px;
+  width: 100%;
+}
+.buttonHolder.bottom-space {
+  padding-bottom: 16px;
+}
+.buttonHolder > button {
+  width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  font-weight: 600;
+  gap: 10px;
+}
+.buttonHolder > button > i {
+  font-size: 22px;
+}
+.buttonHolder > button > span {
+  font-weight: 600;
+}
+.buttonHolder > a > img {
+  width: 24px;
+  height: 24px;
+}
+.buttonHolder > button.large {
+  width: 100%;
+}
+
+.actionError,
+.actionSuccess {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+.actionError > i,
+.actionSuccess > i {
+  font-size: 100px;
+  color: #86A450;
+}
+
+.actionError > i {
+  color: #9C4B3E;
+}
+
+.actionError > span,
+.actionSuccess > span {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: break-spaces;
+}
+
+.actionError > span.addition,
+.actionSuccess > span.addition {
+  font-weight: 400;
+  color: #aaa;
+  margin-top: 16px;
+}

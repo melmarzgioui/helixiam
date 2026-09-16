@@ -1,0 +1,21 @@
+/* Helix Admin Console — base element styles.
+   Design tokens + fonts now live in the shared brand system (single source of truth):
+   platform/brand/brand.css, synced here as ./brand.css. Do not redeclare tokens or @font-face
+   in this file — edit platform/brand/brand.css and run `node platform/brand/sync.mjs`. */
+
+@import "./brand.css";
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { font-family: var(--font); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+code, pre { font-family: var(--mono); }

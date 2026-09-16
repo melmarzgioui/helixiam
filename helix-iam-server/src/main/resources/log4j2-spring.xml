@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Helix IAM E8.5-S4 (Events): logging config that preserves Spring Boot's normal console output for app
+  logs and adds a dedicated "helix.audit" logger whose lines are PURE JSON (one audit event per line,
+  undecorated) so a SIEM can scrape them straight from stdout. The root appender reuses Boot's own
+  CONSOLE_LOG_PATTERN (set by Boot before logging init), so existing app log formatting is unchanged.
+
+  SIEM delivery: stdout JSON (here) is always on. Active HTTP push is handled in code
+  (HttpAuditForwarder, configured via helix.audit.http.*). The commented Syslog/HTTP appenders below are
+  alternative log-pipeline transports an operator can enable without code changes.
+-->
+<Configuration status="WARN">
+    <Appenders>
+        <!-- Application logs: Boot's standard console format (falls back to a plain pattern off-Boot). -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <!-- Reuse Boot's console pattern when set; brace-free fallback avoids the Log4j2 default-value
+                 parser choking on '{' in '%d{...}'/'%logger{36}' before Boot initializes the property. -->
+            <PatternLayout pattern="${sys:CONSOLE_LOG_PATTERN:-%d %-5level %logger - %m%n}"/>
+        </Console>
+
+        <!-- Audit logs: the message IS the JSON event; no decoration, so each line is valid JSON. -->
+        <Console name="AuditConsole" target="SYSTEM_OUT">
+            <PatternLayout pattern="%m%n"/>
+        </Console>
+
+        <!--
+        Optional SIEM transports (enable by un-commenting and adding the AppenderRef to the helix.audit
+        logger). These ship audit JSON over the log pipeline instead of, or in addition to, the in-app
+        HTTP push.
+
+        <Syslog name="AuditSyslog" format="RFC5424" host="${env:HELIX_AUDIT_SYSLOG_HOST}"
+                port="${env:HELIX_AUDIT_SYSLOG_PORT:-6514}" protocol="TCP" appName="helix-iam"
+                facility="LOCAL0" enterpriseNumber="32473" newLine="true" messageId="audit">
+            <PatternLayout pattern="%m"/>
+        </Syslog>
+
+        <Http name="AuditHttp" url="${env:HELIX_AUDIT_HTTP_URL}">
+            <Property name="Content-Type" value="application/json"/>
+            <PatternLayout pattern="%m"/>
+        </Http>
+        -->
+    </Appenders>
+
+    <Loggers>
+        <!-- Pure-JSON audit stream; additivity=false keeps it out of the app-formatted console. -->
+        <Logger name="helix.audit" level="INFO" additivity="false">
+            <AppenderRef ref="AuditConsole"/>
+        </Logger>
+
+        <Root level="INFO">
+            <AppenderRef ref="Console"/>
+        </Root>
+    </Loggers>
+</Configuration>

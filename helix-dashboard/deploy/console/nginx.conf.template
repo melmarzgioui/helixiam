@@ -1,0 +1,95 @@
+# Helix IAM admin console — nginx server config (envsubst-expanded; ${HELIX_API_TARGET} is the
+# publisher base URL). Mirrors the dev Vite proxy: /admin and the per-realm account API go to the
+# publisher; everything else is the SPA (history-fallback to index.html so deep links work).
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # Admin API → publisher (same-origin from the browser's POV). $http_host (not $host) + X-Forwarded-Host
+    # so any redirect the publisher builds keeps the external port — otherwise a session-expiry 302 would
+    # point at http://localhost/... (:80) and the browser's fetch would die on a refused connection instead
+    # of the SPA seeing a clean 401.
+    location /admin {
+        proxy_pass ${HELIX_API_TARGET};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # End-user self-service account API: ONLY /realms/{realm}/account/** (a prefix-regex, NOT a bare
+    # /realms — the SPA owns /realms/{realm}/{section} as its own client-side routes). Uses $http_host
+    # (NOT $host) + X-Forwarded-Host so the publisher's post-login redirect to the account profile keeps
+    # the external port — otherwise it 302s to http://localhost/... (:80) and the browser can't connect.
+    location ~ ^/realms/[^/]+/account {
+        proxy_pass ${HELIX_API_TARGET};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Auth pages served by the publisher: the real login/logout form + its POST. The SPA's session guard
+    # sends the browser to /realms/{realm}/login when unauthenticated, so this MUST reach the publisher —
+    # otherwise the SPA catch-all shadows it and login redirect-loops. Carve out ONLY login/logout; the SPA
+    # still owns the other /realms/{realm}/{section} routes. $http_host (not $host) preserves the external
+    # port so the publisher's post-login absolute redirect keeps :PORT instead of dropping to :80.
+    location ~ ^/realms/[^/]+/(login|logout)(/|$|\?) {
+        proxy_pass ${HELIX_API_TARGET};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Break the OIDC login redirect-loop. When an unauthenticated /oauth2/authorize needs a login, Spring
+    # Authorization Server emits a realm-blind 302 -> /login (it hardcodes the form-login entry point, and
+    # the entry point / its /error dispatch run outside the realm-routing filter, so the redirect can't be
+    # rewritten server-side). Landing on the SPA's /login makes it probe /account/profile, get 401, and
+    # re-enter OIDC -> infinite loop. The console only ever authenticates against the master realm, so bounce
+    # the bare login page to the realm-scoped login form. That form sets the session and, via the saved-request
+    # resume, continues the originating authorize request -> code -> /console/callback.
+    location = /login {
+        return 302 /realms/master/login$is_args$args;
+    }
+
+    # OIDC endpoints served by the publisher (realm-prefixed): the console logs in via authorization_code
+    # + PKCE against the seeded helix-console client, so /oauth2/authorize|token, OIDC discovery
+    # (.well-known), and RP-logout (/connect/logout) must reach the publisher. These are NOT SPA routes.
+    # $http_host preserves the external port so the authorize redirect + post-logout redirect keep :PORT.
+    location ~ ^/realms/[^/]+/(oauth2|connect|\.well-known)/ {
+        proxy_pass ${HELIX_API_TARGET};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Static assets for the publisher-served login/theme pages: the realm theme CSS + images
+    # (/realms/{realm}/css/**, /realms/{realm}/img/**) and the theme script (/js/**). Without these the
+    # login page renders unstyled with a broken logo (the SPA catch-all would return index.html for a .css).
+    # These prefixes are NOT SPA client routes, so proxying them to the publisher is safe.
+    location ~ ^/realms/[^/]+/(css|img)/ {
+        proxy_pass ${HELIX_API_TARGET};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /js/ {
+        proxy_pass ${HELIX_API_TARGET};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Self-service account console entry point.
+    location = /account.html {
+        try_files /account.html =404;
+    }
+
+    # SPA history fallback.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

@@ -1,0 +1,114 @@
+@import "common.css";
+.borderedContainer,
+form {
+  max-width: 800px;
+  width: 100%;
+  flex-grow: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.borderedContainer.white,
+form.white {
+  border-radius: 15px;
+  border: 1px solid var(--color-box-border);
+  padding: 10px 20px 0 20px;
+  margin-bottom: 20px;
+}
+.borderedContainer .spacer,
+form .spacer {
+  flex-grow: 2;
+  flex-shrink: 1;
+  min-height: 30px;
+}
+.borderedContainer label,
+form label {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  display: block;
+  font-weight: 600;
+}
+.borderedContainer .buttonHolder,
+form .buttonHolder {
+  padding-bottom: 16px;
+}
+.borderedContainer textarea,
+form textarea {
+  resize: none;
+  height: 200px;
+}
+.borderedContainer button,
+form button {
+  border-radius: 5px;
+  color: var(--color_button_blue_text);
+  cursor: pointer;
+  background-color: var(--color-green);
+  border: 1px solid var(--color-green);
+  padding: 13px;
+  font-weight: 600;
+}
+.borderedContainer button.cancel,
+form button.cancel {
+  background-color: var(--color_button_white_background) !important;
+  border: 1px solid var(--color-box-border);
+  color: var(--color_button_white_text);
+}
+.borderedContainer input[type=date],
+.borderedContainer select,
+form input[type=date],
+form select {
+  -moz-appearance: none; /* Firefox */
+  -webkit-appearance: none; /* Safari and Chrome */
+  appearance: none;
+  background: #ffffff;
+  color: var(--color-black);
+}
+.borderedContainer select:focus,
+.borderedContainer textarea:focus,
+.borderedContainer input:focus,
+form select:focus,
+form textarea:focus,
+form input:focus {
+  outline: none;
+}
+.borderedContainer textarea.invalid,
+.borderedContainer select.invalid,
+.borderedContainer input.invalid,
+form textarea.invalid,
+form select.invalid,
+form input.invalid {
+  background-color: #ffdddd !important;
+  border-color: #f1aaaa !important;
+}
+
+::placeholder { /* Chrome, Firefox, Opera, Safari 10.1+ */
+  color: var(--color_grade_out);
+  opacity: 1; /* Firefox */
+}
+
+:-ms-input-placeholder { /* Internet Explorer 10-11 */
+  color: var(--color_grade_out);
+}
+
+::-ms-input-placeholder { /* Microsoft Edge */
+  color: var(--color_grade_out);
+}
+
+input[type=text], input[type=search], input[type=number], input[type=password], input[type=date], select, textarea {
+  width: 100%;
+  border: 1px solid var(--color-box-border);
+  border-radius: 5px;
+  padding: 11px 13px;
+  font-size: 12px;
+  display: inline-block;
+}
+
+button.icon,
+input[type=search].icon,
+input[type=text].icon {
+  background-repeat: no-repeat;
+  background-size: 20px;
+  background-position: center left;
+  background-position-x: 10px;
+  padding-left: 34px;
+}

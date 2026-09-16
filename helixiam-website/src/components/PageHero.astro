@@ -1,0 +1,32 @@
+---
+import Icon from "./Icon.astro";
+import { t, docsUrl, localizePath, localeOf, type Locale } from "../i18n";
+interface Props { eyebrow?: string; title: string; lead?: string; icon?: string; cta?: boolean; }
+const { eyebrow, title, lead, icon, cta = true } = Astro.props;
+const locale: Locale = localeOf(Astro.url.pathname);
+const C = t(locale).cta;
+---
+<section class="phero">
+  <div class="phero-glow" aria-hidden="true"></div>
+  <div class="container">
+    {icon && <span class="phero-ico"><Icon name={icon} size={26} /></span>}
+    {eyebrow && <span class="eyebrow">{eyebrow}</span>}
+    <h1 set:html={title}></h1>
+    {lead && <p class="lead phero-lead">{lead}</p>}
+    {cta && (
+      <div class="phero-cta">
+        <a href={localizePath("/demo/", locale)} class="btn btn-primary">{C.book}<Icon name="arrow" size={17} /></a>
+        <a href={docsUrl(locale)} target="_blank" rel="noopener" class="btn btn-ghost">{C.docs}</a>
+      </div>
+    )}
+  </div>
+</section>
+
+<style>
+  .phero { position: relative; padding-block: clamp(3.5rem, 8vw, 6rem) clamp(2rem, 4vw, 3rem); overflow: hidden; }
+  .phero-glow { position: absolute; inset: 0; background: radial-gradient(60% 70% at 20% -10%, rgba(94, 234, 212, 0.1), transparent 60%); pointer-events: none; }
+  .phero-ico { display: inline-flex; width: 54px; height: 54px; align-items: center; justify-content: center; border-radius: 14px; color: var(--void); background: var(--grad-cta); box-shadow: var(--glow-cyan); margin-bottom: 1.2rem; }
+  .phero h1 { max-width: 18ch; }
+  .phero-lead { max-width: 58ch; margin-top: 0.4rem; }
+  .phero-cta { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-top: 1.8rem; }
+</style>

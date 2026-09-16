@@ -1,0 +1,83 @@
+header {
+  flex-grow: 0;
+  flex-shrink: 0;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 2px solid var(--color-box-border);
+  height: 80px;
+  align-items: center;
+  gap: 10px;
+  background-color: var(--color-header-background);
+
+  @media screen and (max-width: 600px) {
+    height: unset;
+    //padding: 10px 0;// 16px 0;
+  }
+
+  * {
+    color: var(--color-black);
+  }
+
+
+  > div.headerBar {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 30px;
+    //margin: 0 3%;
+    justify-content: space-between;
+
+    @media screen and (max-width: 600px) {
+      padding: 10px 20px;
+    }
+
+    > div {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      > div  {
+        @media screen and (max-width: 600px) {
+          display: none;
+        }
+        > h4 {
+          font-weight: 600;
+          letter-spacing: 1px;
+          color: var(--color-header-text);
+          font-size: 12px;
+          margin: 0;
+          text-align: right;
+
+        }
+        > h3 {
+          font-weight: 600;
+          color: var(--color-header-text);
+          letter-spacing: 1px;
+          margin: 0;
+          font-size: 14px;
+        }
+      }
+    }
+    a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      > div.logo {
+        height: 24px;
+        //width: 200px;
+        width: 180px;
+        background-image: url("/img/kubedna-wh.png");
+        background-size: contain;
+        background-repeat: no-repeat;
+
+        > img {
+          display: none;
+          max-height: 20px;
+        }
+      }
+    }
+  }
+}
