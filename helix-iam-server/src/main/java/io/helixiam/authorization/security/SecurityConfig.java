@@ -57,15 +57,29 @@ public class SecurityConfig {
     private final String spBaseUrl;
     private final boolean flowEngineEnabled;
     private final boolean adminDevOpen;
+    private final boolean cookieSecure;
+    private final boolean prometheusAnonymous;
+    private final boolean springdocPublic;
 
     public SecurityConfig(@Value("${helix.security.whitelist:}") final String[] whitelist, @Value("${mfa.enabled:true}") boolean mfaEnabled, @Value("${sp.base.url:}") final String spBaseUrl,
                           @Value("${helix.flow-engine.enabled:false}") final boolean flowEngineEnabled,
-                          @Value("${helix.admin.dev-open:false}") final boolean adminDevOpen) {
+                          @Value("${helix.admin.dev-open:false}") final boolean adminDevOpen,
+                          // Security review M5: the XSRF-TOKEN cookie's Secure flag, sharing ONE knob with the
+                          // session cookie (application.properties → server.servlet.session.cookie.secure).
+                          // Secure by default; application-dev.properties flips it off for plain-HTTP localhost.
+                          @Value("${helix.security.cookie-secure:true}") final boolean cookieSecure,
+                          // Security review L2: whether /actuator/prometheus is reachable anonymously.
+                          @Value("${helix.actuator.prometheus-anonymous:true}") final boolean prometheusAnonymous,
+                          // Security review L3: whether the OpenAPI document / Swagger UI are anonymous.
+                          @Value("${helix.springdoc.public:false}") final boolean springdocPublic) {
         this.whitelist = whitelist;
         this.mfaEnabled = mfaEnabled;
         this.spBaseUrl = spBaseUrl;
         this.adminDevOpen = adminDevOpen;
         this.flowEngineEnabled = flowEngineEnabled;
+        this.cookieSecure = cookieSecure;
+        this.prometheusAnonymous = prometheusAnonymous;
+        this.springdocPublic = springdocPublic;
     }
 
     @Bean
@@ -194,7 +208,7 @@ public class SecurityConfig {
         // plus a filter that materialises the token so the cookie is written on the SPA's first (GET) call.
         // Server-rendered forms (login, MFA, flow) keep working: they render ${_csrf} into a hidden field.
         http.csrf(csrf -> csrf
-                .csrfTokenRepository(org.springframework.security.web.csrf.CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRepository(csrfTokenRepository())
                 .csrfTokenRequestHandler(new org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler()));
         http.addFilterAfter(new CsrfCookieFilter(), org.springframework.security.web.csrf.CsrfFilter.class);
         http.authorizeHttpRequests(requests -> requests.requestMatchers(whitelist).permitAll());
@@ -262,11 +276,26 @@ public class SecurityConfig {
             // /admin/** is never anonymous in production.
             http.authorizeHttpRequests(requests -> requests.requestMatchers("/admin/**").access(adminAuthorizationManager));
         }
-        // Wave 3 observability: Prometheus scrape + health probe are anonymous (infra-scraped, not browsers).
-        http.authorizeHttpRequests(requests -> requests.requestMatchers("/actuator/prometheus", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll());
+        // Wave 3 observability: the health probe stays anonymous unconditionally — it is the container
+        // liveness/readiness endpoint and must answer before anything can authenticate.
+        // Security review L2: /actuator/info is NO LONGER anonymous (and is no longer exposed at all, see
+        // management.endpoints.web.exposure.include) — it discloses build/git metadata for no benefit here.
+        http.authorizeHttpRequests(requests -> requests.requestMatchers("/actuator/health", "/actuator/health/**").permitAll());
+        // Security review L2: /actuator/prometheus anonymity is now an explicit, deliberate switch rather
+        // than an accident of the allowlist. It stays anonymous BY DEFAULT so in-cluster scraping is
+        // unchanged — restrict the scrape path with a NetworkPolicy / ingress rule. Set
+        // helix.actuator.prometheus-anonymous=false to push it behind the authenticated gate instead.
+        if (prometheusAnonymous) {
+            http.authorizeHttpRequests(requests -> requests.requestMatchers("/actuator/prometheus").permitAll());
+        }
         http.csrf(csrf -> csrf.ignoringRequestMatchers("/actuator/**"));
-        // Wave 3: Swagger UI + OpenAPI JSON for the /admin/** API (GET-only docs; permitAll in dev).
-        http.authorizeHttpRequests(requests -> requests.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll());
+        // Wave 3: Swagger UI + OpenAPI JSON for the /admin/** API (GET-only docs).
+        // Security review L3: the OpenAPI document is a complete map of the admin API, so it is NOT
+        // anonymous by default. With helix.springdoc.public=false (production default) these paths fall
+        // through to anyRequest().authenticated(); application-dev.properties sets it true.
+        if (springdocPublic) {
+            http.authorizeHttpRequests(requests -> requests.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll());
+        }
         http.csrf(csrf -> csrf.ignoringRequestMatchers("/v3/api-docs/**"));
         http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
 
@@ -348,6 +377,27 @@ public class SecurityConfig {
     @Bean
     public MfaAuthenticationCodeVerifier twoFactorAuthenticationCodeVerifier() {
         return new TotpAuthenticationCodeVerifier();
+    }
+
+    /**
+     * The {@code XSRF-TOKEN} cookie repository.
+     *
+     * <p>Security review M5: the cookie's {@code Secure} flag was previously left to the container, which
+     * derives it from {@code request.isSecure()} — proxy-dependent, and behind a TLS-terminating ingress
+     * without forwarded-header handling that evaluates to {@code false}, so the CSRF token was emitted over
+     * a cookie the browser would happily also send in cleartext. It is now pinned from
+     * {@code helix.security.cookie-secure} (default {@code true}, the same single knob as the session
+     * cookie; {@code false} only in the dev profile).
+     *
+     * <p>{@code HttpOnly} deliberately stays <strong>false</strong>: the account/admin SPAs read this cookie
+     * with JavaScript to echo it back in the {@code X-XSRF-TOKEN} header — that is the whole point of the
+     * double-submit pattern, and flipping it would break every SPA write.
+     */
+    org.springframework.security.web.csrf.CookieCsrfTokenRepository csrfTokenRepository() {
+        final org.springframework.security.web.csrf.CookieCsrfTokenRepository repository =
+                org.springframework.security.web.csrf.CookieCsrfTokenRepository.withHttpOnlyFalse();
+        repository.setCookieCustomizer(cookie -> cookie.secure(cookieSecure));
+        return repository;
     }
 
     /**

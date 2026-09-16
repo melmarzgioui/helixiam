@@ -46,6 +46,14 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
 
     public AttributeEncryption(@Value("${database.encryption:#{null}}") final String password) {
         if (password == null) {
+            // Security review H2: with no key, every value below is stored/read as plaintext. That is a
+            // legitimate opt-out for local dev, but it must never be silent — these columns hold realm
+            // private signing keys and TOTP secrets.
+            LOG.warn("=====================================================================");
+            LOG.warn("database.encryption (DB_ENCRYPTION) is NOT set — at-rest attribute");
+            LOG.warn("encryption is DISABLED. Realm private keys and TOTP secrets will be");
+            LOG.warn("stored in PLAINTEXT. Set DB_ENCRYPTION for any non-local deployment.");
+            LOG.warn("=====================================================================");
             key = null;
             keyOld = null;
         } else {
@@ -82,8 +90,11 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
 
             return Base64.getEncoder().encodeToString(combined);
         } catch (final Exception e) {
-            LOG.error("Encryption failed");
-            return data; // Fallback to plaintext
+            // Security review H2: FAIL CLOSED. Returning `data` here silently persisted realm private
+            // signing keys / TOTP secrets to the database in PLAINTEXT on any transient crypto error.
+            // Failing the write is strictly safer than silently storing an unencrypted secret.
+            LOG.error("At-rest encryption failed — refusing to store the value unencrypted", e);
+            throw new IllegalStateException("At-rest encryption failed; refusing to persist plaintext", e);
         }
     }
 
@@ -126,7 +137,11 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
 
             return new String(cipher.doFinal(Base64.getDecoder().decode(data)));
         } catch (final Exception e) {
-            LOG.trace("Legacy decryption failed, returning plaintext");
+            // Neither GCM nor the legacy key could decrypt this value, so it is returned as stored —
+            // expected for pre-encryption (plaintext) legacy rows, but it also covers a corrupt or
+            // tampered value, so make it visible rather than swallowing it at trace level.
+            LOG.warn("Attribute could not be decrypted with either key — returning the stored value as-is "
+                    + "(expected only for legacy plaintext rows; otherwise the value may be corrupt)");
             return data;
         }
     }

@@ -8,6 +8,7 @@ package io.helixiam.authorization.security.adminrbac;
 import io.helixiam.authorization.amqp.adminrbac.AdminEffectivePermissionsDto;
 import io.helixiam.authorization.amqp.adminrbac.AdminEffectivePermissionsRef;
 import io.helixiam.authorization.amqp.adminrbac.AdminRbacPublisher;
+import io.helixiam.authorization.service.role.DefaultRoles;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -82,9 +83,10 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
 
         final String realmId = realmFromPath(adminPath);
         if (realmId == null) {
-            // Realm-independent admin path (e.g. /admin/audit/**) — require the model to grant the permission,
-            // but with no realm we cannot resolve grants; default-safe = allow (matches today).
-            return new AuthorizationDecision(true);
+            // Realm-independent admin path (e.g. /admin/audit/**): per-realm grants cannot be resolved, so
+            // require the caller to be an admin of SOME realm. Previously this allowed ANY authenticated
+            // user (a normal end user could reach realm-independent admin routes).
+            return new AuthorizationDecision(hasAnyAdminAuthority(auth));
         }
 
         final List<String> roleNames = auth.getAuthorities().stream()
@@ -94,7 +96,11 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
 
         final AdminEffectivePermissionsDto eff = resolve(realmId, roleNames);
         if (eff == null || !eff.modelConfigured()) {
-            return new AuthorizationDecision(true); // unconfigured realm OR resolution failure → fail open.
+            // Unconfigured realm, or an RBAC resolution failure. This previously granted to ANY
+            // authenticated principal — a privilege-escalation path, since the default state of a realm
+            // is "no grant model". Fall back to requiring realm-admin for THIS realm instead: real admins
+            // keep working (including during an RBAC outage), ordinary users are denied.
+            return new AuthorizationDecision(hasAdminAuthority(auth, realmId));
         }
         final boolean granted = eff.permissions().contains(AdminRoutePermissions.REALM_ADMIN)
                 || eff.permissions().contains(required.get());
@@ -103,6 +109,29 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
                     request.getMethod(), adminPath, required.get(), roleNames, realmId);
         }
         return new AuthorizationDecision(granted);
+    }
+
+    /**
+     * Legacy platform admin role name; principal authorities are {@code <roleName>_<realmId>}
+     * (see {@code UserRoles.getTenantRoleName()} / {@code UserCredentials.getAuthorities()}).
+     */
+    private static final String LEGACY_ADMIN_ROLE = "ROLE_ADMIN";
+
+    /** True when the principal holds the curated or legacy admin role FOR THAT realm. */
+    private static boolean hasAdminAuthority(final Authentication auth, final String realmId) {
+        final String curated = DefaultRoles.ADMIN + "_" + realmId;
+        final String legacy = LEGACY_ADMIN_ROLE + "_" + realmId;
+        return auth.getAuthorities().stream()
+                .map(a -> a == null ? null : a.getAuthority())
+                .anyMatch(a -> curated.equals(a) || legacy.equals(a));
+    }
+
+    /** True when the principal is an admin of ANY realm (for realm-independent admin routes). */
+    private static boolean hasAnyAdminAuthority(final Authentication auth) {
+        return auth.getAuthorities().stream()
+                .map(a -> a == null ? null : a.getAuthority())
+                .anyMatch(a -> a != null
+                        && (a.startsWith(DefaultRoles.ADMIN + "_") || a.startsWith(LEGACY_ADMIN_ROLE + "_")));
     }
 
     private AdminEffectivePermissionsDto resolve(final String realmId, final List<String> roleNames) {

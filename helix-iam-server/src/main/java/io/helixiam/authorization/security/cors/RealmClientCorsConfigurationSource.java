@@ -58,14 +58,21 @@ public class RealmClientCorsConfigurationSource implements CorsConfigurationSour
 
     /**
      * Builds the CORS response for {@code origin} against the realm's {@code allowed} origins, or {@code null}
-     * when the origin is not allowed (the browser then blocks the cross-origin call). A {@code *} entry
-     * allows any origin (reflected). Package-visible and pure for testing.
+     * when the origin is not allowed (the browser then blocks the cross-origin call). Package-visible and
+     * pure for testing.
+     *
+     * <p>Security review M2: a {@code *} entry is <strong>ignored</strong>. Every response this source
+     * produces sets {@code Access-Control-Allow-Credentials: true}, and reflecting an arbitrary origin
+     * alongside credentials hands any site on the internet an authenticated, same-origin-equivalent channel
+     * into the realm's OAuth/OIDC endpoints — it defeats the same-origin policy rather than relaxing it.
+     * A realm that configured {@code *} therefore behaves as if it had configured <em>no</em> origins
+     * (cross-origin denied); the misconfiguration is logged in {@link #allowedOrigins(String)}.
      */
     static CorsConfiguration corsConfigFor(final String origin, final Set<String> allowed) {
         if (origin == null || origin.isBlank()) {
             return null;
         }
-        if (!allowed.contains(origin) && !allowed.contains("*")) {
+        if (!allowed.contains(origin)) {
             return null;
         }
         final CorsConfiguration cfg = new CorsConfiguration();
@@ -88,6 +95,15 @@ public class RealmClientCorsConfigurationSource implements CorsConfigurationSour
             origins = Set.copyOf(serviceProviderPublisher.retrieveWebOrigins(realm));
         } catch (final RuntimeException e) {
             LOG.warn("Could not load web origins for realm {}, denying cross-origin: {}", realm, e.getMessage());
+        }
+        if (origins.contains("*")) {
+            // Security review M2: '*' is not honoured — these responses always carry
+            // Access-Control-Allow-Credentials: true, and wildcard-with-credentials is a same-origin-policy
+            // bypass. Surface the misconfiguration loudly; the realm's clients must list explicit origins.
+            LOG.warn("Realm {} has a '*' web-origin configured. A wildcard origin is IGNORED because this "
+                    + "server allows credentialed cross-origin requests; list explicit client web origins "
+                    + "instead. Cross-origin requests to this realm are denied unless their Origin matches "
+                    + "an explicitly configured entry.", realm);
         }
         cache.put(realm, new Cached(origins, now + TTL_MILLIS));
         return origins;

@@ -19,8 +19,65 @@
 >   expression that correctly matches `UserCredentials.getAuthorities()`) currently have **no callers**.
 >   The value is closing the footgun: any future `@PreAuthorize` would otherwise have looked enforced
 >   while doing nothing. Consider deleting the two dead methods.
-> - All other findings below remain **OPEN** and are the deployer's/maintainer's to address
->   (H2 silent-plaintext-on-error, the unconfigured-realm / RBAC-failure default-allow, OpenSAML EOL, etc.).
+> - **H3 (HIGH) — FIXED.** Error bodies no longer echo internals. `application.properties` now pins
+>   `server.error.include-message=never`, `include-binding-errors=never`, `include-stacktrace=never`,
+>   `include-exception=false`. `application-dev.properties` re-opens `include-message` /
+>   `include-binding-errors` (`always`) for local debugging only.
+> - **M2 (MEDIUM) — FIXED.** `RealmClientCorsConfigurationSource.corsConfigFor` no longer honours a `*`
+>   web-origin entry: because every config it builds sets `allowCredentials(true)`, a wildcard would mean
+>   reflect-any-origin-with-credentials (a same-origin-policy bypass). A realm configured with `*` is now
+>   treated as having no origins (cross-origin denied) and the misconfiguration is logged with the realm
+>   name. Explicit per-realm/per-client origins behave exactly as before. Regression tests added
+>   (`aWildcardEntryIsIgnoredAndDeniesUnlistedOrigins`, `anExplicitOriginStillWorksAlongsideAStrayWildcard`,
+>   `neverCombinesAWildcardOriginWithCredentials`).
+> - **M4 (MEDIUM) — FIXED.** `server.forward-headers-strategy=framework` added, so `isSecure()`/scheme are
+>   honoured behind a TLS-terminating proxy. The session cookie is now explicit and configurable:
+>   `helix.security.cookie-secure=${HELIX_COOKIE_SECURE:true}` (single knob) drives
+>   `server.servlet.session.cookie.secure`, alongside `http-only=true` and `same-site=Lax` (**not** `Strict`
+>   — an IdP receives cross-site top-level POSTs/redirects: SAML POST binding, OIDC `form_post`,
+>   RP-initiated logout). `application-dev.properties` sets `helix.security.cookie-secure=false`.
+> - **M5 (MEDIUM) — FIXED.** The `XSRF-TOKEN` cookie's `Secure` flag is pinned from the same
+>   `helix.security.cookie-secure` knob via `CookieCsrfTokenRepository.setCookieCustomizer`
+>   (`SecurityConfig.csrfTokenRepository()`). `HttpOnly` stays **false** by design — the SPAs must read the
+>   cookie to echo `X-XSRF-TOKEN`.
+> - **L1 (LOW) — FIXED.** guava pinned to **33.4.0-jre** via `<dependencyManagement>` in `pom.xml`
+>   (was transitively 31.1-jre), clearing CVE-2023-2976 / CVE-2020-8908. 33.4.0-jre is the newest line that
+>   resolves in the offline (`mvn -o`) build with its transitive metadata intact; verified with
+>   `mvn -o dependency:tree`.
+> - **L2 (LOW) — FIXED.** `/actuator/info` removed from both the anonymous allowlist (`SecurityConfig`) and
+>   `management.endpoints.web.exposure.include`. `/actuator/health` (+ `health/**`) stays anonymous — it is
+>   the container probe. `/actuator/prometheus` anonymity is now an explicit switch,
+>   `helix.actuator.prometheus-anonymous` (default **true** so in-cluster scraping is unchanged; documented
+>   as "restrict the scrape path with a NetworkPolicy / ingress rule", and settable to `false` to push it
+>   behind the authenticated gate).
+> - **L3 (LOW) — FIXED.** Swagger UI + `/v3/api-docs` are no longer anonymous by default. `helix.springdoc.public`
+>   (default **false**) gates the `permitAll`; when false those paths fall through to
+>   `anyRequest().authenticated()`, so the admin API schema is not disclosed to anonymous callers.
+>   `application-dev.properties` sets it `true`.
+> - **L4 (LOW) — FIXED.** `spring-boot-devtools` removed from `pom.xml`. `<optional>true</optional>` only
+>   hides it from downstream consumers — it was still on this app's own compile/runtime classpath and in the
+>   repackaged jar. Nothing references devtools APIs; compilation and the full suite are unaffected.
+> - **H2 (HIGH) — FIXED.** `AttributeEncryption.convertToDatabaseColumn` now **fails closed**: a crypto
+>   error throws instead of silently persisting realm private signing keys / TOTP secrets in PLAINTEXT.
+>   A missing `database.encryption` (which silently disabled at-rest encryption entirely) now logs a loud
+>   startup warning, and the decrypt fallback that swallowed at `trace` now WARNs, so a corrupt or tampered
+>   value is visible instead of being returned silently as-is.
+> - **C1 residual (privilege escalation) — FIXED.** An unconfigured realm (the DEFAULT state of every realm)
+>   or an RBAC resolution failure previously granted admin access to ANY authenticated principal — a normal
+>   end user could reach the admin API. Both paths now require `admin_<realmId>` (or legacy
+>   `ROLE_ADMIN_<realmId>`), so real admins are never locked out by an RBAC outage while ordinary users are
+>   denied; realm-independent admin routes now require admin of *some* realm. The two tests that encoded the
+>   old permissive behaviour (`unconfiguredRealm_isDefaultSafeAllow`, `failsOpenWhenResolutionThrows`) were
+>   rewritten to assert both sides (admin allowed / ordinary user denied).
+>
+> **STILL OPEN — deliberately deferred**, each needs design work or a breaking upgrade rather than a quick
+> patch: **M3** (no CSP on server-rendered login/consent pages — needs a template audit so the CSP does not
+> break the UI), **M6** (SSRF via admin-configurable outbound URLs — needs an egress allow-list / internal-IP
+> deny design across the webhook, SCIM, OIDC-broker, captcha and audit-forwarder clients), **M7** (OpenSAML
+> 4.3.2 is EOL; moving to 5.x is a breaking change to the whole SAML stack and must be done with SAML
+> round-trip testing), **L5** (the legacy AES/ECB decrypt path is retained deliberately so existing rows stay
+> readable — now logged), **L6** (the generated bootstrap admin password is written to the log; an
+> intentional zero-config trade-off, avoided entirely by setting `HELIX_ADMIN_PASSWORD`).
 
 | | |
 |---|---|

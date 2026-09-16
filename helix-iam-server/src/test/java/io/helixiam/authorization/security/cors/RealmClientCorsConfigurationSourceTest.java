@@ -49,12 +49,45 @@ class RealmClientCorsConfigurationSourceTest {
         assertNull(RealmClientCorsConfigurationSource.corsConfigFor("  ", Set.of("https://app.gov.nl")));
     }
 
+    /**
+     * Security review M2: every config this source builds sets {@code allowCredentials(true)}, so a
+     * wildcard entry must NOT turn into reflect-any-origin — that would be a same-origin-policy bypass.
+     * A realm whose only entry is {@code *} is treated as having no origins at all.
+     */
     @Test
-    void aWildcardEntryReflectsAnyOrigin() {
+    void aWildcardEntryIsIgnoredAndDeniesUnlistedOrigins() {
+        assertNull(RealmClientCorsConfigurationSource.corsConfigFor(
+                "https://anything.example", Set.of("*")));
+        assertNull(RealmClientCorsConfigurationSource.corsConfigFor(
+                "https://evil.example", Set.of("*")));
+    }
+
+    /**
+     * Security review M2: a stray {@code *} must not disable the rest of the list — explicitly
+     * configured origins keep working exactly as before (reflected, with credentials).
+     */
+    @Test
+    void anExplicitOriginStillWorksAlongsideAStrayWildcard() {
         final CorsConfiguration cfg = RealmClientCorsConfigurationSource.corsConfigFor(
-                "https://anything.example", Set.of("*"));
+                "https://app.gov.nl", Set.of("*", "https://app.gov.nl"));
 
         assertNotNull(cfg);
-        assertEquals(java.util.List.of("https://anything.example"), cfg.getAllowedOrigins());
+        assertEquals(java.util.List.of("https://app.gov.nl"), cfg.getAllowedOrigins());
+        assertEquals(Boolean.TRUE, cfg.getAllowCredentials());
+    }
+
+    /**
+     * Security review M2: the invariant, stated directly — no configuration this source produces may
+     * ever pair a wildcard/reflect-any origin with credentials.
+     */
+    @Test
+    void neverCombinesAWildcardOriginWithCredentials() {
+        final CorsConfiguration cfg = RealmClientCorsConfigurationSource.corsConfigFor(
+                "https://app.gov.nl", Set.of("*", "https://app.gov.nl"));
+
+        assertNotNull(cfg);
+        assertTrue(cfg.getAllowCredentials());
+        assertTrue(cfg.getAllowedOrigins().stream().noneMatch("*"::equals));
+        assertNull(cfg.getAllowedOriginPatterns());
     }
 }

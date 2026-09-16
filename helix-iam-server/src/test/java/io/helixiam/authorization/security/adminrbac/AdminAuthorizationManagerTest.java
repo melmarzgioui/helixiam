@@ -59,10 +59,13 @@ class AdminAuthorizationManagerTest {
     }
 
     @Test
-    void unconfiguredRealm_isDefaultSafeAllow() {
+    void unconfiguredRealm_allowsRealmAdmin_butDeniesOrdinaryUser() {
+        // Security review: an unconfigured realm (the DEFAULT state) previously granted to ANY
+        // authenticated principal — privilege escalation. It now requires realm-admin for that realm.
         when(publisher.effective(any())).thenReturn(new AdminEffectivePermissionsDto("gov", false, List.of()));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("auditor"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+        assertThat(mgr.check(principal("auditor"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.check(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
     }
 
     @Test
@@ -100,10 +103,14 @@ class AdminAuthorizationManagerTest {
     }
 
     @Test
-    void failsOpenWhenResolutionThrows() {
-        when(publisher.effective(any())).thenThrow(new RuntimeException("AMQP down"));
+    void resolutionFailure_stillAllowsRealmAdmin_butDeniesOrdinaryUser() {
+        // Security review: an RBAC resolution failure previously granted to ANY authenticated principal.
+        // It now degrades to "must be realm-admin" — admins are never locked out by an RBAC outage,
+        // but an ordinary user cannot ride the failure into the admin API.
+        when(publisher.effective(any())).thenThrow(new RuntimeException("RBAC backend down"));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("user-admin"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+        assertThat(mgr.check(principal("user-admin"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.check(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
     }
 
     @Test
