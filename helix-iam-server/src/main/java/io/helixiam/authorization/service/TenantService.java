@@ -20,7 +20,6 @@ import io.helixiam.common.security.SecurityContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -92,11 +91,9 @@ public class TenantService {
             tenantUser.setTenantId(tenantId);
             final TenantUser storedTenantUser = tenantUserRepository.save(tenantUser);
 
-            // Legacy platform roles kept for back-compat with the tenant-admin @PreAuthorize guards below.
-            final UserRoles newUserRole = userRolesRepository.save(new UserRoles("ROLE_USER", tenantId));
-            final UserRoles newAdminRole = userRolesRepository.save(new UserRoles("ROLE_ADMIN", tenantId));
-            grant(newAdminRole.getRoleId(), userId, storedTenantUser.getTenantUserId());
-            grant(newUserRole.getRoleId(), userId, storedTenantUser.getTenantUserId());
+            // The legacy ROLE_ADMIN/ROLE_USER platform roles that used to be seeded here are gone: their
+            // only purpose was the two tenant-admin @PreAuthorize guards (both removed — they had no
+            // callers), and admin is now exactly the curated `admin` role granted below.
 
             // Assign the creator the curated admin + user roles so they have real console admin (realm-admin).
             userRolesRepository.findByTenantIdAndName(tenantId, DefaultRoles.ADMIN)
@@ -159,32 +156,4 @@ public class TenantService {
         return tenantUserRepository.findAllByUserId(userId);
     }
 
-    /**
-     * Assign user to a role (ADMIN restricted).
-     */
-    @PreAuthorize("hasRole('ROLE_ADMIN_'+#role.tenantId)")
-    public Boolean assignUserToTRole(final UserRoles role, final String userId) {
-        userRolesRepository.findByTenantIdAndName(role.getTenantId(), role.getName()).ifPresent(userRoles ->
-                tenantUserRepository.findByTenantIdAndUserId(role.getTenantId(), userId).ifPresent(tenantUser -> {
-                    if (userInRoleRepository.findByRoleIdAndUserIdAndTenantUserId(userRoles.getRoleId(), userId, tenantUser.getTenantUserId()).isEmpty()) {
-                        final UserInRole userInRole = new UserInRole(userRoles.getRoleId(), tenantUser.getUserId(), tenantUser.getTenantUserId());
-                        userInRoleRepository.save(userInRole);
-                    }
-                })
-        );
-
-        return true;
-    }
-
-    /**
-     * Revoke a user from a role (ADMIN restricted).
-     */
-    @PreAuthorize("hasRole('ROLE_ADMIN_'+#role.tenantId)")
-    public Boolean revokeUserToTRole(final UserRoles role, final String userId) {
-        userRolesRepository.findByTenantIdAndName(role.getTenantId(), role.getName())
-                .flatMap(userRoles -> userInRoleRepository.findByRoleIdAndUserId(userRoles.getRoleId(), userId))
-                .ifPresent(userInRoleRepository::delete);
-
-        return true;
-    }
 }
