@@ -28,6 +28,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
@@ -45,6 +46,10 @@ import java.util.function.Function;
 @Configuration
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @EnableWebSecurity
+// Security review M1: without this, every @PreAuthorize/@PostAuthorize in the codebase is SILENTLY
+// IGNORED — a dangerous property for an IAM product, because a future method-level guard would look
+// enforced while doing nothing. Enabling it makes method security actually apply.
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final String[] whitelist;

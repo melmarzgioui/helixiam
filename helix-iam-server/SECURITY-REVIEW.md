@@ -12,9 +12,15 @@
 > - **H1 (HIGH) — FIXED.** The shipped default at-rest encryption key was removed from production
 >   config (`database.encryption=${DB_ENCRYPTION:}`); the app now fail-fasts when it is unset. A local
 >   default remains only in `application-dev.properties`.
+> - **M1 (MEDIUM) — FIXED.** `@EnableMethodSecurity` added to `SecurityConfig`, so method-level
+>   `@PreAuthorize`/`@PostAuthorize` is now actually enforced instead of silently ignored.
+>   *Note:* this changes no live behaviour today — the only two annotated methods
+>   (`TenantService.assignUserToTRole` / `revokeUserToTRole`, guarding `ROLE_ADMIN_<tenantId>`, an
+>   expression that correctly matches `UserCredentials.getAuthorities()`) currently have **no callers**.
+>   The value is closing the footgun: any future `@PreAuthorize` would otherwise have looked enforced
+>   while doing nothing. Consider deleting the two dead methods.
 > - All other findings below remain **OPEN** and are the deployer's/maintainer's to address
->   (H2 silent-plaintext-on-error, M1 no `@EnableMethodSecurity`, the unconfigured-realm default-allow,
->   OpenSAML EOL, etc.).
+>   (H2 silent-plaintext-on-error, the unconfigured-realm / RBAC-failure default-allow, OpenSAML EOL, etc.).
 
 | | |
 |---|---|
