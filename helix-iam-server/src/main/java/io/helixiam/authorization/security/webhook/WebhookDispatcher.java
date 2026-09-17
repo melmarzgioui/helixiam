@@ -8,6 +8,7 @@ package io.helixiam.authorization.security.webhook;
 import io.helixiam.authorization.amqp.webhook.WebhookConfigPublisher;
 import io.helixiam.authorization.amqp.webhook.WebhookSubscriptionDto;
 import io.helixiam.authorization.security.audit.AuditEvent;
+import io.helixiam.common.net.OutboundUrlGuard;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.ObjectProvider;
@@ -45,18 +46,21 @@ public class WebhookDispatcher {
     private static final long TTL_MS = 30_000L;
 
     private final ObjectProvider<WebhookConfigPublisher> publisher;
+    private final OutboundUrlGuard egressGuard;
     private final HttpClient httpClient;
     private final ExecutorService executor;
     private final LongSupplier nowMillis;
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
 
     @Autowired
-    public WebhookDispatcher(final ObjectProvider<WebhookConfigPublisher> publisher) {
-        this(publisher, System::currentTimeMillis);
+    public WebhookDispatcher(final ObjectProvider<WebhookConfigPublisher> publisher, final OutboundUrlGuard egressGuard) {
+        this(publisher, egressGuard, System::currentTimeMillis);
     }
 
-    WebhookDispatcher(final ObjectProvider<WebhookConfigPublisher> publisher, final LongSupplier nowMillis) {
+    WebhookDispatcher(final ObjectProvider<WebhookConfigPublisher> publisher, final OutboundUrlGuard egressGuard,
+                      final LongSupplier nowMillis) {
         this.publisher = publisher;
+        this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
         this.httpClient = HttpClient.newHttpClient();
         this.executor = Executors.newFixedThreadPool(2, r -> {
@@ -128,6 +132,7 @@ public class WebhookDispatcher {
 
     private void post(final WebhookSubscriptionDto hook, final String json) {
         try {
+            egressGuard.checkAllowed(hook.url()); // M6: block SSRF to internal/metadata hosts via realm webhook URL
             final HttpRequest.Builder req = HttpRequest.newBuilder()
                     .uri(URI.create(hook.url()))
                     .timeout(Duration.ofSeconds(5))

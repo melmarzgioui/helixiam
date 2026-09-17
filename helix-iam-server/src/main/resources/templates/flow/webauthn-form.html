@@ -21,7 +21,8 @@
         </div>
         <div class="container">
             <article>
-                <form id="webauthnForm" th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
+                <form id="webauthnForm" th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}"
+                      th:data-challenge="${webauthnChallenge}" th:data-rp-id="${rpId}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                     <input type="hidden" id="credentialId" name="credentialId"/>
                     <input type="hidden" id="authenticatorData" name="authenticatorData"/>
@@ -37,49 +38,7 @@
     </main>
     <footer></footer>
 </div>
-<script th:inline="javascript">
-    const challengeB64 = /*[[${webauthnChallenge}]]*/ '';
-    const rpId = /*[[${rpId}]]*/ 'localhost';
-
-    function b64urlToBytes(s) {
-        s = s.replace(/-/g, '+').replace(/_/g, '/');
-        while (s.length % 4) s += '=';
-        const bin = atob(s);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        return bytes.buffer;
-    }
-    function bytesToB64url(buf) {
-        const bytes = new Uint8Array(buf);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
-
-    async function startPasskey() {
-        try {
-            const assertion = await navigator.credentials.get({
-                publicKey: {
-                    challenge: b64urlToBytes(challengeB64),
-                    rpId: rpId,
-                    userVerification: 'preferred',
-                    timeout: 60000
-                }
-            });
-            const r = assertion.response;
-            document.getElementById('credentialId').value = bytesToB64url(assertion.rawId);
-            document.getElementById('authenticatorData').value = bytesToB64url(r.authenticatorData);
-            document.getElementById('clientDataJSON').value = bytesToB64url(r.clientDataJSON);
-            document.getElementById('signature').value = bytesToB64url(r.signature);
-            document.getElementById('userHandle').value = r.userHandle ? bytesToB64url(r.userHandle) : '';
-            document.getElementById('webauthnForm').submit();
-        } catch (e) {
-            console.error('Passkey failed', e);
-        }
-    }
-    document.getElementById('webauthnBtn').addEventListener('click', startPasskey);
-    // Auto-prompt on load for a smoother UX.
-    window.addEventListener('load', startPasskey);
-</script>
+<!-- Security review M3 (CSP): ceremony JS externalised to /js/webauthn-login.js (script-src 'self'). -->
+<script defer src="/js/webauthn-login.js?@project.version@"></script>
 </body>
 </html>

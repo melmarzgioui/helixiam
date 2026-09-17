@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.session.logout;
 
+import io.helixiam.common.net.OutboundUrlGuard;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
@@ -40,8 +41,8 @@ public class BackchannelLogoutNotifier {
     private final Poster poster;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public BackchannelLogoutNotifier(final LogoutTokenIssuer issuer) {
-        this(issuer, new HttpPoster());
+    public BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final OutboundUrlGuard egressGuard) {
+        this(issuer, new HttpPoster(egressGuard));
     }
 
     BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final Poster poster) {
@@ -71,9 +72,15 @@ public class BackchannelLogoutNotifier {
     /** Default form-POST {@code logout_token=<jwt>} with a short timeout. */
     static final class HttpPoster implements Poster {
         private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+        private final OutboundUrlGuard egressGuard;
+
+        HttpPoster(final OutboundUrlGuard egressGuard) {
+            this.egressGuard = egressGuard;
+        }
 
         @Override
         public void post(final String uri, final String logoutToken) {
+            egressGuard.checkAllowed(uri); // M6: back-channel logout URI comes from (self-service) client registration
             final String body = "logout_token=" + java.net.URLEncoder.encode(logoutToken, StandardCharsets.UTF_8);
             final HttpRequest request = HttpRequest.newBuilder(URI.create(uri))
                     .timeout(Duration.ofSeconds(5))

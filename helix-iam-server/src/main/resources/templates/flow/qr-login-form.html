@@ -25,7 +25,8 @@
                 <div th:if="${error}" class="error" style="display:block">QR sign-in failed, please try again.</div>
                 <div id="qrLink" class="description" style="word-break:break-all"></div>
                 <div id="qrStatus" class="description">Waiting for approval…</div>
-                <form id="qrForm" th:action="${flowAction}" method="post">
+                <form id="qrForm" th:action="${flowAction}" method="post"
+                      th:data-session-id="${qrSessionId}" th:data-token="${qrToken}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 </form>
             </article>
@@ -33,38 +34,7 @@
     </main>
     <footer></footer>
 </div>
-<script th:inline="javascript">
-    const sessionId = /*[[${qrSessionId}]]*/ '';
-    let token = /*[[${qrToken}]]*/ '';
-
-    // Render the cross-device deep link the phone scans. (A QR image lib renders this in the app/UX;
-    // shown as text here so the flow is functional without bundling a QR renderer.)
-    function renderLink() {
-        document.getElementById('qrLink').textContent = 'helix://qr-login/' + sessionId + '?t=' + token;
-    }
-
-    // Short-poll the shared store. Deliberately NOT SSE: polling is stateless and any publisher
-    // instance can answer, so it scales horizontally without held connections or cross-node push.
-    async function poll() {
-        try {
-            const res = await fetch('/qr/' + encodeURIComponent(sessionId), {headers: {'Accept': 'application/json'}});
-            const data = await res.json();
-            if (data.token) { token = data.token; renderLink(); }
-            if (data.status === 'CONFIRMED') {
-                document.getElementById('qrStatus').textContent = 'Approved — signing you in…';
-                document.getElementById('qrForm').submit(); // run the authenticator action (consume + login)
-                return;
-            }
-            if (data.status === 'EXPIRED') {
-                document.getElementById('qrStatus').textContent = 'This code expired. Refresh to try again.';
-                return;
-            }
-        } catch (e) { /* transient — keep polling */ }
-        setTimeout(poll, 2500);
-    }
-
-    renderLink();
-    setTimeout(poll, 2500);
-</script>
+<!-- Security review M3 (CSP): polling JS externalised to /js/qr-login.js (script-src 'self'). -->
+<script defer src="/js/qr-login.js?@project.version@"></script>
 </body>
 </html>

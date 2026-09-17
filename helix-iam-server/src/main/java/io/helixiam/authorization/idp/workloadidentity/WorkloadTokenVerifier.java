@@ -14,6 +14,9 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.SsrfBlockedException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -43,12 +46,26 @@ public class WorkloadTokenVerifier {
             JWSAlgorithm.RS512, JWSAlgorithm.ES256, JWSAlgorithm.ES384, JWSAlgorithm.ES512, JWSAlgorithm.PS256);
 
     private final ConcurrentHashMap<String, JWKSource<SecurityContext>> jwkSourceCache = new ConcurrentHashMap<>();
+    private final OutboundUrlGuard egressGuard;
+
+    /** Secure default (block-private) for non-Spring construction (tests that build their own JWKSource). */
+    public WorkloadTokenVerifier() {
+        this(new OutboundUrlGuard());
+    }
+
+    @Autowired
+    public WorkloadTokenVerifier(final OutboundUrlGuard egressGuard) {
+        this.egressGuard = egressGuard;
+    }
 
     /** A cached JWKS handle for {@code jwksUri} (Nimbus refreshes the key set behind it). */
     public JWKSource<SecurityContext> jwkSource(final String jwksUri) {
         return jwkSourceCache.computeIfAbsent(jwksUri, uri -> {
             try {
+                egressGuard.checkAllowed(uri); // M6: jwksUri comes from the admin/DCR-registered WIF credential
                 return JWKSourceBuilder.create(URI.create(uri).toURL()).build();
+            } catch (final SsrfBlockedException e) {
+                throw new IllegalStateException("Blocked JWKS URI (SSRF guard): " + uri, e);
             } catch (final Exception e) {
                 throw new IllegalStateException("Invalid JWKS URI: " + uri, e);
             }

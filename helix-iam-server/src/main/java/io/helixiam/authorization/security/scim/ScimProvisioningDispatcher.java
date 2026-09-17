@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.scim.ScimTargetConfigPublisher;
 import io.helixiam.authorization.amqp.scim.ScimTargetDto;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
+import io.helixiam.common.net.OutboundUrlGuard;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.ObjectProvider;
@@ -46,6 +47,7 @@ public class ScimProvisioningDispatcher {
 
     private final ObjectProvider<ScimTargetConfigPublisher> publisher;
     private final ObjectMapper mapper;
+    private final OutboundUrlGuard egressGuard;
     private final HttpClient httpClient;
     private final ExecutorService executor;
     private final LongSupplier nowMillis;
@@ -53,14 +55,15 @@ public class ScimProvisioningDispatcher {
 
     @Autowired
     public ScimProvisioningDispatcher(final ObjectProvider<ScimTargetConfigPublisher> publisher,
-                                      final ObjectMapper mapper) {
-        this(publisher, mapper, System::currentTimeMillis);
+                                      final ObjectMapper mapper, final OutboundUrlGuard egressGuard) {
+        this(publisher, mapper, egressGuard, System::currentTimeMillis);
     }
 
     ScimProvisioningDispatcher(final ObjectProvider<ScimTargetConfigPublisher> publisher, final ObjectMapper mapper,
-                               final LongSupplier nowMillis) {
+                               final OutboundUrlGuard egressGuard, final LongSupplier nowMillis) {
         this.publisher = publisher;
         this.mapper = mapper;
+        this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
         this.httpClient = HttpClient.newHttpClient();
         this.executor = Executors.newFixedThreadPool(2, r -> {
@@ -118,6 +121,7 @@ public class ScimProvisioningDispatcher {
     /** Resolve the downstream resource id for our externalId; null if absent or the lookup fails. */
     private String findRemoteId(final ScimTargetDto target, final String userId) {
         try {
+            egressGuard.checkAllowed(target.baseUrl()); // M6: block SSRF via realm-configured SCIM target base URL
             final HttpRequest req = authed(target, HttpRequest.newBuilder()
                     .uri(URI.create(ScimProvisioningClient.externalIdFilterUrl(target.baseUrl(), userId)))
                     .timeout(Duration.ofSeconds(5))
@@ -146,6 +150,7 @@ public class ScimProvisioningDispatcher {
 
     private void send(final ScimTargetDto target, final String method, final String url, final String body)
             throws Exception {
+        egressGuard.checkAllowed(url); // M6: block SSRF via realm-configured SCIM target base URL
         final HttpRequest.Builder req = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(5))

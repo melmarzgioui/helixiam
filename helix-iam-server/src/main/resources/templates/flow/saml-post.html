@@ -5,8 +5,11 @@
 <head>
     <meta charset="UTF-8"/>
     <title>Redirecting to your identity provider…</title>
+    <!-- Security review M3 (CSP): auto-submit moved from an inline onload handler to /js/saml-post.js
+         so the page runs under `script-src 'self'` with NO 'unsafe-inline'. -->
+    <script defer src="/js/saml-post.js"></script>
 </head>
-<body onload="document.forms[0].submit()">
+<body>
 <noscript>
     <p>JavaScript is disabled. Click the button to continue to your identity provider.</p>
 </noscript>

@@ -44,7 +44,10 @@ class HttpOidcTokenClientIntegrationTest {
     private static final AtomicReference<String> NEXT_ID_TOKEN = new AtomicReference<>();
     private static OidcProviderConfig config;
 
-    private final HttpOidcTokenClient client = new HttpOidcTokenClient();
+    // Permissive egress guard: this test serves a mock OIDC issuer on localhost (a private address the
+    // production block-private policy would reject). M6 guard behaviour is covered by OutboundUrlGuardTest.
+    private final HttpOidcTokenClient client =
+            new HttpOidcTokenClient(io.helixiam.common.net.OutboundUrlGuard.permissive());
 
     @BeforeAll
     static void startIssuer() throws Exception {

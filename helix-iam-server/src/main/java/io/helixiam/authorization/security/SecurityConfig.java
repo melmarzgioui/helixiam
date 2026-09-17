@@ -52,6 +52,27 @@ import java.util.function.Function;
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    // Security review M3: Content-Security-Policy for the server-rendered login/consent/MFA/reset chain.
+    // script-src is 'self' with NO 'unsafe-inline' — every inline <script>/on*-handler was externalised to
+    // /js/*.js (see the flow/MFA templates) — plus the two optional CAPTCHA vendors (Cloudflare Turnstile /
+    // Google reCAPTCHA), which only load when a realm enables CAPTCHA. style-src keeps 'unsafe-inline'
+    // because the login/consent pages carry per-realm dynamic branding CSS (admin-authored, templated per
+    // request) and scattered inline style="" attributes that cannot be cheaply externalised. img-src allows
+    // https: so admin-configured brand/IdP logos (external URLs) render. frame-ancestors 'none' + object-src
+    // 'none' + base-uri 'self' round out the anti-clickjacking / anti-injection posture.
+    private static final String CSP_BASE =
+            "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; "
+            + "img-src 'self' data: https:; font-src 'self'; style-src 'self' 'unsafe-inline'; "
+            + "script-src 'self' https://challenges.cloudflare.com https://www.google.com https://www.gstatic.com; "
+            + "frame-src https://challenges.cloudflare.com https://www.google.com; "
+            + "connect-src 'self' https://challenges.cloudflare.com";
+    // Interactive pages only ever POST back to us.
+    private static final String CSP_STRICT = CSP_BASE + "; form-action 'self'";
+    // SAML POST-binding pages (flow/saml-post.html) auto-submit an AuthnRequest / SAMLResponse /
+    // LogoutResponse to the peer (external IdP, or the SP's ACS) — a cross-origin https POST — so
+    // form-action must permit https destinations here.
+    private static final String CSP_SAML = CSP_BASE + "; form-action 'self' https:";
+
     private final String[] whitelist;
     private final boolean mfaEnabled;
     private final String spBaseUrl;
@@ -211,6 +232,8 @@ public class SecurityConfig {
                 .csrfTokenRepository(csrfTokenRepository())
                 .csrfTokenRequestHandler(new org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler()));
         http.addFilterAfter(new CsrfCookieFilter(), org.springframework.security.web.csrf.CsrfFilter.class);
+        // Security review M3: CSP + clickjacking/sniffing/referrer headers on the server-rendered pages.
+        applySecurityHeaders(http);
         http.authorizeHttpRequests(requests -> requests.requestMatchers(whitelist).permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
         // (confirm) and the mid-login browser (SSE/poll); they are secured by the device signature
@@ -372,6 +395,64 @@ public class SecurityConfig {
                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/admin/**")));
 
         return http.build();
+    }
+
+    /**
+     * Security review M3: adds a Content-Security-Policy plus the clickjacking / MIME-sniffing / referrer
+     * hardening headers to the server-rendered pages served by this (login) chain.
+     *
+     * <p>Spring Security already emits {@code X-Content-Type-Options: nosniff}, {@code X-Frame-Options: DENY}
+     * and HSTS-over-HTTPS by default; they are set explicitly here so the posture is visible and covered by
+     * tests. {@code Referrer-Policy} is added ({@code strict-origin-when-cross-origin}).
+     *
+     * <p>The CSP is delivered by two {@link org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter}
+     * entries so it lands only on page responses:
+     * <ul>
+     *   <li>the JSON / machine endpoints served by this chain ({@code /admin/**}, {@code /scim/v2/**},
+     *       {@code /connect/register/**}, {@code /v3/api-docs/**}, {@code /swagger-ui/**}, {@code /actuator/**},
+     *       {@code /workload-identity/**}, {@code /agent/delegation/**}, the MCP resource-metadata doc) get
+     *       <b>no</b> CSP — a page-content policy is meaningless on JSON and must not touch the separately
+     *       served SPA console's fetches;</li>
+     *   <li>the SAML POST-binding pages ({@code /saml/idp/**}, {@code /broker/**}) get {@link #CSP_SAML}
+     *       (relaxed {@code form-action}); every other page gets the strict {@link #CSP_STRICT}.</li>
+     * </ul>
+     */
+    private void applySecurityHeaders(final HttpSecurity http) throws Exception {
+        final org.springframework.security.web.util.matcher.RequestMatcher apiPaths =
+                new org.springframework.security.web.util.matcher.OrRequestMatcher(
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/admin/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/scim/v2/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/connect/register/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/connect/register"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/v3/api-docs/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/v3/api-docs"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/swagger-ui/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/swagger-ui.html"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/actuator/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/workload-identity/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/agent/delegation/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/.well-known/oauth-protected-resource"));
+        final org.springframework.security.web.util.matcher.RequestMatcher samlPaths =
+                new org.springframework.security.web.util.matcher.OrRequestMatcher(
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/saml/idp/**"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/**"));
+        final org.springframework.security.web.util.matcher.RequestMatcher strictPaths =
+                new org.springframework.security.web.util.matcher.AndRequestMatcher(
+                        new org.springframework.security.web.util.matcher.NegatedRequestMatcher(apiPaths),
+                        new org.springframework.security.web.util.matcher.NegatedRequestMatcher(samlPaths));
+
+        http.headers(headers -> headers
+                .frameOptions(frame -> frame.deny())
+                .contentTypeOptions(Customizer.withDefaults())
+                .httpStrictTransportSecurity(Customizer.withDefaults())
+                .referrerPolicy(referrer -> referrer.policy(
+                        org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                .addHeaderWriter(new org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter(
+                        strictPaths,
+                        new org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter(CSP_STRICT)))
+                .addHeaderWriter(new org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter(
+                        samlPaths,
+                        new org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter(CSP_SAML))));
     }
 
     @Bean

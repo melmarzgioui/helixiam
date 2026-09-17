@@ -23,7 +23,9 @@
             <article>
                 <div th:if="${registered}" class="valid"><p>Passkey registered successfully.</p></div>
                 <div th:if="${error}" class="error" style="display:block">Registration failed, please try again.</div>
-                <form id="regForm" th:action="@{/webauthn/register}" method="post">
+                <form id="regForm" th:action="@{/webauthn/register}" method="post"
+                      th:data-challenge="${challenge}" th:data-rp-id="${rpId}"
+                      th:data-user-id="${userId}" th:data-username="${username}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                     <input type="hidden" id="attestationObject" name="attestationObject"/>
                     <input type="hidden" id="clientDataJSON" name="clientDataJSON"/>
@@ -34,51 +36,7 @@
     </main>
     <footer></footer>
 </div>
-<script th:inline="javascript">
-    const challengeB64 = /*[[${challenge}]]*/ '';
-    const rpId = /*[[${rpId}]]*/ 'localhost';
-    const userId = /*[[${userId}]]*/ '';
-    const username = /*[[${username}]]*/ '';
-
-    function b64urlToBytes(s) {
-        s = s.replace(/-/g, '+').replace(/_/g, '/');
-        while (s.length % 4) s += '=';
-        const bin = atob(s);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        return bytes.buffer;
-    }
-    function bytesToB64url(buf) {
-        const bytes = new Uint8Array(buf);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
-    function strToBytes(s) {
-        return new TextEncoder().encode(s).buffer;
-    }
-
-    async function createPasskey() {
-        try {
-            const cred = await navigator.credentials.create({
-                publicKey: {
-                    challenge: b64urlToBytes(challengeB64),
-                    rp: { id: rpId, name: 'KubeDNA' },
-                    user: { id: strToBytes(userId), name: username, displayName: username },
-                    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-                    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
-                    timeout: 60000,
-                    attestation: 'none'
-                }
-            });
-            document.getElementById('attestationObject').value = bytesToB64url(cred.response.attestationObject);
-            document.getElementById('clientDataJSON').value = bytesToB64url(cred.response.clientDataJSON);
-            document.getElementById('regForm').submit();
-        } catch (e) {
-            console.error('Passkey registration failed', e);
-        }
-    }
-    document.getElementById('regBtn').addEventListener('click', createPasskey);
-</script>
+<!-- Security review M3 (CSP): ceremony JS externalised to /js/webauthn-register.js (script-src 'self'). -->
+<script defer src="/js/webauthn-register.js?@project.version@"></script>
 </body>
 </html>

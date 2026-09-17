@@ -60,8 +60,8 @@ public class FederationConfig {
 
     @Bean
     @ConditionalOnMissingBean(OidcTokenClient.class)
-    public OidcTokenClient oidcTokenClient() {
-        return new HttpOidcTokenClient();
+    public OidcTokenClient oidcTokenClient(final io.helixiam.common.net.OutboundUrlGuard egressGuard) {
+        return new HttpOidcTokenClient(egressGuard); // M6: guard the admin-configured token/JWKS URIs
     }
 
     @Bean

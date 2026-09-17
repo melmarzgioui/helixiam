@@ -13,6 +13,7 @@ import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import io.helixiam.common.net.OutboundUrlGuard;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,9 +45,16 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
     private static final Logger LOG = LogManager.getLogger(RequestObjectAuthorizeFilter.class);
 
     private final RegisteredClientRepository clients;
+    private final OutboundUrlGuard egressGuard;
 
+    /** Wired from {@code SecurityConfig}; uses the secure-default (block-private) egress guard. */
     public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients) {
+        this(clients, new OutboundUrlGuard());
+    }
+
+    public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients, final OutboundUrlGuard egressGuard) {
         this.clients = clients;
+        this.egressGuard = egressGuard;
     }
 
     @Override
@@ -99,6 +107,7 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
         if (jwksUrl == null || jwksUrl.isBlank()) {
             throw new IllegalStateException("client has no registered JWKS to verify the request object");
         }
+        egressGuard.checkAllowed(jwksUrl); // M6: JWKS URL comes from (self-service) client/DCR registration
         final SignedJWT jwt = SignedJWT.parse(requestObject);
         final DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
         final JWKSource<SecurityContext> keys = new RemoteJWKSet<>(new URL(jwksUrl));

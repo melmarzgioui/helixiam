@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.federation;
 
+import io.helixiam.common.net.OutboundUrlGuard;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,9 +26,20 @@ public interface UpstreamLogoutClient {
     /** Default GET with a short timeout; failures are swallowed so logout never blocks. */
     class Http implements UpstreamLogoutClient {
         private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+        private final OutboundUrlGuard egressGuard;
+
+        /** Secure default (block-private); reads {@code HELIX_EGRESS_ALLOW_PRIVATE} for the dev escape hatch. */
+        public Http() {
+            this(new OutboundUrlGuard());
+        }
+
+        public Http(final OutboundUrlGuard egressGuard) {
+            this.egressGuard = egressGuard;
+        }
 
         @Override
         public void get(final String url) {
+            egressGuard.checkAllowed(url); // M6: upstream logout URL comes from admin IdP config
             try {
                 final HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                         .timeout(Duration.ofSeconds(5)).GET().build();

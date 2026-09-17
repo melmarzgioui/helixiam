@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.messaging.driver;
 
+import io.helixiam.common.net.OutboundUrlGuard;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -39,6 +40,11 @@ public interface HttpTransport {
     @Component
     class Default implements HttpTransport {
         private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        private final OutboundUrlGuard egressGuard;
+
+        public Default(final OutboundUrlGuard egressGuard) {
+            this.egressGuard = egressGuard;
+        }
 
         @Override
         public int post(final String url, final Map<String, String> headers, final String body) {
@@ -53,6 +59,7 @@ public interface HttpTransport {
 
         private <T> HttpResponse<T> send(final String url, final Map<String, String> headers, final String body,
                                          final HttpResponse.BodyHandler<T> handler) {
+            egressGuard.checkAllowed(url); // M6: some notification driver endpoints (HTTP SMS/email) are realm-config'd
             try {
                 final HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                         .timeout(Duration.ofSeconds(10))

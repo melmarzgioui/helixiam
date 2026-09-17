@@ -16,6 +16,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import io.helixiam.common.net.OutboundUrlGuard;
 
 import java.net.URI;
 import java.net.URL;
@@ -38,6 +39,16 @@ public class HttpOidcTokenClient implements OidcTokenClient {
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final OutboundUrlGuard egressGuard;
+
+    /** Secure default (block-private) — used by the non-Spring test/harness path. */
+    public HttpOidcTokenClient() {
+        this(new OutboundUrlGuard());
+    }
+
+    public HttpOidcTokenClient(final OutboundUrlGuard egressGuard) {
+        this.egressGuard = egressGuard;
+    }
 
     @Override
     public OidcTokens exchange(final OidcProviderConfig config, final String code, final String redirectUri) {
@@ -47,6 +58,7 @@ public class HttpOidcTokenClient implements OidcTokenClient {
                 + "&client_id=" + enc(config.clientId())
                 + "&client_secret=" + enc(config.clientSecret());
         try {
+            egressGuard.checkAllowed(config.tokenEndpoint()); // M6: token endpoint comes from admin IdP config
             final HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(config.tokenEndpoint()))
                     .header("Content-Type", "application/x-www-form-urlencoded")
@@ -79,6 +91,7 @@ public class HttpOidcTokenClient implements OidcTokenClient {
         if (config.jwksUri() == null || config.jwksUri().isBlank()) {
             throw new IllegalStateException("OIDC provider " + config.alias() + " has no jwksUri — cannot verify ID token");
         }
+        egressGuard.checkAllowed(config.jwksUri()); // M6: jwksUri comes from admin IdP config
         final JWKSource<SecurityContext> jwkSource = JWKSourceBuilder
                 .create(URI.create(config.jwksUri()).toURL()).build();
 

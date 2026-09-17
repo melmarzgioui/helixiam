@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.federation.eid;
 
+import io.helixiam.common.net.OutboundUrlGuard;
 import net.shibboleth.utilities.java.support.xml.SerializeSupport;
 import org.opensaml.core.config.InitializationService;
 import org.opensaml.core.xml.XMLObjectBuilderFactory;
@@ -62,6 +63,18 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
 
     private static final String SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
 
+    private final OutboundUrlGuard egressGuard;
+
+    /** Secure default (block-private) for non-Spring construction. */
+    public OpenSamlEidArtifactResolver() {
+        this(new OutboundUrlGuard());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OpenSamlEidArtifactResolver(final OutboundUrlGuard egressGuard) {
+        this.egressGuard = egressGuard;
+    }
+
     static {
         try {
             InitializationService.initialize();
@@ -76,6 +89,7 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
             throw new IllegalStateException("eID provider " + config.alias()
                     + " uses artifact binding but has no Artifact Resolution Service (ARS) URL");
         }
+        egressGuard.checkAllowed(config.artifactResolutionServiceUrl()); // M6: ARS URL comes from admin eID config
         try {
             final String soap = soapEnvelope(signedArtifactResolve(config, samlArt));
             final String responseSoap = post(config, soap);

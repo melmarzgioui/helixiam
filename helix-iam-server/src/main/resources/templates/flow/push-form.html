@@ -25,7 +25,7 @@
                 <div th:if="${error}" class="error" style="display:block">Approval failed or was denied, please try again.</div>
                 <div id="pushNumber" class="title" style="font-size:2.5rem;text-align:center" th:text="${pushNumber}">--</div>
                 <div id="pushStatus" class="description">Waiting for approval…</div>
-                <form id="pushForm" th:action="${flowAction}" method="post">
+                <form id="pushForm" th:action="${flowAction}" method="post" th:data-push-id="${pushId}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 </form>
             </article>
@@ -33,28 +33,7 @@
     </main>
     <footer></footer>
 </div>
-<script th:inline="javascript">
-    const pushId = /*[[${pushId}]]*/ '';
-
-    // Short-poll the shared store (NOT SSE) — stateless and node-agnostic, so it scales horizontally.
-    async function poll() {
-        try {
-            const res = await fetch('/push/' + encodeURIComponent(pushId), {headers: {'Accept': 'application/json'}});
-            const data = await res.json();
-            if (data.status === 'APPROVED') {
-                document.getElementById('pushStatus').textContent = 'Approved — signing you in…';
-                document.getElementById('pushForm').submit(); // run the authenticator action (consume + login)
-                return;
-            }
-            if (data.status === 'DENIED' || data.status === 'EXPIRED' || data.status === 'UNKNOWN') {
-                document.getElementById('pushStatus').textContent = 'Request ' + data.status.toLowerCase() + '. Refresh to try again.';
-                return;
-            }
-        } catch (e) { /* transient — keep polling */ }
-        setTimeout(poll, 2500);
-    }
-
-    setTimeout(poll, 2500);
-</script>
+<!-- Security review M3 (CSP): polling JS externalised to /js/push-login.js (script-src 'self'). -->
+<script defer src="/js/push-login.js?@project.version@"></script>
 </body>
 </html>
