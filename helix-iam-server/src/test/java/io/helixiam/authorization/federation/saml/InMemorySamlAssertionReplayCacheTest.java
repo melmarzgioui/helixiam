@@ -43,6 +43,13 @@ class InMemorySamlAssertionReplayCacheTest {
     }
 
     @Test
+    void aNullExpiryFailsClosed() {
+        // SAML-1 fail-safe: with no usable expiry the cache cannot guarantee one-time use, so it must
+        // reject rather than treat the assertion as an accepted first-sighting.
+        assertThat(cache.checkAndRecord("_a1", null)).isFalse();
+    }
+
+    @Test
     void distinctIdsAreIndependent() {
         final Instant expiry = Instant.now().plus(5, ChronoUnit.MINUTES);
         assertThat(cache.checkAndRecord("_a1", expiry)).isTrue();

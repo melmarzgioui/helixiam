@@ -26,8 +26,14 @@ public class InMemorySamlAssertionReplayCache implements SamlAssertionReplayCach
         // Prune anything whose window has already passed so the map cannot grow unbounded.
         seen.values().removeIf(expiry -> expiry.isBefore(now));
 
-        if (expiresAt == null || !expiresAt.isAfter(now)) {
-            // Already outside its window — nothing to protect against; don't retain it.
+        if (expiresAt == null) {
+            // Fail closed: with no usable expiry we cannot guarantee one-time use, so treat it as
+            // already-seen (reject). Callers must reject an assertion that lacks an enforceable expiry
+            // upstream (see OpenSamlAssertionValidator.verifyConditions), so this is defense in depth.
+            return false;
+        }
+        if (!expiresAt.isAfter(now)) {
+            // Already outside its window — the validity-window check rejects it upstream; nothing to retain.
             return true;
         }
         return seen.putIfAbsent(assertionId, expiresAt) == null;

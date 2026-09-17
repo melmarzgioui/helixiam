@@ -27,7 +27,11 @@ import org.opensaml.saml.saml2.core.Conditions;
 import org.opensaml.saml.saml2.core.Issuer;
 import org.opensaml.saml.saml2.core.NameID;
 import org.opensaml.saml.saml2.core.Response;
+import org.opensaml.saml.saml2.core.Status;
+import org.opensaml.saml.saml2.core.StatusCode;
 import org.opensaml.saml.saml2.core.Subject;
+import org.opensaml.saml.saml2.core.SubjectConfirmation;
+import org.opensaml.saml.saml2.core.SubjectConfirmationData;
 import org.opensaml.security.x509.BasicX509Credential;
 import org.opensaml.xmlsec.signature.Signature;
 import org.opensaml.xmlsec.signature.support.SignatureConstants;
@@ -57,6 +61,7 @@ class OpenSamlAssertionValidatorIntegrationTest {
 
     private static final String IDP_ENTITY = "https://idp.corp/entity";
     private static final String SP_ENTITY = "https://helix.test/sp";
+    private static final String ACS_URL = "https://helix.test/acs";
 
     private static KeyPair idpKey;
     private static X509Certificate idpCert;
@@ -118,11 +123,116 @@ class OpenSamlAssertionValidatorIntegrationTest {
                 .hasMessageContaining("replay");
     }
 
+    // --- pentest SAML-1 / S-H1 / S-H2 / SAML-3 remediation --------------------------------------
+
+    @Test
+    void rejectsAnAssertionWithNoConditionsNotOnOrAfter() throws Exception {
+        // SAML-1: an assertion with no enforceable expiry must be rejected (was: accepted + replayable).
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").conditionsExpiry(false));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("NotOnOrAfter");
+    }
+
+    @Test
+    void aNoExpiryAssertionCannotBeReplayed() throws Exception {
+        // SAML-1 + replay-cache fail-closed: even the FIRST use is rejected, so it can never replay.
+        final String first = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").conditionsExpiry(false));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        assertThatThrownBy(() -> validator.validate(config, first, "relay"))
+                .isInstanceOf(IllegalStateException.class);
+        // A distinct no-expiry assertion is likewise rejected — never a "first-seen accept".
+        final String second = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").conditionsExpiry(false));
+        assertThatThrownBy(() -> validator.validate(config, second, "relay"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void rejectsAnAssertionWithoutABearerSubjectConfirmation() throws Exception {
+        // S-H1: a bearer SubjectConfirmation is mandatory (binds the assertion to this SP).
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").bearerConfirmation(false));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SubjectConfirmation");
+    }
+
+    @Test
+    void rejectsAnAssertionWhoseRecipientIsNotOurAcs() throws Exception {
+        // S-H1: Recipient must equal our ACS — a bearer assertion minted for another SP is rejected.
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp")
+                        .recipient("https://another-sp.example/acs"));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SubjectConfirmation");
+    }
+
+    @Test
+    void rejectsAnAssertionWhoseOwnIssuerDiffers() throws Exception {
+        // S-H2: the assertion's OWN Issuer must match the configured IdP entityId (defense in depth).
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "attacker@evil")
+                        .assertionIssuer("https://evil.attacker/idp"));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("issuer mismatch");
+    }
+
+    @Test
+    void rejectsAResponseWhoseStatusIsNotSuccess() throws Exception {
+        // SAML-3: a non-Success Response must not log the user in even if it still carries an assertion.
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "victim@corp")
+                        .statusCode("urn:oasis:names:tc:SAML:2.0:status:AuthnFailed"));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("status is not Success");
+    }
+
+    @Test
+    void acceptsAValidUnsolicitedAssertionWithNoInResponseTo() throws Exception {
+        // IdP-initiated (unsolicited) SSO: no InResponseTo. Must still be accepted — we do NOT
+        // unconditionally require InResponseTo (that would break IdP-initiated flows).
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo(null));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        final SamlAssertionValidator.ValidatedAssertion assertion = validator.validate(config, response, "relay");
+        assertThat(assertion.nameId()).isEqualTo("ada@corp");
+    }
+
+    @Test
+    void acceptsAValidSolicitedAssertionCarryingAnInResponseTo() throws Exception {
+        // SP-initiated: an InResponseTo is present. Accepted (binding to the request id is a documented
+        // TODO pending outbound-request-id tracking; presence alone must not cause rejection).
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo("_req-123"));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+
+        final SamlAssertionValidator.ValidatedAssertion assertion = validator.validate(config, response, "relay");
+        assertThat(assertion.nameId()).isEqualTo("ada@corp");
+    }
+
     // --- helpers -------------------------------------------------------------------------------
 
     private static SamlProviderConfig config(final String certPem, final String spEntity) {
         return new SamlProviderConfig("corp-saml", "Corp SAML", "https://idp.corp/sso", IDP_ENTITY,
-                spEntity, "https://helix.test/acs", certPem, "mail", "givenName", "sn");
+                spEntity, ACS_URL, certPem, "mail", "givenName", "sn");
     }
 
     private static KeyPair rsa() throws Exception {
@@ -155,26 +265,80 @@ class OpenSamlAssertionValidatorIntegrationTest {
 
     private static String signedResponse(final KeyPair key, final X509Certificate cert, final String issuer,
                                          final String audience, final String subject) throws Exception {
+        return signedResponse(new ResponseSpec(key, cert, issuer, audience, subject));
+    }
+
+    /**
+     * Options for a signed SAML Response. Defaults describe a spec-compliant Web-SSO-profile response
+     * (Status=Success, a bearer SubjectConfirmation with Recipient=ACS + future NotOnOrAfter, and a
+     * Conditions/NotOnOrAfter). Individual tests flip one knob to exercise a single rejection path.
+     */
+    private static final class ResponseSpec {
+        private final KeyPair key;
+        private final X509Certificate cert;
+        private final String issuer;              // both Response and Assertion issuer by default
+        private final String audience;
+        private final String subject;
+        private String assertionIssuer;           // override the assertion's OWN issuer (S-H2)
+        private String recipient = ACS_URL;       // bearer SubjectConfirmationData/@Recipient
+        private String statusCode = StatusCode.SUCCESS;
+        private boolean conditionsExpiry = true;  // set Conditions/@NotOnOrAfter (SAML-1)
+        private boolean bearerConfirmation = true; // include a bearer SubjectConfirmation (S-H1)
+        private String inResponseTo;              // null = unsolicited/IdP-initiated
+
+        private ResponseSpec(final KeyPair key, final X509Certificate cert, final String issuer,
+                             final String audience, final String subject) {
+            this.key = key;
+            this.cert = cert;
+            this.issuer = issuer;
+            this.audience = audience;
+            this.subject = subject;
+            this.assertionIssuer = issuer;
+        }
+
+        private ResponseSpec assertionIssuer(final String v) { this.assertionIssuer = v; return this; }
+        private ResponseSpec recipient(final String v) { this.recipient = v; return this; }
+        private ResponseSpec statusCode(final String v) { this.statusCode = v; return this; }
+        private ResponseSpec conditionsExpiry(final boolean v) { this.conditionsExpiry = v; return this; }
+        private ResponseSpec bearerConfirmation(final boolean v) { this.bearerConfirmation = v; return this; }
+        private ResponseSpec inResponseTo(final String v) { this.inResponseTo = v; return this; }
+    }
+
+    private static String signedResponse(final ResponseSpec spec) throws Exception {
         final Issuer respIssuer = build(Issuer.DEFAULT_ELEMENT_NAME);
-        respIssuer.setValue(issuer);
+        respIssuer.setValue(spec.issuer);
 
         final NameID nameId = build(NameID.DEFAULT_ELEMENT_NAME);
-        nameId.setValue(subject);
+        nameId.setValue(spec.subject);
         final Subject sub = build(Subject.DEFAULT_ELEMENT_NAME);
         sub.setNameID(nameId);
+        if (spec.bearerConfirmation) {
+            final SubjectConfirmationData scd = build(SubjectConfirmationData.DEFAULT_ELEMENT_NAME);
+            scd.setRecipient(spec.recipient);
+            scd.setNotOnOrAfter(Instant.now().plus(5, ChronoUnit.MINUTES));
+            if (spec.inResponseTo != null) {
+                scd.setInResponseTo(spec.inResponseTo);
+            }
+            final SubjectConfirmation sc = build(SubjectConfirmation.DEFAULT_ELEMENT_NAME);
+            sc.setMethod(SubjectConfirmation.METHOD_BEARER);
+            sc.setSubjectConfirmationData(scd);
+            sub.getSubjectConfirmations().add(sc);
+        }
 
         final Audience aud = build(Audience.DEFAULT_ELEMENT_NAME);
-        aud.setURI(audience);
+        aud.setURI(spec.audience);
         final AudienceRestriction audRestriction = build(AudienceRestriction.DEFAULT_ELEMENT_NAME);
         audRestriction.getAudiences().add(aud);
         final Conditions conditions = build(Conditions.DEFAULT_ELEMENT_NAME);
         conditions.setNotBefore(Instant.now().minus(5, ChronoUnit.MINUTES));
-        conditions.setNotOnOrAfter(Instant.now().plus(5, ChronoUnit.MINUTES));
+        if (spec.conditionsExpiry) {
+            conditions.setNotOnOrAfter(Instant.now().plus(5, ChronoUnit.MINUTES));
+        }
         conditions.getAudienceRestrictions().add(audRestriction);
 
         final XSString mailValue = (XSString) XMLObjectProviderRegistrySupport.getBuilderFactory()
                 .getBuilder(XSString.TYPE_NAME).buildObject(AttributeValue.DEFAULT_ELEMENT_NAME, XSString.TYPE_NAME);
-        mailValue.setValue(subject);
+        mailValue.setValue(spec.subject);
         final Attribute mail = build(Attribute.DEFAULT_ELEMENT_NAME);
         mail.setName("mail");
         mail.getAttributeValues().add(mailValue);
@@ -182,7 +346,7 @@ class OpenSamlAssertionValidatorIntegrationTest {
         attrStatement.getAttributes().add(mail);
 
         final Issuer assertionIssuer = build(Issuer.DEFAULT_ELEMENT_NAME);
-        assertionIssuer.setValue(issuer);
+        assertionIssuer.setValue(spec.assertionIssuer);
         final Assertion assertion = build(Assertion.DEFAULT_ELEMENT_NAME);
         assertion.setIssuer(assertionIssuer);
         assertion.setIssueInstant(Instant.now());
@@ -191,11 +355,20 @@ class OpenSamlAssertionValidatorIntegrationTest {
         assertion.setConditions(conditions);
         assertion.getAttributeStatements().add(attrStatement);
 
+        final StatusCode code = build(StatusCode.DEFAULT_ELEMENT_NAME);
+        code.setValue(spec.statusCode);
+        final Status status = build(Status.DEFAULT_ELEMENT_NAME);
+        status.setStatusCode(code);
+
         final Response response = build(Response.DEFAULT_ELEMENT_NAME);
         response.setIssuer(respIssuer);
+        response.setStatus(status);
         response.setID("_r" + System.nanoTime());
         response.setIssueInstant(Instant.now());
         response.getAssertions().add(assertion);
+
+        final KeyPair key = spec.key;
+        final X509Certificate cert = spec.cert;
 
         final BasicX509Credential signingCredential = new BasicX509Credential(cert, (PrivateKey) key.getPrivate());
         final Signature signature = build(Signature.DEFAULT_ELEMENT_NAME);
