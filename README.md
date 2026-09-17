@@ -1,6 +1,16 @@
-# HelixIAM
+<p align="center">
+  <img src=".github/helix-logo.svg" alt="HelixIAM" width="104" height="104">
+</p>
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+<h1 align="center">HelixIAM</h1>
+
+<p align="center">
+  Standalone OAuth2 · OIDC · SAML 2.0 identity server — one deployable, no message broker.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache-2.0"></a>
+</p>
 
 **HelixIAM** is a standalone OAuth2 / OIDC / SAML 2.0 identity provider — one Spring Boot
 deployable, backed by PostgreSQL, Redis and SMTP. There is no message broker and no separate
