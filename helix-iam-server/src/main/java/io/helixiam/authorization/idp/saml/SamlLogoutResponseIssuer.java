@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.idp.saml;
 
-import net.shibboleth.utilities.java.support.xml.SerializeSupport;
+import net.shibboleth.shared.xml.SerializeSupport;
 import org.opensaml.core.config.InitializationService;
 import org.opensaml.core.xml.XMLObjectBuilderFactory;
 import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;

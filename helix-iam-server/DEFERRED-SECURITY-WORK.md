@@ -4,22 +4,32 @@ These security-review / pentest items are deliberately NOT fixed in the current 
 Everything higher-severity has been remediated (see `SECURITY-REVIEW.md` and the `PENTEST-REPORT-*` files).
 
 ## M7 — OpenSAML 4.3.2 is EOL (upgrade to 5.x)
-**Status: deferred — coupled upgrade, needs dedicated effort + SAML integration testing.**
+**Status: FIXED (2026-09-17) — the entire OpenSAML stack now runs on the current 5.1.4 line; EOL cleared.**
 
-OpenSAML `4.3.2` is not a standalone dependency we can bump: it is pulled transitively by
-`spring-security-saml2-service-provider:6.5.10`, and Spring Security 6.5 is built against the OpenSAML 4
-line. Moving to OpenSAML 5 requires upgrading Spring Security itself (which cascades to the Spring Boot
-version), and the 4→5 jump is a breaking change to the SAML/XML/crypto APIs (`net.shibboleth.utilities:java-support`
-is repackaged, `InitializationService`/XMLObject APIs change, xmlsec major bump).
+The upgrade did NOT, in the end, require moving Spring Security or Spring Boot. HelixIAM was found to use
+OpenSAML **directly** (the `idp/saml`, `federation/saml`, `federation/eid` packages) and to reference **no**
+`org.springframework.security.saml2` class at all — `spring-security-saml2-service-provider:6.5.10` was only
+ever on the tree to drag OpenSAML onto the classpath. `spring-security-saml2-service-provider:6.5.10`, though
+compiled against OpenSAML 4, is classpath-compatible with the 5 line, so the whole OpenSAML stack was forced
+to **5.1.4** via `dependencyManagement` (with the old `net.shibboleth.utilities:java-support` excluded from it).
 
-**Why not rushed:** this is a security-critical XML-signature stack. A hurried major upgrade risks breaking
-the assertion signature validation that pentesting confirmed is currently solid (no forgery / XSW / XXE),
-which would be a worse outcome than the EOL exposure. It must be done as a scoped Spring Boot / Spring
-Security upgrade with full SAML round-trip testing (IdP-issue + SP/broker-consume, both bindings).
+**Versions now on the tree:**
+- `org.opensaml:*` **5.1.4** (was 4.3.2) — note `opensaml-core` split into `opensaml-core-api` + `opensaml-core-impl` in 5.x.
+- `net.shibboleth:shib-support` / `shib-security` / `shib-networking` / `shib-velocity` **9.1.4** — replaces `net.shibboleth.utilities:java-support:8.4.2` (the `net.shibboleth.utilities.java.support.*` → `net.shibboleth.shared.*` repackaging).
+- `org.apache.santuario:xmlsec` **3.0.5** (was 2.3.4).
+- `org.cryptacular:cryptacular` **1.2.6** (was 1.2.5). BouncyCastle stays uniformly at **1.81** (direct pins, nearest-wins) so cryptacular's transitive bcprov:1.76 does not reintroduce the split-version `OperatorHelper` NoClassDefFoundError.
 
-**Mitigation until then:** the SAML XML parser is XXE/DTD-hardened and entity-expansion-bounded, signature
-validation reads only from the signed element, and assertion conditions/issuer/recipient/status are now
-enforced (SAML-1/S-H1/S-H2/SAML-3 fixed). Track upstream OpenSAML 4.x advisories.
+**Validation strength is unchanged.** Only two source imports moved
+(`net.shibboleth.utilities.java.support.xml.{ParserPool,SerializeSupport}` → `net.shibboleth.shared.xml.*`);
+every `org.opensaml.*` API HelixIAM uses is identical between 4.3.2 and 5.1.4, so signature validation
+(`SAMLSignatureProfileValidator` + `SignatureValidator`), decryption (`Decrypter`), and the
+conditions/issuer/recipient/status checks are byte-for-byte the same logic. The XXE/DTD hardening is provided
+by OpenSAML's default `GlobalParserPoolInitializer` `BasicParserPool` (`disallow-doctype-decl` +
+`secure-processing`), which HelixIAM never overrides and which is identical in java-support 8.4.2 and
+shib-support 9.1.4 (verified by decompilation). All **1096** tests pass, including every SAML/eID security
+test (unsigned/wrong-key rejection, replay, audience, SAML-1/S-H1/S-H2/SAML-3 conditions/issuer/recipient/status,
+eID LoA + EncryptedID decryption). Boot-verified: the SAML IdP metadata + SSO endpoints and OIDC discovery all
+come up on OpenSAML 5.
 
 ## Testing coverage gaps (not code defects — need more pentest depth)
 - **XSW2–XSW8**: only XSW1 was scripted live (and rejected). The deeper signature-wrapping variants should be

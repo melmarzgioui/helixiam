@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.federation.saml;
 
-import net.shibboleth.utilities.java.support.xml.ParserPool;
+import net.shibboleth.shared.xml.ParserPool;
 import org.opensaml.core.config.InitializationService;
 import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;
 import org.opensaml.core.xml.io.Unmarshaller;

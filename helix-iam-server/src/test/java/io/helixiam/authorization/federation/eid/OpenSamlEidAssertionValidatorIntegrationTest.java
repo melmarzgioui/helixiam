@@ -6,7 +6,7 @@
 package io.helixiam.authorization.federation.eid;
 
 import io.helixiam.authorization.federation.saml.InMemorySamlAssertionReplayCache;
-import net.shibboleth.utilities.java.support.xml.SerializeSupport;
+import net.shibboleth.shared.xml.SerializeSupport;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;

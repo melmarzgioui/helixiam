@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.idp.saml;
 
-import net.shibboleth.utilities.java.support.xml.ParserPool;
+import net.shibboleth.shared.xml.ParserPool;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensaml.core.config.InitializationService;

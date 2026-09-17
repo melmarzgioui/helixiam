@@ -76,14 +76,29 @@
 >   **Migration note:** a database carried over from an older deployment whose admins hold only
 >   `ROLE_ADMIN_<realm>` rows would need those users granted the `admin` role before they regain admin access.
 >
-> **STILL OPEN — deliberately deferred**, each needs design work or a breaking upgrade rather than a quick
-> patch: **M3** (no CSP on server-rendered login/consent pages — needs a template audit so the CSP does not
-> break the UI), **M6** (SSRF via admin-configurable outbound URLs — needs an egress allow-list / internal-IP
-> deny design across the webhook, SCIM, OIDC-broker, captcha and audit-forwarder clients), **M7** (OpenSAML
-> 4.3.2 is EOL; moving to 5.x is a breaking change to the whole SAML stack and must be done with SAML
-> round-trip testing), **L5** (the legacy AES/ECB decrypt path is retained deliberately so existing rows stay
-> readable — now logged), **L6** (the generated bootstrap admin password is written to the log; an
-> intentional zero-config trade-off, avoided entirely by setting `HELIX_ADMIN_PASSWORD`).
+> - **M3 (MEDIUM) — FIXED.** Content-Security-Policy + `X-Frame-Options: DENY` / nosniff / Referrer-Policy /
+>   HSTS on the server-rendered login chain (JSON API and the SPA console excluded). `script-src` is
+>   `'self'` with NO `'unsafe-inline'` — every inline script + the one inline handler was externalized to
+>   `/js/*.js` (WebAuthn/TOTP ceremonies included), per-request values passed via `th:data-*`. `style-src`
+>   keeps `'unsafe-inline'` (per-realm branding CSS); `form-action` relaxed to `https:` on `/saml/idp/**`
+>   + `/broker/**` only so federation POST-binding still works. Live-verified by booting and loading the pages.
+> - **M6 (MEDIUM) — FIXED.** New `io.helixiam.common.net.OutboundUrlGuard` rejects non-http(s) schemes and any
+>   host resolving to loopback/wildcard/link-local (incl. cloud metadata `169.254.169.254`)/private/ULA/
+>   multicast, applied to the 9 attacker-configurable outbound sites (webhook, SCIM, OIDC-broker token+JWKS,
+>   DCR JWKS, WIF `jwksUri`, eID artifact resolver, upstream + backchannel logout, realm HTTP SMS/email).
+>   Secure default; `helix.egress.allow-private=true` only in dev. Residual: DNS-rebinding TOCTOU mitigated
+>   (resolve-and-check, reject if any resolved IP is internal) but not eliminated by connection pinning.
+>
+> **STILL OPEN — deliberately deferred** (documented in `DEFERRED-SECURITY-WORK.md`): **L5** (the legacy
+> AES/ECB decrypt path is retained deliberately so existing rows stay readable — now logged), **L6** (the
+> generated bootstrap admin password is written to the log; an intentional zero-config trade-off, avoided
+> entirely by setting `HELIX_ADMIN_PASSWORD`), and the pentest test-coverage gaps (deeper XSW2–8, eID mTLS
+> back-channel, full `/broker/{alias}/callback` round-trip) — those are testing depth, not code defects.
+>
+> **M7 is now FIXED (2026-09-17):** the OpenSAML stack was upgraded off the EOL 4.3.2 line to **5.1.4**
+> (`net.shibboleth:shib-*:9.1.4` replacing `java-support:8.4.2`, Santuario `xmlsec` **3.0.5**, cryptacular
+> **1.2.6**), with validation logic unchanged and all 1096 tests — including every SAML/eID security test —
+> green. See `DEFERRED-SECURITY-WORK.md` M7 and `.sdd-m7-report.md`.
 
 | | |
 |---|---|
@@ -110,7 +125,7 @@
 | M4 | MEDIUM | Session / transport | `application.properties:68`; no `server.forward-headers-strategy` | Session cookie `Secure` not pinned; `isSecure()` is proxy-dependent → cookie/HSTS may drop behind TLS-terminating ingress |
 | M5 | MEDIUM | CSRF cookie | `SecurityConfig.java:187` | `XSRF-TOKEN` cookie `Secure` flag not forced |
 | M6 | MEDIUM | SSRF | webhook / SCIM / OIDC-broker / captcha / audit-forwarder clients (see body) | Admin-configurable outbound URLs (SSRF), **amplified** by C1 (attacker can configure them) |
-| M7 | MEDIUM | Dependencies | `pom.xml` (transitive) | OpenSAML **4.3.2** (EOL 4.x line) + Apache `xmlsec` 2.3.4 — security-critical SAML stack is behind current (5.x / 3.x/4.x) |
+| M7 | ~~MEDIUM~~ **FIXED** | Dependencies | `pom.xml` (`dependencyManagement`) | ~~OpenSAML **4.3.2** (EOL 4.x line) + Apache `xmlsec` 2.3.4~~ → upgraded to OpenSAML **5.1.4** + `xmlsec` **3.0.5** + `shib-*:9.1.4` + cryptacular **1.2.6** (2026-09-17); validation logic unchanged, 1096 tests green |
 | L1 | LOW | Dependencies | transitive `com.google.guava:31.1-jre` | CVE-2023-2976 (insecure temp-dir) / CVE-2020-8908 |
 | L2 | LOW | Endpoint exposure | `application.properties:90`, `SecurityConfig.java:256` | `/actuator/prometheus` + `/actuator/info` anonymous |
 | L3 | LOW | Endpoint exposure | `SecurityConfig.java:259` | Swagger UI + `/v3/api-docs` `permitAll` — admin API schema disclosure |
@@ -278,13 +293,15 @@ replacement. This is the dominant risk of the review.
 
 ### 5. SAML security
 Focused sub-review of `authorization/idp/saml/**`, `federation/saml/**`, `federation/eid/**`. Stack:
-Spring Security SAML2 6.5.10 over **OpenSAML 4.3.2** (transitive) + Apache `xmlsec` 2.3.4.
-- **M7 (dependency currency):** OpenSAML 4.x is end-of-life (5.x is current); `xmlsec` 2.3.x is behind 3.x/4.x.
-  A SAML IdP/SP that consumes third-party assertions should be on a supported XML-security stack. Plan the
-  upgrade; track Shibboleth/Santuario advisories in the interim.
+Spring Security SAML2 6.5.10 over **OpenSAML 5.1.4** (transitive; upgraded from 4.3.2 — M7) + Apache `xmlsec` 3.0.5.
+- **M7 (dependency currency) — FIXED (2026-09-17):** OpenSAML was upgraded from the EOL 4.3.2 to **5.1.4**
+  and Santuario `xmlsec` from 2.3.4 to **3.0.5** (with `net.shibboleth:shib-*:9.1.4` replacing the repackaged
+  `java-support:8.4.2`, and cryptacular 1.2.5 → 1.2.6). The SAML IdP/SP is now on the supported XML-security
+  stack. Only the `net.shibboleth.utilities.java.support.xml.*` imports moved to `net.shibboleth.shared.xml.*`;
+  the signature/decryption/conditions validation logic is unchanged and all SAML/eID security tests pass.
 - Detailed XXE / signature-verification / XML-Signature-Wrapping / ACS-URL-validation findings from the SAML
-  sub-review are listed in **Appendix A** (SAML sub-review). _Note: `xmlsec` 2.3.4 is the patched line for
-  CVE-2023-44483._
+  sub-review are listed in **Appendix A** (SAML sub-review). _Note: `xmlsec` is now on the current **3.0.5**
+  line (was 2.3.4, the patched CVE-2023-44483 line) as part of the OpenSAML 5 upgrade (M7)._
 
 ### 6. Session & web — see M2–M5 (from the session/CORS sub-review)
 - No explicit session-cookie hardening; relies on Spring Session Redis defaults (`HttpOnly=true`,
@@ -340,9 +357,10 @@ Actual resolved versions (from the offline tree):
 | Spring Boot (parent) | 3.5.14 | Current line; OK |
 | spring-security-* (core/web/saml2) | 6.5.10 | Current; OK |
 | tomcat-embed-core | 10.1.54 | Boot-managed, recent; OK |
-| **opensaml-*** | **4.3.2** | **EOL 4.x line** (5.x current) — **M7**, plan upgrade |
-| **org.apache.santuario:xmlsec** | **2.3.4** | Old 2.3.x line (3.x/4.x current); patched for CVE-2023-44483 but track further — **M7** |
-| cryptacular | 1.2.5 | Patched for CVE-2022-23438; OK |
+| opensaml-* | **5.1.4** | Current 5.x line — **M7 FIXED** (was 4.3.2 EOL); `opensaml-core` split into `core-api`+`core-impl` |
+| net.shibboleth:shib-* (support/security/networking/velocity) | **9.1.4** | OpenSAML 5's repackaged shared libs — replaces `net.shibboleth.utilities:java-support:8.4.2` (M7) |
+| org.apache.santuario:xmlsec | **3.0.5** | Current 3.x line — **M7 FIXED** (was 2.3.4) |
+| cryptacular | 1.2.6 | Bumped with OpenSAML 5 (was 1.2.5); OK |
 | nimbus-jose-jwt | 9.47 | Recent; OK |
 | jackson-databind / core | 2.21.2 | Recent; OK |
 | postgresql | 42.7.10 | Recent (CVE-2024-1597 fixed); OK |
@@ -398,8 +416,8 @@ authorization that C1 shows is default-open, and there is no controller-level pr
 6. **Fix SAML assertion binding (S-H1/S-H2)** — validate the bearer `SubjectConfirmationData`
    (Recipient/NotOnOrAfter/InResponseTo) and check the signed **assertion's** Issuer on the generic-SP path;
    cap DEFLATE inflate (S-M1) and move the replay cache to Redis for clustering (S-M2).
-7. **Harden SSRF** egress once C1 is closed (M6); wire **OWASP dependency-check/Trivy in CI** and plan the
-   **OpenSAML 4.3.2 → 5.x** upgrade (M7); bump guava (L1); keep devtools out of release images (L4).
+7. **Harden SSRF** egress once C1 is closed (M6); wire **OWASP dependency-check/Trivy in CI**. The
+   **OpenSAML 4.3.2 → 5.1.4** upgrade (M7) is DONE; bump guava (L1); keep devtools out of release images (L4).
 8. **Commission the independent third-party audit + penetration test** — required before production/public
    release; this self-review does not substitute for it.
 
@@ -447,5 +465,5 @@ there is **no** custom `DocumentBuilderFactory`/`SAXParser`/`TransformerFactory`
 
 ### Combined severity tally (main review + SAML sub-review)
 **1 CRITICAL · 5 HIGH · 10 MEDIUM · 10 LOW · several INFO.**
-(HIGH = H1, H2, H3, S-H1, S-H2. The dependency currency item M7 is the OpenSAML 4.x EOL that also underlies the
-SAML stack.)
+(HIGH = H1, H2, H3, S-H1, S-H2. The dependency currency item M7 — the OpenSAML 4.x EOL underlying the SAML
+stack — has since been FIXED by upgrading to OpenSAML 5.1.4 / xmlsec 3.0.5 on 2026-09-17.)

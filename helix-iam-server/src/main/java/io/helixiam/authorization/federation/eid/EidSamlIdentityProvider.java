@@ -8,7 +8,7 @@ package io.helixiam.authorization.federation.eid;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.federation.spi.IdpMetadata;
-import net.shibboleth.utilities.java.support.xml.SerializeSupport;
+import net.shibboleth.shared.xml.SerializeSupport;
 import org.opensaml.core.config.InitializationService;
 import org.opensaml.core.xml.XMLObjectBuilderFactory;
 import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;

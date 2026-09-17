@@ -28,6 +28,19 @@
              the newest line that resolves in this offline (mvn -o) build with its own transitive metadata
              intact (failureaccess / listenablefuture). Pinned via the dependencyManagement block below. -->
         <guava.version>33.4.0-jre</guava.version>
+        <!-- Security review M7: OpenSAML 4.3.2 is EOL (4.x line). The whole OpenSAML stack is forced to
+             the current 5.1.4 line below. OpenSAML 5 replaces net.shibboleth.utilities:java-support:8.x with
+             net.shibboleth:shib-support:9.1.4 (the *:shared package repackaging), bumps Apache Santuario
+             xmlsec 2.3.x -> 3.0.5, and cryptacular 1.2.5 -> 1.2.6. All are pinned via dependencyManagement so
+             no 4.3.2 / java-support:8 / xmlsec:2.3.4 leaks back onto the tree transitively (from
+             spring-security-saml2-service-provider:6.5.10, which is compiled against OpenSAML 4 but is
+             classpath-compatible with 5 and — verified — is NOT used by any HelixIAM code; OpenSAML is used
+             directly). BouncyCastle stays uniformly at 1.81 (direct deps below, nearest-wins) so cryptacular's
+             transitive bcprov:1.76 cannot reintroduce the split-version OperatorHelper NoClassDefFoundError. -->
+        <opensaml.version>5.1.4</opensaml.version>
+        <shibboleth.shared.version>9.1.4</shibboleth.shared.version>
+        <xmlsec.version>3.0.5</xmlsec.version>
+        <cryptacular.version>1.2.6</cryptacular.version>
     </properties>
 
     <!-- Transitive-dependency version overrides (security review). Boot's parent does not manage guava,
@@ -38,6 +51,123 @@
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
                 <version>${guava.version}</version>
+            </dependency>
+
+            <!-- ===== M7: force the entire OpenSAML stack to 5.1.4 (from EOL 4.3.2) ===== -->
+            <!-- opensaml-core (4.x) was split into opensaml-core-api + opensaml-core-impl in 5.x. -->
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-core-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-core-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-saml-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-saml-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-security-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-security-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-xmlsec-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-xmlsec-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-messaging-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-messaging-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-profile-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-profile-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-soap-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-soap-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-storage-api</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensaml</groupId>
+                <artifactId>opensaml-storage-impl</artifactId>
+                <version>${opensaml.version}</version>
+            </dependency>
+
+            <!-- OpenSAML 5's repackaged Shibboleth shared libs (java-support:8.x -> shib-*:9.1.4). -->
+            <dependency>
+                <groupId>net.shibboleth</groupId>
+                <artifactId>shib-support</artifactId>
+                <version>${shibboleth.shared.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.shibboleth</groupId>
+                <artifactId>shib-security</artifactId>
+                <version>${shibboleth.shared.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.shibboleth</groupId>
+                <artifactId>shib-networking</artifactId>
+                <version>${shibboleth.shared.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.shibboleth</groupId>
+                <artifactId>shib-velocity</artifactId>
+                <version>${shibboleth.shared.version}</version>
+            </dependency>
+
+            <!-- OpenSAML 5 crypto/XML-signature transitives: keep them current + convergent. -->
+            <dependency>
+                <groupId>org.apache.santuario</groupId>
+                <artifactId>xmlsec</artifactId>
+                <version>${xmlsec.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.cryptacular</groupId>
+                <artifactId>cryptacular</artifactId>
+                <version>${cryptacular.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -62,11 +192,26 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-        <!-- SAML2 SP (OpenSAML lives in the Shibboleth repo, declared below). -->
+        <!-- SAML2 SP (OpenSAML lives in the Shibboleth repo, declared below). Compiled against OpenSAML 4
+             but classpath-compatible with the OpenSAML 5 line forced in dependencyManagement (M7); HelixIAM
+             uses OpenSAML directly and references no org.springframework.security.saml2 class. The transitive
+             OpenSAML 4 pulled net.shibboleth.utilities:java-support:8.x — excluded here so only the OpenSAML 5
+             replacement net.shibboleth:shib-support:9.1.4 (added below) is on the tree. -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-saml2-service-provider</artifactId>
             <version>6.5.10</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.shibboleth.utilities</groupId>
+                    <artifactId>java-support</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- M7: OpenSAML 5's repackaged shared utilities (net.shibboleth.shared.*), replacing java-support:8. -->
+        <dependency>
+            <groupId>net.shibboleth</groupId>
+            <artifactId>shib-support</artifactId>
         </dependency>
 
         <!-- ============ Identity domain + persistence (from subscriber; de-mfnr'd) ============ -->

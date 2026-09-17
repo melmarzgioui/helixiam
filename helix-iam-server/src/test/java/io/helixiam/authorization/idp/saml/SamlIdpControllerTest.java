@@ -221,7 +221,7 @@ class SamlIdpControllerTest {
         try {
             final var dom = XMLObjectProviderRegistrySupport.getMarshallerFactory()
                     .getMarshaller(authnRequest).marshall(authnRequest);
-            final String xml = net.shibboleth.utilities.java.support.xml.SerializeSupport.nodeToString(dom);
+            final String xml = net.shibboleth.shared.xml.SerializeSupport.nodeToString(dom);
             return Base64.getEncoder().encodeToString(xml.getBytes(StandardCharsets.UTF_8));
         } catch (final Exception e) {
             throw new IllegalStateException(e);
