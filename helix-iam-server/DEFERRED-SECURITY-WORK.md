@@ -40,8 +40,18 @@ come up on OpenSAML 5.
   assertion validator directly (stronger) but not the full browser round-trip; worth an integration test.
 
 ## Follow-up hardening (lower priority)
-- **InResponseTo binding**: the inbound SAML broker does not persist outbound AuthnRequest ids, so
-  `InResponseTo` is validated when present but not required (keeps IdP-initiated SSO working). Bind it once
-  outbound request-ids are tracked (see `OpenSamlAssertionValidator` TODO).
+- **InResponseTo binding** — **DONE (issue #2)**. The inbound SAML broker now persists the outbound
+  AuthnRequest id server-side (HTTP session, keyed by alias) at `start()` and restores it into the callback
+  as `CallbackContext.expectedRequestId`. `OpenSamlAssertionValidator` binds it: when a pending request id
+  exists (solicited / SP-initiated) the assertion's `InResponseTo` is REQUIRED and MUST equal it — an
+  unsolicited or mismatched assertion injected into a solicited flow is rejected; the broker consumes the id
+  per callback (single-use / replay-proof). With no pending id (unsolicited / IdP-initiated) the assertion is
+  accepted only when the new `SamlProviderConfig.allowIdpInitiated` flag is set (default `false`, stored
+  config key `allowIdpInitiated`). The broker's mandatory RelayState CSRF check already blocked direct-to-ACS
+  unsolicited flows, so defaulting the flag off breaks no existing deployment. The `OpenSamlAssertionValidator`
+  TODO(SAML-1/S-H1) is removed. Covered by `OpenSamlAssertionValidatorIntegrationTest` (match-accept,
+  mismatch-reject, missing-on-solicited-reject, unsolicited-reject-when-disallowed, unsolicited-accept-when-allowed),
+  `FederationBrokerControllerTest` (persist + bind + single-use consume), and `Saml2IdentityProviderTest`
+  (start returns the id, callback threads it).
 - **L5**: legacy AES/ECB decrypt fallback retained for existing-row compatibility (now logged).
 - **L6**: generated bootstrap admin password is logged (zero-config trade-off; set `HELIX_ADMIN_PASSWORD`).

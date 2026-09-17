@@ -68,7 +68,7 @@ public class OpenSamlAssertionValidator implements SamlAssertionValidator {
 
     @Override
     public ValidatedAssertion validate(final SamlProviderConfig config, final String samlResponseBase64,
-                                       final String expectedRelayState) {
+                                       final String expectedRelayState, final String expectedRequestId) {
         try {
             final Response response = parse(samlResponseBase64);
 
@@ -93,7 +93,7 @@ public class OpenSamlAssertionValidator implements SamlAssertionValidator {
 
             verifySignature(response, assertion, config);
             verifyConditions(assertion, config);
-            verifySubjectConfirmation(assertion, config);
+            verifySubjectConfirmation(response, assertion, config, expectedRequestId);
             verifyNotReplayed(assertion, config);
 
             if (assertion.getSubject() == null || assertion.getSubject().getNameID() == null) {
@@ -170,15 +170,16 @@ public class OpenSamlAssertionValidator implements SamlAssertionValidator {
      * has a {@code Recipient} equal to our ACS and a {@code NotOnOrAfter} in the future; without this,
      * a stolen/misdelivered bearer assertion is not tied to the in-flight login.
      *
-     * <p><b>InResponseTo:</b> if present it MUST match the AuthnRequest id this SP issued (SP-initiated);
-     * if absent the assertion is unsolicited (IdP-initiated SSO), which is legitimate. We therefore do
-     * NOT unconditionally require InResponseTo — that would break IdP-initiated SSO. The broker does not
-     * yet track outbound AuthnRequest ids ({@code Saml2IdentityProvider.start} mints an id but never
-     * stashes it; the RelayState carries the realm anti-forgery state, not the request id), so the
-     * InResponseTo↔request-id binding is a documented TODO below. Recipient + NotOnOrAfter are enforced
-     * now for both solicited and unsolicited assertions.
+     * <p><b>InResponseTo (SAML-1/S-H1):</b> the presence of an {@code expectedRequestId} — the outbound
+     * AuthnRequest id the broker minted and persisted server-side for THIS session — is the authoritative
+     * signal that the flow is <em>solicited</em> (SP-initiated). When present, the assertion MUST carry an
+     * {@code InResponseTo} equal to it, so an attacker's unsolicited assertion injected into a solicited
+     * flow is rejected; the broker consumes the id per callback, making it single-use / replay-proof.
+     * When there is no pending request id the assertion is <em>unsolicited</em> (IdP-initiated) and is
+     * honored only when {@link SamlProviderConfig#allowIdpInitiated()} — otherwise it is rejected.
      */
-    private void verifySubjectConfirmation(final Assertion assertion, final SamlProviderConfig config) {
+    private void verifySubjectConfirmation(final Response response, final Assertion assertion,
+                                           final SamlProviderConfig config, final String expectedRequestId) {
         if (assertion.getSubject() == null) {
             throw new IllegalStateException("SAML assertion has no subject for provider " + config.alias());
         }
@@ -203,15 +204,59 @@ public class OpenSamlAssertionValidator implements SamlAssertionValidator {
             if (data.getNotBefore() != null && now + CLOCK_SKEW_MILLIS < data.getNotBefore().toEpochMilli()) {
                 continue;
             }
-            // TODO(SAML-1/S-H1): when data.getInResponseTo() is non-null, bind it to the AuthnRequest id
-            // this SP issued for the session (requires the broker to persist outbound request ids, e.g.
-            // via RelayState or a request cache). Absent InResponseTo = unsolicited/IdP-initiated SSO and
-            // remains valid, so this binding must stay conditional on presence to avoid breaking that flow.
-            return; // a spec-valid bearer SubjectConfirmation addressed to us
+            // SAML-1 (S-H1): bind InResponseTo to the outbound request id for this session.
+            verifyInResponseTo(data, response, config, expectedRequestId);
+            return; // a spec-valid, request-bound bearer SubjectConfirmation addressed to us
         }
         throw new IllegalStateException("SAML assertion has no valid bearer SubjectConfirmation "
                 + "(Recipient must equal " + config.assertionConsumerServiceUrl()
                 + " with a future NotOnOrAfter) for provider " + config.alias());
+    }
+
+    /**
+     * SAML-1 (S-H1): the {@code InResponseTo}↔AuthnRequest-id binding.
+     *
+     * <ul>
+     *   <li><b>Solicited</b> ({@code expectedRequestId} present — the broker has a pending outbound
+     *       AuthnRequest for this session): {@code InResponseTo} is REQUIRED and MUST equal it. A missing
+     *       or mismatched value is rejected, closing the residual where an unsolicited assertion (no
+     *       {@code InResponseTo}) was accepted for what should be a solicited flow. Single-use is enforced
+     *       by the broker consuming the persisted id on each callback (a replay finds no pending id).</li>
+     *   <li><b>Unsolicited</b> (no {@code expectedRequestId}): there is no pending request to bind to.
+     *       Accepted only when {@link SamlProviderConfig#allowIdpInitiated()}; otherwise rejected.</li>
+     * </ul>
+     *
+     * <p>The {@code InResponseTo} is read from the bearer {@code SubjectConfirmationData} (the Web SSO
+     * profile's binding point), falling back to the {@code Response}-level attribute.
+     */
+    private void verifyInResponseTo(final SubjectConfirmationData data, final Response response,
+                                    final SamlProviderConfig config, final String expectedRequestId) {
+        final String inResponseTo = firstNonBlank(data.getInResponseTo(), response.getInResponseTo());
+        if (expectedRequestId != null && !expectedRequestId.isBlank()) {
+            // Solicited (SP-initiated): the assertion MUST answer our pending AuthnRequest.
+            if (inResponseTo == null) {
+                throw new IllegalStateException("SAML assertion has no InResponseTo but a solicited "
+                        + "(SP-initiated) flow is pending for provider " + config.alias()
+                        + " — unsolicited assertion rejected");
+            }
+            if (!expectedRequestId.equals(inResponseTo)) {
+                throw new IllegalStateException("SAML assertion InResponseTo does not match the pending "
+                        + "AuthnRequest id for provider " + config.alias());
+            }
+            return; // bound to our in-flight request
+        }
+        // Unsolicited (IdP-initiated): no pending request id to bind against.
+        if (inResponseTo == null && !config.allowIdpInitiated()) {
+            throw new IllegalStateException("Unsolicited (IdP-initiated) SAML assertion is not permitted "
+                    + "for provider " + config.alias());
+        }
+    }
+
+    private static String firstNonBlank(final String primary, final String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary;
+        }
+        return fallback != null && !fallback.isBlank() ? fallback : null;
     }
 
     /** One-time-use: reject an assertion ID already seen within its validity window. */

@@ -204,35 +204,82 @@ class OpenSamlAssertionValidatorIntegrationTest {
                 .hasMessageContaining("status is not Success");
     }
 
-    @Test
-    void acceptsAValidUnsolicitedAssertionWithNoInResponseTo() throws Exception {
-        // IdP-initiated (unsolicited) SSO: no InResponseTo. Must still be accepted — we do NOT
-        // unconditionally require InResponseTo (that would break IdP-initiated flows).
-        final String response = signedResponse(
-                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo(null));
-        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+    // --- SAML-1 / S-H1 InResponseTo binding (issue #2) -----------------------------------------
 
-        final SamlAssertionValidator.ValidatedAssertion assertion = validator.validate(config, response, "relay");
+    @Test
+    void solicitedResponseWhoseInResponseToMatchesThePendingRequestIdIsAccepted() throws Exception {
+        // (a) SP-initiated: a pending outbound request id exists for this session; the assertion's
+        // InResponseTo matches it → accepted.
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo("_req-abc"));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY, false);
+
+        final SamlAssertionValidator.ValidatedAssertion assertion =
+                validator.validate(config, response, "relay", "_req-abc");
         assertThat(assertion.nameId()).isEqualTo("ada@corp");
     }
 
     @Test
-    void acceptsAValidSolicitedAssertionCarryingAnInResponseTo() throws Exception {
-        // SP-initiated: an InResponseTo is present. Accepted (binding to the request id is a documented
-        // TODO pending outbound-request-id tracking; presence alone must not cause rejection).
+    void solicitedResponseWhoseInResponseToMatchesNoPendingRequestIdIsRejected() throws Exception {
+        // (b) SP-initiated: InResponseTo present but it does not equal the pending request id → rejected
+        // (a captured/forged response cannot be bound to this session's request).
         final String response = signedResponse(
-                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo("_req-123"));
-        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY);
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo("_someone-else"));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY, false);
 
-        final SamlAssertionValidator.ValidatedAssertion assertion = validator.validate(config, response, "relay");
+        assertThatThrownBy(() -> validator.validate(config, response, "relay", "_req-abc"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("InResponseTo");
+    }
+
+    @Test
+    void solicitedFlowWithAnUnsolicitedAssertionNoInResponseToIsRejected() throws Exception {
+        // The residual S-H1 fix: an attacker's unsolicited assertion (no InResponseTo) injected into a
+        // solicited flow (a pending request id exists) must be REJECTED.
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "attacker@evil").inResponseTo(null));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY, false);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay", "_req-abc"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no InResponseTo");
+    }
+
+    @Test
+    void unsolicitedAssertionIsRejectedWhenIdpInitiatedIsNotAllowed() throws Exception {
+        // No pending request id (unsolicited) AND the broker does not permit IdP-initiated SSO → rejected.
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo(null));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY, false);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("IdP-initiated");
+    }
+
+    @Test
+    void acceptsAValidUnsolicitedAssertionWhenIdpInitiatedIsAllowed() throws Exception {
+        // (c) A valid IdP-initiated response (no InResponseTo, no pending request id) is ACCEPTED under
+        // the supported/allowed config (allowIdpInitiated=true).
+        final String response = signedResponse(
+                new ResponseSpec(idpKey, idpCert, IDP_ENTITY, SP_ENTITY, "ada@corp").inResponseTo(null));
+        final SamlProviderConfig config = config(idpCertPem, SP_ENTITY, true);
+
+        final SamlAssertionValidator.ValidatedAssertion assertion = validator.validate(config, response, "relay", null);
         assertThat(assertion.nameId()).isEqualTo("ada@corp");
     }
 
     // --- helpers -------------------------------------------------------------------------------
 
+    /** Default config: IdP-initiated (unsolicited, no-InResponseTo) allowed — the general-purpose tests
+     *  exercise signature/audience/replay/status with unsolicited responses. */
     private static SamlProviderConfig config(final String certPem, final String spEntity) {
+        return config(certPem, spEntity, true);
+    }
+
+    private static SamlProviderConfig config(final String certPem, final String spEntity, final boolean allowIdpInitiated) {
         return new SamlProviderConfig("corp-saml", "Corp SAML", "https://idp.corp/sso", IDP_ENTITY,
-                spEntity, ACS_URL, certPem, "mail", "givenName", "sn");
+                spEntity, ACS_URL, certPem, "mail", "givenName", "sn", null, allowIdpInitiated);
     }
 
     private static KeyPair rsa() throws Exception {

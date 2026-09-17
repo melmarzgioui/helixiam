@@ -17,7 +17,7 @@ public class UnconfiguredSamlAssertionValidator implements SamlAssertionValidato
 
     @Override
     public ValidatedAssertion validate(final SamlProviderConfig config, final String samlResponseBase64,
-                                       final String expectedRelayState) {
+                                       final String expectedRelayState, final String expectedRequestId) {
         throw new IllegalStateException("SAML assertion validation is not configured for provider "
                 + config.alias() + " — install the OpenSAML-backed SamlAssertionValidator (E5.2 follow-up)");
     }

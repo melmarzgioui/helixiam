@@ -28,6 +28,13 @@ import java.util.zip.DeflaterOutputStream;
  */
 public class Saml2IdentityProvider implements IdentityProvider {
 
+    /**
+     * SAML-1 (S-H1): {@link RedirectResponse#parameters()} key under which {@link #start} returns the
+     * minted AuthnRequest id, so the broker can persist it server-side (keyed by session) and bind the
+     * callback's {@code InResponseTo} to it. Server-side so it is not attacker-forgeable via RelayState.
+     */
+    public static final String REQUEST_ID_PARAM = "samlRequestId";
+
     private final SamlProviderConfig config;
     private final SamlAssertionValidator validator;
     private final Supplier<String> idGenerator;
@@ -56,10 +63,13 @@ public class Saml2IdentityProvider implements IdentityProvider {
 
     @Override
     public RedirectResponse start(final AuthnRequestContext context) {
+        // SAML-1 (S-H1): mint the AuthnRequest id ONCE and return it so the broker can persist it
+        // server-side and bind the callback's InResponseTo to this session's request.
+        final String requestId = idGenerator.get();
         final String authnRequest = ""
                 + "<samlp:AuthnRequest xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\""
                 + " xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\""
-                + " ID=\"" + escape(idGenerator.get()) + "\" Version=\"2.0\""
+                + " ID=\"" + escape(requestId) + "\" Version=\"2.0\""
                 + " IssueInstant=\"" + escape(instantSupplier.get()) + "\""
                 + " Destination=\"" + escape(config.ssoUrl()) + "\""
                 + " AssertionConsumerServiceURL=\"" + escape(config.assertionConsumerServiceUrl()) + "\""
@@ -70,7 +80,7 @@ public class Saml2IdentityProvider implements IdentityProvider {
         final String samlRequest = enc(deflateBase64(authnRequest));
         final String location = config.ssoUrl() + "?SAMLRequest=" + samlRequest
                 + "&RelayState=" + enc(context.state());
-        return new RedirectResponse(location, Map.of("RelayState", context.state()));
+        return new RedirectResponse(location, Map.of("RelayState", context.state(), REQUEST_ID_PARAM, requestId));
     }
 
     @Override
@@ -85,8 +95,10 @@ public class Saml2IdentityProvider implements IdentityProvider {
             throw new IllegalArgumentException("SAML callback missing SAMLResponse for provider " + config.alias());
         }
 
+        // SAML-1 (S-H1): pass the pending outbound AuthnRequest id (persisted server-side by the broker,
+        // restored into the context) so the validator binds InResponseTo to this session's request.
         final SamlAssertionValidator.ValidatedAssertion assertion =
-                validator.validate(config, samlResponse, context.expectedState());
+                validator.validate(config, samlResponse, context.expectedState(), context.expectedRequestId());
 
         final Map<String, String> attrs = assertion.attributes() == null ? Map.of() : assertion.attributes();
         final Map<String, String> mapped = new HashMap<>();

@@ -413,9 +413,12 @@ authorization that C1 shows is default-open, and there is no controller-level pr
 4. **Set `server.error.include-message=never`** (H3) and lock down prod cookie/transport
    (`server.forward-headers-strategy=framework`, `session.cookie.secure=true`, force XSRF `Secure`) — M4/M5.
 5. **Add a CSP** to the login/consent/MFA chain (M3); reject `*` realm web-origins with credentials (M2).
-6. **Fix SAML assertion binding (S-H1/S-H2)** — validate the bearer `SubjectConfirmationData`
-   (Recipient/NotOnOrAfter/InResponseTo) and check the signed **assertion's** Issuer on the generic-SP path;
-   cap DEFLATE inflate (S-M1) and move the replay cache to Redis for clustering (S-M2).
+6. **Fix SAML assertion binding (S-H1/S-H2)** — DONE. The bearer `SubjectConfirmationData` is validated
+   (Recipient/NotOnOrAfter) and the signed **assertion's** Issuer is checked on the generic-SP path. The
+   residual `InResponseTo` binding is now closed (issue #2): the broker persists the outbound AuthnRequest id
+   server-side and the validator requires a solicited assertion's `InResponseTo` to match it (single-use);
+   unsolicited/IdP-initiated is gated by `SamlProviderConfig.allowIdpInitiated` (default off).
+   Still open: cap DEFLATE inflate (S-M1) and move the replay cache to Redis for clustering (S-M2).
 7. **Harden SSRF** egress once C1 is closed (M6); wire **OWASP dependency-check/Trivy in CI**. The
    **OpenSAML 4.3.2 → 5.1.4** upgrade (M7) is DONE; bump guava (L1); keep devtools out of release images (L4).
 8. **Commission the independent third-party audit + penetration test** — required before production/public
@@ -451,7 +454,7 @@ there is **no** custom `DocumentBuilderFactory`/`SAXParser`/`TransformerFactory`
 
 | ID | Sev | File:line | Risk | Recommendation |
 |----|-----|-----------|------|----------------|
-| S-H1 | **HIGH** | `OpenSamlAssertionValidator.java:60-87`; `OpenSamlEidAssertionValidator.java:76-123` | No `SubjectConfirmation`/`Recipient`/`NotOnOrAfter`/`InResponseTo` validation — bearer assertion not bound to the in-flight AuthnRequest; stolen/misdelivered bearer assertions not caught | Validate bearer `SubjectConfirmationData` (Recipient == our ACS, NotOnOrAfter, InResponseTo == issued request ID) |
+| S-H1 | **HIGH — FIXED** | `OpenSamlAssertionValidator.java` `verifySubjectConfirmation`/`verifyInResponseTo`; `FederationBrokerController` `REQUEST_ID_ATTR`; `Saml2IdentityProvider.start` | Bearer assertion not bound to the in-flight AuthnRequest; stolen/misdelivered bearer assertions not caught | DONE: bearer `SubjectConfirmationData` validated (Recipient == our ACS + NotOnOrAfter). InResponseTo binding closed (issue #2) — the broker persists the minted AuthnRequest id server-side (session, keyed by alias) and consumes it single-use; a solicited assertion's `InResponseTo` MUST equal it, unsolicited SSO gated by `SamlProviderConfig.allowIdpInitiated` (default off). |
 | S-H2 | **HIGH** | `OpenSamlAssertionValidator.java:66` | Generic-SP path checks `Issuer` only on the (possibly unsigned) Response, never on the signed Assertion → issuer check bypassable on unsigned-Response path (eID path does it right at `OpenSamlEidAssertionValidator.java:86-88`) | Check `assertion.getIssuer()` against expected IdP entityID |
 | S-M1 | MEDIUM | `SamlAuthnRequestParser.java:169-175`; `SamlLogoutRequestParser.java:98-104` | Unbounded DEFLATE inflate on unauthenticated `/saml/idp/sso` + `/saml/idp/slo` → decompression-bomb DoS | Cap inflated output (reject > ~1 MB) |
 | S-M2 | MEDIUM | `InMemorySamlAssertionReplayCache.java` | In-memory replay cache is per-node → cross-node assertion replay in multi-instance deployments | Back the replay cache with the shared Redis |

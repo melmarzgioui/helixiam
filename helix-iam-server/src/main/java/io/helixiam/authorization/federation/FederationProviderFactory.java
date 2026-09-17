@@ -139,7 +139,7 @@ public class FederationProviderFactory {
         return new SamlProviderConfig(stored.alias(), stored.displayName(), c.get("ssoUrl"), c.get("idpEntityId"),
                 c.get("spEntityId"), c.get("assertionConsumerServiceUrl"), c.get("idpSigningCertificate"),
                 c.getOrDefault("emailAttribute", "email"), c.get("firstNameAttribute"), c.get("lastNameAttribute"),
-                c.get("singleLogoutServiceUrl"));
+                c.get("singleLogoutServiceUrl"), Boolean.parseBoolean(c.get("allowIdpInitiated")));
     }
 
     private static EidProviderConfig eidFromStored(

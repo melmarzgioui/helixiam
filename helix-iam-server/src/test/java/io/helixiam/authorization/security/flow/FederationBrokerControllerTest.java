@@ -132,6 +132,35 @@ class FederationBrokerControllerTest {
     }
 
     @Test
+    void startPersistsTheSamlRequestIdAndCallbackBindsThenConsumesItSingleUse() {
+        // SAML-1 (S-H1): the broker persists the minted AuthnRequest id server-side (session), passes it
+        // to the callback as expectedRequestId, and consumes it single-use so a replay finds none.
+        when(registry.get(ALIAS)).thenReturn(provider);
+        when(provider.start(any())).thenReturn(new IdentityProvider.RedirectResponse(
+                "https://idp/sso?x=1", Map.of("samlRequestId", "_req-1")));
+        final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true, Map.of());
+        when(provider.callback(any())).thenReturn(identity);
+        when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
+
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        controller.start(ALIAS, request, new org.springframework.ui.ConcurrentModel());
+        // Persisted server-side, keyed by alias.
+        assertThat(request.getSession().getAttribute("HELIX_FED_SAML_REQ_ID_" + ALIAS)).isEqualTo("_req-1");
+
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+        when(loginCompleter.complete("user-9", request, response)).thenReturn("redirect:" + SP);
+        controller.callback(ALIAS, request, response);
+
+        // The pending request id was handed to the provider for the InResponseTo binding...
+        final ArgumentCaptor<IdentityProvider.CallbackContext> ctx =
+                ArgumentCaptor.forClass(IdentityProvider.CallbackContext.class);
+        verify(provider).callback(ctx.capture());
+        assertThat(ctx.getValue().expectedRequestId()).isEqualTo("_req-1");
+        // ...and consumed (single-use): a replayed callback now presents no pending request id.
+        assertThat(request.getSession().getAttribute("HELIX_FED_SAML_REQ_ID_" + ALIAS)).isNull();
+    }
+
+    @Test
     void callbackRejectsAnUnresolvedIdentityWithoutEstablishingASession() {
         when(registry.get(ALIAS)).thenReturn(provider);
         when(provider.callback(any())).thenReturn(new BrokeredIdentity(ALIAS, "ext-1", null, false, Map.of()));

@@ -13,6 +13,7 @@ import io.helixiam.authorization.federation.IdentityProviderRegistry;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfigPublisher;
 import io.helixiam.authorization.amqp.federation.IdentityProviderRef;
+import io.helixiam.authorization.federation.saml.Saml2IdentityProvider;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
@@ -62,6 +63,13 @@ public class FederationBrokerController {
 
     private static final String STATE_ATTR = "HELIX_FED_STATE_";
     private static final String NONCE_ATTR = "HELIX_FED_NONCE_";
+    /**
+     * SAML-1 (S-H1): the outbound AuthnRequest id the SAML broker minted at {@code start}, stashed
+     * server-side (in the HTTP session, keyed by alias) so the callback binds the assertion's
+     * {@code InResponseTo} to THIS session's request and consumes it single-use. Not derivable from
+     * RelayState, so it cannot be forged by an attacker replaying a captured response.
+     */
+    private static final String REQUEST_ID_ATTR = "HELIX_FED_SAML_REQ_ID_";
     /** SSO P9: the broker alias + subject of the upstream IdP this session was federated through. */
     public static final String IDP_SOURCE_ATTR = "HELIX_IDP_SOURCE";
     public static final String IDP_SUBJECT_ATTR = "HELIX_IDP_SUBJECT";
@@ -119,6 +127,12 @@ public class FederationBrokerController {
         if (redirect.parameters() != null && redirect.parameters().get("nonce") != null) {
             session.setAttribute(NONCE_ATTR + alias, redirect.parameters().get("nonce"));
         }
+        // SAML-1 (S-H1): persist the SAML AuthnRequest id server-side so the callback can require the
+        // assertion's InResponseTo to match this session's request (single-use, replay-proof).
+        if (redirect.parameters() != null
+                && redirect.parameters().get(Saml2IdentityProvider.REQUEST_ID_PARAM) != null) {
+            session.setAttribute(REQUEST_ID_ATTR + alias, redirect.parameters().get(Saml2IdentityProvider.REQUEST_ID_PARAM));
+        }
         LOG.info("Federation: starting login at provider {} ({})", alias, redirect.binding());
 
         if (redirect.binding() == IdentityProvider.Binding.POST) {
@@ -147,15 +161,19 @@ public class FederationBrokerController {
         final HttpSession session = request.getSession();
         final String expectedState = (String) session.getAttribute(STATE_ATTR + alias);
         final String expectedNonce = (String) session.getAttribute(NONCE_ATTR + alias);
-        // Single-use: consume the anti-forgery values regardless of outcome.
+        final String expectedRequestId = (String) session.getAttribute(REQUEST_ID_ATTR + alias);
+        // Single-use: consume the anti-forgery values + the pending SAML request id regardless of outcome
+        // (a replayed response then finds no pending request id → InResponseTo binding rejects it).
         session.removeAttribute(STATE_ATTR + alias);
         session.removeAttribute(NONCE_ATTR + alias);
+        session.removeAttribute(REQUEST_ID_ATTR + alias);
 
         final BrokeredIdentity identity;
         try {
             final IdentityProvider provider = registry.get(alias);
             final IdentityProvider.CallbackContext context = new IdentityProvider.CallbackContext(
-                    RealmContextHolder.get(), parameters(request), expectedState, expectedNonce, callbackUri(alias));
+                    RealmContextHolder.get(), parameters(request), expectedState, expectedNonce,
+                    callbackUri(alias), expectedRequestId);
             identity = provider.callback(context);
         } catch (final RuntimeException e) {
             LOG.warn("Federation: callback validation failed for provider {}: {}", alias, e.getMessage());

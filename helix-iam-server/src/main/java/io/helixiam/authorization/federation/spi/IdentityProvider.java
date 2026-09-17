@@ -58,10 +58,20 @@ public interface IdentityProvider {
     /**
      * Context for {@link #callback}: the realm, the raw response parameters from the IdP, and the
      * anti-forgery values the runtime stashed at {@link #start} (restored from the user's session) so
-     * the provider can reject CSRF (state mismatch) and replay (nonce mismatch).
+     * the provider can reject CSRF (state mismatch) and replay (nonce mismatch). {@code expectedRequestId}
+     * is the outbound SAML AuthnRequest id the broker persisted server-side for this session (SAML-1/S-H1):
+     * a non-null value marks a solicited flow whose assertion's {@code InResponseTo} must match it. It is
+     * null for OIDC and for unsolicited (IdP-initiated) SAML.
      */
     record CallbackContext(String realmId, Map<String, String> parameters,
-                           String expectedState, String expectedNonce, String redirectUri) {
+                           String expectedState, String expectedNonce, String redirectUri,
+                           String expectedRequestId) {
+
+        /** Back-compat: a callback with no pending outbound request id (OIDC, or unsolicited SAML). */
+        public CallbackContext(final String realmId, final Map<String, String> parameters,
+                               final String expectedState, final String expectedNonce, final String redirectUri) {
+            this(realmId, parameters, expectedState, expectedNonce, redirectUri, null);
+        }
     }
 
     /**

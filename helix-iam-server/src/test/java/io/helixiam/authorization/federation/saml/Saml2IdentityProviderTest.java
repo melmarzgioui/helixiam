@@ -44,12 +44,12 @@ class Saml2IdentityProviderTest {
 
     @Test
     void metadata_isSaml2() {
-        assertThat(provider((c, r, s) -> null).metadata().protocol()).isEqualTo(IdpMetadata.Protocol.SAML2);
+        assertThat(provider((c, r, s, q) -> null).metadata().protocol()).isEqualTo(IdpMetadata.Protocol.SAML2);
     }
 
     @Test
     void start_buildsTheRedirectWithADeflatedAuthnRequestAndRelayState() throws Exception {
-        final RedirectResponse redirect = provider((c, r, s) -> null)
+        final RedirectResponse redirect = provider((c, r, s, q) -> null)
                 .start(new AuthnRequestContext("master", "state-abc", CONFIG.assertionConsumerServiceUrl()));
 
         assertThat(redirect.location()).startsWith("https://idp.corp/sso?")
@@ -63,7 +63,7 @@ class Saml2IdentityProviderTest {
 
     @Test
     void callback_validatesTheResponseAndMapsTheAssertionToABrokeredIdentity() {
-        final SamlAssertionValidator validator = (cfg, resp, relay) -> new SamlAssertionValidator.ValidatedAssertion(
+        final SamlAssertionValidator validator = (cfg, resp, relay, reqId) -> new SamlAssertionValidator.ValidatedAssertion(
                 "ada@corp", Map.of("mail", "ada@corp", "givenName", "Ada", "sn", "Lovelace"));
         final CallbackContext ctx = new CallbackContext("master",
                 Map.of("SAMLResponse", "base64resp", "RelayState", "state-abc"), "state-abc", null, CONFIG.assertionConsumerServiceUrl());
@@ -78,11 +78,39 @@ class Saml2IdentityProviderTest {
     }
 
     @Test
+    void start_returnsTheMintedAuthnRequestIdSoTheBrokerCanPersistIt() {
+        // SAML-1 (S-H1): start() must surface the AuthnRequest id it minted (matching the id inside the
+        // SAMLRequest) so the broker can stash it server-side and bind the callback's InResponseTo.
+        final RedirectResponse redirect = provider((c, r, s, q) -> null)
+                .start(new AuthnRequestContext("master", "state-abc", CONFIG.assertionConsumerServiceUrl()));
+
+        assertThat(redirect.parameters()).containsEntry(Saml2IdentityProvider.REQUEST_ID_PARAM, "_id-1");
+    }
+
+    @Test
+    void callback_threadsTheExpectedRequestIdIntoTheValidator() {
+        // SAML-1 (S-H1): the pending outbound request id restored into the CallbackContext must reach the
+        // validator so it can enforce the InResponseTo binding for a solicited flow.
+        final AtomicReference<String> seenRequestId = new AtomicReference<>();
+        final SamlAssertionValidator validator = (cfg, resp, relay, reqId) -> {
+            seenRequestId.set(reqId);
+            return new SamlAssertionValidator.ValidatedAssertion("ada@corp", Map.of("mail", "ada@corp"));
+        };
+        final CallbackContext ctx = new CallbackContext("master",
+                Map.of("SAMLResponse", "base64resp", "RelayState", "state-abc"), "state-abc", null,
+                CONFIG.assertionConsumerServiceUrl(), "_id-1");
+
+        provider(validator).callback(ctx);
+
+        assertThat(seenRequestId.get()).isEqualTo("_id-1");
+    }
+
+    @Test
     void callback_rejectsARelayStateMismatch_csrf() {
         final CallbackContext ctx = new CallbackContext("master",
                 Map.of("SAMLResponse", "base64resp", "RelayState", "attacker"), "state-abc", null, CONFIG.assertionConsumerServiceUrl());
 
-        assertThatThrownBy(() -> provider((c, r, s) -> null).callback(ctx)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> provider((c, r, s, q) -> null).callback(ctx)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -94,7 +122,7 @@ class Saml2IdentityProviderTest {
         final AtomicReference<String> got = new AtomicReference<>();
         final UpstreamLogoutClient capture = got::set;
         final Saml2IdentityProvider provider = new Saml2IdentityProvider(
-                withSlo, (c, r, s) -> null, () -> "_lr-1", () -> "2026-06-25T00:00:00Z", capture);
+                withSlo, (c, r, s, q) -> null, () -> "_lr-1", () -> "2026-06-25T00:00:00Z", capture);
 
         provider.logout(new LogoutContext("master", "user-1", "corp-saml", null, "ada@corp", "sess-9"));
 
@@ -107,7 +135,7 @@ class Saml2IdentityProviderTest {
     void logout_isANoOpWhenNoSloEndpointConfigured() {
         final AtomicReference<String> got = new AtomicReference<>();
         final Saml2IdentityProvider provider = new Saml2IdentityProvider(
-                CONFIG, (c, r, s) -> null, () -> "_lr-1", () -> "2026-06-25T00:00:00Z", got::set);
+                CONFIG, (c, r, s, q) -> null, () -> "_lr-1", () -> "2026-06-25T00:00:00Z", got::set);
         provider.logout(new LogoutContext("master", "user-1", "corp-saml", null, "ada@corp", "sess-9"));
         assertThat(got.get()).isNull(); // CONFIG has no SLO URL → nothing sent upstream
     }
