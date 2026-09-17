@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/helix-logo.svg" alt="HelixIAM" width="104" height="104">
+  <img src=".github/helix-avatar-500.png" alt="HelixIAM" width="120" height="120">
 </p>
 
 <h1 align="center">HelixIAM</h1>
