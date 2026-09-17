@@ -5,10 +5,14 @@
 
 package io.helixiam.authorization.observability;
 
+import io.helixiam.authorization.domain.realm.RealmConfig;
+import io.helixiam.authorization.security.adminrbac.RealmAdminAuthorities;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.search.Search;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,9 +41,25 @@ public class MetricsSummaryController {
         this.registry = registry;
     }
 
-    /** Compact metrics summary. {@code ?realm=} optionally scopes the figures to a single realm. */
+    /**
+     * Compact metrics summary. {@code ?realm=} optionally scopes the figures to a single realm.
+     *
+     * <p>Tenant isolation (pentest P1): {@code /admin/metrics} is a realm-INDEPENDENT admin route, so the
+     * request-level authorization manager only proves the caller is an admin of <em>some</em> realm. The
+     * realm here comes from a query parameter, so this method must additionally verify the caller may see
+     * it: a specific {@code realm} requires {@code admin_<realm>}; the cross-realm aggregate (no realm)
+     * requires master-realm admin. Otherwise a realm admin could read another realm's figures.
+     */
     @GetMapping("/summary")
-    public ResponseEntity<Map<String, Object>> summary(@RequestParam(required = false) final String realm) {
+    public ResponseEntity<Map<String, Object>> summary(@RequestParam(required = false) final String realm,
+                                                       final Authentication auth) {
+        final boolean allRealms = realm == null || realm.isBlank();
+        final boolean allowed = allRealms
+                ? RealmAdminAuthorities.isAdminOf(auth, RealmConfig.ADMIN_REALM_ID) // aggregate = master admin only
+                : RealmAdminAuthorities.isAdminOf(auth, realm);                     // scoped = admin of THAT realm
+        if (!allowed) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         final Map<String, Object> body = new LinkedHashMap<>();
         try {
             final double loginSuccess = sum(MetricNames.LOGIN_TOTAL, realm, "outcome", "success");
