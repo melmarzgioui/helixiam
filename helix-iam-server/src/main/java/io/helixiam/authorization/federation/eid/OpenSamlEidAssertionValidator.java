@@ -21,6 +21,8 @@ import org.opensaml.saml.saml2.core.Conditions;
 import org.opensaml.saml.saml2.core.EncryptedAttribute;
 import org.opensaml.saml.saml2.core.NameID;
 import org.opensaml.saml.saml2.core.Response;
+import org.opensaml.saml.saml2.core.Status;
+import org.opensaml.saml.saml2.core.StatusCode;
 import org.opensaml.saml.saml2.core.Subject;
 import org.opensaml.saml.saml2.encryption.Decrypter;
 import org.opensaml.saml.security.impl.SAMLSignatureProfileValidator;
@@ -83,6 +85,10 @@ public class OpenSamlEidAssertionValidator implements EidAssertionValidator {
                                  final String expectedRelayState) {
         try {
             final Response response = parse(samlResponseBase64);
+            // Pentest DEEP-1 / SAML-3: reject unless the Response status is Success BEFORE consuming any
+            // assertion — a signed assertion inside an AuthnFailed response must not log the user in. (Ported
+            // from OpenSamlAssertionValidator.verifyStatusSuccess, which the generic path already had.)
+            verifyStatusSuccess(response, config);
             if (response.getAssertions().isEmpty()) {
                 throw new IllegalStateException("eID response has no assertion for provider " + config.alias());
             }
@@ -124,6 +130,15 @@ public class OpenSamlEidAssertionValidator implements EidAssertionValidator {
             throw e;
         } catch (final Exception e) {
             throw new IllegalStateException("eID validation failed for provider " + config.alias() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** SAML-3 / DEEP-1: the Response status MUST be Success before any assertion is trusted. */
+    private void verifyStatusSuccess(final Response response, final EidProviderConfig config) {
+        final Status status = response.getStatus();
+        final StatusCode code = status != null ? status.getStatusCode() : null;
+        if (code == null || !StatusCode.SUCCESS.equals(code.getValue())) {
+            throw new IllegalStateException("eID response status is not Success for provider " + config.alias());
         }
     }
 

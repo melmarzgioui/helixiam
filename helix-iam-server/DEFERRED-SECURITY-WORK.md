@@ -55,3 +55,10 @@ come up on OpenSAML 5.
   (start returns the id, callback threads it).
 - **L5**: legacy AES/ECB decrypt fallback retained for existing-row compatibility (now logged).
 - **L6**: generated bootstrap admin password is logged (zero-config trade-off; set `HELIX_ADMIN_PASSWORD`).
+
+## Deep SAML pentest (2026-09-17, issue #1) — outcome
+Ran the deeper SAML coverage (`PENTEST-REPORT-SAML-DEEP-2026-09-17.md`). Result: 0 critical / 0 high / 1 medium / 2 low.
+- **XSW2–XSW8**: ALL rejected on both the generic and eID validators (no signature-wrapping bypass). `InResponseTo` binding held; `EncryptedID` handling sound (no padding oracle / DoS).
+- **DEEP-1 (MEDIUM) — FIXED**: the SAML-3 Response-`StatusCode`=Success check was missing on the eID POST path (`OpenSamlEidAssertionValidator`), so a validly-signed assertion inside an `AuthnFailed` response logged the user in. Ported `verifyStatusSuccess`; regression test `rejectsAValidlySignedAssertionCarriedInAFailedStatusResponse`.
+- **DEEP-3 (LOW) — tracked**: the eID `ArtifactResponse` envelope signature is optional (the inner assertion signature is always enforced, so it is defense-in-depth). Revisit alongside the live DigiD mTLS work.
+- **Still environment-blocked** (not a defect): the live DigiD `ArtifactResolve`/mTLS SOAP round-trip against a real peer, and the full seeded-broker end-to-end browser round-trip — need a DigiD test environment. Out-of-#1 lower items from the prior report (SP-SLO unsigned, rsa-sha1/unknown-SigAlg, unsigned SP metadata import) remain tracked.

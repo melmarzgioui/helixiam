@@ -29,6 +29,8 @@ import org.opensaml.saml.saml2.core.EncryptedID;
 import org.opensaml.saml.saml2.core.Issuer;
 import org.opensaml.saml.saml2.core.NameID;
 import org.opensaml.saml.saml2.core.Response;
+import org.opensaml.saml.saml2.core.Status;
+import org.opensaml.saml.saml2.core.StatusCode;
 import org.opensaml.saml.saml2.core.Subject;
 import org.opensaml.saml.saml2.encryption.Encrypter;
 import org.opensaml.security.x509.BasicX509Credential;
@@ -115,6 +117,25 @@ class OpenSamlEidAssertionValidatorIntegrationTest {
         assertThatThrownBy(() -> validator.validate(config, response, "relay"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("assurance");
+    }
+
+    @Test
+    void rejectsAValidlySignedAssertionCarriedInAFailedStatusResponse() throws Exception {
+        // Pentest DEEP-1: the SAML-3 status check was missing on the eID POST path — a validly-signed
+        // assertion inside an AuthnFailed response used to log the user in. It must now be rejected.
+        final NameID nameId = build(NameID.DEFAULT_ELEMENT_NAME);
+        nameId.setValue(BSN);
+        nameId.setFormat(PERSISTENT);
+        nameId.setNameQualifier(LEGACY_BSN);
+        final Subject subject = build(Subject.DEFAULT_ELEMENT_NAME);
+        subject.setEncryptedID(encrypt(nameId));
+        final String response = signAndWrap(idpKey, idpCert, subject, null, DIGID_SUBSTANTIAL,
+                "urn:oasis:names:tc:SAML:2.0:status:AuthnFailed");
+        final EidProviderConfig config = config(DIGID_MIDDEN);
+
+        assertThatThrownBy(() -> validator.validate(config, response, "relay"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("status is not Success");
     }
 
     @Test
@@ -270,6 +291,20 @@ class OpenSamlEidAssertionValidatorIntegrationTest {
     private static String signAndWrap(final KeyPair idpKeyPair, final X509Certificate idpCertificate,
                                       final Subject subject, final AttributeStatement attrStatement,
                                       final String classRef) throws Exception {
+        return signAndWrap(idpKeyPair, idpCertificate, subject, attrStatement, classRef, StatusCode.SUCCESS);
+    }
+
+    private static Status status(final String code) {
+        final StatusCode sc = build(StatusCode.DEFAULT_ELEMENT_NAME);
+        sc.setValue(code);
+        final Status s = build(Status.DEFAULT_ELEMENT_NAME);
+        s.setStatusCode(sc);
+        return s;
+    }
+
+    private static String signAndWrap(final KeyPair idpKeyPair, final X509Certificate idpCertificate,
+                                      final Subject subject, final AttributeStatement attrStatement,
+                                      final String classRef, final String statusCode) throws Exception {
         final Audience aud = build(Audience.DEFAULT_ELEMENT_NAME);
         aud.setURI(SP_ENTITY);
         final AudienceRestriction audRestriction = build(AudienceRestriction.DEFAULT_ELEMENT_NAME);
@@ -316,6 +351,7 @@ class OpenSamlEidAssertionValidatorIntegrationTest {
         response.setIssuer(respIssuer);
         response.setID("_r" + System.nanoTime());
         response.setIssueInstant(Instant.now());
+        response.setStatus(status(statusCode));
         response.getAssertions().add(assertion);
 
         XMLObjectProviderRegistrySupport.getMarshallerFactory().getMarshaller(response).marshall(response);
