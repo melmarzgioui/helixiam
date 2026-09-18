@@ -1,10 +1,10 @@
 /* GENERATED FROM platform/brand — do not edit. Run: node platform/brand/sync.mjs */
 /* ============================================================================
-   KubeDNA — unified brand tokens  ·  BRANDBOOK_KUBEDNA_V2
+   Helix — unified brand tokens  ·  BRANDBOOK_HELIX_V2
    SINGLE SOURCE OF TRUTH. Edit here, then run: node platform/brand/sync.mjs
    Consumed by: helix-dashboard (console), helix-docs-site, helixiam-website, login.
 
-   Font stack is KubeDNA's own — Work Sans + Roboto Mono — SELF-HOSTED (no CDN,
+   Font stack is Helix's own — Work Sans + Roboto Mono — SELF-HOSTED (no CDN,
    no Gilroy). Wordmark = Work Sans 800. Palette = Cucumber/Jade/Black-Cat.
    Three resolutions off one palette: product-light (default), product-dark
    ([data-theme="dark"]), marketing-void ([data-mode="void"]).
@@ -26,7 +26,7 @@
 }
 
 :root {
-  /* --- KubeDNA palette --- */
+  /* --- Helix palette --- */
   --kd-cucumber: #476957;
   --kd-cucumber-d: #365141;
   --kd-cucumber-l: #5f8a72;
@@ -70,7 +70,7 @@
   --primary: var(--kd-cucumber);
   --primary-hover: var(--kd-cucumber-d);
   --accent: var(--kd-cucumber);
-  /* Wordmark "IAM" + spark — KubeDNA Jade (--kd-jade #a3d4c4). ONE colour on every surface.
+  /* Wordmark "IAM" + spark — Helix Jade (--kd-jade #a3d4c4). ONE colour on every surface.
      Deliberately NOT --accent: the UI accent stays cucumber; only the lockup is jade.
      (Jade is a light-mint made for dark grounds — the lockup's chrome is dark on the void website,
      the dark login panel, the Black-Cat docs masthead, and the console top bar.) */
@@ -79,8 +79,8 @@
   --danger: #b3261e;
   --danger-fg: #9a2b2b;
 
-  /* --- Primary action button (unified across ALL surfaces) --- KubeDNA ink (Black-Cat #2f3033) on
-     LIGHT grounds (matches the KubeDNA product dashboard); inverts to jade+ink on dark grounds
+  /* --- Primary action button (unified across ALL surfaces) --- Helix ink (Black-Cat #2f3033) on
+     LIGHT grounds (matches the Helix product dashboard); inverts to jade+ink on dark grounds
      ([data-theme="dark"] and [data-mode="void"]) so it never disappears. Links stay their own colour;
      jade is the accent + the focus ring. */
   --btn-primary-bg: var(--kd-blackcat);          /* #2f3033 */
@@ -174,7 +174,7 @@
   --accent: var(--kd-cyan);
   --on-primary: #04120d;
   /* Void (dark navy) ground: primary button = jade + ink — same inversion as product-dark, and it
-     matches kubedna.com's own dark-hero .btn--primary (jade fill, ink text). */
+     matches the marketing site's own dark-hero .btn--primary (jade fill, ink text). */
   --btn-primary-bg: var(--kd-jade);
   --btn-primary-bg-hover: #b6e0d0;
   --btn-primary-fg: var(--kd-ink);

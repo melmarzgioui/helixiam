@@ -1,6 +1,6 @@
 site_name: Helix IAM Documentation
 site_description: Helix IAM — the complete identity & access management platform. Enterprise SSO, strong authentication, federation and EU eIDs, on your own infrastructure.
-site_author: KubeDNA
+site_author: HelixIAM
 docs_dir: docs
 theme:
   name: material
@@ -63,7 +63,7 @@ plugins:
 extra:
   social:
     - icon: fontawesome/solid/globe
-      link: https://kubedna.io
+      link: https://helixiam.com
 
 nav:
   - Home: index.md

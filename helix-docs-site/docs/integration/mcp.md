@@ -77,7 +77,7 @@ The agent authenticates to Helix as an OAuth client. Two ways to get one:
 
 ## Runnable demo
 
-A zero-dependency demo lives in [`helix-mcp-demo/`](https://github.com/kubedna) next to the auth server. It contains a minimal MCP resource server, an MCP client, and the two tests, all in plain Node (no npm install).
+A zero-dependency demo lives in [`helix-mcp-demo/`](https://github.com/melmarzgioui/helixiam/tree/master/helix-mcp-demo) next to the auth server. It contains a minimal MCP resource server, an MCP client, and the two tests, all in plain Node (no npm install).
 
 ```bash
 cd platform/microservices/authorization/helix-mcp-demo

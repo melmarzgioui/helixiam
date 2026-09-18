@@ -13,7 +13,7 @@ export const GET: APIRoute = () => {
 
 > ${SITE.description}
 
-${SITE.name} (${SITE.tagline}) is a ${SITE.parent} product: a European, standards-based identity
+${SITE.name} (${SITE.tagline}) is a European, standards-based identity
 platform (IAM) that authenticates humans, AI agents, and machine workloads on one open fabric.
 Keycloak-class SSO, MFA, and federation, plus first-class non-human identity (AI agents, RFC 8693
 delegation), Workload Identity Federation, and EU eIDs (eIDAS, eHerkenning, DigiD). Self-hostable and
@@ -28,7 +28,7 @@ ${SOLUTIONS.map((s) => `- [${s.navLabel}](${u(`/solutions/${s.slug}/`)}): ${plai
 
 ## Company
 - [Why ${SITE.name}](${u("/why-helixiam/")}): Why teams switch — built for agents, sovereign, standards-based.
-- [About](${u("/company/")}): European identity, engineered by ${SITE.parent}.
+- [About](${u("/company/")}): European identity, engineered in Europe.
 - [Trust & security](${u("/trust/")}): How ${SITE.name} protects identity.
 - [Blog](${u("/blog/")}): Notes on the identity fabric.
 - [Contact](${u("/contact/")}) · [Book a demo](${u("/demo/")})

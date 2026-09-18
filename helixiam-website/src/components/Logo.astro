@@ -4,7 +4,7 @@ import { localeOf, localizePath, type Locale } from "../i18n";
 interface Props { size?: number; class?: string; }
 const { size = 30, class: cls = "" } = Astro.props;
 const locale: Locale = localeOf(Astro.url.pathname);
-// size (px) scales the wordmark; default 30 → 1.35rem, matching the KubeDNA logotype cap height.
+// size (px) scales the wordmark; default 30 → 1.35rem, matching the logotype cap height.
 const fontRem = (size / 30 * 1.35).toFixed(3);
 ---
 <a href={localizePath("/", locale)} class={`logo ${cls}`} aria-label="HelixIAM — home" style={`font-size:${fontRem}rem`}>
@@ -17,9 +17,9 @@ const fontRem = (size / 30 * 1.35).toFixed(3);
 
 <style>
   .logo { display: inline-flex; align-items: center; text-decoration: none; }
-  /* KubeDNA-style logotype: Work Sans 800 (self-hosted, KubeDNA's own face), "Helix" fg + "IAM" cyan, spark cap-height at bottom-right. */
+  /* Logotype: Work Sans 800 (self-hosted), "Helix" fg + "IAM" cyan, spark cap-height at bottom-right. */
   .logo-word { font-family: var(--font); font-weight: 800; font-size: 1em; letter-spacing: -0.02em; color: var(--ink); line-height: 1; white-space: nowrap; }
-  /* Canonical lockup: "IAM" = deep KubeDNA cyan (solid, ONE colour on every ground — matches console/docs/login). */
+  /* Canonical lockup: "IAM" = deep cyan (solid, ONE colour on every ground — matches console/docs/login). */
   .logo-iam { color: var(--wordmark-accent); }
   /* the spark = same cyan as "IAM"; cap-height, sits on the baseline (bottom-right) */
   .logo-spark { height: 0.72em; width: 0.72em; margin-left: 0.03em; vertical-align: baseline; color: var(--wordmark-accent); }

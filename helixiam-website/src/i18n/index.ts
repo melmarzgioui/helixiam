@@ -44,7 +44,7 @@ type Dict = typeof STR.en;
 const en = {
   tagline: "Identity, in your DNA.",
   meta: {
-    home: "HelixIAM is the European identity platform for the agentic enterprise — authenticate, authorize, and govern humans, AI agents, and workloads from one platform. Keycloak-class SSO, MFA, and federation, purpose-built non-human and workload identity, and EU eIDs. A KubeDNA product.",
+    home: "HelixIAM is the European identity platform for the agentic enterprise — authenticate, authorize, and govern humans, AI agents, and workloads from one platform. Keycloak-class SSO, MFA, and federation, purpose-built non-human and workload identity, and EU eIDs.",
   },
   nav: {
     product: "Product", solutions: "Solutions", why: "Why HelixIAM", docs: "Docs", company: "Company",
@@ -59,7 +59,7 @@ const en = {
     about: "About", trust: "Trust & security", blog: "Blog",
   },
   cta: { book: "Book a demo", docs: "Read the docs", explore: "Explore the platform", learn: "Learn more", fine: "No credit card. Self-hostable. Engineered in Europe.", bandTitle: "See HelixIAM on your own stack.", bandSub: "A 30-minute demo: realms, agents, workload identity, and a live migration off Keycloak — mapped to your use case." },
-  footer: { tag: "The European identity fabric for humans, AI agents, and workloads.", sovereign: "Sovereign by design", standards: "Open standards", product: "Product", solutions: "Solutions", developers: "Developers", company: "Company", rights: "A KubeDNA product. Engineered in Europe.", privacy: "Privacy", terms: "Terms", security: "Security" },
+  footer: { tag: "The European identity fabric for humans, AI agents, and workloads.", sovereign: "Sovereign by design", standards: "Open standards", product: "Product", solutions: "Solutions", developers: "Developers", company: "Company", rights: "Engineered in Europe.", privacy: "Privacy", terms: "Terms", security: "Security" },
   langLabel: "Language",
   ui: {
     explore: "Explore", view: "View", exploreMore: "Explore more of the platform",
@@ -69,7 +69,7 @@ const en = {
     docsDeepest: "In the meantime, the documentation is the deepest source of truth.",
     backHome: "Back to home", explorePlatform: "Explore the platform", notFoundEyebrow: "404",
     legalEyebrow: "Legal", legalUpdated: "Last updated:",
-    legalNote: "This is a template intended to be reviewed and completed by HelixIAM / KubeDNA's legal counsel before publication. Placeholders in [brackets] must be replaced with the operating legal entity's details.",
+    legalNote: "This is a template intended to be reviewed and completed by HelixIAM's legal counsel before publication. Placeholders in [brackets] must be replaced with the operating legal entity's details.",
   },
   form: {
     name: "Full name", email: "Work email", company: "Company", role: "Your role",
@@ -142,7 +142,7 @@ const en = {
 const fr: typeof en = {
   tagline: "L'identité, dans votre ADN.",
   meta: {
-    home: "HelixIAM est la plateforme d'identité européenne pour l'entreprise à l'ère des agents IA — authentifiez, autorisez et gouvernez les humains, les agents IA et les charges de travail depuis une seule plateforme. SSO, MFA et fédération de classe Keycloak, identité non humaine et des charges de travail conçue sur mesure, et eID de l'UE. Un produit KubeDNA.",
+    home: "HelixIAM est la plateforme d'identité européenne pour l'entreprise à l'ère des agents IA — authentifiez, autorisez et gouvernez les humains, les agents IA et les charges de travail depuis une seule plateforme. SSO, MFA et fédération de classe Keycloak, identité non humaine et des charges de travail conçue sur mesure, et eID de l'UE.",
   },
   nav: {
     product: "Produit", solutions: "Solutions", why: "Pourquoi HelixIAM", docs: "Docs", company: "Entreprise",
@@ -154,7 +154,7 @@ const fr: typeof en = {
     about: "À propos", trust: "Confiance & sécurité", blog: "Blog",
   },
   cta: { book: "Demander une démo", docs: "Lire la documentation", explore: "Explorer la plateforme", learn: "En savoir plus", fine: "Sans carte bancaire. Auto-hébergeable. Conçu en Europe.", bandTitle: "Découvrez HelixIAM sur votre propre infrastructure.", bandSub: "Une démo de 30 minutes : realms, agents, identité des charges de travail et une migration en direct depuis Keycloak — adaptée à votre cas d'usage." },
-  footer: { tag: "La plateforme d'identité européenne pour les humains, les agents IA et les charges de travail.", sovereign: "Souverain par conception", standards: "Standards ouverts", product: "Produit", solutions: "Solutions", developers: "Développeurs", company: "Entreprise", rights: "Un produit KubeDNA. Conçu en Europe.", privacy: "Confidentialité", terms: "Conditions", security: "Sécurité" },
+  footer: { tag: "La plateforme d'identité européenne pour les humains, les agents IA et les charges de travail.", sovereign: "Souverain par conception", standards: "Standards ouverts", product: "Produit", solutions: "Solutions", developers: "Développeurs", company: "Entreprise", rights: "Conçu en Europe.", privacy: "Confidentialité", terms: "Conditions", security: "Sécurité" },
   langLabel: "Langue",
   ui: {
     explore: "Explorer", view: "Voir", exploreMore: "Explorer davantage la plateforme",
@@ -164,7 +164,7 @@ const fr: typeof en = {
     docsDeepest: "En attendant, la documentation est la source de vérité la plus complète.",
     backHome: "Retour à l'accueil", explorePlatform: "Explorer la plateforme", notFoundEyebrow: "404",
     legalEyebrow: "Mentions légales", legalUpdated: "Dernière mise à jour :",
-    legalNote: "Ceci est un modèle destiné à être revu et complété par le conseil juridique de HelixIAM / KubeDNA avant publication. Les espaces réservés entre [crochets] doivent être remplacés par les informations de l'entité juridique exploitante.",
+    legalNote: "Ceci est un modèle destiné à être revu et complété par le conseil juridique de HelixIAM avant publication. Les espaces réservés entre [crochets] doivent être remplacés par les informations de l'entité juridique exploitante.",
   },
   form: {
     name: "Nom complet", email: "E-mail professionnel", company: "Entreprise", role: "Votre rôle",
@@ -237,7 +237,7 @@ const fr: typeof en = {
 const nl: typeof en = {
   tagline: "Identiteit, in je DNA.",
   meta: {
-    home: "HelixIAM is het Europese identiteitsplatform voor de onderneming in het AI-agent-tijdperk — authenticeer, autoriseer en beheer mensen, AI-agents en workloads vanuit één platform. SSO, MFA en federatie van Keycloak-niveau, doelgerichte non-human en workload-identiteit, en EU-eID's. Een KubeDNA-product.",
+    home: "HelixIAM is het Europese identiteitsplatform voor de onderneming in het AI-agent-tijdperk — authenticeer, autoriseer en beheer mensen, AI-agents en workloads vanuit één platform. SSO, MFA en federatie van Keycloak-niveau, doelgerichte non-human en workload-identiteit, en EU-eID's.",
   },
   nav: {
     product: "Product", solutions: "Oplossingen", why: "Waarom HelixIAM", docs: "Docs", company: "Bedrijf",
@@ -249,7 +249,7 @@ const nl: typeof en = {
     about: "Over ons", trust: "Vertrouwen & beveiliging", blog: "Blog",
   },
   cta: { book: "Demo aanvragen", docs: "Lees de documentatie", explore: "Ontdek het platform", learn: "Meer informatie", fine: "Geen creditcard. Zelf te hosten. Ontwikkeld in Europa.", bandTitle: "Zie HelixIAM op je eigen stack.", bandSub: "Een demo van 30 minuten: realms, agents, workload-identiteit en een live migratie van Keycloak — afgestemd op jouw use case." },
-  footer: { tag: "De Europese identiteitslaag voor mensen, AI-agents en workloads.", sovereign: "Soeverein van opzet", standards: "Open standaarden", product: "Product", solutions: "Oplossingen", developers: "Ontwikkelaars", company: "Bedrijf", rights: "Een KubeDNA-product. Ontwikkeld in Europa.", privacy: "Privacy", terms: "Voorwaarden", security: "Beveiliging" },
+  footer: { tag: "De Europese identiteitslaag voor mensen, AI-agents en workloads.", sovereign: "Soeverein van opzet", standards: "Open standaarden", product: "Product", solutions: "Oplossingen", developers: "Ontwikkelaars", company: "Bedrijf", rights: "Ontwikkeld in Europa.", privacy: "Privacy", terms: "Voorwaarden", security: "Beveiliging" },
   langLabel: "Taal",
   ui: {
     explore: "Ontdek", view: "Bekijk", exploreMore: "Ontdek meer van het platform",
@@ -259,7 +259,7 @@ const nl: typeof en = {
     docsDeepest: "Ondertussen is de documentatie de meest volledige bron van waarheid.",
     backHome: "Terug naar home", explorePlatform: "Ontdek het platform", notFoundEyebrow: "404",
     legalEyebrow: "Juridisch", legalUpdated: "Laatst bijgewerkt:",
-    legalNote: "Dit is een sjabloon dat vóór publicatie moet worden beoordeeld en aangevuld door de juridische afdeling van HelixIAM / KubeDNA. Plaatsaanduidingen tussen [haken] moeten worden vervangen door de gegevens van de exploiterende juridische entiteit.",
+    legalNote: "Dit is een sjabloon dat vóór publicatie moet worden beoordeeld en aangevuld door de juridische afdeling van HelixIAM. Plaatsaanduidingen tussen [haken] moeten worden vervangen door de gegevens van de exploiterende juridische entiteit.",
   },
   form: {
     name: "Volledige naam", email: "Zakelijk e-mailadres", company: "Bedrijf", role: "Je rol",

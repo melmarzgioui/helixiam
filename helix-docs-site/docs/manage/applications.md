@@ -48,7 +48,7 @@ curl -s -b cookies.txt "$HELIX_URL/admin/realms/$REALM/applications"
 ```json
 [
   { "realmId": "acme", "name": "helix-example-app", "subjectClaim": null, "authFlowAlias": "helix-example-app-sso", "enabled": true, "displayName": null },
-  { "realmId": "acme", "name": "KubeDNA CLI",       "subjectClaim": null, "authFlowAlias": null,                    "enabled": true, "displayName": "KubeDNA CLI" },
+  { "realmId": "acme", "name": "Helix CLI",         "subjectClaim": null, "authFlowAlias": null,                    "enabled": true, "displayName": "Helix CLI" },
   { "realmId": "acme", "name": "Helix Admin Console","subjectClaim": null,"authFlowAlias": null,                    "enabled": true, "displayName": "Helix Admin Console" }
 ]
 ```

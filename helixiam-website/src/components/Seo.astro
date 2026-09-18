@@ -26,8 +26,8 @@ const jsonLd = {
   description: desc,
   inLanguage: LOCALE_META[locale].htmlLang,
   offers: { "@type": "Offer", availability: "https://schema.org/InStock", category: "Contact for pricing" },
-  brand: { "@type": "Organization", name: SITE.parent },
-  publisher: { "@type": "Organization", name: SITE.parent, url: "https://kubedna.com" },
+  brand: { "@type": "Organization", name: SITE.name },
+  publisher: { "@type": "Organization", name: SITE.name, url: SITE.url },
   url: canonical,
 };
 ---

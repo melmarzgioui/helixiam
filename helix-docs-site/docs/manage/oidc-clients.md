@@ -63,7 +63,7 @@ curl -s -b cookies.txt "$HELIX_URL/admin/realms/$REALM/clients"
 ```json
 [
   { "clientId": "helix-console", "name": "Helix Console", "publicClient": true,  "grantTypes": ["authorization_code","refresh_token"] },
-  { "clientId": "kubedna-cli",   "name": "KubeDNA CLI",   "publicClient": true,  "grantTypes": ["authorization_code","device"] }
+  { "clientId": "helix-cli",     "name": "Helix CLI",     "publicClient": true,  "grantTypes": ["authorization_code","device"] }
 ]
 ```
 

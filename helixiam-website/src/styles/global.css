@@ -1,9 +1,9 @@
-/* HelixIAM brand system — a KubeDNA product.
-   Own identity: KubeDNA's jade/cucumber lineage lifted onto a deep "void" navy with a
+/* HelixIAM brand system.
+   Own identity: a jade/cucumber lineage lifted onto a deep "void" navy with a
    bioluminescent jade→cyan glow (the living-DNA look). Dark-first, premium, security-grade.
-   Type shared with KubeDNA (Work Sans + Roboto Mono) for family resemblance. */
+   Type: Work Sans + Roboto Mono. */
 
-/* Fonts + KubeDNA palette come from the shared brand system (single source of truth):
+/* Fonts + palette come from the shared brand system (single source of truth):
    platform/brand/brand.css, synced here as ./brand.css. Self-hosted Work Sans + Roboto Mono,
    no CDN, no Gilroy. Edit platform/brand/brand.css and run `node platform/brand/sync.mjs`. */
 @import "./brand.css";
@@ -150,8 +150,8 @@ a:hover { color: var(--jade); }
   transition: transform 0.18s var(--ease), box-shadow 0.25s var(--ease), background 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease);
 }
 .btn:hover { transform: translateY(-2px); }
-/* Primary action — unified KubeDNA button language: on this dark navy ground it's jade + ink
-   (same inversion as the console dark theme + the docs slate scheme + kubedna.com's dark hero). */
+/* Primary action — unified button language: on this dark navy ground it's jade + ink
+   (same inversion as the console dark theme + the docs slate scheme + the marketing dark hero). */
 .btn-primary { background: var(--kd-jade); color: var(--kd-ink); box-shadow: 0 0 0 1px rgba(163, 212, 196, 0.35), 0 14px 44px -14px rgba(163, 212, 196, 0.45); }
 .btn-primary:hover { background: #b6e0d0; color: var(--kd-ink); box-shadow: 0 0 0 1px rgba(163, 212, 196, 0.5), 0 18px 60px -14px rgba(163, 212, 196, 0.55); }
 .btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--kd-jade) 92%, transparent); }

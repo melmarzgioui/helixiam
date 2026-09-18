@@ -4,13 +4,12 @@ import type { Locale } from "./i18n";
 
 export const SITE = {
   name: "HelixIAM",
-  parent: "KubeDNA",
   domain: "helixiam.com",
   url: "https://helixiam.com",
   docsUrl: "https://docs.helixiam.com",
   tagline: "Identity, in your DNA.",
   description:
-    "HelixIAM is the European identity fabric for humans, AI agents, and workloads. Keycloak-class SSO, MFA and federation — plus first-class non-human identity, workload identity federation, and EU eIDs. A KubeDNA product.",
+    "HelixIAM is the European identity fabric for humans, AI agents, and workloads. Keycloak-class SSO, MFA and federation — plus first-class non-human identity, workload identity federation, and EU eIDs.",
   demoPath: "/demo/",
   contactPath: "/contact/",
   email: "hello@helixiam.com",
@@ -50,7 +49,7 @@ export const NAV: NavItem[] = [
     label: "Company",
     href: "/company/",
     children: [
-      { label: "About", href: "/company/", blurb: "European identity, engineered by KubeDNA." },
+      { label: "About", href: "/company/", blurb: "European identity, engineered in Europe." },
       { label: "Trust & security", href: "/trust/", blurb: "How we protect identity." },
       { label: "Blog", href: "/blog/", blurb: "Notes on the identity fabric." },
       { label: "Contact", href: "/contact/", blurb: "Talk to the team." },

@@ -1,4 +1,4 @@
-/* Helix docs — match the Helix Admin Console design system (BRANDBOOK_KUBEDNA_V2).
+/* Helix docs — match the Helix Admin Console design system (BRANDBOOK_HELIX_V2).
    Source of truth: helix-admin/src/styles/tokens.css. Cucumber/Jade/Black-Cat palette,
    Work Sans + Roboto Mono, console radii/shadows. Maps the console tokens onto MkDocs Material's
    --md-* variables for both the light (default) and dark (slate) schemes. */
@@ -104,7 +104,7 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px -6px rgba(0, 0, 0, 0.5);
 }
 
-/* Primary action button — unified KubeDNA language (matches console/login/website).
+/* Primary action button — unified Helix language (matches console/login/website).
    Docs dark scheme is [data-md-color-scheme="slate"] (NOT [data-theme="dark"]), so the brand.css
    token inversion doesn't fire here — wire each scheme explicitly. Light = ink (Black-Cat), slate =
    jade + ink so it never disappears on the dark canvas. */
@@ -139,8 +139,8 @@
 /* search + selection in brand */
 ::selection { background: color-mix(in srgb, var(--kd-jade) 55%, transparent); }
 
-/* ---------------------------------------------------------------- Header: Black-Cat, always (KubeDNA style)
-   KubeDNA's masthead is dark. Keep the header Black-Cat in BOTH light and dark page themes, so the
+/* ---------------------------------------------------------------- Header: Black-Cat, always (Helix style)
+   Helix's masthead is dark. Keep the header Black-Cat in BOTH light and dark page themes, so the
    on-brand white wordmark + white heptagon always sit on a dark surface (Cucumber stays the body accent
    for links/active nav). Only the light scheme needs overriding — the slate header is already dark. */
 [data-md-color-scheme="default"] .md-header,
@@ -158,7 +158,7 @@
 [data-md-color-scheme="default"] .md-search__input { background-color: rgba(255,255,255,0.12); color: #fff; }
 [data-md-color-scheme="default"] .md-search__input::placeholder { color: rgba(255,255,255,0.6); }
 
-/* ---------------------------------------------------------------- Wordmark: [mark] Helix·IAM (KubeDNA structure)
+/* ---------------------------------------------------------------- Wordmark: [mark] Helix·IAM (Helix structure)
    Replace the plain site-name text in the header with the two-tone wordmark — "Helix" in the header
    foreground, "IAM" in jade — beside the heptagon mark (the logo image). The docs header is brand-
    coloured in both light (Cucumber) and dark (Black-Cat), so white + jade reads on both. */
@@ -182,7 +182,7 @@
 }
 .md-header__title .md-header__topic:first-child .md-ellipsis::before {
   content: "Helix";
-  font-family: "Work Sans", sans-serif;  /* Work Sans 800 — KubeDNA's own logotype face, self-hosted */
+  font-family: "Work Sans", sans-serif;  /* Work Sans 800 — Helix's own logotype face, self-hosted */
   font-weight: 800;
   font-size: 1.2rem;
   letter-spacing: -0.02em;
@@ -194,8 +194,8 @@
   font-weight: 800;
   font-size: 1.2rem;
   letter-spacing: -0.02em;
-  color: var(--wordmark-accent);   /* deep KubeDNA cyan — one lockup colour on every ground */
-  /* JOINED to "Helix" like Kube·DNA — no gap (the capital I delimits) */
+  color: var(--wordmark-accent);   /* deep Helix cyan — one lockup colour on every ground */
+  /* JOINED to "Helix" — no gap (the capital I delimits) */
 }
 /* trailing HelixIAM spark — cap-height, dropped to the bottom-right on the baseline, cyan to match
    "IAM" (canonical lockup). Masked so it takes the wordmark accent colour. */

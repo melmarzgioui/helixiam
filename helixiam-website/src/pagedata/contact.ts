@@ -22,7 +22,7 @@ export const contact: Record<Locale, ContactStr> = {
     demoSub: "See it live in 30 minutes.",
     docsSub: "Quickstarts & API reference.",
     emailLabel: "Email us",
-    euNote: "HelixIAM is a KubeDNA product, engineered in Europe.",
+    euNote: "HelixIAM is engineered in Europe.",
   },
   fr: {
     metaTitle: "Contact",
@@ -33,7 +33,7 @@ export const contact: Record<Locale, ContactStr> = {
     demoSub: "Voyez-le en direct en 30 minutes.",
     docsSub: "Guides de démarrage & référence API.",
     emailLabel: "Écrivez-nous",
-    euNote: "HelixIAM est un produit KubeDNA, conçu en Europe.",
+    euNote: "HelixIAM est conçu en Europe.",
   },
   nl: {
     metaTitle: "Contact",
@@ -44,6 +44,6 @@ export const contact: Record<Locale, ContactStr> = {
     demoSub: "Zie het live in 30 minuten.",
     docsSub: "Quickstarts & API-referentie.",
     emailLabel: "Mail ons",
-    euNote: "HelixIAM is een KubeDNA-product, ontwikkeld in Europa.",
+    euNote: "HelixIAM is ontwikkeld in Europa.",
   },
 };

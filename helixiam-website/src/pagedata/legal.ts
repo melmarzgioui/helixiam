@@ -5,10 +5,10 @@ export interface LegalDoc { metaTitle: string; metaDesc: string; updated: string
 export const privacy: Record<Locale, LegalDoc> = {
   en: {
     metaTitle: "Privacy Policy", updated: "2026",
-    metaDesc: "How HelixIAM (a KubeDNA product) handles personal data on helixiam.com.",
-    bodyHtml: `<p>This Privacy Policy explains how <strong>[KubeDNA legal entity]</strong> ("HelixIAM", "we", "us") processes personal data in connection with the <strong>helixiam.com</strong> website and our sales and support activities. It does not describe data processed <em>within</em> a self-hosted HelixIAM deployment you operate — you are the controller of that data.</p>
+    metaDesc: "How HelixIAM handles personal data on helixiam.com.",
+    bodyHtml: `<p>This Privacy Policy explains how <strong>[HelixIAM legal entity]</strong> ("HelixIAM", "we", "us") processes personal data in connection with the <strong>helixiam.com</strong> website and our sales and support activities. It does not describe data processed <em>within</em> a self-hosted HelixIAM deployment you operate — you are the controller of that data.</p>
 <h2>Who we are</h2>
-<p>HelixIAM is a product of <strong>[KubeDNA legal entity, address, registration number]</strong>, based in Europe. For privacy questions, contact <strong>[privacy@helixiam.com]</strong>.</p>
+<p>HelixIAM is a product of <strong>[HelixIAM legal entity, address, registration number]</strong>, based in Europe. For privacy questions, contact <strong>[privacy@helixiam.com]</strong>.</p>
 <h2>What we collect</h2>
 <ul>
   <li><strong>Contact &amp; demo requests</strong> — name, work email, company, role and message you submit via our forms.</li>
@@ -32,10 +32,10 @@ export const privacy: Record<Locale, LegalDoc> = {
   },
   fr: {
     metaTitle: "Politique de confidentialité", updated: "2026",
-    metaDesc: "Comment HelixIAM (un produit KubeDNA) traite les données personnelles sur helixiam.com.",
-    bodyHtml: `<p>Cette Politique de confidentialité explique comment <strong>[entité juridique KubeDNA]</strong> (« HelixIAM », « nous ») traite les données personnelles dans le cadre du site <strong>helixiam.com</strong> et de nos activités commerciales et de support. Elle ne décrit pas les données traitées <em>au sein</em> d'un déploiement HelixIAM auto-hébergé que vous exploitez — vous êtes le responsable du traitement de ces données.</p>
+    metaDesc: "Comment HelixIAM traite les données personnelles sur helixiam.com.",
+    bodyHtml: `<p>Cette Politique de confidentialité explique comment <strong>[entité juridique HelixIAM]</strong> (« HelixIAM », « nous ») traite les données personnelles dans le cadre du site <strong>helixiam.com</strong> et de nos activités commerciales et de support. Elle ne décrit pas les données traitées <em>au sein</em> d'un déploiement HelixIAM auto-hébergé que vous exploitez — vous êtes le responsable du traitement de ces données.</p>
 <h2>Qui nous sommes</h2>
-<p>HelixIAM est un produit de <strong>[entité juridique KubeDNA, adresse, numéro d'immatriculation]</strong>, basée en Europe. Pour toute question relative à la confidentialité, contactez <strong>[privacy@helixiam.com]</strong>.</p>
+<p>HelixIAM est un produit de <strong>[entité juridique HelixIAM, adresse, numéro d'immatriculation]</strong>, basée en Europe. Pour toute question relative à la confidentialité, contactez <strong>[privacy@helixiam.com]</strong>.</p>
 <h2>Ce que nous collectons</h2>
 <ul>
   <li><strong>Demandes de contact &amp; de démo</strong> — nom, e-mail professionnel, entreprise, rôle et message que vous soumettez via nos formulaires.</li>
@@ -59,10 +59,10 @@ export const privacy: Record<Locale, LegalDoc> = {
   },
   nl: {
     metaTitle: "Privacybeleid", updated: "2026",
-    metaDesc: "Hoe HelixIAM (een KubeDNA-product) omgaat met persoonsgegevens op helixiam.com.",
-    bodyHtml: `<p>Dit Privacybeleid legt uit hoe <strong>[juridische entiteit KubeDNA]</strong> ("HelixIAM", "wij", "ons") persoonsgegevens verwerkt in verband met de website <strong>helixiam.com</strong> en onze verkoop- en supportactiviteiten. Het beschrijft niet de gegevens die worden verwerkt <em>binnen</em> een zelf-gehoste HelixIAM-omgeving die je beheert — jij bent de verwerkingsverantwoordelijke voor die gegevens.</p>
+    metaDesc: "Hoe HelixIAM omgaat met persoonsgegevens op helixiam.com.",
+    bodyHtml: `<p>Dit Privacybeleid legt uit hoe <strong>[juridische entiteit HelixIAM]</strong> ("HelixIAM", "wij", "ons") persoonsgegevens verwerkt in verband met de website <strong>helixiam.com</strong> en onze verkoop- en supportactiviteiten. Het beschrijft niet de gegevens die worden verwerkt <em>binnen</em> een zelf-gehoste HelixIAM-omgeving die je beheert — jij bent de verwerkingsverantwoordelijke voor die gegevens.</p>
 <h2>Wie we zijn</h2>
-<p>HelixIAM is een product van <strong>[juridische entiteit KubeDNA, adres, registratienummer]</strong>, gevestigd in Europa. Voor privacyvragen kun je contact opnemen via <strong>[privacy@helixiam.com]</strong>.</p>
+<p>HelixIAM is een product van <strong>[juridische entiteit HelixIAM, adres, registratienummer]</strong>, gevestigd in Europa. Voor privacyvragen kun je contact opnemen via <strong>[privacy@helixiam.com]</strong>.</p>
 <h2>Wat we verzamelen</h2>
 <ul>
   <li><strong>Contact- &amp; demo-aanvragen</strong> — naam, zakelijk e-mailadres, bedrijf, rol en bericht die je via onze formulieren indient.</li>
@@ -90,12 +90,12 @@ export const terms: Record<Locale, LegalDoc> = {
   en: {
     metaTitle: "Terms of Use", updated: "2026",
     metaDesc: "Terms governing use of the helixiam.com website.",
-    bodyHtml: `<p>These Terms of Use govern your use of the <strong>helixiam.com</strong> website operated by <strong>[KubeDNA legal entity]</strong> ("HelixIAM", "we"). By using the site you agree to these terms. Use of the HelixIAM software itself is governed by a separate license and/or subscription agreement.</p>
+    bodyHtml: `<p>These Terms of Use govern your use of the <strong>helixiam.com</strong> website operated by <strong>[HelixIAM legal entity]</strong> ("HelixIAM", "we"). By using the site you agree to these terms. Use of the HelixIAM software itself is governed by a separate license and/or subscription agreement.</p>
 <h2>Use of the site</h2>
 <ul>
   <li>The content on this site is provided for general information about the HelixIAM product.</li>
   <li>You may not misuse the site, attempt to disrupt it, or access it in violation of applicable law.</li>
-  <li>Trademarks, logos and content are owned by HelixIAM / KubeDNA or its licensors.</li>
+  <li>Trademarks, logos and content are owned by HelixIAM or its licensors.</li>
 </ul>
 <h2>No warranty</h2>
 <p>The website is provided "as is" without warranties of any kind. Product capabilities described here reflect our current offering and may evolve; nothing on this site is a binding commitment or part of a contract unless expressly agreed in writing.</p>
@@ -111,12 +111,12 @@ export const terms: Record<Locale, LegalDoc> = {
   fr: {
     metaTitle: "Conditions d'utilisation", updated: "2026",
     metaDesc: "Conditions régissant l'utilisation du site helixiam.com.",
-    bodyHtml: `<p>Ces Conditions d'utilisation régissent votre utilisation du site <strong>helixiam.com</strong> exploité par <strong>[entité juridique KubeDNA]</strong> (« HelixIAM », « nous »). En utilisant le site, vous acceptez ces conditions. L'utilisation du logiciel HelixIAM lui-même est régie par un contrat de licence et/ou d'abonnement distinct.</p>
+    bodyHtml: `<p>Ces Conditions d'utilisation régissent votre utilisation du site <strong>helixiam.com</strong> exploité par <strong>[entité juridique HelixIAM]</strong> (« HelixIAM », « nous »). En utilisant le site, vous acceptez ces conditions. L'utilisation du logiciel HelixIAM lui-même est régie par un contrat de licence et/ou d'abonnement distinct.</p>
 <h2>Utilisation du site</h2>
 <ul>
   <li>Le contenu de ce site est fourni à titre d'information générale sur le produit HelixIAM.</li>
   <li>Vous ne pouvez pas détourner le site, tenter de le perturber ou y accéder en violation de la loi applicable.</li>
-  <li>Les marques, logos et contenus sont la propriété de HelixIAM / KubeDNA ou de ses concédants.</li>
+  <li>Les marques, logos et contenus sont la propriété de HelixIAM ou de ses concédants.</li>
 </ul>
 <h2>Absence de garantie</h2>
 <p>Le site est fourni « tel quel », sans garantie d'aucune sorte. Les capacités du produit décrites ici reflètent notre offre actuelle et peuvent évoluer ; rien sur ce site ne constitue un engagement contraignant ou une partie d'un contrat, sauf accord écrit exprès.</p>
@@ -132,12 +132,12 @@ export const terms: Record<Locale, LegalDoc> = {
   nl: {
     metaTitle: "Gebruiksvoorwaarden", updated: "2026",
     metaDesc: "Voorwaarden voor het gebruik van de website helixiam.com.",
-    bodyHtml: `<p>Deze Gebruiksvoorwaarden regelen je gebruik van de website <strong>helixiam.com</strong>, geëxploiteerd door <strong>[juridische entiteit KubeDNA]</strong> ("HelixIAM", "wij"). Door de site te gebruiken ga je akkoord met deze voorwaarden. Het gebruik van de HelixIAM-software zelf wordt geregeld door een afzonderlijke licentie- en/of abonnementsovereenkomst.</p>
+    bodyHtml: `<p>Deze Gebruiksvoorwaarden regelen je gebruik van de website <strong>helixiam.com</strong>, geëxploiteerd door <strong>[juridische entiteit HelixIAM]</strong> ("HelixIAM", "wij"). Door de site te gebruiken ga je akkoord met deze voorwaarden. Het gebruik van de HelixIAM-software zelf wordt geregeld door een afzonderlijke licentie- en/of abonnementsovereenkomst.</p>
 <h2>Gebruik van de site</h2>
 <ul>
   <li>De inhoud op deze site wordt verstrekt ter algemene informatie over het HelixIAM-product.</li>
   <li>Je mag de site niet misbruiken, verstoren of openen in strijd met toepasselijke wetgeving.</li>
-  <li>Handelsmerken, logo's en inhoud zijn eigendom van HelixIAM / KubeDNA of zijn licentiegevers.</li>
+  <li>Handelsmerken, logo's en inhoud zijn eigendom van HelixIAM of zijn licentiegevers.</li>
 </ul>
 <h2>Geen garantie</h2>
 <p>De website wordt geleverd "zoals ze is", zonder enige garantie. De hier beschreven productmogelijkheden weerspiegelen ons huidige aanbod en kunnen evolueren; niets op deze site vormt een bindende toezegging of onderdeel van een contract, tenzij uitdrukkelijk schriftelijk overeengekomen.</p>
