@@ -1,9 +1,0 @@
----
-import Base from "../../layouts/Base.astro";
-import ProductIndexView from "../../components/views/ProductIndexView.astro";
-import { productIndex } from "../../pagedata/product-index";
-const S = productIndex.en;
----
-<Base title={S.metaTitle} description={S.metaDesc} translated={true}>
-  <ProductIndexView />
-</Base>

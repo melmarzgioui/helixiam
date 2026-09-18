@@ -29,8 +29,6 @@ server and the console scale independently.
 |---|---|
 | [`helix-iam-server`](helix-iam-server/) | The identity server: OAuth2/OIDC/SAML2 IdP + admin REST API, single Spring Boot jar, owns PostgreSQL. |
 | [`helix-dashboard`](helix-dashboard/) | The admin console — React app + design system, deployed as its own image, talks to `helix-iam-server`'s admin API. |
-| [`helix-docs-site`](helix-docs-site/) | Product documentation site (MkDocs Material). |
-| [`helixiam-website`](helixiam-website/) | Public marketing site (helixiam.com). |
 | [`helix-sandbox-rp`](helix-sandbox-rp/) | A transparent OIDC/SAML relying-party test harness — login, OTP/MFA, refresh, silent SSO, SLO, with every token shown decoded. |
 | [`helix-mcp-demo`](helix-mcp-demo/) | Demo of MCP (Model Context Protocol) resource-server auth against HelixIAM. |
 | [`terraform-provider-helix`](terraform-provider-helix/) | Terraform provider to manage realms, applications and roles via the admin API. |
@@ -129,8 +127,8 @@ the admin console/API and take priority over the global SMTP fallback above.
 | `HELIX_SQL_INIT_MODE` | `always` | idempotent `schema.sql` init (mutually exclusive with Flyway) |
 | `HELIX_MIGRATIONS_ENABLED` | `false` | manage the schema with Flyway (`db/migration/V*`) instead |
 
-See [`helix-docs-site`](helix-docs-site/) for the full documentation (architecture, install,
-configuration reference, API guides), and
+See the [documentation site](https://docs.helixiam.com) for the full documentation (architecture,
+install, configuration reference, API guides), and
 [`helix-iam-server/README.md`](helix-iam-server/README.md) for module-level build/test/run
 instructions.
 

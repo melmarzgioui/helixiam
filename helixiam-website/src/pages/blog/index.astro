@@ -1,9 +1,0 @@
----
-import Base from "../../layouts/Base.astro";
-import BlogView from "../../components/views/BlogView.astro";
-import { blog } from "../../pagedata/blog";
-const S = blog.en;
----
-<Base title={S.metaTitle} description={S.metaDesc} translated={true}>
-  <BlogView />
-</Base>

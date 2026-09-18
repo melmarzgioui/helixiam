@@ -1,8 +1,0 @@
----
-import Legal from "../../layouts/Legal.astro";
-import { privacy } from "../../pagedata/legal";
-const S = privacy.en;
----
-<Legal title={S.metaTitle} updated={S.updated} description={S.metaDesc}>
-  <Fragment set:html={S.bodyHtml} />
-</Legal>
