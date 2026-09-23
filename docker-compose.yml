@@ -1,0 +1,129 @@
+# HelixIAM — local demo stack. `docker compose up` gives you a running identity server + admin
+# console, backed by Postgres and Redis, with Mailpit catching outbound email.
+#
+#   Server (IdP + admin API) : http://localhost:8080   (health: /actuator/health)
+#   Admin console            : http://localhost:8090   (admin / admin — DEMO ONLY)
+#   Mailpit (email inbox)    : http://localhost:8025
+#
+# Everything here is DEMO configuration: weak passwords, a throwaway encryption key, cookies over
+# plain HTTP. Do not use any of these values in production.
+
+name: helixiam
+
+x-demo-encryption-key: &demo_encryption_key "0f31bbdc3193a96c859c2e24b34da89e" # 16-byte hex, demo only
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: helixiam
+      POSTGRES_USER: helix
+      POSTGRES_PASSWORD: helix
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helix -d helixiam"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "8025:8025"   # web UI
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ./helix-iam-server
+      dockerfile: Dockerfile
+    image: helixiam/helix-iam-server:dev
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      SERVER_PORT: "8080"
+      # datastore
+      DB_HOST: postgres
+      DB_RO_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: helixiam
+      DB_USERNAME: helix
+      DB_PASSWORD: helix
+      DB_ENCRYPTION: *demo_encryption_key
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # external URLs (browser-facing)
+      IDP_BASE_URL: http://localhost:8080
+      SP_BASE_URL: http://localhost:8090
+      HELIX_CONSOLE_BASE_URL: http://localhost:8090
+      HELIX_SAML_IDP_ENTITY_ID: http://localhost:8080/realms/master
+      # demo posture
+      HELIX_COOKIE_SECURE: "false"
+      MFA_ENABLED: "false"
+      USER_REGISTRATION_ENABLED: "true"
+      HELIX_ADMIN_USERNAME: admin
+      HELIX_ADMIN_PASSWORD: admin
+      # email -> Mailpit
+      HELIX_NOTIFICATION_PROVIDER: smtp
+      HELIX_NOTIFICATION_SMTP_HOST: mailpit
+      HELIX_NOTIFICATION_SMTP_PORT: "1025"
+      HELIX_NOTIFICATION_SMTP_STARTTLS: "false"
+      HELIX_NOTIFICATION_SMTP_FROM_ADDRESS: no-reply@helix.local
+    ports:
+      - "8080:8080"
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./helix-dashboard
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ""   # empty = same-origin; nginx proxies /admin,/oauth2,... to the server
+    image: helixiam/helix-dashboard:dev
+    depends_on:
+      server: { condition: service_started }
+    environment:
+      HELIX_API_TARGET: http://server:8080
+    ports:
+      - "8090:8080"
+    restart: unless-stopped
+
+  # OIDC/SAML relying-party test harness. Opt-in: `docker compose --profile demo up`.
+  # Note: a full OIDC round-trip needs the issuer host to resolve identically in the browser and in
+  # this container, plus a seeded `helix-sandbox` client — wired up by deploy/seed-demo.sh (WIP).
+  sandbox-rp:
+    build:
+      context: ./helix-sandbox-rp
+      dockerfile: Dockerfile
+    image: helixiam/helix-sandbox-rp:dev
+    profiles: ["demo"]
+    depends_on:
+      server: { condition: service_started }
+    environment:
+      PORT: "9090"
+      HELIX_ISSUER: http://localhost:8080/realms/master
+      HELIX_CLIENT_ID: helix-sandbox
+      HELIX_REDIRECT_URI: http://localhost:9090/callback
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
