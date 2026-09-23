@@ -17,6 +17,15 @@ accordingly:
 - Expect breaking changes and security-relevant fixes as the project matures toward a 1.0 release.
 - If you perform your own audit or pen test, we would welcome a report — see below.
 
+## Security testing to date
+
+The project has undergone **internal** security work: an adversarial self-review
+([`helix-iam-server/SECURITY-REVIEW.md`](helix-iam-server/SECURITY-REVIEW.md)) and internal
+automated security testing runs (SAST + live DAST + direct-validator attack harnesses) recorded
+under [`docs/security/`](docs/security/). These are **internal tests on our own code — not an
+independent third-party penetration test** — and do not substitute for one. An independent
+third-party audit and penetration test remain **required before a 1.0 / production release**.
+
 ## Reporting a vulnerability
 
 **Do not open a public GitHub issue for security vulnerabilities.**
@@ -44,7 +53,6 @@ concrete version-support table once versioned releases begin.
 ## Scope
 
 This policy covers the code in this repository (`helix-iam-server`, `helix-dashboard`,
-`helix-docs-site`, `helixiam-website`, `helix-sandbox-rp`, `helix-mcp-demo`,
-`terraform-provider-helix`). Vulnerabilities in third-party dependencies should generally be
+`helix-sandbox-rp`, `helix-mcp-demo`, `terraform-provider-helix`). Vulnerabilities in third-party dependencies should generally be
 reported upstream as well; let us know here if a dependency vulnerability affects how HelixIAM
 uses it.

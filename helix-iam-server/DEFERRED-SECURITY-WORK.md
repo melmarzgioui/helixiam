@@ -1,7 +1,8 @@
 # Deferred security work (tracked, not-yet-done)
 
 These security-review / pentest items are deliberately NOT fixed in the current pass, with rationale.
-Everything higher-severity has been remediated (see `SECURITY-REVIEW.md` and the `PENTEST-REPORT-*` files).
+Everything higher-severity has been remediated (see `SECURITY-REVIEW.md` and the internal test reports under
+[`docs/security/`](../docs/security/)).
 
 ## M7 — OpenSAML 4.3.2 is EOL (upgrade to 5.x)
 **Status: FIXED (2026-09-17) — the entire OpenSAML stack now runs on the current 5.1.4 line; EOL cleared.**
@@ -57,7 +58,7 @@ come up on OpenSAML 5.
 - **L6**: generated bootstrap admin password is logged (zero-config trade-off; set `HELIX_ADMIN_PASSWORD`).
 
 ## Deep SAML pentest (2026-09-17, issue #1) — outcome
-Ran the deeper SAML coverage (`PENTEST-REPORT-SAML-DEEP-2026-09-17.md`). Result: 0 critical / 0 high / 1 medium / 2 low.
+Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md`](../docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md)). Result: 0 critical / 0 high / 1 medium / 2 low.
 - **XSW2–XSW8**: ALL rejected on both the generic and eID validators (no signature-wrapping bypass). `InResponseTo` binding held; `EncryptedID` handling sound (no padding oracle / DoS).
 - **DEEP-1 (MEDIUM) — FIXED**: the SAML-3 Response-`StatusCode`=Success check was missing on the eID POST path (`OpenSamlEidAssertionValidator`), so a validly-signed assertion inside an `AuthnFailed` response logged the user in. Ported `verifyStatusSuccess`; regression test `rejectsAValidlySignedAssertionCarriedInAFailedStatusResponse`.
 - **DEEP-3 (LOW) — tracked**: the eID `ArtifactResponse` envelope signature is optional (the inner assertion signature is always enforced, so it is defense-in-depth). Revisit alongside the live DigiD mTLS work.
