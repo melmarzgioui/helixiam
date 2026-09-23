@@ -1,0 +1,30 @@
+# helix-dashboard nginx config (envsubst template — ${HELIX_API_TARGET} is filled at container start).
+# The console is a static SPA; API/auth requests are reverse-proxied to the HelixIAM server so the
+# browser stays same-origin (the session cookie is SameSite=Lax and would be dropped cross-origin).
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+
+    # API, auth, and IdP-served page assets → HelixIAM server. The SPA itself uses Vite's /assets/*.
+    location ~ ^/(admin|account|oauth2|realms|connect|login|logout|register|reset|saml|broker|mapping|actuator|v3|swagger-ui|\.well-known|css|js|img)(/|$) {
+        proxy_pass ${HELIX_API_TARGET};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+    }
+
+    # SPA client-side routing.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
