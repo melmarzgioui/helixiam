@@ -38,8 +38,27 @@ Do not weaken any of these; every change here keeps a regression test.
   **gated** (app scans both `group.mfnr` and `io.helixiam`; a bad rename silently drops JPA entities)
   — I will propose these individually before touching public classes.
 
-## Phase 3 — Runnable in 5 minutes  *(not started)*
-Confirmed absent: `helix-iam-server/Dockerfile`, root `docker-compose.yml`, `deploy/helm/`. Next up.
+## Phase 3 — Runnable in 5 minutes  *(in progress)*
+- **`f002592`** — `helix-iam-server/Dockerfile`: multi-stage (JDK 21 Maven build → minimal Temurin
+  JRE), non-root uid 10001, read-only-root-FS compatible (writes only `/tmp`), container-aware heap,
+  actuator readiness HEALTHCHECK. **Verified**: image builds; boots healthy.
+- **`1c65745`** — Fixed the pre-existing `helix-dashboard/Dockerfile` (it referenced a
+  `deploy/console/nginx.conf.template` that did not exist → unbuildable). Added the template as a
+  same-origin reverse proxy to the server (the console session cookie is SameSite=Lax, so a
+  cross-origin console would silently fail admin calls) and pointed the default API target at
+  `helix-iam-server`. Added `helix-sandbox-rp/Dockerfile` (non-root Node, healthcheck).
+- **`9cf2a3b`** — Root `docker-compose.yml`: Postgres + Redis + Mailpit + server + dashboard on
+  `docker compose up`; sandbox-rp under a `demo` profile. **Verified end-to-end**: `compose config`
+  valid; core comes up with all containers healthy; server `/actuator/health` UP; master realm
+  seeded; OIDC discovery + JWKS (RS256/PS256) serve; `/admin/**` denied to anonymous (C1 stays
+  fixed); `/actuator/info` not anonymously readable (L2 stays fixed).
+- **Still to do in this phase:** Helm chart (`deploy/helm/helixiam`, secure `securityContext`,
+  limits, probes, NetworkPolicy, secret refs); README quickstart rewrite (drop `mvn -o`, make
+  `docker compose up` primary, reconcile the admin/admin vs random-password wording); `deploy/seed-demo.sh`
+  to seed a demo realm/app/agent + the `helix-sandbox` client; the "60-second agent delegation" script.
+- **Known caveat (logged):** the sandbox-rp OIDC round-trip needs the issuer host to resolve
+  identically in the browser and inside the container (the parked internal-host item) — the demo
+  profile documents it; a reverse-proxy front is the likely fix. Tracked as **O4** below.
 
 ## Phase 6 — Claims vs reality  *(not started)*
 `docs/FEATURES.md` to be built. Early flags: SDK npm package `@helixiam/sdk` not published (lives in
@@ -67,3 +86,6 @@ brought to you before it lands.
   website About/Trust pages (Phase 5/7) — placeholders in place until you provide them.
 - **O3** Third-party pentest before 1.0: SECURITY-REVIEW says it is **required** and the internal tests
   do not discharge it. Recommendation stands: yes, commission one before tagging 1.0.
+- **O4** sandbox-rp OIDC round-trip in compose needs a single issuer host reachable identically from
+  the browser and the container (parked internal-host item). Plan: front the stack with a small
+  reverse proxy so browser + services share one origin. Non-blocking for the core stack.
