@@ -39,3 +39,6 @@ Thumbs.db
 # ── Migration scratch / planning (internal, not product) ──
 .sdd-*.md
 PLAN-strip-rabbitmq.md
+
+# Local Claude Code config (not for the public repo)
+.claude/
