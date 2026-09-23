@@ -35,38 +35,56 @@ server and the console scale independently.
 
 ## Quickstart
 
-This is the proven local recipe (PostgreSQL + Redis in Docker, build and run the server jar
-directly). Requires Java 21, Maven, and Docker.
+The fastest way to run the whole stack — server, admin console, PostgreSQL, Redis and a mail
+catcher — is Docker. No Java or Maven required:
+
+```bash
+docker compose up
+```
+
+Then open:
+
+- **Admin console** — <http://localhost:8090> (demo login `admin` / `admin`)
+- **Server / IdP** — <http://localhost:8080> (e.g. `/realms/master/.well-known/openid-configuration`)
+- **Mailpit** (outbound email) — <http://localhost:8025>
+
+The compose stack is **demo configuration only** — weak passwords, a throwaway encryption key and
+cookies over plain HTTP. Do not reuse those values anywhere real.
+
+### Build and run from source (for development)
+
+Requires Java 21, Maven and Docker.
 
 ```bash
 # 1. PostgreSQL + Redis
-docker run -d --name hlx-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=kubeiam -p 5432:5432 postgres:16-alpine
+docker run -d --name hlx-pg -e POSTGRES_USER=helix -e POSTGRES_PASSWORD=helix \
+  -e POSTGRES_DB=helixiam -p 5432:5432 postgres:16-alpine
 docker run -d --name hlx-redis -p 6379:6379 redis:7-alpine
 
-# 2. Build
+# 2. Build (online — a fresh clone must download dependencies; do NOT use `mvn -o`)
 cd helix-iam-server
-mvn -o clean package -DskipTests
+mvn -B clean package -DskipTests
 
-# 3. Run (dev profile picks up localhost Postgres/Redis defaults)
+# 3. Run (the dev profile fills in localhost defaults and a demo encryption key)
 java -jar target/helix-iam-server-1.0.0-SNAPSHOT.jar \
   --spring.profiles.active=dev \
-  --server.port=8080 \
-  --DB_HOST=localhost --DB_PORT=5432 --DB_NAME=kubeiam --DB_USERNAME=postgres --DB_PASSWORD=password \
-  --REDIS_HOST=localhost --REDIS_PORT=6379
+  --DB_HOST=localhost --DB_PORT=5432 --DB_NAME=helixiam --DB_USERNAME=helix --DB_PASSWORD=helix \
+  --REDIS_HOST=localhost --REDIS_PORT=6379 \
+  --HELIX_ADMIN_PASSWORD=admin   # omit to get a random one-time password (see below)
 
 # 4. Confirm it's up
 curl http://localhost:8080/realms/master/.well-known/openid-configuration
 curl http://localhost:8080/actuator/health
 ```
 
-On first boot the server seeds the `master` realm with an `admin` / `admin` user (see
-[Bootstrap admin](#configuration) below — change this immediately outside of local dev), default
-`user` / `auditor` roles, and a self-generated RSA signing keypair (no external key mount
-required to start).
+On first boot the server seeds the `master` realm, default `user` / `auditor` roles, and a
+self-generated RSA signing keypair (no external key mount required to start). The bootstrap admin
+**username** defaults to `admin`. The **password** is `HELIX_ADMIN_PASSWORD` when set (the
+docker-compose stack and the command above set it to `admin` for convenience); **when it is left
+unset, a strong random password is generated once and printed to the logs** — sign in, change it,
+and set `HELIX_ADMIN_PASSWORD` for any non-local use (see [Bootstrap admin](#configuration)).
 
-To also run the console, see [`helix-dashboard`](helix-dashboard/) — it is built and deployed
-separately and talks to the server's admin API.
+To run only the console separately, see [`helix-dashboard`](helix-dashboard/).
 
 ## Configuration
 
