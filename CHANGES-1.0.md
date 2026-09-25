@@ -85,11 +85,31 @@ test evidence. Audit findings:
 - **FAPI/DPoP/PAR/device/adaptive/magic-link/push**: all have automated tests → Beta (FAPI needs the
   OpenID conformance suite, wired in Phase 4).
 
-## Phase 2 — Secure defaults  *(not started; note)*
-Recon shows H1/H2 are **already** partly addressed (DB_ENCRYPTION empty default + loud banner;
-`AttributeEncryption` now fails closed). I will verify actual startup behavior against the
-"fail startup outside dev unless `HELIX_ALLOW_PLAINTEXT_SECRETS=true`" requirement before changing it,
-rather than assuming it is open.
+## Phase 2 — Secure defaults  *(in progress)*
+Correction to recon: `AttributeEncryption` only **warned** when `DB_ENCRYPTION` was unset (it fails
+closed only on an encryption *error* mid-write) — so a missing key silently stored plaintext. Real work.
+
+- **`4e37592`** — `ProductionReadinessCheck` (fail-fast + summary) and secure-default flips. **1108
+  tests green.**
+  - Fail-fast outside `dev`: unset `DB_ENCRYPTION` (opt out `HELIX_ALLOW_PLAINTEXT_SECRETS=true`),
+    unset `IDP_BASE_URL`/`SP_BASE_URL`. Always logs a one-line summary of insecure settings in effect.
+  - Defaults flipped: `USER_REGISTRATION_ENABLED` true→**false**, prometheus-anonymous true→**false**.
+  - Removed production-looking fallbacks: base URLs no longer default to `*.kubedna.io`; DB defaults
+    `kubeiam`/`kubedna-rw.project-kubedna` → `helixiam`/`localhost`. `dev` profile keeps localhost.
+
+  **Migration notes (breaking-change compatibility):**
+  - Set `IDP_BASE_URL` + `SP_BASE_URL` (were effectively required already; the kubedna defaults were
+    wrong). Set `DB_ENCRYPTION` (or `HELIX_ALLOW_PLAINTEXT_SECRETS=true` to keep the old plaintext
+    behavior).
+  - To restore prior defaults: `USER_REGISTRATION_ENABLED=true`, `HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS=true`,
+    `DB_NAME=kubeiam` / `DB_USERNAME=kubeiam` / `DB_HOST=<your host>`.
+
+- **Still to do in Phase 2:** Flyway-as-default flip (`HELIX_MIGRATIONS_ENABLED` default→true **with
+  `spring.flyway.baseline-version=8`** so existing `schema.sql` installs baseline correctly, not V1);
+  L5 legacy-crypto re-encryption migration + remaining-row counter; L6 admin password to `0600` file;
+  no-live-peer SAML hardening (mandatory SLO signature, reject rsa-sha1/unknown SigAlg, verify
+  SP-metadata signature, require ArtifactResponse envelope signature); sweep remaining user-facing
+  `kubedna`/`kubeiam` strings. Each as its own tested commit.
 
 ## Phase 1 — Agent delegation  *(not started; most careful)*
 Each sub-item (consent/audience binding, actor client-auth/DPoP, chain-depth limit, cross-realm key
