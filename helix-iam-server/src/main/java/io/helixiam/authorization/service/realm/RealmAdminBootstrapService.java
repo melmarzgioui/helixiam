@@ -117,29 +117,44 @@ public class RealmAdminBootstrapService {
         return bootstrapPassword;
     }
 
-    /** Write the password to {@code path} with owner-only (0600) permissions. Returns false on any failure. */
+    /**
+     * Write the password to {@code path} with owner-only (0600) permissions, created ATOMICALLY so the
+     * credential is never even briefly world-readable. On any failure the (possibly partial) file is
+     * removed so the password is never left readable on disk, and false is returned — the caller then
+     * logs it as the documented fallback, so the credential lands in exactly one place, never both.
+     */
     private static boolean writePasswordFile(final String path, final String password) {
+        Path file = null;
         try {
-            final Path file = Path.of(path);
+            file = Path.of(path);
             if (file.getParent() != null) {
                 Files.createDirectories(file.getParent());
             }
-            Files.writeString(file, password + System.lineSeparator(),
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            Files.deleteIfExists(file);
             try {
-                Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+                // POSIX: create with rw------- as a file attribute (no world-readable window).
+                Files.createFile(file, PosixFilePermissions.asFileAttribute(
+                        PosixFilePermissions.fromString("rw-------")));
             } catch (final UnsupportedOperationException nonPosix) {
-                // Non-POSIX filesystem (e.g. Windows): best-effort owner-only via the File API.
+                // Non-POSIX filesystem (e.g. Windows): create then best-effort owner-only via the File API.
+                Files.createFile(file);
                 final java.io.File f = file.toFile();
                 f.setReadable(false, false);
                 f.setReadable(true, true);
                 f.setWritable(false, false);
                 f.setWritable(true, true);
             }
+            Files.writeString(file, password + System.lineSeparator(), StandardOpenOption.WRITE);
             return true;
         } catch (final Exception e) {
-            LOG.warn("Could not write the bootstrap admin password file {} ({}); logging it instead.",
-                    path, e.getMessage());
+            if (file != null) {
+                try {
+                    Files.deleteIfExists(file); // never leave a partial credential file behind
+                } catch (final Exception cleanup) {
+                    LOG.warn("Could not remove a partial bootstrap admin password file {}: {}", path, cleanup.getMessage());
+                }
+            }
+            LOG.warn("Could not write the bootstrap admin password file {}: {}", path, e.getMessage());
             return false;
         }
     }
