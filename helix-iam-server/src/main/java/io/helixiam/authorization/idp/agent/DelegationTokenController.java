@@ -64,12 +64,16 @@ public class DelegationTokenController {
     private final AgentIdentityPublisher agentPublisher;
     private final AuthorizationServerSettings settings;
     private final long lifetimeSeconds;
+    private final boolean requireSubjectBinding;
+    private final int maxChainDepth;
 
     public DelegationTokenController(final JwtEncoder jwtEncoder, final JWKSource<SecurityContext> jwkSource,
                                      final RealmAdminPublisher realmAdminPublisher,
                                      final AgentIdentityPublisher agentPublisher,
                                      final AuthorizationServerSettings settings,
-                                     @Value("${helix.agent.delegation.token-lifetime-seconds:300}") final long lifetimeSeconds) {
+                                     @Value("${helix.agent.delegation.token-lifetime-seconds:300}") final long lifetimeSeconds,
+                                     @Value("${helix.agent.delegation.require-subject-binding:true}") final boolean requireSubjectBinding,
+                                     @Value("${helix.agent.delegation.max-chain-depth:3}") final int maxChainDepth) {
         this.jwtEncoder = jwtEncoder;
         // Verify Helix-issued tokens against our own realm JWKS (kid-selected, signature + expiry).
         this.jwtDecoder = OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
@@ -77,6 +81,8 @@ public class DelegationTokenController {
         this.agentPublisher = agentPublisher;
         this.settings = settings;
         this.lifetimeSeconds = lifetimeSeconds;
+        this.requireSubjectBinding = requireSubjectBinding;
+        this.maxChainDepth = maxChainDepth;
     }
 
     @PostMapping(value = "/agent/delegation/token", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -135,6 +141,25 @@ public class DelegationTokenController {
             return error(HttpStatus.FORBIDDEN, "invalid_grant", "delegation denied: " + denial);
         }
 
+        // (3c) Bind the subject_token to THIS agent. Without it, any user access token the realm minted
+        // (for any client, any audience) could be replayed by any registered agent on that user's behalf.
+        // Require the user token to name the agent via aud/azp, or via an RFC 8693 may_act claim. (A stored
+        // user->agent consent grant is a future option.) Loosen only via
+        // helix.agent.delegation.require-subject-binding=false (documented, opt-in weaker mode).
+        if (requireSubjectBinding && !subjectTokenAuthorizesAgent(userJwt, agentClientId)) {
+            return error(HttpStatus.FORBIDDEN, "invalid_grant",
+                    "subject_token is not authorized for this agent (needs aud/azp or a may_act claim naming it)");
+        }
+
+        // (3d) Cap delegation chain depth. Each exchange adds one nested `act` level; refuse to mint beyond
+        // the configured maximum (helix.agent.delegation.max-chain-depth) so a delegation chain cannot grow
+        // without bound.
+        final Map<String, Object> priorAct = agentJwt.getClaim("act") instanceof Map ? asMap(agentJwt.getClaim("act")) : null;
+        if (actDepth(priorAct) + 1 > maxChainDepth) {
+            return error(HttpStatus.BAD_REQUEST, "invalid_request",
+                    "delegation chain too deep (max " + maxChainDepth + ")");
+        }
+
         // (4) Effective authority = user ∩ agent-leash ∩ requested. Only ever shrinks.
         final List<String> requested = isBlank(requestedScope) ? List.of()
                 : Arrays.stream(requestedScope.split("[\\s,]+")).filter(s -> !s.isBlank()).toList();
@@ -143,7 +168,6 @@ public class DelegationTokenController {
 
         // (5) Mint sub=user, act={agent} (nested when the actor was itself acting), attenuated roles.
         final Instant now = Instant.now();
-        final Map<String, Object> priorAct = agentJwt.getClaim("act") instanceof Map ? asMap(agentJwt.getClaim("act")) : null;
         final Map<String, Object> realmAccess = new LinkedHashMap<>();
         realmAccess.put("roles", new ArrayList<>(effective));
         final JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
@@ -200,6 +224,43 @@ public class DelegationTokenController {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> asMap(final Object o) {
         return (Map<String, Object>) o;
+    }
+
+    /**
+     * True when the user's {@code subject_token} authorizes THIS agent to act for the user: the agent is in
+     * the token's {@code aud}, is its {@code azp}, or is named by an RFC 8693 {@code may_act} claim
+     * ({@code {"sub"|"azp"|"client_id": <agentClientId>}}).
+     */
+    private static boolean subjectTokenAuthorizesAgent(final Jwt userJwt, final String agentClientId) {
+        if (agentClientId == null) {
+            return false;
+        }
+        final List<String> aud = userJwt.getAudience();
+        if (aud != null && aud.contains(agentClientId)) {
+            return true;
+        }
+        if (agentClientId.equals(userJwt.getClaimAsString("azp"))) {
+            return true;
+        }
+        if (userJwt.getClaim("may_act") instanceof Map<?, ?> mayAct) {
+            for (final String key : List.of("sub", "azp", "client_id")) {
+                if (agentClientId.equals(str(mayAct.get(key)))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Depth of a nested {@code act} chain (0 for none): each level is a Map with an optional nested {@code act}. */
+    private static int actDepth(final Map<String, Object> act) {
+        int depth = 0;
+        Object current = act;
+        while (current instanceof Map<?, ?> level) {
+            depth++;
+            current = level.get("act");
+        }
+        return depth;
     }
 
     private String realmIssuer(final String realm) {
