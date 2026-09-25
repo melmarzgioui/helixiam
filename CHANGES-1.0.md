@@ -104,9 +104,14 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
   - To restore prior defaults: `USER_REGISTRATION_ENABLED=true`, `HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS=true`,
     `DB_NAME=kubeiam` / `DB_USERNAME=kubeiam` / `DB_HOST=<your host>`.
 
-- **Still to do in Phase 2:** Flyway-as-default flip (`HELIX_MIGRATIONS_ENABLED` default→true **with
-  `spring.flyway.baseline-version=8`** so existing `schema.sql` installs baseline correctly, not V1);
-  L5 legacy-crypto re-encryption migration + remaining-row counter; L6 admin password to `0600` file;
+- **`92a33fa`** — Flyway-default flip **attempted and reverted (finding O5).** A new Testcontainers
+  test booting on the Flyway `V1..V8` baseline showed the app does **not** come up on it
+  (`ServiceProviderService` init → `DuplicateException`): the migrations are not structurally
+  equivalent to `schema.sql`. Kept `schema.sql` as the default (shipping a broken Flyway default would
+  break fresh deployments); the test is `@Disabled` as the re-enable target; `baseline-version` is now
+  configurable via `HELIX_FLYWAY_BASELINE_VERSION` for opt-in adopters.
+- **Still to do in Phase 2:** reconcile the Flyway baseline vs `schema.sql` (O5) then re-flip; L5
+  legacy-crypto re-encryption migration + remaining-row counter; L6 admin password to `0600` file;
   no-live-peer SAML hardening (mandatory SLO signature, reject rsa-sha1/unknown SigAlg, verify
   SP-metadata signature, require ArtifactResponse envelope signature); sweep remaining user-facing
   `kubedna`/`kubeiam` strings. Each as its own tested commit.
@@ -129,3 +134,8 @@ brought to you before it lands.
 - **O4** sandbox-rp OIDC round-trip in compose needs a single issuer host reachable identically from
   the browser and the container (parked internal-host item). Plan: front the stack with a small
   reverse proxy so browser + services share one origin. Non-blocking for the core stack.
+- **O5** the Flyway `V1..V8` baseline is **not equivalent to `schema.sql`** — the app fails to boot on
+  the Flyway path (`ServiceProviderService` init `DuplicateException`). Reconcile the two (diff the
+  produced schema — likely a constraint/index the migrations create that `schema.sql` does not, or a
+  duplicate seed) before Flyway can be the default. Until then `schema.sql` stays the default and
+  Flyway is opt-in. `FlywayMigrationTest` (`@Disabled`) is the re-enable target.
