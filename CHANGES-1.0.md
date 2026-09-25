@@ -127,9 +127,14 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
   signature is already always enforced (the real guarantee); the envelope-sig is defense-in-depth on the
   DigiD back-channel, which has no live test peer. Changing that untestable path blind risks a regression;
   it should land with the live-DigiD `ArtifactResolve` work when a test environment exists.
-- **Still to do in Phase 2:** **L5** legacy-crypto re-encryption migration + remaining-row counter; **L6**
-  admin password to a `0600` file; reconcile Flyway vs `schema.sql` (O5) then re-flip; sweep remaining
-  user-facing `kubedna`/`kubeiam` strings. Each as its own tested commit.
+- **`430db9b`** — L6 done: when `helix.admin.password-file` (`HELIX_ADMIN_PASSWORD_FILE`) is set, a
+  generated bootstrap admin password is written to that file `0600` and only the path is logged (falls
+  back to logging it on write failure). 3 regression tests.
+- **Still to do in Phase 2:** **L5** legacy-crypto (AES/ECB) re-encryption migration + remaining-row
+  counter — a careful data migration across the 8 encrypted-column entities; deserves its own focused
+  change (approach: a one-time job that detects legacy-format values, re-encrypts to AES/GCM, and exposes
+  a gauge of rows still on the legacy path so the fallback can be dropped later). Reconcile Flyway vs
+  `schema.sql` (O5, likely linked to O1). Sweep remaining user-facing `kubedna`/`kubeiam` strings.
 
 ## Phase 1 — Agent delegation  *(not started; most careful)*
 Each sub-item (consent/audience binding, actor client-auth/DPoP, chain-depth limit, cross-realm key
