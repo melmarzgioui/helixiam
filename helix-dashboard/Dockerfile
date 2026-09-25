@@ -1,7 +1,7 @@
 # Helix IAM admin console — production image (PROD-2). Multi-stage: build the Vite SPA, serve the
 # static bundle with nginx, and reverse-proxy the admin + account APIs to the publisher so the
 # browser stays same-origin (no CORS, no cookie juggling) exactly as the dev Vite proxy does.
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
