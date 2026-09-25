@@ -11,16 +11,23 @@ import io.helixiam.authorization.repository.MfaUserRepository;
 import io.helixiam.authorization.repository.UserCredentialsRepository;
 import io.helixiam.authorization.repository.VerifyEmailRepository;
 import io.helixiam.notification.Notifier;
+import io.helixiam.notification.domain.NotificationCode;
+import io.helixiam.notification.domain.NotificationRequest;
 import io.helixiam.notification.repository.NotificationCodeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -31,14 +38,27 @@ import static org.mockito.Mockito.when;
 class UserServiceTest {
 
     private UserCredentialsRepository userCredentialsRepository;
+    private NotificationCodeRepository notificationCodeRepository;
+    private Notifier notifier;
     private UserService service;
 
     @BeforeEach
     void setUp() {
         userCredentialsRepository = mock(UserCredentialsRepository.class);
+        notificationCodeRepository = mock(NotificationCodeRepository.class);
+        notifier = mock(Notifier.class);
         service = new UserService(userCredentialsRepository, mock(ChangePasswordRepository.class),
-                mock(NotificationCodeRepository.class), mock(VerifyEmailRepository.class),
-                mock(MfaUserRepository.class), mock(Notifier.class), new PasswordEncoderService());
+                notificationCodeRepository, mock(VerifyEmailRepository.class),
+                mock(MfaUserRepository.class), notifier, new PasswordEncoderService());
+    }
+
+    private void primeSignupVerification() {
+        final UserCredentials user = new UserCredentials();
+        user.setUserId("u-1");
+        user.setUsername("alice");
+        when(notificationCodeRepository.findByCodeAndType("code-1", "USER_SIGNUP"))
+                .thenReturn(Optional.of(new NotificationCode("u-1", "code-1", "USER_SIGNUP")));
+        when(userCredentialsRepository.findByUserId("u-1")).thenReturn(Optional.of(user));
     }
 
     @Test
@@ -81,5 +101,27 @@ class UserServiceTest {
         when(userCredentialsRepository.findByUserId("u-3")).thenReturn(Optional.of(user));
 
         assertEquals("attr@example.com", service.userClaims("u-3").get("email"));
+    }
+
+    @Test
+    void verifyEmail_doesNotSendInternalNotification_whenNoRecipientConfigured() {
+        // Default: no hard-coded recipient (previously the leaked contact@kubedna.com) -> no notification.
+        primeSignupVerification();
+
+        service.verifyEmail("code-1");
+
+        verify(notifier, never()).sendEmailNotification(any());
+    }
+
+    @Test
+    void verifyEmail_sendsInternalNotification_toTheConfiguredRecipient() {
+        ReflectionTestUtils.setField(service, "registrationNotificationRecipient", "ops@example.com");
+        primeSignupVerification();
+
+        service.verifyEmail("code-1");
+
+        final ArgumentCaptor<NotificationRequest> captor = ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(notifier).sendEmailNotification(captor.capture());
+        assertEquals("ops@example.com", captor.getValue().getEmailAddress());
     }
 }

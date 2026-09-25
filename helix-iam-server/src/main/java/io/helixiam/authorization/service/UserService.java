@@ -48,6 +48,14 @@ public class UserService {
     @Autowired(required = false)
     private PasswordPolicyEnforcer passwordPolicyEnforcer;
 
+    /**
+     * Optional internal recipient for the "a new user registered" notification. Blank (the default) means
+     * the notification is not sent — a deployment must opt in with {@code helix.notifications.registration-recipient}
+     * (env {@code HELIX_NOTIFICATIONS_REGISTRATION_RECIPIENT}). Previously this was a hard-coded address.
+     */
+    @org.springframework.beans.factory.annotation.Value("${helix.notifications.registration-recipient:}")
+    private String registrationNotificationRecipient;
+
     @Autowired
     public UserService(
             final UserCredentialsRepository userCredentialsRepository,
@@ -168,13 +176,15 @@ public class UserService {
             verifyEmailRepository.save(verifyEmail);
 
             try {
-                userCredentialsRepository.findByUserId(notificationCode.getIdentifier()).ifPresent(userCredentials -> {
-                    final NotificationRequest notificationRequest = new NotificationRequest("NEW_REGISTERED_USER");
-                    notificationRequest.setEmailAddress("contact@kubedna.com");
-                    notificationRequest.getAdditionalData().putAll(userCredentials.getUserAttributes());
+                if (registrationNotificationRecipient != null && !registrationNotificationRecipient.isBlank()) {
+                    userCredentialsRepository.findByUserId(notificationCode.getIdentifier()).ifPresent(userCredentials -> {
+                        final NotificationRequest notificationRequest = new NotificationRequest("NEW_REGISTERED_USER");
+                        notificationRequest.setEmailAddress(registrationNotificationRecipient);
+                        notificationRequest.getAdditionalData().putAll(userCredentials.getUserAttributes());
 
-                    notifier.sendEmailNotification(notificationRequest);
-                });
+                        notifier.sendEmailNotification(notificationRequest);
+                    });
+                }
             } catch (final Exception e) {
                 // swallow all in case something goes wrong
             }
