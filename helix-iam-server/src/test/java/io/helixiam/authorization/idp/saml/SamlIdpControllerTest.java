@@ -136,6 +136,19 @@ class SamlIdpControllerTest {
     }
 
     @Test
+    void slo_rejectsWhenTheSpHasNoRegisteredSigningCertificate() {
+        // SAML-4: without a cert the LogoutRequest cannot be authenticated, so SP-initiated SLO must be
+        // refused — otherwise a forged, unsigned request could force-logout an arbitrary user.
+        final SamlIdpController controller = controller(
+                new SamlIdpProperties.RelyingParty(SP_ENTITY, ACS, AUTHN_CTX, SP_SLO, null));
+
+        assertThatThrownBy(() -> controller.processSlo(spLogoutRequest("victim@corp", spKeyPem), null, false,
+                new MockHttpServletRequest(), new ConcurrentModel()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("signing certificate");
+    }
+
+    @Test
     void slo_rejectsAnUnregisteredRelyingParty() {
         assertThatThrownBy(() -> controller().processSlo(
                 new SamlLogoutRequestIssuer().issueLogoutRequest(new SamlIdpConfig("https://evil/sp", spCertPem, spKeyPem),

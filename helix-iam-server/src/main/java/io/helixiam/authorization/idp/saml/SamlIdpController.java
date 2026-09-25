@@ -242,9 +242,15 @@ public class SamlIdpController {
         final SamlLogoutRequestParser.LogoutRequestInfo info = logoutRequestParser.parse(samlRequest, redirectBinding);
         final SamlIdpProperties.RelyingParty rp = relyingParty(info.spEntityId());
 
-        // Security gate: if the SP registered a signing cert, its LogoutRequest signature must verify.
-        if (rp.signingCertificate() != null && !rp.signingCertificate().isBlank()
-                && !logoutRequestParser.isSignatureValid(samlRequest, redirectBinding, rp.signingCertificate())) {
+        // SAML-4: SP-initiated SLO drives cross-user actions (ssoLogoutService.terminate(nameId) and the
+        // fan-out below name an arbitrary NameID), so the request MUST be authenticated. Require the SP to
+        // have a registered signing certificate AND the LogoutRequest signature to verify — otherwise a
+        // forged, unsigned request could force-logout any user.
+        if (rp.signingCertificate() == null || rp.signingCertificate().isBlank()) {
+            throw new IllegalStateException(
+                    "SP-initiated SLO requires a registered SP signing certificate: " + rp.entityId());
+        }
+        if (!logoutRequestParser.isSignatureValid(samlRequest, redirectBinding, rp.signingCertificate())) {
             throw new IllegalStateException("Invalid SAML LogoutRequest signature for SP " + rp.entityId());
         }
 
