@@ -132,13 +132,20 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
   A background commit-review flagged credential exposure on partial failure; hardened in `bacc13f` —
   file created `0600` **atomically** (never briefly world-readable), any partial file deleted on failure
   (credential lands in exactly one place), `Path.of` guarded. 4 regression tests.
+- **`e869979`** — kubedna sweep (start): the `USER_SIGNUP` verification path sent an internal
+  "new registered user" notification to a hard-coded `contact@kubedna.com`. Now
+  `helix.notifications.registration-recipient` (env `HELIX_NOTIFICATIONS_REGISTRATION_RECIPIENT`),
+  default **blank = do not send** (so no kubedna address is ever used). 2 regression tests. Remaining
+  `kubedna`/`kubeiam` hits are javadoc/tests plus the seeded `kubedna-cli` client_id — **kept**
+  (renaming a seeded client_id breaks existing CLI callers; decision: leave the value, reword only
+  prose, defer a migrated rename to post-1.0).
 - **Still to do in Phase 2:** **L5** legacy-crypto (AES/ECB) re-encryption migration + remaining-row
   counter — a careful data migration across the 8 encrypted-column entities; deserves its own focused
   change (approach: a one-time job that detects legacy-format values, re-encrypts to AES/GCM, and exposes
   a gauge of rows still on the legacy path so the fallback can be dropped later). Reconcile Flyway vs
   `schema.sql` (O5, likely linked to O1). Sweep remaining user-facing `kubedna`/`kubeiam` strings.
 
-## Phase 1 — Agent delegation  *(in progress; most careful)*
+## Phase 1 — Agent delegation  *(complete)*
 Reviewing `DelegationTokenController.exchange()` (the on-behalf-of RFC 8693 `/agent/delegation/token`).
 Built a from-scratch test harness (`DelegationTokenControllerTest`) — the endpoint previously had **no**
 unit coverage. Nimbus signs realm-scoped user/actor tokens; the controller's decoder verifies against the
@@ -165,17 +172,34 @@ matching public JWKS.
   allow-list needs a resource registry — logged as a follow-up, not a security hole today since the
   minted token's audience is still bound.) Tests: non-absolute → 400 `invalid_target`; absolute URI → 200.
 
-- **Still to do in Phase 1 (both large — will bring the design to you before landing):**
-  - **Gap 2 — actor-token client authentication / DPoP.** The `actor_token` is today a pure bearer:
-    anyone holding an agent's token can act. Fix needs client authentication (client-secret / mTLS /
-    private-key-jwt) or DPoP proof-of-possession on the exchange. This is a **breaking change** for
-    existing agent callers, so it needs the strict-default + explicit opt-out pattern and a migration
-    note — I'll propose the exact shape before touching it.
-  - **Gap 7 — kill-switch invalidates already-minted tokens.** Disabling an agent stops *new* mints but
-    already-issued delegated JWTs stay valid until expiry. Fix is an introspection-path (or short-TTL +
-    revocation-list) check of live agent status; touches the token-validation path, so it needs its own
-    focused change.
-  - Apply the same review to `WorkloadIdentityTokenController` (the WIF exchange sibling).
+- **Gap 2 — actor client authentication (`8ce2f57`).** *(Decision: client-auth, strict default + opt-out.)*
+  The `actor_token` alone was a bearer credential — capturing it let anyone act as the agent. The
+  exchange now also requires the caller to authenticate as the agent's OAuth2 client
+  (`client_secret_basic` or `client_secret_post`), and the authenticated `client_id` must equal the
+  actor's agent; secrets are compared constant-time against the registered client's `{noop}` secret.
+  **Breaking for existing agent callers**, so strict by default with
+  `helix.agent.delegation.require-actor-auth=false` (env `HELIX_AGENT_DELEGATION_REQUIRE_ACTOR_AUTH`)
+  to restore the pre-1.0 bearer-only behavior during migration; the three delegation keys are now
+  documented in `application.properties`. Tests: no creds → 401 `invalid_client`; wrong secret → 401;
+  authenticated client ≠ actor agent → 401; valid Basic → 200; valid `client_secret_post` → 200.
+- **Gap 7 — revoke already-minted agent tokens on introspection (`b81b3e0`).** *(Decision: short-TTL +
+  introspection re-check.)* A custom RFC 7662 introspection response handler
+  (`AgentRevocationIntrospectionHandler`) re-checks live agent status: a token carrying `nhi`/`agent_id`
+  whose agent is no longer ACTIVE (or was removed) introspects as `active:false`, so a resource server
+  that introspects sees the kill-switch ahead of the token's (short) expiry. Non-agent tokens pass
+  through unchanged and the token-validation hot path is untouched — RSes that validate the JWT locally
+  still rely on the short token lifetime (300s delegation / 900s WIF) for revocation latency; a
+  per-request global revocation validator was considered and **not** adopted for 1.0 (hot-path AMQP
+  lookup on every agent request). Lookup failures fail open. 7 regression tests. **Phase 1 complete.**
+
+**`WorkloadIdentityTokenController` review (the WIF exchange sibling) — assessed:**
+- **Kill-switch: safe.** `resolve()` is backed by `findAllByRealmIdAndIssuerAndEnabledTrue`, so a
+  disabled workload credential is filtered at the query and cannot mint. Mint-time enforcement matches
+  the agent path; the already-minted-token residual is the same as gap 7 and bounded by the 900s TTL.
+- **Fixed short TTL (900s), fixed audience (mapped client id), cryptographic verification gate** against
+  the credential's expected iss/aud/sub — all present. No `resource`/audience injection surface.
+- **Minor (logged, not a hole):** it does not read/validate RFC 8693 `*_token_type` params (it doesn't
+  advertise them) and `exchange()` has no direct unit test. Tracked as a Phase-4/coverage follow-up.
 
 ---
 
