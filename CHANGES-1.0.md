@@ -139,11 +139,21 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
   `kubedna`/`kubeiam` hits are javadoc/tests plus the seeded `kubedna-cli` client_id — **kept**
   (renaming a seeded client_id breaks existing CLI callers; decision: leave the value, reword only
   prose, defer a migrated rename to post-1.0).
-- **Still to do in Phase 2:** **L5** legacy-crypto (AES/ECB) re-encryption migration + remaining-row
-  counter — a careful data migration across the 8 encrypted-column entities; deserves its own focused
-  change (approach: a one-time job that detects legacy-format values, re-encrypts to AES/GCM, and exposes
-  a gauge of rows still on the legacy path so the fallback can be dropped later). Reconcile Flyway vs
-  `schema.sql` (O5, likely linked to O1). Sweep remaining user-facing `kubedna`/`kubeiam` strings.
+- **L5 — legacy-crypto re-encryption — scoped and deferred (needs live-DB/Testcontainers validation).**
+  `AttributeEncryption` reads AES/GCM, falling back to legacy AES/ECB, and — critically — **returns the
+  stored value as-is when neither key decrypts it** (`convertToEntityAttribute`/`tryLegacyDecryption`).
+  So a naive "load-all-and-re-save" migration is **unsafe**: a corrupt or truncated GCM value would be
+  read back as if it were plaintext and then re-encrypted, permanently corrupting it. The safe algorithm
+  is: iterate each encrypted-column entity, and re-encrypt **only** rows that *positively* decrypt with
+  the **legacy** key (GCM-fails **and** legacy-succeeds) — never the "returned as-is" rows — re-storing
+  the recovered plaintext so the converter writes GCM; expose a gauge of rows still on the legacy path so
+  the fallback can eventually be dropped. Because it rewrites columns holding realm private signing keys
+  and TOTP secrets, it must be validated against a real dataset (a Testcontainers integration test that
+  seeds a legacy-ECB value, migrates, and asserts GCM) before it ships — it is **not** something to land
+  blind into the vendored crypto converter. Tracked as the primary remaining Phase 2 security item.
+- **Also still to do in Phase 2:** reconcile Flyway vs `schema.sql` (O5, likely linked to O1). The
+  remaining `kubedna`/`kubeiam` strings are javadoc/tests plus the seeded `kubedna-cli` client_id (kept,
+  see the sweep note above).
 
 ## Phase 1 — Agent delegation  *(complete)*
 Reviewing `DelegationTokenController.exchange()` (the on-behalf-of RFC 8693 `/agent/delegation/token`).
