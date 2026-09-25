@@ -138,11 +138,44 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
   a gauge of rows still on the legacy path so the fallback can be dropped later). Reconcile Flyway vs
   `schema.sql` (O5, likely linked to O1). Sweep remaining user-facing `kubedna`/`kubeiam` strings.
 
-## Phase 1 — Agent delegation  *(not started; most careful)*
-Each sub-item (consent/audience binding, actor client-auth/DPoP, chain-depth limit, cross-realm key
-isolation, RFC 8693 conformance, `resource`/RFC 8707 allow-list, kill-switch on minted tokens) will be
-verified in code first, then fixed with a regression test, and any token/endpoint/config-key impact
-brought to you before it lands.
+## Phase 1 — Agent delegation  *(in progress; most careful)*
+Reviewing `DelegationTokenController.exchange()` (the on-behalf-of RFC 8693 `/agent/delegation/token`).
+Built a from-scratch test harness (`DelegationTokenControllerTest`) — the endpoint previously had **no**
+unit coverage. Nimbus signs realm-scoped user/actor tokens; the controller's decoder verifies against the
+matching public JWKS.
+
+- **Gap 1 — subject-token→agent binding (`c427e45`).** The exchange now refuses a `subject_token` that
+  does not authorize *this* agent: it must carry the agent in `aud`, name it in `azp`, or carry a
+  `may_act` claim (`sub`/`azp`/`client_id`) naming it. Without this any user access token the realm
+  minted could be replayed by any registered agent. New config
+  `helix.agent.delegation.require-subject-binding` (default **true**); set false to restore the old loose
+  behavior. Tests: aud-bound mint, unbound reject (403 `invalid_grant`), `may_act` mint, loose-mode accept.
+- **Gap 3 — delegation chain-depth limit (`e7e3fb3`).** Walks the nested `act` chain on the actor token
+  and refuses when `depth + 1` would exceed `helix.agent.delegation.max-chain-depth` (default **3**) with
+  400 `invalid_request`. Bounds unbounded on-behalf-of nesting. Test: depth-3 actor → next exchange 400.
+- **Gap 4 — cross-realm key isolation — assessed, no code change.** `RealmJwkSource` already scopes
+  signing/verification keys by `RealmContextHolder`; verified by the existing
+  `RealmJwkSourceTest.servesEachRealmsOwnKey_withoutLeakingAcrossRealms`. No leak path found.
+- **Gap 5 — RFC 8693 token-type conformance (`e7e3fb3`).** Validates `subject_token_type`,
+  `actor_token_type` and `requested_token_type`: unsupported types are rejected with 400 `invalid_request`
+  (previously the params were ignored). `issued_token_type` = access_token is returned in the response.
+  Test: `requested_token_type=saml2` → 400.
+- **Gap 6 — `resource` / RFC 8707 (`dbc14ab`).** A `resource` indicator, when present, must be an
+  absolute URI without a fragment; otherwise 400 `invalid_target`. (A full per-realm/per-agent resource
+  allow-list needs a resource registry — logged as a follow-up, not a security hole today since the
+  minted token's audience is still bound.) Tests: non-absolute → 400 `invalid_target`; absolute URI → 200.
+
+- **Still to do in Phase 1 (both large — will bring the design to you before landing):**
+  - **Gap 2 — actor-token client authentication / DPoP.** The `actor_token` is today a pure bearer:
+    anyone holding an agent's token can act. Fix needs client authentication (client-secret / mTLS /
+    private-key-jwt) or DPoP proof-of-possession on the exchange. This is a **breaking change** for
+    existing agent callers, so it needs the strict-default + explicit opt-out pattern and a migration
+    note — I'll propose the exact shape before touching it.
+  - **Gap 7 — kill-switch invalidates already-minted tokens.** Disabling an agent stops *new* mints but
+    already-issued delegated JWTs stay valid until expiry. Fix is an introspection-path (or short-TTL +
+    revocation-list) check of live agent status; touches the token-validation path, so it needs its own
+    focused change.
+  - Apply the same review to `WorkloadIdentityTokenController` (the WIF exchange sibling).
 
 ---
 
