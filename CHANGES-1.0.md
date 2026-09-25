@@ -110,10 +110,14 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
   equivalent to `schema.sql`. Kept `schema.sql` as the default (shipping a broken Flyway default would
   break fresh deployments); the test is `@Disabled` as the re-enable target; `baseline-version` is now
   configurable via `HELIX_FLYWAY_BASELINE_VERSION` for opt-in adopters.
-- **Still to do in Phase 2:** reconcile the Flyway baseline vs `schema.sql` (O5) then re-flip; L5
-  legacy-crypto re-encryption migration + remaining-row counter; L6 admin password to `0600` file;
-  no-live-peer SAML hardening (mandatory SLO signature, reject rsa-sha1/unknown SigAlg, verify
-  SP-metadata signature, require ArtifactResponse envelope signature); sweep remaining user-facing
+- **`12b791c`** — SAML-7 fixed: HTTP-Redirect `SigAlg` now allowlists RSA-SHA-256/384/512 and rejects
+  `rsa-sha1` + unknown/missing (was: accept SHA-1, silently verify unknown as SHA-256). Regression test
+  proves a valid SHA-1 signature is refused and SHA-256 still verifies. **1112 tests green.**
+- **Still to do in Phase 2:** three remaining no-live-peer SAML items — mandatory SP-initiated **SLO
+  signature** (`SamlIdpController` ~246), verify **SP-metadata XML signature** on import
+  (`SamlSpMetadataParser`), require **eID ArtifactResponse envelope signature** (`OpenSamlEidArtifactResolver`
+  ~206); **L5** legacy-crypto re-encryption migration + remaining-row counter; **L6** admin password to a
+  `0600` file; reconcile Flyway vs `schema.sql` (O5) then re-flip; sweep remaining user-facing
   `kubedna`/`kubeiam` strings. Each as its own tested commit.
 
 ## Phase 1 — Agent delegation  *(not started; most careful)*
