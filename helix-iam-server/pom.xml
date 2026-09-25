@@ -27,7 +27,7 @@
              by Files.createTempDir / FileBackedOutputStream). Both are fixed from 32.0.1-jre; 33.4.0-jre is
              the newest line that resolves in this offline (mvn -o) build with its own transitive metadata
              intact (failureaccess / listenablefuture). Pinned via the dependencyManagement block below. -->
-        <guava.version>33.4.0-jre</guava.version>
+        <guava.version>33.7.1-jre</guava.version>
         <!-- Security review M7: OpenSAML 4.3.2 is EOL (4.x line). The whole OpenSAML stack is forced to
              the current 5.1.4 line below. OpenSAML 5 replaces net.shibboleth.utilities:java-support:8.x with
              net.shibboleth:shib-support:9.1.4 (the *:shared package repackaging), bumps Apache Santuario
@@ -37,10 +37,10 @@
              classpath-compatible with 5 and — verified — is NOT used by any HelixIAM code; OpenSAML is used
              directly). BouncyCastle stays uniformly at 1.81 (direct deps below, nearest-wins) so cryptacular's
              transitive bcprov:1.76 cannot reintroduce the split-version OperatorHelper NoClassDefFoundError. -->
-        <opensaml.version>5.1.4</opensaml.version>
-        <shibboleth.shared.version>9.1.4</shibboleth.shared.version>
+        <opensaml.version>5.2.3</opensaml.version>
+        <shibboleth.shared.version>9.2.3</shibboleth.shared.version>
         <xmlsec.version>3.0.5</xmlsec.version>
-        <cryptacular.version>1.2.6</cryptacular.version>
+        <cryptacular.version>1.3.0</cryptacular.version>
     </properties>
 
     <!-- Transitive-dependency version overrides (security review). Boot's parent does not manage guava,
@@ -253,7 +253,7 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.81</version>
+            <version>1.86</version>
         </dependency>
         <!-- Pin bcpkix/bcutil to match bcprov 1.81 — OpenSAML (via cryptacular) drags in 1.72,
              and the split versions collide (NoClassDefFoundError OperatorHelper) once both the
@@ -261,12 +261,12 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-            <version>1.81</version>
+            <version>1.86</version>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcutil-jdk18on</artifactId>
-            <version>1.81</version>
+            <version>1.86</version>
         </dependency>
         <dependency>
             <groupId>com.j256.two-factor-auth</groupId>
@@ -276,17 +276,17 @@
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>javase</artifactId>
-            <version>3.5.3</version>
+            <version>3.5.4</version>
         </dependency>
         <dependency>
             <groupId>com.webauthn4j</groupId>
             <artifactId>webauthn4j-core</artifactId>
-            <version>0.21.5.RELEASE</version>
+            <version>0.31.10.RELEASE</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-cbor</artifactId>
-            <version>2.18.1</version>
+            <version>2.22.3</version>
         </dependency>
 
         <!-- ============ Notifications (de-mfnr'd): direct SMTP, no broker ============
@@ -296,12 +296,12 @@
         <dependency>
             <groupId>jakarta.mail</groupId>
             <artifactId>jakarta.mail-api</artifactId>
-            <version>2.1.1</version>
+            <version>2.1.5</version>
         </dependency>
         <dependency>
             <groupId>org.eclipse.angus</groupId>
             <artifactId>angus-mail</artifactId>
-            <version>2.0.3</version>
+            <version>2.0.5</version>
             <exclusions>
                 <exclusion>
                     <groupId>jakarta.mail</groupId>
@@ -369,13 +369,13 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
-            <version>1.20.4</version>
+            <version>1.21.4</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>1.20.4</version>
+            <version>1.21.4</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
