@@ -141,6 +141,23 @@ class DelegationTokenControllerTest {
         assertThat(resp.getBody()).containsEntry("error", "invalid_request");
     }
 
+    @Test
+    void rejectsANonAbsoluteUriResource() throws Exception {
+        final ResponseEntity<Map<String, Object>> resp = strict.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", "not-a-uri",
+                null, null, null, new MockHttpServletRequest());
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(resp.getBody()).containsEntry("error", "invalid_target");
+    }
+
+    @Test
+    void acceptsAnAbsoluteUriResource() throws Exception {
+        final ResponseEntity<Map<String, Object>> resp = strict.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", "https://api.example.com/orders",
+                null, null, null, new MockHttpServletRequest());
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+    }
+
     private String actorToken() throws Exception {
         return sign(new JWTClaimsSet.Builder()
                 .subject(AGENT).issuer(ISSUER)

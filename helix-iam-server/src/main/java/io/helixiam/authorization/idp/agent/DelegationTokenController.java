@@ -111,6 +111,14 @@ public class DelegationTokenController {
             return error(HttpStatus.BAD_REQUEST, "invalid_request",
                     "unsupported token type parameter; subject/actor must be access_token and requested_token_type must be access_token");
         }
+        // RFC 8707: the resource indicator, when present, is bound into the minted token's aud (below) and
+        // MUST be an absolute URI with no fragment — reject anything else so aud cannot be set to an
+        // arbitrary opaque value. (A full per-realm/per-agent resource allow-list needs a resource registry;
+        // tracked in CHANGES-1.0.md as the remaining part of gap 6.)
+        if (!isBlank(resource) && !isAbsoluteResourceUri(resource)) {
+            return error(HttpStatus.BAD_REQUEST, "invalid_target",
+                    "resource must be an absolute URI without a fragment (RFC 8707)");
+        }
         final String issuer = realmIssuer(realm);
 
         // (1) Verify BOTH tokens against the realm signing key (signature + expiry). The signature (per-realm
@@ -300,6 +308,16 @@ public class DelegationTokenController {
     /** A subject/actor {@code *_token_type} is acceptable when absent, or an access-token / generic JWT type. */
     private static boolean tokenTypeAccepted(final String type) {
         return isBlank(type) || ISSUED_TOKEN_TYPE.equals(type) || JWT_TOKEN_TYPE.equals(type);
+    }
+
+    /** RFC 8707: a resource indicator must be an absolute URI without a fragment. */
+    private static boolean isAbsoluteResourceUri(final String s) {
+        try {
+            final java.net.URI u = new java.net.URI(s);
+            return u.isAbsolute() && u.getScheme() != null && u.getFragment() == null;
+        } catch (final java.net.URISyntaxException e) {
+            return false;
+        }
     }
 
     private static String firstNonBlank(final String... candidates) {
