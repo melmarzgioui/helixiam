@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -q -DskipTests clean package \
 
 ########## Runtime stage ##########
 # Minimal JRE runtime (glibc, small). Non-root, read-only-root-FS compatible (writes only /tmp).
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:25-jre AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/* \
