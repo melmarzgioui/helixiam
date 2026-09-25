@@ -52,18 +52,38 @@ Do not weaken any of these; every change here keeps a regression test.
   valid; core comes up with all containers healthy; server `/actuator/health` UP; master realm
   seeded; OIDC discovery + JWKS (RS256/PS256) serve; `/admin/**` denied to anonymous (C1 stays
   fixed); `/actuator/info` not anonymously readable (L2 stays fixed).
-- **Still to do in this phase:** Helm chart (`deploy/helm/helixiam`, secure `securityContext`,
-  limits, probes, NetworkPolicy, secret refs); README quickstart rewrite (drop `mvn -o`, make
-  `docker compose up` primary, reconcile the admin/admin vs random-password wording); `deploy/seed-demo.sh`
-  to seed a demo realm/app/agent + the `helix-sandbox` client; the "60-second agent delegation" script.
+- **`4260e6e`** — README: `docker compose up` is now the primary quickstart; replaced the `mvn -o`
+  build that fails on a fresh clone with `mvn -B`; fixed the admin-password contradiction to match
+  the code (username defaults to `admin`; password is `HELIX_ADMIN_PASSWORD` when set, else a strong
+  random password generated once and logged — verified in `RealmAdminBootstrapService`).
+- **`57f3051`** — Helm chart `deploy/helm/helixiam`: hardened `securityContext` (non-root,
+  readOnlyRootFilesystem, drop ALL caps, seccomp RuntimeDefault), resource limits, startup/liveness/
+  readiness probes, NetworkPolicy (restricted ingress + egress), secrets referenced from an existing
+  Secret (never inlined), fail-fast on missing required values. **Verified**: `helm lint` clean,
+  `helm template` renders 5 well-formed resources.
+- **Deferred to a runnability-polish follow-up (depends on O4):** `deploy/seed-demo.sh` (demo
+  realm/app/agent + `helix-sandbox` client), the sandbox OIDC round-trip, and the 60-second agent-
+  delegation script. These need the single-issuer-host fix (O4) and admin-API seed scripting; not a
+  blocker for `docker compose up` (the IdP + console + datastores come up and are usable now).
 - **Known caveat (logged):** the sandbox-rp OIDC round-trip needs the issuer host to resolve
   identically in the browser and inside the container (the parked internal-host item) — the demo
   profile documents it; a reverse-proxy front is the likely fix. Tracked as **O4** below.
 
-## Phase 6 — Claims vs reality  *(not started)*
-`docs/FEATURES.md` to be built. Early flags: SDK npm package `@helixiam/sdk` not published (lives in
-`helix-dashboard/src/sdk`); Terraform provider has only `application`+`role` resources; "Keycloak
-importer" import path unverified.
+## Phase 6 — Claims vs reality  *(matrix done; website reconciliation pending Phase 7)*
+Built `docs/FEATURES.md` — every feature with a Stable/Beta/Experimental status, code location and
+test evidence. Audit findings:
+- **Terraform provider**: `helix_application` + `helix_realm_role` resources only (+ `helix_client_id`
+  / `helix_client_secret` data sources). The "realms, clients, flows" claim is **wrong** → correct
+  the site or add resources. *(Open — website copy.)*
+- **TypeScript SDK**: `helix-dashboard/src/sdk` has **no `package.json`** → `@helixiam/sdk` is **not
+  published**. Website `import` example is aspirational → fix site or extract+publish. *(Open.)*
+- **Keycloak importer**: **real and tested** (`KeycloakImporter.java` + `KeycloakImporterTest.java`) —
+  the claim holds; documented as importing a Keycloak realm export.
+- **eID (DigiD/eHerkenning/eIDAS)**: validators well-tested (35/15/4/6 test files) but the **live
+  DigiD mTLS round-trip is untested** → labelled "connector included; requires your own Logius/broker
+  agreement."
+- **FAPI/DPoP/PAR/device/adaptive/magic-link/push**: all have automated tests → Beta (FAPI needs the
+  OpenID conformance suite, wired in Phase 4).
 
 ## Phase 2 — Secure defaults  *(not started; note)*
 Recon shows H1/H2 are **already** partly addressed (DB_ENCRYPTION empty default + loud banner;
