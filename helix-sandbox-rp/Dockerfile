@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 # helix-sandbox-rp: an OIDC/SAML relying-party test harness (Express, ESM).
-FROM node:22-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 ENV NODE_ENV=production PORT=9090
 # Run as the image's built-in non-root 'node' user.
 WORKDIR /app
