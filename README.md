@@ -5,20 +5,38 @@
 <h1 align="center">HelixIAM</h1>
 
 <p align="center">
-  Standalone OAuth2 · OIDC · SAML 2.0 identity server — one deployable, no message broker.
+  <b>The open-source identity server for AI agents, workloads, and people.</b><br>
+  Self-hostable OAuth2 · OIDC · SAML 2.0 — a Keycloak alternative built for the agent era.
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache-2.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/OAuth2%20·%20OIDC%20·%20SAML%202.0-standards--based-2f6b52.svg" alt="Standards: OAuth2, OIDC, SAML 2.0">
+  <img src="https://img.shields.io/badge/self--hosted-Docker%20·%20Helm%20·%20K8s-informational.svg" alt="Self-hosted">
+  <a href="https://docs.helixiam.com"><img src="https://img.shields.io/badge/docs-helixiam.com-2f6b52.svg" alt="Docs"></a>
 </p>
 
-**HelixIAM** is a standalone OAuth2 / OIDC / SAML 2.0 identity provider — one Spring Boot
-deployable, backed by PostgreSQL, Redis and SMTP. There is no message broker and no separate
-persistence tier: `helix-iam-server` serves the OAuth2/OIDC endpoints (authorize, token,
-userinfo, JWKS, discovery, logout), the SAML 2.0 IdP, and the realm-scoped admin REST API, and it
-owns PostgreSQL directly. It supports multi-tenant **realms** (each its own OIDC issuer and SAML
-IdP with its own signing keys), workload identity federation (keyless K8s/CI JWT exchange), and
-AI-agent / non-human-identity token delegation (RFC 8693 on-behalf-of).
+**HelixIAM** is a self-hostable, open-source identity and access management (IAM) server that
+treats **AI agents and machine workloads as first-class identities** — not an afterthought bolted
+onto a human IdP. It's a full OAuth2 / OIDC provider and SAML 2.0 IdP (multi-tenant **realms**,
+MFA, passkeys, SSO, federation) and it adds on-behalf-of delegation for AI agents (RFC 8693),
+keyless workload identity federation (K8s/CI JWT exchange), and EU eID connectors — on one Spring
+Boot deployable backed by PostgreSQL and Redis. No message broker, no third-party control plane,
+no telemetry.
+
+### Why HelixIAM?
+
+- 🤖 **Built for AI agents & workloads** — give each agent a real, scoped, revocable identity; mint
+  on-behalf-of tokens (RFC 8693) whose authority only ever narrows; kill-switch a runaway agent.
+  Keyless workload identity federation for Kubernetes and CI.
+- 🔐 **A complete standards IdP** — OpenID Connect, OAuth 2.1, SAML 2.0, WebAuthn/passkeys, FAPI,
+  DPoP, PAR. Any standard client works; no proprietary lock-in.
+- 🇪🇺 **Sovereign & European** — self-host on your own infrastructure, per-realm signing keys, EU
+  data residency, and DigiD / eHerkenning / eIDAS connectors.
+- 📦 **Trustworthy supply chain** — cosign-signed release images with an attested SBOM; CodeQL +
+  dependency scanning in CI.
+- 🔁 **A [Keycloak alternative](https://helixiam.com/keycloak-alternative/)** with a realm importer
+  to migrate in — modern, and agent-native.
 
 The admin console (**helix-dashboard**) is a **separate deployable by design**, so the identity
 server and the console scale independently.
@@ -31,7 +49,7 @@ server and the console scale independently.
 | [`helix-dashboard`](helix-dashboard/) | The admin console — React app + design system, deployed as its own image, talks to `helix-iam-server`'s admin API. |
 | [`helix-sandbox-rp`](helix-sandbox-rp/) | A transparent OIDC/SAML relying-party test harness — login, OTP/MFA, refresh, silent SSO, SLO, with every token shown decoded. |
 | [`helix-mcp-demo`](helix-mcp-demo/) | Demo of MCP (Model Context Protocol) resource-server auth against HelixIAM. |
-| [`terraform-provider-helix`](terraform-provider-helix/) | Terraform provider to manage realms, applications and roles via the admin API. |
+| [`terraform-provider-helix`](terraform-provider-helix/) | Terraform provider to manage applications and realm roles as code via the admin API. |
 
 ## Quickstart
 
