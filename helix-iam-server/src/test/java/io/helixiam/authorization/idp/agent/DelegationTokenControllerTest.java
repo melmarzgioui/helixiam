@@ -13,6 +13,9 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.Map;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -36,8 +39,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 
 /**
@@ -52,10 +59,12 @@ class DelegationTokenControllerTest {
     private static final String ISSUER = "https://idp.test/realms/master";
     private static final String AGENT = "agent-1";
     private static final String USER = "alice";
+    private static final String AGENT_SECRET = "top-secret";
 
     private RSAKey signingKey;
     private DelegationTokenController strict;
     private DelegationTokenController loose;
+    private DelegationTokenController authRequired;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -70,12 +79,33 @@ class DelegationTokenControllerTest {
                 "owner", "ACTIVE", "client_secret", AGENT, "read", true, null, null, null, "read");
         when(agents.findByClient(any(AgentClientQuery.class))).thenReturn(active);
 
+        // Confidential agent client: SAS stores the secret {noop}-prefixed (plaintext scheme). findByClientId is
+        // realm-scoped by the production RegisteredClientRepositoryService; the mock just returns it directly.
+        final RegisteredClientRepository clients = mock(RegisteredClientRepository.class);
+        final RegisteredClient agentClient = RegisteredClient.withId("rc-agent")
+                .clientId(AGENT).clientSecret("{noop}" + AGENT_SECRET)
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS).build();
+        when(clients.findByClientId(AGENT)).thenReturn(agentClient);
+
         final AuthorizationServerSettings settings =
                 AuthorizationServerSettings.builder().issuer("https://idp.test").build();
 
-        strict = new DelegationTokenController(encoder, publicJwks, realmAdmin, agents, settings, 300, true, 3);
-        loose = new DelegationTokenController(encoder, publicJwks, realmAdmin, agents, settings, 300, false, 3);
+        // strict/loose exercise subject-binding; actor-auth is off for them so they need no client credentials.
+        strict = new DelegationTokenController(encoder, publicJwks, realmAdmin, agents, clients, settings, 300, true, 3, false);
+        loose = new DelegationTokenController(encoder, publicJwks, realmAdmin, agents, clients, settings, 300, false, 3, false);
+        // authRequired uses the shipped default (require-actor-auth=true) to exercise gap 2.
+        authRequired = new DelegationTokenController(encoder, publicJwks, realmAdmin, agents, clients, settings, 300, true, 3, true);
         RealmContextHolder.set(REALM);
+    }
+
+    /** A request carrying HTTP Basic client authentication (client_secret_basic). */
+    private static MockHttpServletRequest basicAuth(final String clientId, final String secret) {
+        final MockHttpServletRequest req = new MockHttpServletRequest();
+        final String creds = Base64.getEncoder().encodeToString(
+                (clientId + ":" + secret).getBytes(StandardCharsets.UTF_8));
+        req.addHeader("Authorization", "Basic " + creds);
+        return req;
     }
 
     @AfterEach
@@ -155,6 +185,56 @@ class DelegationTokenControllerTest {
         final ResponseEntity<Map<String, Object>> resp = strict.exchange(TOKEN_EXCHANGE,
                 subjectToken(List.of(AGENT), null), actorToken(), "read", "https://api.example.com/orders",
                 null, null, null, new MockHttpServletRequest());
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+    }
+
+    // ---- Gap 2: the actor (agent) must authenticate its client, not merely present a (leakable) bearer token ----
+
+    @Test
+    void rejectsWhenNoClientCredentialsArePresented() throws Exception {
+        final ResponseEntity<Map<String, Object>> resp = authRequired.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", null,
+                null, null, null, new MockHttpServletRequest());
+        assertThat(resp.getStatusCode().value()).isEqualTo(401);
+        assertThat(resp.getBody()).containsEntry("error", "invalid_client");
+    }
+
+    @Test
+    void rejectsWhenTheClientSecretIsWrong() throws Exception {
+        final ResponseEntity<Map<String, Object>> resp = authRequired.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", null,
+                null, null, null, basicAuth(AGENT, "wrong-secret"));
+        assertThat(resp.getStatusCode().value()).isEqualTo(401);
+        assertThat(resp.getBody()).containsEntry("error", "invalid_client");
+    }
+
+    @Test
+    void rejectsWhenTheAuthenticatedClientIsNotTheActorAgent() throws Exception {
+        // Correct-looking Basic header for a DIFFERENT client than the actor_token's agent.
+        final ResponseEntity<Map<String, Object>> resp = authRequired.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", null,
+                null, null, null, basicAuth("some-other-client", AGENT_SECRET));
+        assertThat(resp.getStatusCode().value()).isEqualTo(401);
+        assertThat(resp.getBody()).containsEntry("error", "invalid_client");
+    }
+
+    @Test
+    void mintsWhenTheAgentAuthenticatesWithClientSecretBasic() throws Exception {
+        final ResponseEntity<Map<String, Object>> resp = authRequired.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", null,
+                null, null, null, basicAuth(AGENT, AGENT_SECRET));
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(resp.getBody()).containsKey("access_token");
+    }
+
+    @Test
+    void mintsWhenTheAgentAuthenticatesWithClientSecretPost() throws Exception {
+        final MockHttpServletRequest req = new MockHttpServletRequest();
+        req.addParameter("client_id", AGENT);
+        req.addParameter("client_secret", AGENT_SECRET);
+        final ResponseEntity<Map<String, Object>> resp = authRequired.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", null,
+                null, null, null, req);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
     }
 

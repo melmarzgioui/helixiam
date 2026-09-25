@@ -14,6 +14,8 @@ import io.helixiam.authorization.amqp.realm.RealmAdminPublisher;
 import io.helixiam.authorization.security.agent.AgentTokenEnricher;
 import io.helixiam.authorization.security.agent.DelegationAttenuator;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,27 +65,33 @@ public class DelegationTokenController {
     private final JwtDecoder jwtDecoder;
     private final RealmAdminPublisher realmAdminPublisher;
     private final AgentIdentityPublisher agentPublisher;
+    private final RegisteredClientRepository registeredClients;
     private final AuthorizationServerSettings settings;
     private final long lifetimeSeconds;
     private final boolean requireSubjectBinding;
     private final int maxChainDepth;
+    private final boolean requireActorAuth;
 
     public DelegationTokenController(final JwtEncoder jwtEncoder, final JWKSource<SecurityContext> jwkSource,
                                      final RealmAdminPublisher realmAdminPublisher,
                                      final AgentIdentityPublisher agentPublisher,
+                                     final RegisteredClientRepository registeredClients,
                                      final AuthorizationServerSettings settings,
                                      @Value("${helix.agent.delegation.token-lifetime-seconds:300}") final long lifetimeSeconds,
                                      @Value("${helix.agent.delegation.require-subject-binding:true}") final boolean requireSubjectBinding,
-                                     @Value("${helix.agent.delegation.max-chain-depth:3}") final int maxChainDepth) {
+                                     @Value("${helix.agent.delegation.max-chain-depth:3}") final int maxChainDepth,
+                                     @Value("${helix.agent.delegation.require-actor-auth:true}") final boolean requireActorAuth) {
         this.jwtEncoder = jwtEncoder;
         // Verify Helix-issued tokens against our own realm JWKS (kid-selected, signature + expiry).
         this.jwtDecoder = OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
         this.realmAdminPublisher = realmAdminPublisher;
         this.agentPublisher = agentPublisher;
+        this.registeredClients = registeredClients;
         this.settings = settings;
         this.lifetimeSeconds = lifetimeSeconds;
         this.requireSubjectBinding = requireSubjectBinding;
         this.maxChainDepth = maxChainDepth;
+        this.requireActorAuth = requireActorAuth;
     }
 
     @PostMapping(value = "/agent/delegation/token", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -161,6 +169,16 @@ public class DelegationTokenController {
             return error(HttpStatus.FORBIDDEN, "invalid_grant", "delegation denied: " + denial);
         }
 
+        // (3b) Actor client authentication (gap 2). The actor_token alone is a bearer credential: anyone who
+        // captures it could act as the agent. Require the caller to ALSO authenticate as the agent's client
+        // (client_secret_basic or client_secret_post) so it must possess the agent's secret, not just a token.
+        // Disable only via helix.agent.delegation.require-actor-auth=false (documented, opt-in weaker mode).
+        if (requireActorAuth && !actorClientAuthenticated(request, agentClientId)) {
+            return error(HttpStatus.UNAUTHORIZED, "invalid_client",
+                    "the agent must authenticate its client on the delegation exchange "
+                            + "(client_secret_basic or client_secret_post matching the actor_token's agent)");
+        }
+
         // (3c) Bind the subject_token to THIS agent. Without it, any user access token the realm minted
         // (for any client, any audience) could be replayed by any registered agent on that user's behalf.
         // Require the user token to name the agent via aud/azp, or via an RFC 8693 may_act claim. (A stored
@@ -218,6 +236,68 @@ public class DelegationTokenController {
         body.put("token_type", "Bearer");
         body.put("expires_in", lifetimeSeconds);
         return ResponseEntity.ok(body);
+    }
+
+    /**
+     * True when the request carries valid client authentication for {@code agentClientId}: the presented
+     * client_id must equal the actor's agent, and the presented secret must match the registered client's
+     * secret (constant-time). Accepts HTTP Basic (client_secret_basic) and form params (client_secret_post).
+     */
+    private boolean actorClientAuthenticated(final HttpServletRequest request, final String agentClientId) {
+        final String[] creds = clientCredentials(request);
+        if (creds == null || agentClientId == null || !agentClientId.equals(creds[0])) {
+            return false;
+        }
+        final RegisteredClient client;
+        try {
+            client = registeredClients.findByClientId(creds[0]);
+        } catch (final RuntimeException e) {
+            LOG.debug("delegation: client lookup failed for {}: {}", creds[0], e.getMessage());
+            return false;
+        }
+        if (client == null || client.getClientSecret() == null) {
+            return false; // unknown or public (no-secret) client cannot prove possession
+        }
+        return secretMatches(client.getClientSecret(), creds[1]);
+    }
+
+    /** Client credentials from HTTP Basic (preferred) or client_id/client_secret form params, or null. */
+    private static String[] clientCredentials(final HttpServletRequest request) {
+        final String header = request.getHeader("Authorization");
+        if (header != null && header.regionMatches(true, 0, "Basic ", 0, 6)) {
+            try {
+                final String decoded = new String(java.util.Base64.getDecoder().decode(header.substring(6).trim()),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                final int colon = decoded.indexOf(':');
+                if (colon > 0) {
+                    return new String[]{decoded.substring(0, colon), decoded.substring(colon + 1)};
+                }
+            } catch (final IllegalArgumentException ignored) {
+                return null;
+            }
+            return null;
+        }
+        final String clientId = request.getParameter("client_id");
+        final String clientSecret = request.getParameter("client_secret");
+        return (!isBlank(clientId) && clientSecret != null) ? new String[]{clientId, clientSecret} : null;
+    }
+
+    /**
+     * Constant-time compare of a presented secret against a stored SAS secret. Helix stores client secrets
+     * with the {@code {noop}} (plaintext) scheme, so strip that prefix before comparing; other schemes are
+     * treated as non-matching here (this endpoint only supports plaintext client secrets).
+     */
+    private static boolean secretMatches(final String storedSecret, final String presented) {
+        if (presented == null) {
+            return false;
+        }
+        if (!storedSecret.startsWith("{noop}")) {
+            return false;
+        }
+        final String stored = storedSecret.substring("{noop}".length());
+        return java.security.MessageDigest.isEqual(
+                stored.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                presented.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private AgentIdentityDto safeFindAgent(final String realm, final String clientId) {
