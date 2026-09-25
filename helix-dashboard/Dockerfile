@@ -8,7 +8,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.29-alpine
 # The HelixIAM server (admin API) base URL the console proxies to; overridable at deploy time.
 ENV HELIX_API_TARGET=http://helix-iam-server:8080
 COPY deploy/console/nginx.conf.template /etc/nginx/templates/default.conf.template
