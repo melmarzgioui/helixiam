@@ -24,6 +24,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.util.Base64;
 
@@ -54,6 +58,8 @@ public class RealmAdminBootstrapService {
     private final String adminUsername;
     /** From config; blank means "generate a strong one-time password instead of shipping a known default". */
     private final String configuredPassword;
+    /** Optional path (helix.admin.password-file) to write a generated password to, 0600, instead of logging it. */
+    private final String passwordFilePath;
     private volatile String bootstrapPassword;
 
     @Autowired
@@ -64,7 +70,8 @@ public class RealmAdminBootstrapService {
                                       final UserInRoleRepository userInRoleRepository,
                                       final PasswordEncoderService passwordEncoderService,
                                       @Value("${helix.admin.username:admin}") final String adminUsername,
-                                      @Value("${helix.admin.password:}") final String adminPassword) {
+                                      @Value("${helix.admin.password:}") final String adminPassword,
+                                      @Value("${helix.admin.password-file:}") final String passwordFilePath) {
         this.tenantRepository = tenantRepository;
         this.userRolesRepository = userRolesRepository;
         this.userCredentialsRepository = userCredentialsRepository;
@@ -73,6 +80,7 @@ public class RealmAdminBootstrapService {
         this.passwordEncoderService = passwordEncoderService;
         this.adminUsername = adminUsername;
         this.configuredPassword = adminPassword;
+        this.passwordFilePath = passwordFilePath;
     }
 
     /** The bootstrap admin username for a realm — verbatim for master, realm-qualified otherwise (usernames are global). */
@@ -85,19 +93,55 @@ public class RealmAdminBootstrapService {
      * otherwise generates a strong random password ONCE (cached, reused across realms) and logs it, so a
      * zero-config deployment is usable without ever shipping a known default credential.
      */
-    private synchronized String resolveBootstrapPassword() {
+    synchronized String resolveBootstrapPassword() {
         if (configuredPassword != null && !configuredPassword.isBlank()) {
             return configuredPassword;
         }
         if (bootstrapPassword == null) {
             bootstrapPassword = generateStrongPassword();
+            // L6: when a password file is configured, write it there (0600) and log ONLY the path,
+            // so the credential does not sit in the logs. Falls back to logging it if the write fails.
+            final boolean wroteFile = passwordFilePath != null && !passwordFilePath.isBlank()
+                    && writePasswordFile(passwordFilePath, bootstrapPassword);
             LOG.warn("=====================================================================");
-            LOG.warn("No helix.admin.password (HELIX_ADMIN_PASSWORD) configured.");
-            LOG.warn("Generated a one-time bootstrap admin password: {}", bootstrapPassword);
+            LOG.warn("No helix.admin.password (HELIX_ADMIN_PASSWORD) configured — generated a one-time");
+            LOG.warn("bootstrap admin password.");
+            if (wroteFile) {
+                LOG.warn("Written (0600) to: {}", passwordFilePath);
+            } else {
+                LOG.warn("Password: {}", bootstrapPassword);
+            }
             LOG.warn("Sign in, change it, and set HELIX_ADMIN_PASSWORD for future deployments.");
             LOG.warn("=====================================================================");
         }
         return bootstrapPassword;
+    }
+
+    /** Write the password to {@code path} with owner-only (0600) permissions. Returns false on any failure. */
+    private static boolean writePasswordFile(final String path, final String password) {
+        try {
+            final Path file = Path.of(path);
+            if (file.getParent() != null) {
+                Files.createDirectories(file.getParent());
+            }
+            Files.writeString(file, password + System.lineSeparator(),
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            try {
+                Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+            } catch (final UnsupportedOperationException nonPosix) {
+                // Non-POSIX filesystem (e.g. Windows): best-effort owner-only via the File API.
+                final java.io.File f = file.toFile();
+                f.setReadable(false, false);
+                f.setReadable(true, true);
+                f.setWritable(false, false);
+                f.setWritable(true, true);
+            }
+            return true;
+        } catch (final Exception e) {
+            LOG.warn("Could not write the bootstrap admin password file {} ({}); logging it instead.",
+                    path, e.getMessage());
+            return false;
+        }
     }
 
     private static String generateStrongPassword() {

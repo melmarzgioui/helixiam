@@ -52,7 +52,7 @@ class RealmAdminBootstrapServiceTest {
         when(encoder.encode(any())).thenAnswer(i -> "enc(" + i.getArgument(0) + ")");
         when(roles.save(any(UserRoles.class))).thenAnswer(i -> i.getArgument(0));
         when(links.save(any(TenantUser.class))).thenAnswer(i -> i.getArgument(0));
-        service = new RealmAdminBootstrapService(tenants, roles, users, links, userRoles, encoder, "admin", "secretpw");
+        service = new RealmAdminBootstrapService(tenants, roles, users, links, userRoles, encoder, "admin", "secretpw", "");
     }
 
     private void freshRealm(final String realm, final String adminUsername) {
