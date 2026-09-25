@@ -57,6 +57,7 @@ public class DelegationTokenController {
     private static final Logger LOG = LogManager.getLogger(DelegationTokenController.class);
     private static final String TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange";
     private static final String ISSUED_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
+    private static final String JWT_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:jwt";
 
     private final JwtEncoder jwtEncoder;
     private final JwtDecoder jwtDecoder;
@@ -92,12 +93,23 @@ public class DelegationTokenController {
             @RequestParam(value = "actor_token", required = false) final String actorToken,
             @RequestParam(value = "scope", required = false) final String requestedScope,
             @RequestParam(value = "resource", required = false) final String resource,
+            @RequestParam(value = "subject_token_type", required = false) final String subjectTokenType,
+            @RequestParam(value = "actor_token_type", required = false) final String actorTokenType,
+            @RequestParam(value = "requested_token_type", required = false) final String requestedTokenType,
             final HttpServletRequest request) {
 
         final String realm = RealmContextHolder.get();
         if (!TOKEN_EXCHANGE.equals(grantType) || isBlank(subjectToken) || isBlank(actorToken)) {
             return error(HttpStatus.BAD_REQUEST, "invalid_request",
                     "grant_type must be " + TOKEN_EXCHANGE + " with subject_token (the user) and actor_token (the agent)");
+        }
+        // RFC 8693 token-type parameters. When present the subject/actor tokens must be access tokens (or
+        // the generic JWT type) — Helix presents access tokens — and requested_token_type, if given, must be
+        // access_token (what this endpoint issues). Reject anything else rather than ignoring it.
+        if (!tokenTypeAccepted(subjectTokenType) || !tokenTypeAccepted(actorTokenType)
+                || (!isBlank(requestedTokenType) && !ISSUED_TOKEN_TYPE.equals(requestedTokenType))) {
+            return error(HttpStatus.BAD_REQUEST, "invalid_request",
+                    "unsupported token type parameter; subject/actor must be access_token and requested_token_type must be access_token");
         }
         final String issuer = realmIssuer(realm);
 
@@ -283,6 +295,11 @@ public class DelegationTokenController {
 
     private static boolean isBlank(final String s) {
         return s == null || s.isBlank();
+    }
+
+    /** A subject/actor {@code *_token_type} is acceptable when absent, or an access-token / generic JWT type. */
+    private static boolean tokenTypeAccepted(final String type) {
+        return isBlank(type) || ISSUED_TOKEN_TYPE.equals(type) || JWT_TOKEN_TYPE.equals(type);
     }
 
     private static String firstNonBlank(final String... candidates) {

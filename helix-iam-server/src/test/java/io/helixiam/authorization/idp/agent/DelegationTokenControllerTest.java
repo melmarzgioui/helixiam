@@ -87,7 +87,7 @@ class DelegationTokenControllerTest {
     void mintsWhenSubjectTokenNamesTheAgentInAud() throws Exception {
         final ResponseEntity<Map<String, Object>> resp =
                 strict.exchange(TOKEN_EXCHANGE, subjectToken(List.of(AGENT), null), actorToken(), "read", null,
-                        new MockHttpServletRequest());
+                        null, null, null, new MockHttpServletRequest());
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(resp.getBody()).containsKey("access_token");
     }
@@ -96,7 +96,7 @@ class DelegationTokenControllerTest {
     void rejectsWhenSubjectTokenIsNotBoundToTheAgent() throws Exception {
         final ResponseEntity<Map<String, Object>> resp =
                 strict.exchange(TOKEN_EXCHANGE, subjectToken(List.of("some-other-client"), null), actorToken(),
-                        "read", null, new MockHttpServletRequest());
+                        "read", null, null, null, null, new MockHttpServletRequest());
         assertThat(resp.getStatusCode().value()).isEqualTo(403);
         assertThat(resp.getBody()).containsEntry("error", "invalid_grant");
     }
@@ -105,7 +105,7 @@ class DelegationTokenControllerTest {
     void mintsWhenSubjectTokenCarriesAMayActNamingTheAgent() throws Exception {
         final ResponseEntity<Map<String, Object>> resp =
                 strict.exchange(TOKEN_EXCHANGE, subjectToken(null, Map.of("sub", AGENT)), actorToken(), "read",
-                        null, new MockHttpServletRequest());
+                        null, null, null, null, new MockHttpServletRequest());
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
     }
 
@@ -113,7 +113,7 @@ class DelegationTokenControllerTest {
     void looseModeAcceptsAnUnboundSubjectToken() throws Exception {
         final ResponseEntity<Map<String, Object>> resp =
                 loose.exchange(TOKEN_EXCHANGE, subjectToken(List.of("some-other-client"), null), actorToken(),
-                        "read", null, new MockHttpServletRequest());
+                        "read", null, null, null, null, new MockHttpServletRequest());
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
     }
 
@@ -127,9 +127,18 @@ class DelegationTokenControllerTest {
 
         final ResponseEntity<Map<String, Object>> resp =
                 strict.exchange(TOKEN_EXCHANGE, subjectToken(List.of(AGENT), null), actor, "read", null,
-                        new MockHttpServletRequest());
+                        null, null, null, new MockHttpServletRequest());
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(resp.getBody().get("error_description").toString()).contains("chain too deep");
+    }
+
+    @Test
+    void rejectsAnUnsupportedRequestedTokenType() throws Exception {
+        final ResponseEntity<Map<String, Object>> resp = strict.exchange(TOKEN_EXCHANGE,
+                subjectToken(List.of(AGENT), null), actorToken(), "read", null,
+                null, null, "urn:ietf:params:oauth:token-type:saml2", new MockHttpServletRequest());
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(resp.getBody()).containsEntry("error", "invalid_request");
     }
 
     private String actorToken() throws Exception {
