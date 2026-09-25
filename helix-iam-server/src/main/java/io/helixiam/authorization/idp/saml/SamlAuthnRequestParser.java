@@ -140,14 +140,26 @@ public class SamlAuthnRequestParser {
         return null;
     }
 
+    /**
+     * Map an XML-DSig RSA-SHA {@code SigAlg} URI to its JCA name (SAML-7). Only SHA-256/384/512 are
+     * accepted; {@code rsa-sha1} (weak) and any unknown or missing algorithm are REJECTED — the thrown
+     * exception is caught by {@link #isRedirectSignatureValid} and treated as an invalid signature,
+     * rather than silently verifying every unrecognised SigAlg as SHA-256.
+     */
     private static String jca(final String sigAlgUri) {
-        if (sigAlgUri.endsWith("rsa-sha1")) {
-            return "SHA1withRSA";
+        if (sigAlgUri == null) {
+            throw new IllegalArgumentException("missing SAML SigAlg");
+        }
+        if (sigAlgUri.endsWith("rsa-sha256")) {
+            return "SHA256withRSA";
+        }
+        if (sigAlgUri.endsWith("rsa-sha384")) {
+            return "SHA384withRSA";
         }
         if (sigAlgUri.endsWith("rsa-sha512")) {
             return "SHA512withRSA";
         }
-        return "SHA256withRSA";
+        throw new IllegalArgumentException("unsupported or weak SAML SigAlg (rejected): " + sigAlgUri);
     }
 
     private static AuthnRequest unmarshal(final String samlRequest, final boolean redirectBinding) {
