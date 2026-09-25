@@ -113,12 +113,23 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
 - **`12b791c`** — SAML-7 fixed: HTTP-Redirect `SigAlg` now allowlists RSA-SHA-256/384/512 and rejects
   `rsa-sha1` + unknown/missing (was: accept SHA-1, silently verify unknown as SHA-256). Regression test
   proves a valid SHA-1 signature is refused and SHA-256 still verifies. **1112 tests green.**
-- **Still to do in Phase 2:** three remaining no-live-peer SAML items — mandatory SP-initiated **SLO
-  signature** (`SamlIdpController` ~246), verify **SP-metadata XML signature** on import
-  (`SamlSpMetadataParser`), require **eID ArtifactResponse envelope signature** (`OpenSamlEidArtifactResolver`
-  ~206); **L5** legacy-crypto re-encryption migration + remaining-row counter; **L6** admin password to a
-  `0600` file; reconcile Flyway vs `schema.sql` (O5) then re-flip; sweep remaining user-facing
-  `kubedna`/`kubeiam` strings. Each as its own tested commit.
+- **`73e64dd`** — SAML-4 fixed: SP-initiated SLO now requires a registered SP signing certificate **and**
+  a valid `LogoutRequest` signature (was: signature only checked when a cert happened to be configured, so
+  a no-cert SP accepted unsigned requests → cross-user forced logout via `terminate(nameId)` + fan-out).
+  Regression test: no-cert SP → SLO rejected.
+- **S-I1 (SP-metadata signature) — assessed, no code change.** Verified: metadata is admin-authenticated
+  paste that only auto-fills a reviewable form (no automated URL fetch), so it is not an active vuln, and
+  the literal "reject unsigned metadata" fix would break the many SPs that publish unsigned metadata. Added
+  a guard-rail note in `SamlSpMetadataParser` requiring signature verification + `OutboundUrlGuard` **if** a
+  metadata-by-URL import is ever added. **Decision for you:** reject unsigned metadata outright, or a
+  non-breaking "verify-signature-if-present" enhancement? (Default: keep the guard-rail note only.)
+- **DEEP-3 (eID ArtifactResponse envelope signature) — deferred with rationale.** The inner assertion
+  signature is already always enforced (the real guarantee); the envelope-sig is defense-in-depth on the
+  DigiD back-channel, which has no live test peer. Changing that untestable path blind risks a regression;
+  it should land with the live-DigiD `ArtifactResolve` work when a test environment exists.
+- **Still to do in Phase 2:** **L5** legacy-crypto re-encryption migration + remaining-row counter; **L6**
+  admin password to a `0600` file; reconcile Flyway vs `schema.sql` (O5) then re-flip; sweep remaining
+  user-facing `kubedna`/`kubeiam` strings. Each as its own tested commit.
 
 ## Phase 1 — Agent delegation  *(not started; most careful)*
 Each sub-item (consent/audience binding, actor client-auth/DPoP, chain-depth limit, cross-realm key

@@ -28,6 +28,13 @@ import java.util.List;
  * Helix IAM (WSO2-class onboarding): parses an uploaded SP {@code <EntityDescriptor>} (SAML metadata XML)
  * into the fields Helix needs to register the relying party — so an admin pastes/drops the SP's metadata and
  * the RP form auto-fills instead of typing entityId/ACS/cert/NameID by hand.
+ *
+ * <p><b>Security (S-I1):</b> this input is <em>admin-authenticated and only auto-fills a form the admin then
+ * reviews and saves</em> — it makes no automated trust decision, so the metadata signature is not verified
+ * here (many SPs publish unsigned metadata; rejecting it would break onboarding for no real gain). If a
+ * metadata-by-URL import is ever added, that path MUST (a) fetch through {@code OutboundUrlGuard} and
+ * (b) verify the {@code <Signature>} against a pinned trust anchor before using the parsed values, since a
+ * URL fetch is an automated trust decision. See CHANGES-1.0.md (S-I1) for the follow-up options.
  */
 @Component
 public class SamlSpMetadataParser {
