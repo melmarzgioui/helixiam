@@ -201,6 +201,28 @@ matching public JWKS.
 - **Minor (logged, not a hole):** it does not read/validate RFC 8693 `*_token_type` params (it doesn't
   advertise them) and `exchange()` has no direct unit test. Tracked as a Phase-4/coverage follow-up.
 
+## Phase 4 — CI, supply chain & releases  *(workflows landed; first CI run happens on push)*
+Added under `.github/` (all actions **pinned to a full commit SHA**, version in a trailing comment;
+Dependabot keeps them current). These run on GitHub, so they are validated by the first push/PR, not
+locally — YAML validated locally.
+- **`ci.yml`** (rewritten): server (`mvn -B clean verify`), dashboard (vitest + build), and
+  `terraform-provider-helix` (`go vet` + `go test`) — the go module + dashboard tests were not run in CI
+  before. `permissions: contents: read`.
+- **`codeql.yml`**: CodeQL `security-extended` for `java-kotlin` + `javascript-typescript`
+  (build-mode none), on push/PR/weekly, results to code scanning.
+- **`security-scan.yml`**: Trivy fs scan (vuln + misconfig + secret, CRITICAL/HIGH, unfixed ignored) →
+  SARIF to code scanning, on push/PR/weekly.
+- **`dependabot.yml`**: maven, npm (dashboard + sandbox-rp), gomod, github-actions, docker — weekly, grouped.
+- **`release.yml`** (on `v*` tag): build + push the server image to GHCR, **cosign keyless sign**,
+  generate an **SPDX SBOM**, **cosign attest** the SBOM to the image, and publish a GitHub release with
+  the SBOM attached. Uses the runner's `docker`/`gh` to keep the third-party action set minimal
+  (checkout, cosign-installer, sbom-action). This makes real the supply-chain controls SECURITY.md
+  describes; `SECURITY.md` gained a "Build & supply-chain security" section (honest: no release tagged
+  yet, so no signed image exists on a registry today).
+- **Still to do in Phase 4:** enable GitHub secret scanning + push protection and branch protection
+  (repo settings — maintainer action, O2/O6); optionally add image scanning of the built release image
+  and an OpenID conformance job (FAPI) once a hosted test env exists.
+
 ---
 
 ## Open questions / to raise
