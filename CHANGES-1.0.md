@@ -127,9 +127,11 @@ closed only on an encryption *error* mid-write) — so a missing key silently st
   signature is already always enforced (the real guarantee); the envelope-sig is defense-in-depth on the
   DigiD back-channel, which has no live test peer. Changing that untestable path blind risks a regression;
   it should land with the live-DigiD `ArtifactResolve` work when a test environment exists.
-- **`430db9b`** — L6 done: when `helix.admin.password-file` (`HELIX_ADMIN_PASSWORD_FILE`) is set, a
-  generated bootstrap admin password is written to that file `0600` and only the path is logged (falls
-  back to logging it on write failure). 3 regression tests.
+- **`430db9b`** + **`bacc13f`** — L6 done: when `helix.admin.password-file` (`HELIX_ADMIN_PASSWORD_FILE`)
+  is set, a generated bootstrap admin password is written to that file `0600` and only the path is logged.
+  A background commit-review flagged credential exposure on partial failure; hardened in `bacc13f` —
+  file created `0600` **atomically** (never briefly world-readable), any partial file deleted on failure
+  (credential lands in exactly one place), `Path.of` guarded. 4 regression tests.
 - **Still to do in Phase 2:** **L5** legacy-crypto (AES/ECB) re-encryption migration + remaining-row
   counter — a careful data migration across the 8 encrypted-column entities; deserves its own focused
   change (approach: a one-time job that detects legacy-format values, re-encrypts to AES/GCM, and exposes
