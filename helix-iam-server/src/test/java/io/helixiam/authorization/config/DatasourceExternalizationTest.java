@@ -42,15 +42,16 @@ class DatasourceExternalizationTest {
     }
 
     @Test
-    void fallsBackToKubeDnaDefaultsWhenNoEnvSet() throws Exception {
+    void fallsBackToLocalhostHelixiamDefaultsWhenNoEnvSet() throws Exception {
         final var env = envWith(new HashMap<>());
 
+        // Defaults are standalone/localhost + the 'helixiam' database (no production-looking fallback).
         assertThat(env.resolveRequiredPlaceholders(env.getProperty("spring.datasource.url")))
-                .isEqualTo("jdbc:postgresql://kubedna-rw.project-kubedna:5432/kubeiam");
+                .isEqualTo("jdbc:postgresql://localhost:5432/helixiam");
         assertThat(env.resolveRequiredPlaceholders(env.getProperty("spring.readonly.datasource.url")))
-                .isEqualTo("jdbc:postgresql://kubedna-ro.project-kubedna:5432/kubeiam");
+                .isEqualTo("jdbc:postgresql://localhost:5432/helixiam");
         assertThat(env.resolveRequiredPlaceholders(env.getProperty("spring.datasource.username")))
-                .isEqualTo("kubeiam");
+                .isEqualTo("helixiam");
     }
 
     @Test
@@ -75,8 +76,8 @@ class DatasourceExternalizationTest {
         final var env = envWith(Map.of("DB_HOST", "primary.db", "DB_RO_HOST", "replica.db"));
 
         assertThat(env.resolveRequiredPlaceholders(env.getProperty("spring.datasource.url")))
-                .isEqualTo("jdbc:postgresql://primary.db:5432/kubeiam");
+                .isEqualTo("jdbc:postgresql://primary.db:5432/helixiam");
         assertThat(env.resolveRequiredPlaceholders(env.getProperty("spring.readonly.datasource.url")))
-                .isEqualTo("jdbc:postgresql://replica.db:5432/kubeiam");
+                .isEqualTo("jdbc:postgresql://replica.db:5432/helixiam");
     }
 }

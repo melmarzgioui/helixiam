@@ -53,6 +53,8 @@ class LoginSecurityHeadersTest {
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         registry.add("spring.readonly.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("database.encryption", () -> "0123456789abcdef0123456789abcdef");
+        registry.add("idp.base.url", () -> "http://localhost:8080");
+        registry.add("sp.base.url", () -> "http://localhost:8090");
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("spring.flyway.enabled", () -> "false");
         registry.add("spring.session.store-type", () -> "none");

@@ -55,6 +55,10 @@ class ContextLoadsTest {
         // so the context loads (the app correctly fail-fasts when this is unset).
         registry.add("database.encryption", () -> "0123456789abcdef0123456789abcdef");
 
+        // External base URLs are required outside the dev profile (ProductionReadinessCheck).
+        registry.add("idp.base.url", () -> "http://localhost:8080");
+        registry.add("sp.base.url", () -> "http://localhost:8090");
+
         // Schema via schema.sql (default path); keep Flyway off for the test.
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("spring.flyway.enabled", () -> "false");
