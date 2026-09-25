@@ -39,7 +39,7 @@
              transitive bcprov:1.76 cannot reintroduce the split-version OperatorHelper NoClassDefFoundError. -->
         <opensaml.version>5.1.4</opensaml.version>
         <shibboleth.shared.version>9.1.4</shibboleth.shared.version>
-        <xmlsec.version>3.0.5</xmlsec.version>
+        <xmlsec.version>4.0.4</xmlsec.version>
         <cryptacular.version>1.2.6</cryptacular.version>
     </properties>
 
