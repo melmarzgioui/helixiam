@@ -1,0 +1,50 @@
+version: 2
+# Keep dependencies and pinned action SHAs current. Grouped, weekly PRs to keep the noise low.
+updates:
+  - package-ecosystem: maven
+    directory: /helix-iam-server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      maven-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /helix-dashboard
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /helix-sandbox-rp
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /terraform-provider-helix
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directories:
+      - /helix-iam-server
+      - /helix-dashboard
+      - /helix-sandbox-rp
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
