@@ -236,7 +236,7 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
-            <version>11.7.2</version>
+            <version>13.7.0</version>
         </dependency>
 
         <!-- ============ Session (KEEP Redis, per decision) ============ -->
