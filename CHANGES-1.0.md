@@ -24,6 +24,15 @@ Do not weaken any of these; every change here keeps a regression test.
 ---
 
 ## Phase 5 — Repo hygiene & honesty  *(in progress)*
+- **`1c020e0`** — **Auth pages de-branded + re-themed.** The login/2FA/reset/register/consent/flow
+  pages still shipped a KubeDNA logo (a `theme.css` background + a hard-coded `<img>` in 21 templates)
+  and KubeDNA strings, and per-realm branding stopped at the login page. Replaced the logo with a
+  branding-aware **HelixIAM wordmark** in every template (shows the realm's `brandingLogo` when set,
+  else the built-in lockup) and re-themed `theme.css` + `login.css` to the helixiam.com warm-humanist
+  look (cream/sage/coral, Bricolage + Hanken, sage buttons). Scrubbed the remaining KubeDNA references
+  incl. the WebAuthn RP name shown in the passkey prompt, the seed tenant name, page titles and the
+  register terms link; byline → "Self-hosted identity". Build green (1139 tests); login + 2FA
+  render-verified. (Left: `brand.css` vendored-token comments still say KubeDNA — not user-facing.)
 - **`e8dc92a`** — Relabelled the internal security-test reports and moved them to `docs/security/`.
   Titles now say "Internal … Penetration Test Report" with a disclaimer that they are internal
   automated tests on our own code, **not** an independent third-party pentest (still required before
