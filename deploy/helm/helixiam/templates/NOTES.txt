@@ -1,0 +1,20 @@
+HelixIAM ({{ include "helixiam.fullname" . }}) is installed.
+
+Image:   {{ include "helixiam.image" . }}
+IdP URL: {{ .Values.config.idpBaseUrl }}
+SP URL:  {{ .Values.config.spBaseUrl }}
+
+Check rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "helixiam.fullname" . }}
+
+Port-forward and hit discovery:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "helixiam.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080/realms/master/.well-known/openid-configuration
+
+The bootstrap admin username is "{{ .Values.secrets.adminUsername }}".
+{{- if .Values.secrets.adminPasswordKey }}
+Its password comes from Secret "{{ .Values.secrets.existingSecret }}" key "{{ .Values.secrets.adminPasswordKey }}".
+{{- else }}
+No admin password key configured: a strong random password was generated once and written to the
+server logs — read it with `kubectl logs` and change it after first sign-in.
+{{- end }}

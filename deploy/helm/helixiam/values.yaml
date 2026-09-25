@@ -1,0 +1,135 @@
+# Default values for the helixiam chart. Secure-by-default; secrets are REFERENCED, not inlined.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/melmarzgioui/helix-iam-server
+  # Defaults to .Chart.appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+# The server does not talk to the Kubernetes API — do not mount a token.
+automountServiceAccountToken: false
+
+# ---------------------------------------------------------------------------
+# External URLs (REQUIRED). Fail-fast if unset: the app must know its own base URLs.
+# ---------------------------------------------------------------------------
+config:
+  idpBaseUrl: ""          # e.g. https://idp.example.com   (this IdP's own external base)
+  spBaseUrl: ""           # e.g. https://console.example.com (the console/SP origin)
+  samlIdpEntityId: ""     # defaults to <idpBaseUrl>/realms/master when empty
+  # Secure defaults (production posture):
+  registrationEnabled: false     # USER_REGISTRATION_ENABLED
+  prometheusAnonymous: false     # HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS (scrape via NetworkPolicy)
+  cookieSecure: true             # HELIX_COOKIE_SECURE (behind TLS ingress)
+  migrationsEnabled: true        # HELIX_MIGRATIONS_ENABLED — Flyway owns the schema in production
+  sessionStore: redis            # HELIX_SESSION_STORE
+  samlIdpEnabled: true           # HELIX_SAML_IDP_ENABLED
+  extraEnv: []                   # list of {name, value} or {name, valueFrom}
+
+database:
+  host: ""                # REQUIRED, e.g. postgres.db.svc
+  port: 5432
+  name: helixiam
+  readHost: ""            # optional read-replica host; defaults to database.host
+
+redis:
+  host: ""                # REQUIRED, e.g. redis-master.redis.svc
+  port: 6379
+
+# ---------------------------------------------------------------------------
+# Secrets — referenced from an existing Secret you create out-of-band.
+# The Secret MUST contain the keys below. This chart never inlines secret values.
+# ---------------------------------------------------------------------------
+secrets:
+  existingSecret: ""            # REQUIRED — name of a pre-created Secret
+  dbUsernameKey: db-username
+  dbPasswordKey: db-password
+  dbEncryptionKey: db-encryption  # 16-byte hex; keep stable for the life of the install
+  # Bootstrap admin. Username is plain config; the password is a secret key. If adminPasswordKey is
+  # empty, the server generates a strong random password once and logs it.
+  adminUsername: admin
+  adminPasswordKey: admin-password
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: idp.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 768Mi
+  limits:
+    cpu: "1"
+    memory: 1536Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop: ["ALL"]
+
+# Actuator-backed probes (health.probes.enabled=true in the app).
+probes:
+  startup:
+    path: /actuator/health/readiness
+    periodSeconds: 5
+    failureThreshold: 40      # ~200s to boot + migrate
+  liveness:
+    path: /actuator/health/liveness
+    periodSeconds: 10
+    failureThreshold: 6
+  readiness:
+    path: /actuator/health/readiness
+    periodSeconds: 10
+    failureThreshold: 3
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the HTTP port (ingress controller, etc.). Matched by namespace label.
+  ingressNamespaceSelectors: []      # e.g. [{ matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }]
+  allowSameNamespaceIngress: true
+  # Namespace where Prometheus runs, allowed to scrape /actuator/prometheus on the HTTP port.
+  prometheusNamespaceSelector: {}    # e.g. { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+  # Egress is restricted to DNS + database + redis + TLS (JWKS/webhooks/SMTP over 443). Set false to allow all.
+  restrictEgress: true
+  extraEgressPorts:                  # e.g. SMTP
+    - port: 587
+      protocol: TCP
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""

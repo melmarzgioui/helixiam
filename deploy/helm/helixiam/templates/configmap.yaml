@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "helixiam.fullname" . }}
+  labels: {{- include "helixiam.labels" . | nindent 4 }}
+data:
+  SERVER_PORT: {{ .Values.service.port | quote }}
+  DB_HOST: {{ .Values.database.host | quote }}
+  DB_RO_HOST: {{ default .Values.database.host .Values.database.readHost | quote }}
+  DB_PORT: {{ .Values.database.port | quote }}
+  DB_NAME: {{ .Values.database.name | quote }}
+  REDIS_HOST: {{ .Values.redis.host | quote }}
+  REDIS_PORT: {{ .Values.redis.port | quote }}
+  IDP_BASE_URL: {{ .Values.config.idpBaseUrl | quote }}
+  SP_BASE_URL: {{ .Values.config.spBaseUrl | quote }}
+  HELIX_SAML_IDP_ENTITY_ID: {{ default (printf "%s/realms/master" .Values.config.idpBaseUrl) .Values.config.samlIdpEntityId | quote }}
+  HELIX_SAML_IDP_ENABLED: {{ .Values.config.samlIdpEnabled | quote }}
+  HELIX_SESSION_STORE: {{ .Values.config.sessionStore | quote }}
+  USER_REGISTRATION_ENABLED: {{ .Values.config.registrationEnabled | quote }}
+  HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS: {{ .Values.config.prometheusAnonymous | quote }}
+  HELIX_COOKIE_SECURE: {{ .Values.config.cookieSecure | quote }}
+  HELIX_MIGRATIONS_ENABLED: {{ .Values.config.migrationsEnabled | quote }}
+  HELIX_ADMIN_USERNAME: {{ .Values.secrets.adminUsername | quote }}
