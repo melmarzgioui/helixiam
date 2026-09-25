@@ -105,7 +105,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings) throws Exception {
+    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher) throws Exception {
         // Helix IAM SSO P4: share OUR SessionRegistry bean with the authorization server BEFORE
         // applyDefaultSecurity (which would otherwise create its own). SAS reads it at token-issuance to
         // stamp the OIDC `sid` (session id hash) into id_tokens — the key that unifies a login's client
@@ -202,6 +202,14 @@ public class SecurityConfig {
         // endpoints matcher) and advertises the endpoint. Additive — clients that never call PAR are unaffected.
         http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
                 .pushedAuthorizationRequestEndpoint(Customizer.withDefaults());
+
+        // Helix IAM Agent (NHI) kill-switch, introspection side (Phase 1: gap 7). The lifecycle gate runs at
+        // issuance; this re-checks live agent status on the RFC 7662 introspection response so a token minted
+        // just before an agent was revoked/suspended introspects as active:false ahead of its (short) expiry.
+        // Additive — non-agent tokens pass through unchanged and the token-validation hot path is untouched.
+        http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
+                .tokenIntrospectionEndpoint(introspection -> introspection.introspectionResponseHandler(
+                        new io.helixiam.authorization.security.agent.AgentRevocationIntrospectionHandler(agentIdentityPublisher)));
 
         http.exceptionHandling(exceptions ->
             exceptions.defaultAuthenticationEntryPointFor(
