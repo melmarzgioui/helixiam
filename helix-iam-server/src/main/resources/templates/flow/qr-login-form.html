@@ -5,19 +5,19 @@
     <meta name="theme-color" content="#a3d4c4">
     <link th:href="@{/css/theme.css}" rel="stylesheet"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>KubeDNA - Login</title>
+    <title>HelixIAM - Login</title>
     <meta name="robots" content="noindex">
     <link rel="icon" href="/img/favicon.avif">
 </head>
 <body>
 <div class="mainWrapper">
     <header>
-        <div class="headerBar"><a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a></div>
+        <div class="headerBar"><a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a></div>
     </header>
     <main>
         <div class="container title">
             <h3>Scan to sign in</h3>
-            <div class="description">Open the KubeDNA app on your enrolled phone and scan this code, or
+            <div class="description">Open the HelixIAM app on your enrolled phone and scan this code, or
                 approve the prompt. The link refreshes periodically for security.</div>
         </div>
         <div class="container">

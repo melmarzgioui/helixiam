@@ -51,7 +51,7 @@ class MessageSourceI18nTest {
     @Test
     void dutchFallsBackToEnglishForAnUntranslatedKey() {
         // Brand name is intentionally identical in both bundles — proves the bundle loads, not a key echo.
-        assertEquals("KubeDNA", messages.getMessage("brand.name", null, NL));
+        assertEquals("HelixIAM", messages.getMessage("brand.name", null, NL));
     }
 
     @Test

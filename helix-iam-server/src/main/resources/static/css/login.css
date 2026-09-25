@@ -4,7 +4,7 @@
    where the two disagree. The B2 per-realm theming <style> blocks in
    login.html are injected AFTER this file, so an admin's brand colours,
    logo, welcome text and custom CSS always win.
-   Brand: KubeDNA brandbook — Cucumber #476957, Jade #a3d4c4, Black Cat #2f3033,
+   Brand: HelixIAM brandbook — Cucumber #476957, Jade #a3d4c4, Black Cat #2f3033,
    Work Sans (bundled via theme.css @font-face).
    ========================================================================= */
 
@@ -14,13 +14,20 @@
 @import "brand.css";
 
 :root {
-  --hx-cucumber: var(--kd-cucumber);
-  --hx-cucumber-deep: #3c5a49;      /* login-only deep cucumber shade */
-  --hx-jade: var(--kd-jade);
-  --hx-blackcat: var(--kd-blackcat);
-  --hx-brand-fg: #ffffff;
-  --hx-brand-fg-soft: rgba(255, 255, 255, 0.72);
-  --hx-brand-fg-faint: rgba(255, 255, 255, 0.5);
+  /* HelixIAM warm-humanist login — sage / coral / ink, matching helixiam.com. */
+  --hx-cucumber: #2f6b52;           /* sage (primary accent on the dark panel) */
+  --hx-cucumber-deep: #285c46;
+  --hx-jade: #e8896b;               /* coral highlight */
+  --hx-blackcat: #22352b;           /* deep green-ink panel ground */
+  --hx-brand-fg: #f6f1e9;           /* cream text on the panel */
+  --hx-brand-fg-soft: rgba(246, 241, 233, 0.74);
+  --hx-brand-fg-faint: rgba(246, 241, 233, 0.5);
+  /* Primary submit button = sage (was Black-Cat ink); overrides the shared brand.css tokens. */
+  --btn-primary-bg: #2f6b52;
+  --btn-primary-bg-hover: #285c46;
+  --btn-primary-fg: #f6f1e9;
+  --focus-ring: 0 0 0 2px #f6f1e9, 0 0 0 4px rgba(47, 107, 82, 0.55);
+  --wordmark-accent: #a7d8c4;       /* light sage for "IAM"/spark on the dark panel */
 }
 
 /* The split needs a scrolling, full-height page — theme.css locks the body to
@@ -59,8 +66,9 @@ body {
   padding: clamp(2rem, 4.5vw, 4rem);
   color: var(--hx-brand-fg);
   background:
-    radial-gradient(130% 90% at 12% 8%, rgba(163, 212, 196, 0.16), transparent 55%),
-    linear-gradient(158deg, #2f3033 0%, #263329 52%, #1b271f 100%);
+    radial-gradient(130% 90% at 12% 8%, rgba(47, 107, 82, 0.35), transparent 55%),
+    radial-gradient(90% 70% at 100% 100%, rgba(232, 137, 107, 0.16), transparent 55%),
+    linear-gradient(158deg, #223529 0%, #1e3026 52%, #16211b 100%);
 }
 
 /* faint oversized spark, bottom-right, behind the copy */
@@ -99,7 +107,7 @@ body {
   letter-spacing: -0.02em;
   color: var(--hx-brand-fg);
 }
-/* lockup "IAM" + spark = deep KubeDNA cyan (--wordmark-accent): ONE colour on every surface & ground */
+/* lockup "IAM" + spark = deep HelixIAM cyan (--wordmark-accent): ONE colour on every surface & ground */
 .brand-lockup .word b { font-weight: 800; color: var(--wordmark-accent); }
 .brand-lockup .spark {
   width: 1.3rem;
@@ -229,7 +237,7 @@ body {
 .helix-form .resetPasswordContainer { margin: 0.75rem 0 0; }
 .helix-form .resetPasswordContainer > a { font-size: 0.82rem; }
 
-/* primary submit — full width, unified KubeDNA ink button, arrow glyph (no icon-font dependency).
+/* primary submit — full width, unified HelixIAM ink button, arrow glyph (no icon-font dependency).
    Form sits on a LIGHT ground → ink (Black-Cat #2f3033); tokens from brand.css. */
 .helix-form .buttonHolder { margin-top: 1.6rem; }
 .helix-form .buttonHolder > button {
@@ -341,4 +349,12 @@ body {
   .brand-badges { display: none; }
   .helix-form { padding: 2rem 1.5rem 3rem; }
   .helix-form .lang { margin-bottom: 1.5rem; }
+}
+
+/* HelixIAM warm theme — display face (Bricolage Grotesque) for the login wordmark + headings. */
+.brand-lockup .word,
+.helix-brand h1,
+.helix-form .form-head h2 {
+  font-family: "Bricolage Grotesque", "Hanken Grotesk", "Work Sans", sans-serif;
+  letter-spacing: -0.02em;
 }

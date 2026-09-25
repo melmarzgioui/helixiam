@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#a3d4c4">
     <link th:href="@{/css/theme.css}" rel="stylesheet"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>KubeDNA — Authorise</title>
+    <title>HelixIAM — Authorise</title>
     <link rel="icon" th:href="@{/img/favicon.avif}">
     <meta name="robots" content="noindex">
     <meta name="googlebot" content="noindex">
@@ -38,7 +38,7 @@
 
     <header>
         <div class="headerBar">
-            <a><div class="logo"><img th:src="${brandingLogo} ?: @{/img/kubedna-zw.png}" src="/img/kubedna-zw.png" alt="Logo"></div></a>
+            <a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a>
         </div>
     </header>
 

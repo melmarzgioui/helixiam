@@ -5,7 +5,7 @@
     <meta name="theme-color" content="#a3d4c4">
     <link th:href="@{/css/theme.css}" rel="stylesheet"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title th:text="#{login.page.title}">KubeDNA - Login</title>
+    <title th:text="#{login.page.title}">HelixIAM - Login</title>
     <script defer src="/js/App.js?@project.version@" type="module"></script>
     <meta name="robots" content="noindex">
     <link rel="icon" href="/img/favicon.avif">
@@ -13,7 +13,7 @@
 <body>
 <div class="mainWrapper">
     <header>
-        <div class="headerBar"><a><div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div></a></div>
+        <div class="headerBar"><a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a></div>
     </header>
     <main>
         <div class="container title">

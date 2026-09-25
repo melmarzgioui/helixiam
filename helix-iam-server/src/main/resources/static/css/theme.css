@@ -1,61 +1,40 @@
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap");
+
 :root {
-  --color-header-background: rgba(47, 48, 51, 1);
-  --color-menu-background: rgba(246, 245, 243, 1);
-  --color-menu-background-active: rgba(71, 105, 87, 0.1);
-  --color-footer-background: rgba(47, 48, 51, 1);
-  --color-icon: rgba(102, 102, 255, 1);
-  --color-header-text: rgba(71, 105, 87, 1);
-  --color-box-border: rgba(47, 48, 51, 0.2);
-  --color-body: #FFFFFF;
-  --color-header: rgba(71, 105, 87, 0.1) !important;
-  --color-link: #476957;
-  --color-black: #2f3033;
-  --color-gray: #e8e7e1;
-  --color-blue: #b7d3ff;
-  --color-green: #476957;
-  --color-button-green: #2F3033;
-  --color-red: #476957;
-  --color-ligth-green: #a3d4c4;
+  /* HelixIAM warm-humanist auth theme — matches helixiam.com (cream / sage / coral). */
+  --color-header-background: #f6f1e9;   /* cream masthead like the website */
+  --color-menu-background: #f6f1e9;
+  --color-menu-background-active: rgba(47, 107, 82, 0.1);
+  --color-footer-background: #22352b;   /* deep green-ink footer */
+  --color-icon: #2f6b52;
+  --color-header-text: #22352b;
+  --color-box-border: #e7ded0;
+  --color-body: #f6f1e9;                /* cream page ground */
+  --color-header: rgba(47, 107, 82, 0.1) !important;
+  --color-link: #285c46;                /* sage links */
+  --color-black: #22352b;               /* ink text */
+  --color-gray: #e7ded0;
+  --color-blue: #4b6a8a;
+  --color-green: #2f6b52;               /* sage primary */
+  --color-button-green: #2f6b52;        /* primary buttons = sage */
+  --color-red: #c85f3c;                 /* coral for errors/accents */
+  --color-ligth-green: #6f8f7a;
   --color-white: #ffffff;
-  --color-grade-out: #aaaaaa;
-  --color-box: rgba(246, 245, 243, 0.4);
+  --color-grade-out: #7a857f;
+  --color-box: #ffffff;                 /* white cards */
   --color-disable-text: #AAAAAA;
   --color-disable-border:#ddd;
   --color-disable-background:#ddd;
+
+  /* wordmark tones */
+  --hx-ink: #22352b;
+  --hx-sage: #2f6b52;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-body: #2f3033;
-    --color-box-border: #1e1e1e;
-    --color-box: #3e3e3e;
-    --color-button-green: rgba(163,212,196,0.5);
-    --color-black: #e8e7e1;
-    --color-green: #a3d4c4;
-    --color-link: #a3d4c4;
-  }
-  header > div.headerBar a > div.logo {
-    background-image: url("/img/kubedna-wh.png") !important;
-    opacity: 0.75;
-  }
-  .image > img {
-    opacity: 0.5;
-  }
-  textarea, input, select {
-    background: #4d4d4d;
-    border: 1px solid #2e2e2e;
-  }
-  input:-webkit-autofill {
-    -webkit-text-fill-color: var(--color-black) !important;
-    -webkit-box-shadow: 0 0 0 30px #4d4d4d inset !important;
-  }
-  footer {
-    opacity: 0.75;
-  }
-}
+/* Auth pages stay light-warm to match helixiam.com (the website is light-only). */
 * {
   box-sizing: border-box;
-  font-family: "Work Sans", sans-serif;
+  font-family: "Hanken Grotesk", "Work Sans", sans-serif;
   font-size: 12px;
   font-style: normal;
   text-decoration: none;
@@ -398,15 +377,35 @@ header > div.headerBar a {
   gap: 10px;
 }
 header > div.headerBar a > div.logo {
-  height: 24px;
-  width: 180px;
-  background-image: url("/img/kubedna-wh.png");
-  background-size: contain;
-  background-repeat: no-repeat;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
 }
+/* per-realm custom logo image, shown only when a realm sets one */
 header > div.headerBar a > div.logo > img {
-  display: none;
-  max-height: 20px;
+  display: block;
+  max-height: 26px;
+  width: auto;
+}
+/* default HelixIAM wordmark — ink "Helix" + sage "IAM" + sage spark (matches helixiam.com) */
+.hx-wordmark {
+  display: inline-flex;
+  align-items: center;
+  font-family: "Bricolage Grotesque", "Hanken Grotesk", sans-serif;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  color: var(--hx-ink);
+  line-height: 1;
+}
+.hx-wordmark b { color: var(--hx-sage); font-weight: 800; }
+.hx-wordmark .hx-spark {
+  width: 13px;
+  height: 13px;
+  margin-left: 3px;
+  background-color: var(--hx-sage);
+  -webkit-mask: url("/img/helix-mark.svg") center/contain no-repeat;
+  mask: url("/img/helix-mark.svg") center/contain no-repeat;
 }
 
 footer {
@@ -588,4 +587,12 @@ i.email::after {
   font-style: normal;
   font-weight: 100 900;
   src: url("/css/font/WorkSans.woff2") format("woff2");
+}
+
+/* HelixIAM warm theme — display face for page titles/headings (matches helixiam.com). */
+h1, h2, h3, h4,
+.container.title h3,
+main .title h3 {
+  font-family: "Bricolage Grotesque", "Hanken Grotesk", sans-serif;
+  letter-spacing: -0.02em;
 }

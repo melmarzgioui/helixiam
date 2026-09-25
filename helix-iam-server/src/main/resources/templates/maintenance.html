@@ -8,7 +8,7 @@
 
     <link th:href="@{/css/theme.css}" rel="stylesheet"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
-    <title>KubeDNA - Login</title>
+    <title>HelixIAM - Login</title>
     <script defer src="/js/App.js?@project.version@" type="module"></script>
     <meta name="googlebot" content="noindex">
     <meta name="robots" content="noindex">
@@ -22,7 +22,7 @@
     <header>
         <div class="headerBar">
             <a>
-                <div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div>
+                <div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div>
             </a>
         </div>
     </header>
@@ -38,7 +38,7 @@
             <article>
                 <div class="actionSuccess" >
 <!--                    <i class="done"></i>-->
-                    <h3>KubeDNA In Maintenance</h3>
+                    <h3>HelixIAM In Maintenance</h3>
                     <span class="addition">We’re currently performing scheduled maintenance to improve your experience.<br/><br/>We apologize for the inconvenience and appreciate your patience.<br/>Try again later!</span>
                 </div>
                 <div class="spacer">&nbsp;</div>

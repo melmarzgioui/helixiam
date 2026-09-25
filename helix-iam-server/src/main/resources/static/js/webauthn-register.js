@@ -41,7 +41,7 @@
             const cred = await navigator.credentials.create({
                 publicKey: {
                     challenge: b64urlToBytes(challengeB64),
-                    rp: { id: rpId, name: 'KubeDNA' },
+                    rp: { id: rpId, name: 'HelixIAM' },
                     user: { id: strToBytes(userId), name: username, displayName: username },
                     pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
                     authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },

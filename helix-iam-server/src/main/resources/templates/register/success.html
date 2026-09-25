@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#a3d4c4">
     <link th:href="@{/css/theme.css}" rel="stylesheet"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
-    <title th:text="#{register.page.title}">KubeDNA - Registration</title>
+    <title th:text="#{register.page.title}">HelixIAM - Registration</title>
     <script defer src="/js/App.js?@project.version@" type="module"></script>
     <meta name="googlebot" content="noindex">
     <meta name="robots" content="noindex">
@@ -20,7 +20,7 @@
     <header>
         <div class="headerBar">
             <a>
-                <div class="logo"><img src="/img/kubedna-zw.png" alt="KubeDNA"></div>
+                <div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div>
             </a>
         </div>
     </header>

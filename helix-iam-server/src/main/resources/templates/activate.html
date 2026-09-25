@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#a3d4c4">
     <link th:href="@{/css/theme.css}" rel="stylesheet"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>KubeDNA — Activate device</title>
+    <title>HelixIAM — Activate device</title>
     <link rel="icon" th:href="@{/img/favicon.avif}">
     <meta name="robots" content="noindex">
     <meta name="googlebot" content="noindex">
@@ -25,7 +25,7 @@
     <header>
         <div class="headerBar">
             <a>
-                <div class="logo"><img th:src="${brandingLogo} ?: @{/img/kubedna-zw.png}" src="/img/kubedna-zw.png" alt="Logo"></div>
+                <div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div>
             </a>
         </div>
     </header>
@@ -33,7 +33,7 @@
     <main>
         <div class="container title">
             <h3>Activate device</h3>
-            <p style="margin:.35rem 0 0;color:var(--fg-muted,#667)">Enter the code shown by the KubeDNA CLI to authorise it on your account.</p>
+            <p style="margin:.35rem 0 0;color:var(--fg-muted,#667)">Enter the code shown by the HelixIAM CLI to authorise it on your account.</p>
         </div>
 
         <div class="container">

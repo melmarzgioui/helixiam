@@ -1,6 +1,6 @@
 -- insert or REPLACE  into user (role_id, name, owner_id, description) values ('1', 'ROLE_ADMIN', null, 'Admin voor de organisatie');
 
-insert into tenant (tenant_id, name) values ('-1234', 'KubeDNA')
+insert into tenant (tenant_id, name) values ('-1234', 'HelixIAM')
 ON CONFLICT (tenant_id) DO UPDATE
     SET name = excluded.name;
 
