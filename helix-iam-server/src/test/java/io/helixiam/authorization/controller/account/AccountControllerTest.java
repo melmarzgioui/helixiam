@@ -42,12 +42,16 @@ class AccountControllerTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private UserAdminPublisher publisher;
+    private io.helixiam.authorization.service.account.SelfEditableAttributesService selfEditable;
     private AccountController controller;
 
     @BeforeEach
     void setUp() {
         publisher = mock(UserAdminPublisher.class);
-        controller = new AccountController(publisher);
+        selfEditable = mock(io.helixiam.authorization.service.account.SelfEditableAttributesService.class);
+        // The realm admin allowlisted `locale` for self-service; everything else is admin-only.
+        when(selfEditable.allowed("master")).thenReturn(java.util.Set.of("locale"));
+        controller = new AccountController(publisher, selfEditable);
         RealmContextHolder.set("master");
     }
 
@@ -150,5 +154,47 @@ class AccountControllerTest {
         final ArgumentCaptor<UserAdminRef> ref = ArgumentCaptor.forClass(UserAdminRef.class);
         verify(publisher).listCredentials(ref.capture());
         assertThat(ref.getValue().userId()).isEqualTo("bob");
+    }
+
+    // ---- 1.0 security (item 1): self-service attribute edits are restricted -------------------------------
+
+    @Test
+    void updateProfile_refusesAReservedAttribute_with400_andNeverWrites() {
+        when(publisher.get(any())).thenReturn(dto("alice"));
+        final var resp = controller.updateProfile(principal("alice"),
+                new AccountProfileRequest("alice@example.com", Map.of("locale", "en", "sub", "joe-id")));
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(resp.getBody().toString()).contains("reserved_attribute").contains("sub");
+        org.mockito.Mockito.verify(publisher, org.mockito.Mockito.never()).update(any());
+    }
+
+    @Test
+    void updateProfile_refusesANonAllowlistedAttribute_with403() {
+        when(publisher.get(any())).thenReturn(dto("alice"));
+        final var resp = controller.updateProfile(principal("alice"),
+                new AccountProfileRequest("alice@example.com", Map.of("locale", "en", "department", "Finance")));
+        assertThat(resp.getStatusCode().value()).isEqualTo(403);
+        assertThat(resp.getBody().toString()).contains("attribute_not_self_editable").contains("department");
+        org.mockito.Mockito.verify(publisher, org.mockito.Mockito.never()).update(any());
+    }
+
+    @Test
+    void updateProfile_refusesEverythingWhenTheAllowlistIsEmpty_theDefault() {
+        when(selfEditable.allowed("master")).thenReturn(java.util.Set.of());
+        when(publisher.get(any())).thenReturn(dto("alice"));
+        final var resp = controller.updateProfile(principal("alice"),
+                new AccountProfileRequest("alice@example.com", Map.of("locale", "nl")));
+        assertThat(resp.getStatusCode().value()).isEqualTo(403);
+    }
+
+    @Test
+    void updateProfile_unchangedAttributesAreNotTreatedAsEdits() {
+        when(selfEditable.allowed("master")).thenReturn(java.util.Set.of());
+        when(publisher.get(any())).thenReturn(dto("alice"));
+        when(publisher.update(any())).thenReturn(dto("alice"));
+        // Re-sending the stored attributes unchanged (e.g. only the email changed) is allowed.
+        final var resp = controller.updateProfile(principal("alice"),
+                new AccountProfileRequest("new@example.com", Map.of("locale", "en")));
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
     }
 }

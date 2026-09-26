@@ -235,6 +235,11 @@ public class RealmConfig {
     @JsonProperty
     private boolean registrationEnabled = true;
 
+    /** 1.0 item 1: comma-separated profile attributes a user may edit themselves (null/empty = none). */
+    @Column(name = "self_editable_attributes")
+    @JsonProperty
+    private String selfEditableAttributes;
+
     @CreationTimestamp
     @Column(name = "creation_date", updatable = false)
     private Date creationDate;
@@ -596,5 +601,13 @@ public class RealmConfig {
 
     public void setRegistrationEnabled(final boolean registrationEnabled) {
         this.registrationEnabled = registrationEnabled;
+    }
+
+    public String getSelfEditableAttributes() {
+        return selfEditableAttributes;
+    }
+
+    public void setSelfEditableAttributes(final String selfEditableAttributes) {
+        this.selfEditableAttributes = selfEditableAttributes;
     }
 }

@@ -37,6 +37,8 @@ ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS remember_me boolean DEFAULT fa
 ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS remember_me_lifetime_seconds integer DEFAULT 2592000 NOT NULL;
 -- Per-realm self-registration switch on existing deployments.
 ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS registration_enabled boolean DEFAULT true NOT NULL;
+-- 1.0 item 1: admin-managed allowlist of self-editable profile attributes (csv; NULL = none).
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS self_editable_attributes text;
 
 -- REALM SIGNING KEYS (Helix IAM E1.4) --
 -- Per-realm JWT signing keys with rotation. The private key is encrypted at rest

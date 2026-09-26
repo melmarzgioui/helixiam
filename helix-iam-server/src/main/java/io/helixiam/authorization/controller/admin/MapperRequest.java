@@ -12,6 +12,6 @@ package io.helixiam.authorization.controller.admin;
  */
 public record MapperRequest(@jakarta.validation.constraints.NotBlank(message = "Mapper name is required.") String name,
                             @jakarta.validation.constraints.NotBlank(message = "Mapper type is required.") String mapperType,
-                            String source, String claimName,
+                            String source, @NotReservedClaim String claimName,
                             Boolean addToAccessToken, Boolean addToIdToken) {
 }

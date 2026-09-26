@@ -74,4 +74,18 @@ class UserInfoServiceTest {
         assertThat(claims).containsEntry("given_name", "Alice");
         assertThat(claims).containsEntry("preferred_username", "alice");
     }
+
+    @Test
+    void standardClaims_keepOnlyStandardOidcProfileClaims_neverCustomAttributes() {
+        final Map<String, String> profile = new LinkedHashMap<>();
+        profile.put("email", "alice@example.com");
+        profile.put("firstName", "Alice");
+        profile.put("firm", "c-joes-plumbing");
+        profile.put("iss", "https://evil");
+        final UserInfoService svc = serviceWith(profile);
+        final Map<String, String> std = svc.standardClaims(svc.getOidcClaimProfile("u-1"));
+
+        assertThat(std).containsEntry("email", "alice@example.com").containsEntry("given_name", "Alice");
+        assertThat(std).doesNotContainKeys("firm", "iss");
+    }
 }

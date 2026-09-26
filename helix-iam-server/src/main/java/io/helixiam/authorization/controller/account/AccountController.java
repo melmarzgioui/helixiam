@@ -47,9 +47,12 @@ import java.util.Map;
 public class AccountController {
 
     private final UserAdminPublisher publisher;
+    private final io.helixiam.authorization.service.account.SelfEditableAttributesService selfEditable;
 
-    public AccountController(final UserAdminPublisher publisher) {
+    public AccountController(final UserAdminPublisher publisher,
+                             final io.helixiam.authorization.service.account.SelfEditableAttributesService selfEditable) {
         this.publisher = publisher;
+        this.selfEditable = selfEditable;
     }
 
     /** The signed-in user's own profile (username read-only). 401 when unauthenticated. */
@@ -69,8 +72,8 @@ public class AccountController {
      * persisted state is carried through.
      */
     @PutMapping("/profile")
-    public ResponseEntity<UserAdminDto> updateProfile(@AuthenticationPrincipal final UserCredentials principal,
-                                                      @Valid @RequestBody final AccountProfileRequest request) {
+    public ResponseEntity<?> updateProfile(@AuthenticationPrincipal final UserCredentials principal,
+                                           @Valid @RequestBody final AccountProfileRequest request) {
         final UserCredentials user = require(principal);
         if (user == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -78,6 +81,22 @@ public class AccountController {
         final UserAdminDto current = publisher.get(new UserAdminRef(realm(), user.getUserId()));
         if (current == null) {
             return ResponseEntity.notFound().build();
+        }
+        // 1.0 security (item 1): a user may only change attributes the realm admin allowlisted for self-service.
+        // Reserved claim names (sub, iss, aud, roles, …) are always refused; everything else is admin-only.
+        if (request.attributes() != null) {
+            final java.util.Set<String> changed = changedKeys(current.attributes(), request.attributes());
+            final java.util.Set<String> reserved = io.helixiam.authorization.service.account.SelfEditableAttributesService.reserved(changed);
+            if (!reserved.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "reserved_attribute",
+                        "message", "These attribute names are reserved and cannot be set: " + String.join(", ", reserved)));
+            }
+            final java.util.Set<String> allowed = selfEditable.allowed(realm());
+            final java.util.List<String> denied = changed.stream().filter(k -> !allowed.contains(k)).sorted().toList();
+            if (!denied.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "attribute_not_self_editable",
+                        "message", "You are not allowed to change these attributes: " + String.join(", ", denied)));
+            }
         }
         final Map<String, String> attributes = request.attributes() == null ? current.attributes() : request.attributes();
         // Preserve username/enabled/locked from the persisted record; only email + attributes are user-editable.
@@ -122,6 +141,15 @@ public class AccountController {
         final boolean removed = Boolean.TRUE.equals(
                 publisher.revokeCredential(new CredentialRevokeRef(realm(), user.getUserId(), type, id)));
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
+    /** Keys whose value differs between the stored and the requested attributes (added, changed or removed). */
+    private static java.util.Set<String> changedKeys(final Map<String, String> current, final Map<String, String> requested) {
+        final Map<String, String> cur = current == null ? Map.of() : current;
+        final java.util.Set<String> keys = new java.util.TreeSet<>(cur.keySet());
+        keys.addAll(requested.keySet());
+        keys.removeIf(k -> java.util.Objects.equals(cur.get(k), requested.get(k)));
+        return keys;
     }
 
     /** Only a real interactive {@link UserCredentials} principal counts; anything else is treated as anonymous. */

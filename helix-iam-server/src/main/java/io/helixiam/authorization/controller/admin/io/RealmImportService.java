@@ -969,6 +969,13 @@ public class RealmImportService {
                 r.skipped(SLICE_CLIENT_MAPPERS);
                 continue;
             }
+            if (io.helixiam.authorization.security.claims.ReservedClaims.isReserved(m.claimName())) {
+                // 1.0 security (item 1): a mapper may never write a reserved identity/authority claim.
+                LOG.warn("Helix realm import [{}]: refused protocol mapper '{}' on '{}' — claim '{}' is reserved",
+                        realmId, m.name(), m.clientId(), m.claimName());
+                r.skipped(SLICE_CLIENT_MAPPERS);
+                continue;
+            }
             if (!targets.containsKey(m.clientId())) {
                 LOG.warn("Helix realm import [{}]: skipped protocol mapper '{}' — client '{}' not in target realm",
                         realmId, m.name(), m.clientId());

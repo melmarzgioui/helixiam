@@ -42,6 +42,11 @@ public final class ProtocolMapperResolver {
             if (!include || m.claimName() == null || m.claimName().isBlank()) {
                 continue;
             }
+            // Defence in depth: a mapper may never write a reserved identity/authority claim, even if one was
+            // stored before save-time validation existed (or arrived via an old import).
+            if (io.helixiam.authorization.security.claims.ReservedClaims.isReserved(m.claimName())) {
+                continue;
+            }
             if ("USER_ROLE".equals(m.mapperType())) {
                 if (roles != null && !roles.isEmpty()) {
                     // Mutable ArrayList (not .toList()) — SAS's authorization (de)serialization allowlist

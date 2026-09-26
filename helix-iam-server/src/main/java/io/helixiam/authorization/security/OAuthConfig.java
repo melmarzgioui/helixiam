@@ -127,7 +127,9 @@ public class OAuthConfig {
 
             if (OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType()) || "id_token".equals(context.getTokenType().getValue())) {
                 final Map<String, String> profile = userInfoService.getOidcClaimProfile(context.getPrincipal().getName());
-                context.getClaims().claims(claims -> claims.putAll(profile));
+                // Security (1.0 item 1): never copy the profile wholesale — only the standard OIDC profile claims.
+                // Custom attributes are emitted solely through explicitly configured protocol mappers.
+                context.getClaims().claims(claims -> claims.putAll(userInfoService.standardClaims(profile)));
                 applySubjectOverride(context, profile, claimScopePublisher);
                 applyProtocolMappers(context, profile, resolved.flat(), clientMapperPublisher);
                 // (#9) B2B Organizations: the principal's org memberships as the `organizations` claim.

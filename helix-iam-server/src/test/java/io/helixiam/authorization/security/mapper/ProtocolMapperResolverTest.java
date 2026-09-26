@@ -74,4 +74,24 @@ class ProtocolMapperResolverTest {
         assertFalse(ProtocolMapperResolver.claimsForTokenType(List.of(idOnly), Map.of(), Set.of("admin"), true).containsKey("roles2"));
         assertTrue(ProtocolMapperResolver.claimsForTokenType(List.of(idOnly), Map.of(), Set.of("admin"), false).containsKey("roles2"));
     }
+
+    // ---- 1.0 security (item 1) --------------------------------------------------------------------------
+
+    @Test
+    void userAttributeMapper_emitsTheConfiguredClaimName_notTheValue() {
+        final var m = new ProtocolMapperDto("m", "master", "c", "n", "USER_ATTRIBUTE", "firm", "firm_id", true, true);
+        final var claims = ProtocolMapperResolver.claimsForTokenType(java.util.List.of(m),
+                java.util.Map.of("firm", "c-joes-plumbing"), java.util.Set.of(), true);
+        org.assertj.core.api.Assertions.assertThat(claims).containsExactlyEntriesOf(java.util.Map.of("firm_id", "c-joes-plumbing"));
+    }
+
+    @Test
+    void mappersNeverWriteReservedClaims_evenIfStoredBeforeValidationExisted() {
+        final var sub = new ProtocolMapperDto("m1", "master", "c", "n1", "USER_ATTRIBUTE", "evil", "sub", true, true);
+        final var aud = new ProtocolMapperDto("m2", "master", "c", "n2", "HARDCODED", "someone-else", "AUD", true, true);
+        final var roles = new ProtocolMapperDto("m3", "master", "c", "n3", "USER_ROLE", null, "realm_access", true, true);
+        final var claims = ProtocolMapperResolver.claimsForTokenType(java.util.List.of(sub, aud, roles),
+                java.util.Map.of("evil", "joe-id"), java.util.Set.of("admin"), true);
+        org.assertj.core.api.Assertions.assertThat(claims).isEmpty();
+    }
 }
