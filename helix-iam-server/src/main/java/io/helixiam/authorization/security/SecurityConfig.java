@@ -225,7 +225,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate) throws Exception {
+    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate, final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter) throws Exception {
         // Helix IAM SSO P4: register every login's session in the SessionRegistry (unlimited concurrency)
         // so the authorization server can resolve its `sid`. The registry tracks session ids regardless of
         // where the HttpSession itself is stored.
@@ -306,6 +306,10 @@ public class SecurityConfig {
             // configured behaves exactly as before (realm-admin/all). The manager requires authentication, so
             // /admin/** is never anonymous in production.
             http.authorizeHttpRequests(requests -> requests.requestMatchers("/admin/**").access(adminAuthorizationManager));
+            // 1.0 item 4: service accounts call the admin API with a bearer access token. CSRF protects cookie
+            // sessions only — a bearer header is never sent cross-site by a browser — so it is skipped there.
+            http.addFilterBefore(adminBearerTokenFilter, org.springframework.security.web.csrf.CsrfFilter.class);
+            http.csrf(csrf -> csrf.ignoringRequestMatchers(io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter::isAdminBearerRequest));
         }
         // Wave 3 observability: the health probe stays anonymous unconditionally — it is the container
         // liveness/readiness endpoint and must answer before anything can authenticate.
@@ -466,6 +470,26 @@ public class SecurityConfig {
     @Bean
     public MfaAuthenticationCodeVerifier twoFactorAuthenticationCodeVerifier() {
         return new TotpAuthenticationCodeVerifier();
+    }
+
+    /**
+     * 1.0 item 4: bearer-token authentication for {@code /admin/**}. Not a servlet-registered filter (only the
+     * security chain runs it) — see {@link #adminBearerTokenFilterRegistration}.
+     */
+    @Bean
+    public io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter(
+            final org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService authorizationService,
+            final io.helixiam.authorization.amqp.clientrole.ClientRolePublisher clientRolePublisher) {
+        return new io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter(authorizationService, clientRolePublisher);
+    }
+
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter> adminBearerTokenFilterRegistration(
+            final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter filter) {
+        final org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter> registration =
+                new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     /**
