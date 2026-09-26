@@ -50,6 +50,7 @@ class FlywayMigrationTest {
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.sql.init.mode", () -> "never");
         registry.add("spring.session.store-type", () -> "none");
+        registry.add("helix.iam.session-store", () -> "queue"); // no Redis in this test: PostgreSQL sessions
     }
 
     @Autowired

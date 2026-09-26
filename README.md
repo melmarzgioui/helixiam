@@ -156,12 +156,34 @@ the admin console/API and take priority over the global SMTP fallback above.
 |---|---|---|
 | `USER_REGISTRATION_ENABLED` | `true` | platform-wide self-registration switch |
 | `MAINTENANCE` | `false` | maintenance mode |
-| `HELIX_SESSION_STORE` | `redis` | HTTP session store |
+| `HELIX_SESSION_STORE` | `redis` (`queue` in the `dev` profile) | HTTP session store: `redis`, or `queue` to keep sessions in PostgreSQL (no Redis needed). With `redis`, startup fails with a clear message if Redis is unreachable (`HELIX_REDIS_STARTUP_CHECK=false` to skip the check) |
 | `HELIX_TOKEN_STORE` | *(unset)* | unset = built-in Postgres-backed token store; `redis` for the high-throughput tier |
 | `HELIX_FLOW_ENGINE_ENABLED` | `false` | data-driven authentication-flow engine |
 | `HELIX_SAML_IDP_ENABLED` | `true` | enable the SAML 2.0 IdP role |
 | `HELIX_SQL_INIT_MODE` | `never` | legacy idempotent `schema.sql` init; set `always` together with `HELIX_MIGRATIONS_ENABLED=false` |
 | `HELIX_MIGRATIONS_ENABLED` | `true` | Flyway (`db/migration/V*`) manages the schema (default everywhere: app, image, Helm) |
+
+### Rate limits
+
+Sensitive POST endpoints are rate limited **per client IP address** (the first `X-Forwarded-For` address
+when present) and endpoint group, in memory on each replica (token bucket):
+
+| Endpoints | Burst | Refill | Properties |
+|---|---|---|---|
+| sign-in: `/login`, OTP/flow submit, password reset, registration | 20 | 20 / minute | `helix.ratelimit.login.burst`, `helix.ratelimit.login.refill-per-minute` |
+| `/oauth2/token` (all grants) | 120 | 120 / minute | `helix.ratelimit.token.burst`, `helix.ratelimit.token.refill-per-minute` |
+
+Excess requests get `429 Too Many Requests`. **In-cluster callers usually share one egress or pod IP**, so
+several backend services using `client_credentials` or token exchange from the same node count against one
+bucket: raise `helix.ratelimit.token.*` for such deployments (or put HelixIAM behind a proxy that forwards
+the real client address in `X-Forwarded-For`), and size it for your peak token traffic. `helix.ratelimit.enabled=false` turns
+the limiter off (only behind another rate-limiting layer). The limit is not per OAuth client in 1.0.
+
+### Memory
+
+Measured at `-Xmx512m`: about 590 MB RSS idle and 650 MB under light load. The container image sizes the heap
+at 75 % of the container limit (`-XX:MaxRAMPercentage=75`), so give the container **at least 1 GiB**; the Helm
+chart defaults to a 768 MiB request and a 1536 MiB limit.
 
 See the [documentation site](https://docs.helixiam.com) for the full documentation (architecture,
 install, configuration reference, API guides), and

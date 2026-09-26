@@ -74,6 +74,8 @@ ingress:
           pathType: Prefix
   tls: []
 
+# Memory: ~590 MB RSS idle / ~650 MB under light load at a 512 MiB heap. The image sizes the heap at 75 % of the
+# container limit (-XX:MaxRAMPercentage=75), so keep the limit at 1 GiB or more.
 resources:
   requests:
     cpu: 250m

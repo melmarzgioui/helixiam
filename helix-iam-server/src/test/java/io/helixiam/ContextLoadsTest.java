@@ -65,6 +65,7 @@ class ContextLoadsTest {
 
         // Do not require a live Redis for a context-load test (Redis stays in the main config).
         registry.add("spring.session.store-type", () -> "none");
+        registry.add("helix.iam.session-store", () -> "queue"); // no Redis in this test: PostgreSQL sessions
     }
 
     @Autowired
