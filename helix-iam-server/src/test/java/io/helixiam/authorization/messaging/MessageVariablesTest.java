@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Helix IAM notifications (N6a): user-claim passthrough. Every claim of the bound user is exposed to a message
  * template under a {@code user.} namespace (e.g. {@code {{user.email}}}, {@code {{user.given_name}}}) so a
- * realm can personalise OTP / magic-link / push messages, without a custom claim ever clobbering a system
+ * realm can personalise OTP / push messages, without a custom claim ever clobbering a system
  * variable ({@code realm}/{@code code}/{@code ttl}/...).
  */
 class MessageVariablesTest {

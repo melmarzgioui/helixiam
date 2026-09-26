@@ -76,6 +76,11 @@ public class RealmConfig {
     @JsonProperty
     private boolean requireMfa = false;
 
+    /** 1.0 item 6: days after account creation during which TOTP enrolment may be skipped (0 = never). */
+    @Column(name = "mfa_skip_grace_days")
+    @JsonProperty
+    private int mfaSkipGraceDays = 0;
+
     @Column(name = "password_min_length")
     @JsonProperty
     private int passwordMinLength = DEFAULT_PASSWORD_MIN_LENGTH;
@@ -304,6 +309,14 @@ public class RealmConfig {
 
     public void setReuseRefreshTokens(final boolean reuseRefreshTokens) {
         this.reuseRefreshTokens = reuseRefreshTokens;
+    }
+
+    public int getMfaSkipGraceDays() {
+        return mfaSkipGraceDays;
+    }
+
+    public void setMfaSkipGraceDays(final int mfaSkipGraceDays) {
+        this.mfaSkipGraceDays = mfaSkipGraceDays;
     }
 
     public boolean isRequireMfa() {

@@ -35,7 +35,7 @@ import java.util.Optional;
  * <h2>Per-realm vs. global SMTP</h2>
  * Email delivery prefers the realm's own configured provider — {@code MessagingProvider} rows entered
  * via Realm Settings &gt; Messaging &gt; Providers, the same store
- * {@code io.helixiam.authorization.messaging.MessagingService} reads for the OTP/magic-link email
+ * {@code io.helixiam.authorization.messaging.MessagingService} reads for the OTP email
  * senders — dispatched through whichever {@link EmailDriver} (SMTP or HTTP) matches that provider's
  * {@code driver} id. Falls back to the {@link SmtpProperties} global SMTP config
  * ({@code helix.notification.smtp.*}) only when the realm has none enabled (or there is no realm in

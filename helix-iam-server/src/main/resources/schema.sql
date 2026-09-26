@@ -39,6 +39,8 @@ ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS remember_me_lifetime_seconds i
 ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS registration_enabled boolean DEFAULT true NOT NULL;
 -- 1.0 item 1: admin-managed allowlist of self-editable profile attributes (csv; NULL = none).
 ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS self_editable_attributes text;
+-- 1.0 item 6: days after account creation during which TOTP enrolment may be skipped (0 = never).
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS mfa_skip_grace_days integer NOT NULL DEFAULT 0;
 
 -- REALM SIGNING KEYS (Helix IAM E1.4) --
 -- Per-realm JWT signing keys with rotation. The private key is encrypted at rest
@@ -362,6 +364,8 @@ CREATE TABLE IF NOT EXISTS user_credentials (
 -- (NULLs are not constrained), so accounts without an email coexist while emails stay one-per-account.
 ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email character varying(255);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_user_credentials_email ON user_credentials (email);
+-- 1.0 item 6: last accepted TOTP time step (replay protection).
+ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS mfa_last_step bigint;
 
 CREATE TABLE IF NOT EXISTS user_profile (
     user_id          character varying(255) NOT NULL,

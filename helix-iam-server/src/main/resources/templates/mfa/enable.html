@@ -45,12 +45,16 @@
                 <span th:text="#{mfa.enable.scanHelp.prefix}">Having trouble scanning?</span> <a id="showCode" th:text="#{mfa.enable.scanHelp.link}">Show code</a> <span th:text="#{mfa.enable.scanHelp.suffix}">to manually set up your authenticator app.</span>
             </div>
 
+            <div class="text">
+                <a th:href="${otpAuthUrl}" th:text="#{mfa.enable.openApp}">Open in your authenticator app</a>
+            </div>
+
             <div id="setupKey" class="hide">
                 <label th:text="#{mfa.enable.secret.label}">Your MFA Secret</label>
                 <pre><code th:text="${secret}"></code></pre>
             </div>
 
-            <form action="/mfa/enable" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
+            <form th:action="@{/mfa/enable}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
 
                 <label for="code" th:text="#{mfa.code.label}">Authentication Code:</label>
@@ -66,8 +70,8 @@
 
             </article>
 
-            <div class="skipButton">
-                <form action="/mfa/enable" method="post">
+            <div class="skipButton" th:if="${skipEnable}">
+                <form th:action="@{/mfa/enable}" method="post">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                     <input type="hidden" name="code" value="skip" />
                     <button type="submit" th:text="#{mfa.enable.skip}">Skip For Now</button>

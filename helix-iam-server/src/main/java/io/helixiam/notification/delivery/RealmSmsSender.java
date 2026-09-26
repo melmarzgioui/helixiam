@@ -19,7 +19,7 @@ import java.util.Optional;
  * Task 4 (strip-RabbitMQ notification delivery). Default {@link SmsSender}: reuses whichever
  * {@code SmsDriver} (Twilio/HTTP — already real, see {@code io.helixiam.authorization.messaging.driver})
  * the in-flight realm has enabled under its {@code SMS} messaging provider, exactly like the realm
- * OTP/magic-link senders do. Returns {@code false} (never throws) when there is no realm in context or
+ * OTP senders do. Returns {@code false} (never throws) when there is no realm in context or
  * no enabled SMS provider, so {@link SmtpNotifier} can log and continue instead of failing the caller.
  */
 public class RealmSmsSender implements SmsSender {

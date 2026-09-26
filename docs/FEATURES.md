@@ -22,8 +22,8 @@ status.
 | OAuth2 / OIDC provider (authorize, token, userinfo, JWKS, discovery, logout) | Stable | `authorization/idp`, `authorization/security/OAuthConfig` | OIDC/discovery/JWKS suites |
 | RS256 + PS256 signing, per-realm keys & rotation | Stable | `authorization/security/RealmJwkSource`, realm-keys | realm-signing tests |
 | Passkeys / WebAuthn (FIDO2) | Stable | `authentication/webauthn` | Passkey (5), WebAuthn (4) |
-| TOTP / OTP factors | Stable | `authentication/otp` | OTP suites |
-| Magic-link / passwordless | Beta | `authentication` magic-link | MagicLink (2) |
+| TOTP / OTP factors (enrolment confirmed by a first code, ±30 s, replay-protected, recovery codes, per-realm `requireMfa` + skip grace) | Stable | `service/mfa`, `security/mfa` | `MfaE2eTest`, `TotpServiceTest` |
+| Magic-link / passwordless | **Not in 1.0** — the unwired prototype was removed; planned for a later release | — | — |
 | Device push login | Beta | `notification/delivery` push + login | partial |
 | Risk-based / adaptive step-up | Beta | `authentication` adaptive | Adaptive (4) |
 | Brute-force lockout, password policy, HIBP | Stable | `authentication` policy | policy suites |

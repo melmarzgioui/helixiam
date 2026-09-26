@@ -17,7 +17,6 @@ import org.springframework.security.web.context.SecurityContextHolderFilter;
 import io.helixiam.authorization.security.mfa.MfaAuthenticationCodeVerifier;
 import io.helixiam.authorization.security.mfa.handler.MfaAuthenticationSuccessHandler;
 import io.helixiam.authorization.security.mfa.manager.MfaAuthorizationManager;
-import io.helixiam.authorization.security.mfa.totp.TotpAuthenticationCodeVerifier;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -105,7 +104,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher) throws Exception {
+    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService) throws Exception {
         // Helix IAM SSO P4: share OUR SessionRegistry bean with the authorization server BEFORE
         // applyDefaultSecurity (which would otherwise create its own). SAS reads it at token-issuance to
         // stamp the OIDC `sid` (session id hash) into id_tokens — the key that unifies a login's client
@@ -118,6 +117,10 @@ public class SecurityConfig {
         // right after the SecurityContext is loaded (so SecurityContextHolder is populated) and before the
         // SAS authorization endpoint, which runs later in the chain.
         http.addFilterAfter(new PromptAndMaxAgeAuthorizeFilter(registeredClientRepository, new AuthTimeStamper(), realmSettingsResolver),
+                SecurityContextHolderFilter.class);
+        // 1.0 item 6: no authorization code / device approval until the second factor was passed in this sign-in
+        // when the realm requires it (or the user enrolled TOTP). Registered after the prompt filter.
+        http.addFilterAfter(new io.helixiam.authorization.security.mfa.MfaEnforcementFilter(mfaPolicyService, totpService),
                 SecurityContextHolderFilter.class);
 
         // Helix IAM (#18, RFC 8707): validate the `resource` parameter at /oauth2/authorize + /oauth2/token
@@ -225,7 +228,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate, final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter) throws Exception {
+    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate, final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService) throws Exception {
         // Helix IAM SSO P4: register every login's session in the SessionRegistry (unlimited concurrency)
         // so the authorization server can resolve its `sid`. The registry tracks session ids regardless of
         // where the HttpSession itself is stored.
@@ -289,7 +292,7 @@ public class SecurityConfig {
         // Agent Phase C (MCP auth): RFC 9728 Protected Resource Metadata is public discovery, like OIDC discovery.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/.well-known/oauth-protected-resource").permitAll());
         http.authorizeHttpRequests(authorizationManagerRequestMatcherRegistry -> authorizationManagerRequestMatcherRegistry
-                .requestMatchers("/mfa/totp", "/mfa/enable", "/flow", "/flow/**",
+                .requestMatchers("/mfa/totp", "/mfa/enable", "/mfa/recovery", "/flow", "/flow/**",
                         "/required-actions", "/required-actions/**").access(new MfaAuthorizationManager()));
         // Helix IAM E8.2: LOCAL-DEV ONLY (helix.admin.dev-open=true, default false) — open the admin
         // identity-provider API so the helix-admin console (served from a Vite dev proxy on a different
@@ -361,12 +364,16 @@ public class SecurityConfig {
                 helixMetrics.recordLogin(io.helixiam.authorization.security.realm.RealmContextHolder.get(), "success");
                 // B1: if the user has pending required actions, hold them here and route to /required-actions
                 // before any flow/MFA/redirect runs (the completion flow hands the auth back to this routing).
+                // 1.0 item 6: a new password login starts a new sign-in — any earlier second-factor pass is void.
+                io.helixiam.authorization.security.mfa.MfaSessionState.clear(request);
                 if (requiredActionsGate.intercept(request, response, authentication)) {
                     return;
                 }
                 if (flowEngineEnabled) {
                     flowSuccessHandler.onAuthenticationSuccess(request, response, authentication);
-                } else if(mfaEnabled) {
+                } else if (mfaEnabled || mfaPolicyService.required(io.helixiam.authorization.security.realm.RealmContextHolder.get())
+                        || (authentication.getPrincipal() instanceof io.helixiam.authorization.domain.UserCredentials u
+                            && totpService.isEnrolled(u.getUsername()))) {
                     new MfaAuthenticationSuccessHandler("/mfa/totp", "/mfa/enable").onAuthenticationSuccess(request, response, authentication);
                 } else {
                     authTimeStamper.stamp(request); // SSO P2: record auth_time for max_age/prompt
@@ -468,8 +475,16 @@ public class SecurityConfig {
     }
 
     @Bean
-    public MfaAuthenticationCodeVerifier twoFactorAuthenticationCodeVerifier() {
-        return new TotpAuthenticationCodeVerifier();
+    public MfaAuthenticationCodeVerifier twoFactorAuthenticationCodeVerifier(final io.helixiam.authorization.service.mfa.TotpService totpService) {
+        // 1.0 item 6: ±1 step and replay-protected (the flow engine's OTP step uses this too); a pass marks the
+        // session so /oauth2/authorize may issue a code.
+        return (user, code) -> {
+            final boolean ok = user != null && totpService.verify(user.getUsername(), code);
+            if (ok) {
+                io.helixiam.authorization.security.mfa.MfaSessionState.markVerified(user.getUsername());
+            }
+            return ok;
+        };
     }
 
     /**

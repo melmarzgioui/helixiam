@@ -124,6 +124,21 @@ public final class OidcFlow {
      */
     public AuthorizationResult authorize(final String clientId, final String redirectUri, final String username,
                                          final String password, final String scope) {
+        return authorize(clientId, redirectUri, username, password, scope, null);
+    }
+
+    /**
+     * A second-factor step: given the page the login landed on (an MFA page, 200), submit it and return the
+     * response. Invoked until the flow reaches {@code redirect_uri}; {@code null} = password-only login.
+     */
+    @FunctionalInterface
+    public interface SecondFactor {
+        E2eHttp.Response submit(E2eHttp.Response page);
+    }
+
+    /** As {@link #authorize(String, String, String, String, String)}, answering MFA pages with {@code secondFactor}. */
+    public AuthorizationResult authorize(final String clientId, final String redirectUri, final String username,
+                                         final String password, final String scope, final SecondFactor secondFactor) {
         final Pkce pkce = Pkce.create();
         final String state = randomToken();
         final String nonce = randomToken();
@@ -160,8 +175,11 @@ public final class OidcFlow {
             throw new AssertionError("Login rejected for '" + username + "': " + after + "\n" + http.trail(10));
         }
 
-        // 4: back to authorize → (consent?) → redirect_uri?code=…
+        // 4: back to authorize → (second factor?) → (consent?) → redirect_uri?code=…
         after = http.followRedirectsUntil(after, hit -> hit.locationStartsWith(redirectUri));
+        for (int i = 0; secondFactor != null && i < 5 && after.status() == 200 && after.uri().getPath().contains("/mfa/"); i++) {
+            after = http.followRedirectsUntil(secondFactor.submit(after), hit -> hit.locationStartsWith(redirectUri));
+        }
         if (!after.locationStartsWith(redirectUri) && after.status() == 200
                 && after.body() != null && after.body().contains("name=\"state\"")) {
             after = http.followRedirectsUntil(approveConsent(after), hit -> hit.locationStartsWith(redirectUri));

@@ -26,10 +26,6 @@ import io.helixiam.authorization.flow.authenticators.PushApprovalAuthenticator;
 import io.helixiam.authorization.flow.device.DeviceEnrollmentService;
 import io.helixiam.authorization.flow.device.DeviceEnrollmentTicketStore;
 import io.helixiam.authorization.flow.device.InMemoryDeviceEnrollmentTicketStore;
-import io.helixiam.authorization.flow.magiclink.InMemoryMagicLinkTokenStore;
-import io.helixiam.authorization.flow.magiclink.MagicLinkSender;
-import io.helixiam.authorization.flow.magiclink.MagicLinkService;
-import io.helixiam.authorization.flow.magiclink.MagicLinkTokenStore;
 import io.helixiam.authorization.flow.authenticators.QrLoginAuthenticator;
 import io.helixiam.authorization.flow.persistence.AuthFlowMapper;
 import io.helixiam.authorization.flow.push.InMemoryPushApprovalStore;
@@ -200,16 +196,6 @@ public class FlowConfig {
     }
 
     @Bean
-    @ConditionalOnMissingBean(MagicLinkSender.class)
-    public MagicLinkSender magicLinkSender(final io.helixiam.authorization.messaging.MessagingService messaging,
-                                           final io.helixiam.authorization.service.UserInfoService userInfo,
-                                           @Value("${helix.magic-link.ttl-millis:600000}") final long ttlMillis) {
-        // N6b: render the realm's magic-link-email template + dispatch via the configured email provider
-        // (falls back to logging the link when no provider is configured).
-        return new io.helixiam.authorization.messaging.sender.RealmMagicLinkSender(messaging, userInfo, ttlMillis);
-    }
-
-    @Bean
     @ConditionalOnMissingBean(TransactionSigningStore.class)
     public TransactionSigningStore transactionSigningStore() {
         return new InMemoryTransactionSigningStore();                             // E4.4 (Redis impl can override)
@@ -249,26 +235,6 @@ public class FlowConfig {
                 tokenGenerator, System::currentTimeMillis, ttlMillis);            // E4.1 mobile enrollment endpoint
     }
 
-    @Bean
-    @ConditionalOnMissingBean(MagicLinkTokenStore.class)
-    public MagicLinkTokenStore magicLinkTokenStore() {
-        return new InMemoryMagicLinkTokenStore();                                 // magic-link (Redis can override)
-    }
-
-    @Bean
-    public MagicLinkService magicLinkService(final MagicLinkTokenStore magicLinkTokenStore,
-                                             final MagicLinkSender magicLinkSender,
-                                             @Value("${helix.magic-link.ttl-millis:600000}") final long ttlMillis,
-                                             @Value("${helix.magic-link.base-url:http://localhost:8083/login/magic}") final String linkBaseUrl) {
-        final SecureRandom random = new SecureRandom();
-        final Supplier<String> tokenGenerator = () -> {
-            final byte[] bytes = new byte[32];
-            random.nextBytes(bytes);
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        };
-        return new MagicLinkService(magicLinkTokenStore, magicLinkSender,
-                tokenGenerator, System::currentTimeMillis, ttlMillis, linkBaseUrl); // passwordless magic-link
-    }
     // MfaEnabledCondition (E2.5) is a @Component, so it is discovered automatically too.
 
     /**

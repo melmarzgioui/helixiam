@@ -62,7 +62,12 @@ public final class E2eSeed {
 
     /** Creates (idempotently) a realm with its tenant, admin role + admin user, default roles and browser flow. */
     public void realm(final String realmId) {
-        realms.createIfAbsent(realmId, realmId);
+        realm(realmId, realmId);
+    }
+
+    /** As {@link #realm(String)} with a display name (shown on login/MFA pages and as the TOTP issuer). */
+    public void realm(final String realmId, final String displayName) {
+        realms.createIfAbsent(realmId, displayName);
         realmAdmins.ensureRealmAdmin(realmId);
         defaultRoles.ensureDefaultRoles(realmId);
         flows.ensureBrowserFlow(realmId);

@@ -84,6 +84,11 @@ public class UserCredentials implements UserDetails {
     @Column(name = "mfa_secret")
     private String mfaSecret;
 
+    // 1.0 item 6: last accepted TOTP time step; a code for the same or an earlier step is a replay.
+    @JsonProperty
+    @Column(name = "mfa_last_step")
+    private Long mfaLastStep;
+
     // B1: required actions the user must complete at next login (CSV, e.g.
     // "UPDATE_PASSWORD,VERIFY_EMAIL"). Blank/null = none.
     @JsonProperty
@@ -263,5 +268,13 @@ public class UserCredentials implements UserDetails {
 
     public Date getCreationDate() {
         return creationDate;
+    }
+
+    public Long getMfaLastStep() {
+        return mfaLastStep;
+    }
+
+    public void setMfaLastStep(final Long mfaLastStep) {
+        this.mfaLastStep = mfaLastStep;
     }
 }

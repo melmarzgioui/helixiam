@@ -34,7 +34,7 @@
 
         <div class="container">
             <article>
-            <form action="/mfa/totp" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
+            <form th:action="@{/mfa/totp}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
 
                 <label for="code" th:text="#{mfa.code.label}">Authentication Code:</label>
@@ -48,6 +48,18 @@
                     </button>
                 </div>
             </form>
+
+            <details class="recovery" th:open="${recoveryError != null}">
+                <summary th:text="#{mfa.recovery.use}">Use a recovery code instead</summary>
+                <form th:action="@{/mfa/recovery}" method="post" th:classappend="${recoveryError != null ? 'invalid' : 'valid'}">
+                    <label for="recoveryCode" th:text="#{mfa.recovery.label}">Recovery code:</label>
+                    <input type="text" id="recoveryCode" name="recoveryCode" autocomplete="off" placeholder="XXXX-XXXX"/>
+                    <span class="error" th:text="#{mfa.recovery.error}">That recovery code is not valid or was already used</span>
+                    <div class="buttonHolder">
+                        <button type="submit"><span th:text="#{mfa.verify}">Verify</span></button>
+                    </div>
+                </form>
+            </details>
             </article>
         </div>
     </main>

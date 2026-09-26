@@ -118,9 +118,6 @@ public class MessagingAdminService {
                 "<p>Hi {{user}},</p>\n<p>Your verification code is <strong>{{code}}</strong>. "
                         + "It expires in {{ttl}}.</p>\n<p style=\"color:#888;font-size:13px\">"
                         + "If you didn't request this, you can safely ignore this email.</p>", true));
-        list.add(template(realmId, "magic-link-email", "EMAIL", "Sign in to {{realm}}",
-                "<p>Hi {{user}},</p>\n<p><a href=\"{{link}}\">Click here to sign in to {{realm}}</a>.</p>\n"
-                        + "<p style=\"color:#888;font-size:13px\">This link expires in {{ttl}}.</p>", true));
         list.add(template(realmId, "push-approval", "PUSH", "Approve your sign-in",
                 "Tap to approve signing in to {{realm}}. Match this number: {{number}}.", false));
         return list;

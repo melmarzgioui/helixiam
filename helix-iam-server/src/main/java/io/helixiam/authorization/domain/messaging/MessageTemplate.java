@@ -39,7 +39,7 @@ public class MessageTemplate {
     @Column(name = "realm_id")
     private String realmId;
 
-    /** Stable key — e.g. {@code otp-sms}, {@code otp-email}, {@code magic-link-email}, {@code push-approval}. */
+    /** Stable key — e.g. {@code otp-sms}, {@code otp-email}, {@code push-approval}. */
     @JsonProperty
     @Column(name = "template_key")
     private String templateKey;

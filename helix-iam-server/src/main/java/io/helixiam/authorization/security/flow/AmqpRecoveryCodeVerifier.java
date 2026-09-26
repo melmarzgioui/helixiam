@@ -25,6 +25,11 @@ public class AmqpRecoveryCodeVerifier implements RecoveryCodeVerifier {
 
     @Override
     public boolean verifyAndConsume(final String userId, final String code) {
-        return Boolean.TRUE.equals(publisher.verifyAndConsume(new RecoveryCodeVerification(userId, code)));
+        final boolean ok = Boolean.TRUE.equals(publisher.verifyAndConsume(new RecoveryCodeVerification(userId, code)));
+        if (ok) {
+            // 1.0 item 6: a recovery code is a second factor for this sign-in.
+            io.helixiam.authorization.security.mfa.MfaSessionState.markVerified(userId);
+        }
+        return ok;
     }
 }
