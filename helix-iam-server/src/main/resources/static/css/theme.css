@@ -596,3 +596,66 @@ main .title h3 {
   font-family: "Bricolage Grotesque", "Hanken Grotesk", sans-serif;
   letter-spacing: -0.02em;
 }
+
+/* 1.0 item 6: recovery codes (shown once after TOTP enrolment) and the "use a recovery code" option. */
+.mainWrapper > main > div.container ul.recoveryCodes {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+.mainWrapper > main > div.container ul.recoveryCodes > li {
+  margin: 0;
+}
+.mainWrapper > main > div.container ul.recoveryCodes code {
+  display: block;
+  text-align: center;
+  padding: 10px 12px;
+  line-height: 1.4;
+  font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  background: var(--color-header-background, #f6f1e9);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+}
+.buttonHolder > a.button {
+  width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-white);
+  background-color: var(--color-button-green);
+  border: 1px solid var(--color-green);
+}
+.mainWrapper > main > div.container div.text + div.text {
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+.mainWrapper > main > div.container details.recovery {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+.mainWrapper > main > div.container details.recovery > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-button-green);
+  margin-bottom: 12px;
+}
+.mainWrapper > main > div.container details.recovery input[type="text"] {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+@media (max-width: 480px) {
+  .mainWrapper > main > div.container ul.recoveryCodes {
+    grid-template-columns: 1fr;
+  }
+  .buttonHolder > a.button {
+    width: 100%;
+  }
+}

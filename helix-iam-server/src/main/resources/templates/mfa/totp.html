@@ -55,6 +55,7 @@
                     <label for="recoveryCode" th:text="#{mfa.recovery.label}">Recovery code:</label>
                     <input type="text" id="recoveryCode" name="recoveryCode" autocomplete="off" placeholder="XXXX-XXXX"/>
                     <span class="error" th:text="#{mfa.recovery.error}">That recovery code is not valid or was already used</span>
+                    <div class="spacer">&nbsp;</div>
                     <div class="buttonHolder">
                         <button type="submit"><span th:text="#{mfa.verify}">Verify</span></button>
                     </div>
