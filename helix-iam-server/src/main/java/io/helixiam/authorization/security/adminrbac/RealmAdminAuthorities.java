@@ -27,15 +27,27 @@ public final class RealmAdminAuthorities {
         return DefaultRoles.ADMIN + "_" + realmId;
     }
 
-    /** True when the principal holds {@code admin_<realmId>} for exactly that realm. */
+    /** True when the principal holds {@code admin_<realmId>} for that realm, or is a master-realm admin. */
     public static boolean isAdminOf(final Authentication auth, final String realmId) {
         if (auth == null || realmId == null || realmId.isBlank()) {
             return false;
         }
         final String needed = realmAdminAuthority(realmId);
+        // The master realm is the administrative realm (Keycloak model): its admins administer every realm —
+        // that is how a new realm is provisioned at all. Admins of any other realm stay confined to it.
+        final String master = realmAdminAuthority(io.helixiam.authorization.domain.realm.RealmConfig.ADMIN_REALM_ID);
         return auth.getAuthorities().stream()
                 .map(a -> a == null ? null : a.getAuthority())
-                .anyMatch(needed::equals);
+                .anyMatch(a -> needed.equals(a) || master.equals(a));
+    }
+
+    /** True when the principal is an admin of the master (administrative) realm. */
+    public static boolean isMasterAdmin(final Authentication auth) {
+        if (auth == null) {
+            return false;
+        }
+        final String master = realmAdminAuthority(io.helixiam.authorization.domain.realm.RealmConfig.ADMIN_REALM_ID);
+        return auth.getAuthorities().stream().map(a -> a == null ? null : a.getAuthority()).anyMatch(master::equals);
     }
 
     /** True when the principal is an admin of ANY realm (for realm-independent admin routes). */

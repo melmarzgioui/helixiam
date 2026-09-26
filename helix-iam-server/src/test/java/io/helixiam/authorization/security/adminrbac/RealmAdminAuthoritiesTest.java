@@ -47,4 +47,15 @@ class RealmAdminAuthoritiesTest {
         assertThat(RealmAdminAuthorities.isAdminOfAny(principal("user_gov", "auditor_fin"))).isFalse();
         assertThat(RealmAdminAuthorities.isAdminOfAny(null)).isFalse();
     }
+
+    @Test
+    void masterRealmAdmin_administersEveryRealm_otherRealmAdminsStayConfined() {
+        final Authentication master = principal("admin_master");
+        assertThat(RealmAdminAuthorities.isMasterAdmin(master)).isTrue();
+        assertThat(RealmAdminAuthorities.isAdminOf(master, "monthfold")).isTrue();
+        final Authentication firmAdmin = principal("admin_firm-a");
+        assertThat(RealmAdminAuthorities.isMasterAdmin(firmAdmin)).isFalse();
+        assertThat(RealmAdminAuthorities.isAdminOf(firmAdmin, "monthfold")).isFalse();
+        assertThat(RealmAdminAuthorities.isMasterAdmin(principal("user_master", "auditor_master"))).isFalse();
+    }
 }

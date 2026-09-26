@@ -91,6 +91,10 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
             return new AuthorizationDecision(RealmAdminAuthorities.isAdminOfAny(auth));
         }
 
+        if (RealmAdminAuthorities.isMasterAdmin(auth)) {
+            return new AuthorizationDecision(true); // master-realm admins administer every realm
+        }
+
         final List<String> roleNames = auth.getAuthorities().stream()
                 .map(a -> a.getAuthority())
                 .filter(s -> s != null && !s.isBlank())

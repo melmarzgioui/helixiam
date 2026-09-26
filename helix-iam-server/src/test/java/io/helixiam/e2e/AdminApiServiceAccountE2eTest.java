@@ -61,6 +61,29 @@ class AdminApiServiceAccountE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void masterRealmAdminServiceAccount_provisionsAndAdministersANewRealm() {
+        // Keycloak model: the master realm is the administrative realm; its admins manage every realm. This is
+        // how a realm gets created at all (PUT settings upserts it) — e.g. Monthfold's monthfold-provisioner.
+        final String token = serviceAccountToken(MASTER, "admin");
+        final String realm = E2eSeed.unique("provisioned");
+        final E2eHttp http = newBrowser();
+
+        final E2eHttp.Response created = http.sendJson("PUT", "/admin/realms/" + realm + "/settings",
+                Map.of("displayName", "Provisioned", "accessTokenTtlSeconds", 300, "refreshTokenTtlSeconds", 86400,
+                        "enabled", true, "passwordMinLength", 12), bearer(token));
+        assertThat(created.status()).as(created.toString()).isEqualTo(200);
+        assertThat(oidc(realm).issuer()).isEqualTo(baseUrl() + "/realms/" + realm);
+
+        final E2eHttp.Response client = http.sendJson("POST", "/admin/realms/" + realm + "/clients",
+                Map.of("clientId", "web", "grantTypes", List.of("authorization_code")), bearer(token));
+        assertThat(client.status()).as(client.toString()).isEqualTo(201);
+
+        // A master-realm service account without the admin role gets nothing.
+        final String plain = serviceAccountToken(MASTER, null);
+        assertThat(http.get("/admin/realms/" + realm + "/clients", bearer(plain)).status()).isEqualTo(403);
+    }
+
+    @Test
     void invalidOrForeignBearerTokens_areUnauthorized() {
         final E2eHttp http = newBrowser();
         final E2eHttp.Response garbage = http.get("/admin/realms/master/clients", bearer("not-a-token"));

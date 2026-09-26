@@ -98,8 +98,8 @@ class MetricsSummaryControllerTest {
         // ...nor the cross-realm aggregate (that is master-admin only)...
         assertThat(controller.summary(null, admin("gov")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(controller.summary("", admin("gov")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        // ...and a master admin is NOT implicitly admin of a tenant realm.
-        assertThat(controller.summary("gov", admin("master")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        // ...while a master-realm admin (the administrative realm, Keycloak model) may read any realm's figures.
+        assertThat(controller.summary("gov", admin("master")).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
