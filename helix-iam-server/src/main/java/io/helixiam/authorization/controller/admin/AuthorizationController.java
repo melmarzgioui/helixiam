@@ -114,6 +114,6 @@ public class AuthorizationController {
     public record NameReq(@NotBlank(message = "Name is required.") String name) { }
     public record ResourceReq(@NotBlank(message = "Resource name is required.") String name, List<String> uris, List<String> scopes) { }
     public record PolicyReq(@NotBlank(message = "Policy name is required.") String name, String type, String logic, List<String> roles) { }
-    public record PermissionReq(@NotBlank(message = "Permission name is required.") String name, String type, String resourceName, String scopeName, List<String> policies, String decisionStrategy) { }
+    public record PermissionReq(@NotBlank(message = "Permission name is required.") String name, @ValidPermissionType String type, String resourceName, String scopeName, List<String> policies, String decisionStrategy) { }
     public record EvalReq(String username, List<String> roles, String resourceName, String scopeName) { }
 }

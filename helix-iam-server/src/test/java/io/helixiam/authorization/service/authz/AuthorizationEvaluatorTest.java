@@ -6,6 +6,8 @@
 package io.helixiam.authorization.service.authz;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.List;
 import java.util.Map;
@@ -116,5 +118,26 @@ class AuthorizationEvaluatorTest {
         assertTrue(AuthorizationEvaluator.evaluate("report", null, Set.of("auditor"), perms, pol, "AFFIRMATIVE").granted());
         // UNANIMOUS server strategy would require BOTH permissions to grant → denied
         assertFalse(AuthorizationEvaluator.evaluate("report", null, Set.of("auditor"), perms, pol, "UNANIMOUS").granted());
+    }
+
+    /**
+     * 1.0 item 3 matrix: a permission on {@code doc} (scope permissions on {@code doc:delete}) evaluated for each
+     * stored type spelling × requested scope. Scope permissions grant exactly their scope; resource permissions
+     * grant the resource; unknown or blank types never grant anything.
+     */
+    @ParameterizedTest(name = "type={0} scope={1} -> {2}")
+    @CsvSource(nullValues = "null", value = {
+            "SCOPE,delete,true", "SCOPE,read,false", "SCOPE,null,false",
+            "scope,delete,true", "scope,read,false", "scope,null,false",
+            "Scope,delete,true", "Scope,read,false", "Scope,null,false",
+            "sCoPe,delete,true", "sCoPe,read,false",
+            "RESOURCE,null,true", "RESOURCE,read,true",
+            "resource,null,true", "Resource,read,true", "rEsOuRcE,delete,true",
+            "bogus,delete,false", "bogus,null,false", "Scopes,delete,false", "'',delete,false", "null,delete,false"})
+    void permissionTypeMatrix(final String type, final String scope, final boolean granted) {
+        final String scopeName = type != null && type.trim().equalsIgnoreCase("scope") ? "delete" : null;
+        final var perms = List.of(new PermissionView("p", type, "doc", scopeName, List.of("admins"), "UNANIMOUS"));
+        final var pol = policies(new PolicyView("admins", "ROLE", "POSITIVE", Set.of("admin")));
+        assertEquals(granted, AuthorizationEvaluator.evaluate("doc", scope, Set.of("admin"), perms, pol, "UNANIMOUS").granted());
     }
 }

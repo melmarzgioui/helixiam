@@ -144,7 +144,9 @@ public class AuthorizationAdminService {
         final AuthzPermissionEntity e = permissions.findByRealmIdAndClientIdAndName(write.realmId(), write.clientId(), write.name())
                 .orElseGet(AuthzPermissionEntity::new);
         e.setRealmId(write.realmId()); e.setClientId(write.clientId()); e.setName(write.name());
-        e.setType(blankTo(write.type(), "RESOURCE"));
+        // Stored canonically (RESOURCE/SCOPE); an unknown type is refused rather than saved (1.0 item 3).
+        e.setType(isBlankType(write.type()) ? PermissionType.RESOURCE.name() : PermissionType.parse(write.type())
+                .orElseThrow(() -> new IllegalArgumentException("Unknown permission type: " + write.type())).name());
         e.setResourceName(blankToNull(write.resourceName())); e.setScopeName(blankToNull(write.scopeName()));
         e.setPolicies(join(write.policies())); e.setDecisionStrategy(blankTo(write.decisionStrategy(), "UNANIMOUS"));
         return toPermission(permissions.save(e));
@@ -201,5 +203,9 @@ public class AuthorizationAdminService {
 
     private static String blankToNull(final String v) {
         return v == null || v.isBlank() ? null : v.trim();
+    }
+
+    private static boolean isBlankType(final String type) {
+        return type == null || type.isBlank();
     }
 }

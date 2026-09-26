@@ -1168,6 +1168,14 @@ public class RealmImportService {
                     }
                 }
                 for (final AuthzPermissionDto perm : nonNull(a.permissions())) {
+                    if (perm != null && !isBlank(perm.name()) && !isBlank(perm.type())
+                            && io.helixiam.authorization.service.authz.PermissionType.parse(perm.type()).isEmpty()) {
+                        // 1.0 item 3: an unknown permission type is refused, never saved (it would evaluate to deny).
+                        LOG.warn("Helix realm import [{}]: refused permission '{}' on '{}' — unknown type '{}'",
+                                realmId, perm.name(), a.clientId(), perm.type());
+                        r.skipped(SLICE_AUTHZ);
+                        continue;
+                    }
                     if (perm != null && !isBlank(perm.name())) {
                         authorizationPublisher.createPermission(new AuthzPermissionDto(null, realmId, a.clientId(),
                                 perm.name(), perm.type(), perm.resourceName(), perm.scopeName(), perm.policies(),
