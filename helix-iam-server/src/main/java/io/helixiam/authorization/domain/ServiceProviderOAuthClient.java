@@ -214,6 +214,14 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
     @Column(name = "allowed_resources")
     private String allowedResources;
 
+    /**
+     * 1.0 item 5: comma-joined client ids allowed to obtain a token for THIS client via RFC 8693 token exchange
+     * ({@code audience=<this client>}). Empty = nobody may exchange to it.
+     */
+    @JsonProperty
+    @Column(name = "token_exchange_allowed_clients")
+    private String tokenExchangeAllowedClients;
+
     /** Helix IAM B11 (FAPI / RFC 8705): bind access tokens to the client's mTLS cert (cnf.x5t#S256). */
     @JsonProperty
     @Column(name = "x509_certificate_bound_access_tokens")
@@ -524,6 +532,8 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
     public void setAllowedResources(final String allowedResources) { this.allowedResources = allowedResources; }
 
     // --- B11 FAPI accessors (mTLS cert-bound tokens / signed Request Objects / JARM) ---
+    public String getTokenExchangeAllowedClients() { return tokenExchangeAllowedClients; }
+    public void setTokenExchangeAllowedClients(final String v) { this.tokenExchangeAllowedClients = v; }
     public Boolean getX509CertificateBoundAccessTokens() { return x509CertificateBoundAccessTokens; }
     public void setX509CertificateBoundAccessTokens(final Boolean v) { this.x509CertificateBoundAccessTokens = v; }
     public Boolean getRequireSignedRequestObject() { return requireSignedRequestObject; }

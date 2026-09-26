@@ -117,7 +117,8 @@ public class OAuthConfig {
                                                                         final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher,
                                                                         final io.helixiam.authorization.observability.HelixMetrics helixMetrics,
                                                                         final io.helixiam.authorization.security.fapi.ClientCertificateResolver clientCertificateResolver,
-                                                                        final AgentIdentityPublisher agentIdentityPublisher) {
+                                                                        final AgentIdentityPublisher agentIdentityPublisher,
+                                                                        final io.helixiam.authorization.service.client.TokenExchangePolicyService tokenExchangePolicy) {
         return context -> {
             // The principal's effective roles, Keycloak-namespaced: realm roles under `realm_access.roles`
             // and client roles under `resource_access.<clientId>.roles` (never one flat ambiguous list).
@@ -143,6 +144,13 @@ public class OAuthConfig {
                 // Agent (NHI): if this client_credentials client is a registered agent, gate on its lifecycle
                 // (a suspended/revoked/expired agent is denied a token) and stamp the `nhi.*` identity claims.
                 applyAgentIdentity(context, agentIdentityPublisher);
+            }
+
+            // 1.0 item 5 (RFC 8693): token exchange honours audience/resource (invalid_target otherwise) and the
+            // target's exchange policy, and records the acting client in `act`. Deliberately NOT swallowed.
+            if (OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())
+                    && AuthorizationGrantType.TOKEN_EXCHANGE.equals(context.getAuthorizationGrantType())) {
+                TokenExchangeTargets.apply(context, tokenExchangePolicy, resourceIndicatorPublisher);
             }
 
             // (#18, RFC 8707) Resource Indicators: when a `resource` was requested + allowed, narrow the

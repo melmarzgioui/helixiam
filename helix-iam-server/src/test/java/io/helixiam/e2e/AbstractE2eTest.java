@@ -114,6 +114,9 @@ public abstract class AbstractE2eTest {
         registry.add("mfa.enabled", () -> "false");
         registry.add("helix.flow-engine.enabled", () -> "false");
         registry.add("helix.security.cookie-secure", () -> "false");
+        // Every e2e request comes from 127.0.0.1; lift the per-IP login/token buckets so the suite never 429s.
+        registry.add("helix.ratelimit.login.burst", () -> "100000");
+        registry.add("helix.ratelimit.token.burst", () -> "100000");
         registry.add("helix.admin.username", () -> ADMIN_USERNAME);
         registry.add("helix.admin.password", () -> ADMIN_PASSWORD);
     }

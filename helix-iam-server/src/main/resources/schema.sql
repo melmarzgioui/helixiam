@@ -728,6 +728,8 @@ ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS allowed_resources ch
 -- JAR (RFC 9101): require the authorization request to be a signed Request Object (request/request_uri).
 -- JARM: the JWT-secured authorization response mode (NULL = plain; jwt/query.jwt/fragment.jwt/form_post.jwt).
 ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS x509_certificate_bound_access_tokens boolean DEFAULT false;
+-- 1.0 item 5: RFC 8693 target policy — client ids allowed to exchange tokens for this client (empty = none).
+ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS token_exchange_allowed_clients character varying(2000) DEFAULT NULL;
 ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS require_signed_request_object boolean DEFAULT false;
 ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS jarm_response_mode character varying(32) DEFAULT NULL;
 
