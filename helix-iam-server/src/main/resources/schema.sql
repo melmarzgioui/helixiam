@@ -208,11 +208,19 @@ CREATE TABLE IF NOT EXISTS service_provider_oauth (
     id_token_signature_alg          character varying(16) DEFAULT NULL,  -- RS256/RS384/RS512/ES256…; null = RS256
     reuse_refresh_tokens            boolean DEFAULT false,
     UNIQUE (service_provider_id),
-    UNIQUE (client_id),
+    -- A client id is unique WITHIN a realm (same as Flyway V5): two realms may each have a client "web".
+    UNIQUE (client_id, realm_id),
     FOREIGN KEY(tenant_id) REFERENCES tenant(tenant_id) ON DELETE CASCADE
 );
 -- Idempotent for pre-existing DBs (CREATE TABLE IF NOT EXISTS above won't ALTER an existing table).
 ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS realm_id character varying(255) NOT NULL DEFAULT 'master';
+-- 1.0 item 2: replace a legacy global UNIQUE (client_id) with the per-realm one on an existing database.
+ALTER TABLE service_provider_oauth DROP CONSTRAINT IF EXISTS service_provider_oauth_client_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS service_provider_oauth_client_id_realm_id_key ON service_provider_oauth (client_id, realm_id);
+-- 1.0 item 2: clients created through the admin API before 1.0 got realm_id='master' whatever their realm;
+-- their tenant_id always carried the right realm, so re-home them (the -1234 seed client stays in master).
+UPDATE service_provider_oauth SET realm_id = tenant_id
+ WHERE realm_id = 'master' AND tenant_id <> 'master' AND tenant_id <> '-1234';
 ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS auth_flow_alias character varying(255) DEFAULT NULL;
 ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS name character varying(255) DEFAULT NULL;
 ALTER TABLE service_provider_oauth ADD COLUMN IF NOT EXISTS description character varying(1000) DEFAULT NULL;

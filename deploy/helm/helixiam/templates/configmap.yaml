@@ -20,4 +20,5 @@ data:
   HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS: {{ .Values.config.prometheusAnonymous | quote }}
   HELIX_COOKIE_SECURE: {{ .Values.config.cookieSecure | quote }}
   HELIX_MIGRATIONS_ENABLED: {{ .Values.config.migrationsEnabled | quote }}
+  HELIX_SQL_INIT_MODE: {{ ternary "never" "always" .Values.config.migrationsEnabled | quote }}
   HELIX_ADMIN_USERNAME: {{ .Values.secrets.adminUsername | quote }}

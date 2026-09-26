@@ -52,10 +52,10 @@ curl http://localhost:8080/actuator/health
 ```
 
 The `dev` profile (`application-dev.properties`) overlays local-friendly defaults (Postgres on
-`localhost`, MFA off) on top of the base `application.properties`. On first boot the app runs
-`schema.sql` (idempotent, `spring.sql.init.mode=always` by default; set `HELIX_MIGRATIONS_ENABLED=true`
-to use Flyway instead — see `src/main/resources/db/migration`) and seeds the `master` realm: an
-an `admin` user (username via `HELIX_ADMIN_USERNAME`, default `admin`; password via
+`localhost`, MFA off) on top of the base `application.properties`. On first boot Flyway applies
+`src/main/resources/db/migration` (the default; the legacy idempotent `schema.sql` path remains available
+with `HELIX_MIGRATIONS_ENABLED=false HELIX_SQL_INIT_MODE=always`) and the app seeds the `master` realm: an
+`admin` user (username via `HELIX_ADMIN_USERNAME`, default `admin`; password via
 `HELIX_ADMIN_PASSWORD` — **if unset, a strong random password is generated and printed to the logs
 once on first boot**), default `user` / `auditor` roles, and a self-generated RSA signing keypair.
 

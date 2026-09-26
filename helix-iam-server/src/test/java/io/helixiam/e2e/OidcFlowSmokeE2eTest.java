@@ -8,7 +8,6 @@ package io.helixiam.e2e;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nimbusds.jwt.JWTClaimsSet;
 import io.helixiam.authorization.repository.ServiceProviderRepository;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -30,14 +29,8 @@ class OidcFlowSmokeE2eTest extends AbstractE2eTest {
         assertFullCodeFlow(MASTER);
     }
 
-    /**
-     * Same flow in a freshly created realm. Disabled until item 2 is fixed: {@code ClientAdminService.create}
-     * sets the client's {@code tenant_id} to the realm but never its {@code realm_id}, which defaults to
-     * {@code master} — so the realm-scoped lookup under {@code /realms/monthfold/oauth2/authorize} finds no
-     * client, SAS rejects the request, and the error dispatch 302s to the realm-blind {@code /login} (404).
-     */
+    /** Same flow in a freshly created realm (item 2: clients used to land in the master realm). */
     @Test
-    @Disabled("item 2: clients land in master realm")
     void authorizationCodeWithPkceInNewRealm() {
         final String realm = "monthfold";
         seed().realm(realm);

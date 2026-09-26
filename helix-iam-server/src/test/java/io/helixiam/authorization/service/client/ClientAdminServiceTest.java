@@ -56,6 +56,7 @@ class ClientAdminServiceTest {
         final ServiceProviderOAuthClient saved = captor.getValue();
         assertEquals("portal", saved.getClientId());
         assertEquals("gov", saved.getTenantId());
+        assertEquals("gov", saved.getRealmId(), "the client is reachable under the realm it was created in");
         assertFalse(saved.getDeleted());
         assertTrue(saved.getRedirectUris().contains("https://portal/cb"));
         assertTrue(saved.getScopes().containsAll(List.of("openid", "profile")));
@@ -119,11 +120,26 @@ class ClientAdminServiceTest {
         verify(repository, never()).save(any());
     }
 
+    @Test
+    void byIdOperations_neverReachAnotherRealmsClient() {
+        final ServiceProviderOAuthClient other = client("c-9", "ledger", "firm-b");
+        when(repository.findByIdAndDeleted("c-9", false)).thenReturn(Optional.of(other));
+
+        assertTrue(service.get("firm-a", "c-9").isEmpty());
+        assertTrue(service.reveal("firm-a", "c-9").isEmpty());
+        assertTrue(service.regenerateSecret("firm-a", "c-9").isEmpty());
+        assertFalse(service.delete("firm-a", "c-9"));
+        assertFalse(other.getDeleted());
+        verify(repository, never()).save(any());
+        assertTrue(service.get("firm-b", "c-9").isPresent());
+    }
+
     private static ServiceProviderOAuthClient client(final String id, final String clientId, final String tenantId) {
         final ServiceProviderOAuthClient c = new ServiceProviderOAuthClient();
         c.setServiceProviderId(id);
         c.setClientId(clientId);
         c.setTenantId(tenantId);
+        c.setRealmId(tenantId);
         c.setDeleted(false);
         c.setAuthorizationGrantTypes("client_credentials");
         c.setScopes("openid");

@@ -24,6 +24,8 @@ COPY --from=build /build/app.jar /app/app.jar
 
 # Container-aware heap, entropy source, temp dir under the (tmpfs) /tmp mount.
 ENV SERVER_PORT=8080 \
+    HELIX_MIGRATIONS_ENABLED=true \
+    HELIX_SQL_INIT_MODE=never \
     JAVA_OPTS="" \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/urandom -Djava.io.tmpdir=/tmp"
 

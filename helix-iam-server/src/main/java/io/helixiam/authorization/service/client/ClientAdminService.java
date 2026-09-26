@@ -47,7 +47,7 @@ public class ClientAdminService {
 
     /** A single client by surrogate id. */
     public Optional<ClientDto> get(final String realmId, final String id) {
-        return repository.findByIdAndDeleted(id, false).map(c -> toDto(c, null));
+        return inRealm(realmId, id).map(c -> toDto(c, null));
     }
 
     /** Registers a new confidential client; returns it with the one-time generated secret. */
@@ -62,6 +62,9 @@ public class ClientAdminService {
         final ServiceProviderOAuthClient client = new ServiceProviderOAuthClient();
         client.setClientId(write.clientId());
         client.setTenantId(write.realmId());
+        // The realm the client is reachable under (/realms/{realm}/oauth2/…). Left unset it defaulted to master,
+        // so every client created in another realm was unreachable there and collided on client_id (1.0 item 2).
+        client.setRealmId(write.realmId());
         client.setDeleted(false);
         client.setClientSecret(secret);
         applyWrite(client, write);
@@ -73,7 +76,7 @@ public class ClientAdminService {
     /** Updates a client's grant types / redirect URIs / scopes; secret unchanged. */
     @Transactional
     public Optional<ClientDto> update(final ClientWriteDto write) {
-        return repository.findByIdAndDeleted(write.id(), false).map(client -> {
+        return inRealm(write.realmId(), write.id()).map(client -> {
             applyWrite(client, write);
             return toDto(repository.save(client), null);
         });
@@ -81,13 +84,13 @@ public class ClientAdminService {
 
     /** Reveals a client's current secret (Credentials tab); the rest of the DTO is the client as-is. */
     public Optional<ClientDto> reveal(final String realmId, final String id) {
-        return repository.findByIdAndDeleted(id, false).map(c -> toDto(c, c.getRawSecret()));
+        return inRealm(realmId, id).map(c -> toDto(c, c.getRawSecret()));
     }
 
     /** Issues a fresh secret for a client; returns it once. */
     @Transactional
     public Optional<ClientDto> regenerateSecret(final String realmId, final String id) {
-        return repository.findByIdAndDeleted(id, false).map(client -> {
+        return inRealm(realmId, id).map(client -> {
             final String secret = generateSecret();
             client.setClientSecret(secret);
             return toDto(repository.save(client), secret);
@@ -97,7 +100,7 @@ public class ClientAdminService {
     /** Soft-deletes a client (the OAuth server stops resolving it); {@code false} if absent. */
     @Transactional
     public boolean delete(final String realmId, final String id) {
-        return repository.findByIdAndDeleted(id, false).map(client -> {
+        return inRealm(realmId, id).map(client -> {
             // Protect the built-in console/CLI clients: deleting them would lock admins out of the console /
             // break the CLI. They self-heal on restart anyway, but refuse the delete so the UI can't remove them.
             if (ConsoleClientBootstrapService.CONSOLE_CLIENT_ID.equals(client.getClientId())
@@ -110,6 +113,11 @@ public class ClientAdminService {
             LOG.debug("Deleted client {} from realm {}", id, realmId);
             return true;
         }).orElse(false);
+    }
+
+    /** A client by surrogate id, only if it belongs to {@code realmId} — never another realm's client. */
+    private Optional<ServiceProviderOAuthClient> inRealm(final String realmId, final String id) {
+        return repository.findByIdAndDeleted(id, false).filter(c -> realmId != null && realmId.equals(c.getRealmId()));
     }
 
     private void applyWrite(final ServiceProviderOAuthClient client, final ClientWriteDto write) {

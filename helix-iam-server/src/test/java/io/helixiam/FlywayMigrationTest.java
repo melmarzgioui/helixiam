@@ -7,7 +7,6 @@ package io.helixiam;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,16 +19,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * Exercises the production schema path: Flyway is the default in {@code application.properties}, so a
- * fresh database must be brought fully up to date by {@code db/migration/V1..V8} (and the app must
- * boot on that schema — including {@code RealmBootstrap} seeding the master realm). This is the only
- * test that runs the Flyway path; {@link ContextLoadsTest} and the login-headers test pin the legacy
- * {@code schema.sql} path instead.
+ * fresh database must be brought fully up to date by {@code db/migration/V*} (and the app must
+ * boot on that schema — including {@code RealmBootstrap} seeding the master realm). The e2e suite also runs
+ * on Flyway by default; {@link ContextLoadsTest} and the login-headers test pin the legacy
+ * {@code schema.sql} path.
  */
 @SpringBootTest
 @Testcontainers
-@Disabled("The Flyway V1..V8 baseline is not yet verified-equivalent to schema.sql: the app fails to "
-        + "boot on the Flyway path (ServiceProviderService init -> DuplicateException). Re-enable once "
-        + "the two schemas are reconciled and Flyway can become the default (CHANGES-1.0.md O5).")
 class FlywayMigrationTest {
 
     @Container

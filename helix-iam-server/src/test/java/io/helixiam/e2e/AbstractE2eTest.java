@@ -100,8 +100,11 @@ public abstract class AbstractE2eTest {
         registry.add("database.encryption", () -> "0123456789abcdef0123456789abcdef");
         registry.add("idp.base.url", () -> baseUrlFor(PORT));
         registry.add("sp.base.url", () -> "http://localhost:8090");
-        registry.add("spring.sql.init.mode", () -> "always");
-        registry.add("spring.flyway.enabled", () -> "false");
+        // Schema path: Flyway (the default) or the legacy schema.sql bootstrap — -Dhelix.e2e.schema=sql-init
+        // runs the whole e2e suite on the other path from an empty database.
+        final boolean sqlInit = "sql-init".equals(System.getProperty("helix.e2e.schema", "flyway"));
+        registry.add("spring.sql.init.mode", () -> sqlInit ? "always" : "never");
+        registry.add("spring.flyway.enabled", () -> sqlInit ? "false" : "true");
         registry.add("spring.session.store-type", () -> "none");
 
         // --- e2e: a real port + the password-only login path (see class javadoc) ---
@@ -146,6 +149,12 @@ public abstract class AbstractE2eTest {
     /** The master realm's bootstrap admin, logged in (session + CSRF) for {@code /admin/**} calls. */
     protected E2eAdminSession adminSession() {
         return E2eAdminSession.login(newBrowser(), MASTER, ADMIN_USERNAME, ADMIN_PASSWORD);
+    }
+
+    /** The bootstrapped admin of {@code realm} ({@code admin-<realm>}; same configured password). */
+    protected E2eAdminSession adminSession(final String realm) {
+        return MASTER.equals(realm) ? adminSession()
+                : E2eAdminSession.login(newBrowser(), realm, ADMIN_USERNAME + "-" + realm, ADMIN_PASSWORD);
     }
 
     private static String baseUrlFor(final int port) {

@@ -160,8 +160,8 @@ the admin console/API and take priority over the global SMTP fallback above.
 | `HELIX_TOKEN_STORE` | *(unset)* | unset = built-in Postgres-backed token store; `redis` for the high-throughput tier |
 | `HELIX_FLOW_ENGINE_ENABLED` | `false` | data-driven authentication-flow engine |
 | `HELIX_SAML_IDP_ENABLED` | `true` | enable the SAML 2.0 IdP role |
-| `HELIX_SQL_INIT_MODE` | `always` | idempotent `schema.sql` init (mutually exclusive with Flyway) |
-| `HELIX_MIGRATIONS_ENABLED` | `false` | manage the schema with Flyway (`db/migration/V*`) instead |
+| `HELIX_SQL_INIT_MODE` | `never` | legacy idempotent `schema.sql` init; set `always` together with `HELIX_MIGRATIONS_ENABLED=false` |
+| `HELIX_MIGRATIONS_ENABLED` | `true` | Flyway (`db/migration/V*`) manages the schema (default everywhere: app, image, Helm) |
 
 See the [documentation site](https://docs.helixiam.com) for the full documentation (architecture,
 install, configuration reference, API guides), and
