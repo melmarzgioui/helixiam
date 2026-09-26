@@ -46,6 +46,18 @@ class SessionPolicyApplierTest {
     }
 
     @Test
+    void anUnsetIdleTimeout_zero_keepsTheSessionDefault_neverExpiresTheSessionImmediately() {
+        // A realm saved through the admin API without SSO timeouts has 0 here; applying 0 used to invalidate the
+        // session at once, so every sign-in in that realm failed.
+        when(resolver.get("gov")).thenReturn(settings(0, false, 999_999));
+        when(request.getSession(true)).thenReturn(session);
+
+        applier.applyOnLogin(request, "gov");
+
+        org.mockito.Mockito.verify(session, org.mockito.Mockito.never()).setMaxInactiveInterval(org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
     void appliesRememberMeLifetime_whenRealmAllowsItAndUserOptedIn() {
         when(resolver.get("gov")).thenReturn(settings(600, true, 1_209_600));
         when(request.getSession(true)).thenReturn(session);

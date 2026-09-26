@@ -33,7 +33,9 @@ public class SessionPolicyApplier {
             final RealmSettingsDto settings = resolver.get(realmId);
             final boolean remembered = settings.rememberMe() && isTruthy(request.getParameter("remember-me"));
             final int interval = remembered ? settings.rememberMeLifetimeSeconds() : settings.ssoSessionIdleTimeoutSeconds();
-            request.getSession(true).setMaxInactiveInterval(interval);
+            if (interval > 0) { // 0 = not configured: keep the container default (0 would expire the session at once)
+                request.getSession(true).setMaxInactiveInterval(interval);
+            }
         } catch (final RuntimeException e) {
             // Never let session-policy application break login.
         }
