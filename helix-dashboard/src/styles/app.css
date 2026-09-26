@@ -38,7 +38,7 @@
   align-items: center;
   height: 64px;
   padding: 0 1.25rem;
-  /* Black-Cat brand plate: jade is a dark-ground colour, so the lockup sits on KubeDNA's dark
+  /* Black-Cat brand plate: jade is a dark-ground colour, so the lockup sits on the brand's dark
      chrome (matches website/login/docs masthead). --fg → white makes "Helix" legible here;
      "IAM" stays --wordmark-accent (jade). Custom props inherit into the <Logo> subtree. */
   background: #1f2123;

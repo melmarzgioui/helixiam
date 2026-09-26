@@ -1,4 +1,4 @@
-module github.com/kubedna/terraform-provider-helix
+module github.com/melmarzgioui/helixiam/terraform-provider-helix
 
 go 1.26.4
 

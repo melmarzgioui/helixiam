@@ -65,17 +65,17 @@ header {
       align-items: center;
       gap: 10px;
 
+      // default HelixIAM wordmark is rendered as text (.hx-wordmark, see theme.css);
+      // a realm's custom logo image is shown only when one is configured
       > div.logo {
-        height: 24px;
-        //width: 200px;
-        width: 180px;
-        background-image: url("/img/kubedna-wh.png");
-        background-size: contain;
-        background-repeat: no-repeat;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
 
         > img {
-          display: none;
-          max-height: 20px;
+          display: block;
+          max-height: 26px;
+          width: auto;
         }
       }
     }

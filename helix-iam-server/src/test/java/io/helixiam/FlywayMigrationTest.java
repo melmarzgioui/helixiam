@@ -65,5 +65,13 @@ class FlywayMigrationTest {
         final Integer masterRealms = jdbc.queryForObject(
                 "SELECT count(*) FROM tenant WHERE tenant_id = 'master' OR name = 'master'", Integer.class);
         assertThat(masterRealms).as("master realm seeded").isGreaterThanOrEqualTo(1);
+
+        // 1.0 item 8: no demo client with a known secret, and the CLI client carries the HelixIAM name.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM service_provider_oauth WHERE client_id = 'oidc-client' "
+                + "AND deleted = false", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM service_provider_oauth WHERE client_id = 'kubedna-cli'",
+                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM service_provider_oauth WHERE client_id = 'helix-cli' "
+                + "AND realm_id = 'master' AND deleted = false", Integer.class)).isEqualTo(1);
     }
 }

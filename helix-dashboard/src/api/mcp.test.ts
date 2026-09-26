@@ -27,7 +27,7 @@ function agent(over: Partial<Agent>): Agent {
 
 describe("mcpTokens", () => {
   it("collects mcp scopes and roles, stripping a client-role's clientId prefix", () => {
-    const a = agent({ scopes: "openid mcp:tools", roles: "auditor kubedna-cli/mcp:invoke" });
+    const a = agent({ scopes: "openid mcp:tools", roles: "auditor helix-cli/mcp:invoke" });
     expect(mcpTokens(a).sort()).toEqual(["mcp:invoke", "mcp:tools"]);
   });
   it("matches the bare `mcp` token too, and ignores unrelated scopes", () => {

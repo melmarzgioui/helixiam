@@ -38,9 +38,9 @@ class ContextLoadsTest {
     @SuppressWarnings("resource")
     static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>("postgres:16-alpine")
-                    .withDatabaseName("kubeiam")
-                    .withUsername("kubeiam")
-                    .withPassword("kubeiam");
+                    .withDatabaseName("helixiam")
+                    .withUsername("helixiam")
+                    .withPassword("helixiam");
 
     @DynamicPropertySource
     static void datasourceProperties(final DynamicPropertyRegistry registry) {

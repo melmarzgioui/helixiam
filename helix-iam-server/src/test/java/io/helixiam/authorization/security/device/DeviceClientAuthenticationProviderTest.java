@@ -36,7 +36,7 @@ class DeviceClientAuthenticationProviderTest {
     private DeviceClientAuthenticationProvider provider;
 
     private static RegisteredClient publicClient() {
-        return RegisteredClient.withId("1").clientId("kubedna-cli")
+        return RegisteredClient.withId("1").clientId("helix-cli")
                 .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
                 .authorizationGrantType(new AuthorizationGrantType("urn:ietf:params:oauth:grant-type:device_code"))
                 .scope("openid").build();
@@ -62,9 +62,9 @@ class DeviceClientAuthenticationProviderTest {
     @Test
     void authenticatesPublicClientByClientId() {
         final RegisteredClient rc = publicClient();
-        when(repository.findByClientId("kubedna-cli")).thenReturn(rc);
+        when(repository.findByClientId("helix-cli")).thenReturn(rc);
 
-        final Authentication out = provider.authenticate(noneToken("kubedna-cli"));
+        final Authentication out = provider.authenticate(noneToken("helix-cli"));
 
         assertTrue(out.isAuthenticated());
         assertSame(rc, ((OAuth2ClientAuthenticationToken) out).getRegisteredClient());

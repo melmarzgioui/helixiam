@@ -27,7 +27,7 @@ export interface SelectProps {
 
 /**
  * Branded dropdown (listbox) — replaces the native <select> so the trigger and the
- * option panel both follow BRANDBOOK_KUBEDNA_V2. Keyboard + click-outside supported.
+ * option panel both follow the brand tokens. Keyboard + click-outside supported.
  */
 export function Select({
   options,

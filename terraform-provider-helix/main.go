@@ -13,7 +13,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"github.com/kubedna/terraform-provider-helix/internal/provider"
+	"github.com/melmarzgioui/helixiam/terraform-provider-helix/internal/provider"
 )
 
 // version is set at build/release time via -ldflags.
@@ -25,7 +25,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.terraform.io/kubedna/helix",
+		Address: "registry.terraform.io/melmarzgioui/helix",
 		Debug:   debug,
 	})
 	if err != nil {

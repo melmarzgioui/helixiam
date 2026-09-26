@@ -214,7 +214,7 @@ public class RealmConfig {
     @JsonProperty
     private String riskHighAction = "deny";
 
-    // B2: per-realm login theming/branding (all optional; null/blank → built-in KubeDNA defaults).
+    // B2: per-realm login theming/branding (all optional; null/blank → built-in HelixIAM defaults).
     @Column(name = "logo_url")
     @JsonProperty
     private String logoUrl;

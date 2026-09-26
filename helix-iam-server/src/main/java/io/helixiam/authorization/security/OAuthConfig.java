@@ -67,7 +67,7 @@ public class OAuthConfig {
 
     /**
      * Story 1 (CLI browser login): the SAS token generator, but with {@link NativeAppRefreshTokenGenerator}
-     * in place of the default refresh-token generator so a native-app public client (the kubedna-cli, RFC 8252)
+     * in place of the default refresh-token generator so a native-app public client (the built-in helix-cli, RFC 8252)
      * gets a rotating refresh token on the authorization_code grant and stays signed in. The JWT access-token
      * path is unchanged — same realm-aware encoder + the same {@code jwtTokenCustomizer} (roles, claims, etc.).
      */
@@ -88,7 +88,7 @@ public class OAuthConfig {
 
     /**
      * B11 (FAPI / RFC 8705): resolves the client certificate that should bind an access token. The header
-     * name is where a TLS-terminating proxy (KubeDNA api-gateway) forwards the verified client cert; real
+     * name is where a TLS-terminating proxy (e.g. an API gateway) forwards the verified client cert; real
      * JVM-terminated mTLS is read from the servlet X509 attribute regardless of this value.
      */
     @Bean

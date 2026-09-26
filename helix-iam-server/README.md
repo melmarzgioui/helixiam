@@ -32,7 +32,7 @@ resolve dependencies online.
 ```bash
 # Postgres + Redis
 docker run -d --name hlx-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=kubeiam -p 5432:5432 postgres:16-alpine
+  -e POSTGRES_DB=helixiam -p 5432:5432 postgres:16-alpine
 docker run -d --name hlx-redis -p 6379:6379 redis:7-alpine
 
 mvn -o clean package -DskipTests
@@ -40,7 +40,7 @@ mvn -o clean package -DskipTests
 java -jar target/helix-iam-server-1.0.0-SNAPSHOT.jar \
   --spring.profiles.active=dev \
   --server.port=8080 \
-  --DB_HOST=localhost --DB_PORT=5432 --DB_NAME=kubeiam --DB_USERNAME=postgres --DB_PASSWORD=password \
+  --DB_HOST=localhost --DB_PORT=5432 --DB_NAME=helixiam --DB_USERNAME=postgres --DB_PASSWORD=password \
   --REDIS_HOST=localhost --REDIS_PORT=6379
 ```
 

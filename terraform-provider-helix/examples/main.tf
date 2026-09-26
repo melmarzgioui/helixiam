@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     helix = {
-      source = "kubedna/helix"
+      source = "melmarzgioui/helix"
     }
   }
 }

@@ -105,7 +105,7 @@ class UserServiceTest {
 
     @Test
     void verifyEmail_doesNotSendInternalNotification_whenNoRecipientConfigured() {
-        // Default: no hard-coded recipient (previously the leaked contact@kubedna.com) -> no notification.
+        // Default: no hard-coded recipient (previously a leaked hard-coded address) -> no notification.
         primeSignupVerification();
 
         service.verifyEmail("code-1");

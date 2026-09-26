@@ -25,7 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Story 4 (CLI auth #148): the built-in {@code kubedna-cli} public client is seeded into every realm so the
+ * Story 4 (CLI auth #148): the built-in {@code helix-cli} public client is seeded into every realm so the
  * command-line tool works against any Helix deployment out of the box — a native/public app (no secret, PKCE)
  * that supports the browser authorization_code flow, refresh, and the RFC 8628 device-code flow.
  */
@@ -42,7 +42,7 @@ class CliClientBootstrapServiceTest {
 
     @Test
     void ensureCliClient_seedsPublicPkceClient_whenAbsent() {
-        when(repository.findByClientIdAndRealmIdAndDeleted("kubedna-cli", "master", false)).thenReturn(Optional.empty());
+        when(repository.findByClientIdAndRealmIdAndDeleted("helix-cli", "master", false)).thenReturn(Optional.empty());
         when(repository.save(any(ServiceProviderOAuthClient.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.ensureCliClient("master");
@@ -51,7 +51,7 @@ class CliClientBootstrapServiceTest {
         verify(repository).save(captor.capture());
         final ServiceProviderOAuthClient c = captor.getValue();
 
-        assertEquals("kubedna-cli", c.getClientId());
+        assertEquals("helix-cli", c.getClientId());
         assertEquals("master", c.getRealmId(), "realmId is set explicitly (create() only sets tenantId)");
         assertEquals("master", c.getTenantId());
         assertFalse(c.getDeleted());
@@ -74,7 +74,7 @@ class CliClientBootstrapServiceTest {
 
     @Test
     void ensureCliClient_isIdempotent_whenAlreadyPresent() {
-        when(repository.findByClientIdAndRealmIdAndDeleted("kubedna-cli", "master", false))
+        when(repository.findByClientIdAndRealmIdAndDeleted("helix-cli", "master", false))
                 .thenReturn(Optional.of(new ServiceProviderOAuthClient()));
 
         service.ensureCliClient("master");

@@ -16,7 +16,7 @@
 .hx-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .hx-btn:active:not(:disabled) { transform: translateY(0); }
 .hx-btn:disabled { opacity: .55; cursor: not-allowed; }
-/* Primary action = KubeDNA ink (Black-Cat) on light, jade+ink on dark — theme-aware via tokens. */
+/* Primary action = ink (Black-Cat) on light, jade+ink on dark — theme-aware via tokens. */
 .hx-btn--primary { background: var(--btn-primary-bg); color: var(--btn-primary-fg); box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 8px 22px -10px var(--btn-primary-glow); }
 .hx-btn--primary:hover:not(:disabled) { background: var(--btn-primary-bg-hover); transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,.2), 0 16px 34px -10px var(--btn-primary-glow); }
 .hx-btn--primary:focus-visible { box-shadow: var(--focus-ring); }

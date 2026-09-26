@@ -40,7 +40,7 @@ public class OpenApiConfig {
                         .title("Helix IAM Admin API")
                         .version("v1")
                         .description("""
-                                Management REST API for the Helix IAM (KubeDNA authorization server) admin \
+                                Management REST API for the Helix IAM authorization server admin \
                                 console. Covers per-realm administration of users, roles, organizations, \
                                 provisioning and related resources under /admin/realms/{realmId}/**. \
                                 The OAuth2/OIDC and SAML protocol endpoints are NOT part of this spec; \

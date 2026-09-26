@@ -48,7 +48,7 @@ export interface RealmSettings {
   riskLowAction: "allow" | "step_up" | "deny";
   riskMediumAction: "allow" | "step_up" | "deny";
   riskHighAction: "allow" | "step_up" | "deny";
-  // B2: per-realm login theming/branding (all optional; null/blank → built-in KubeDNA theme).
+  // B2: per-realm login theming/branding (all optional; null/blank → built-in HelixIAM theme).
   logoUrl: string | null;
   primaryColor: string | null;
   backgroundColor: string | null;

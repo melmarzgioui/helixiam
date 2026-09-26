@@ -176,7 +176,7 @@ public class SecurityConfig {
         // Story 4 (CLI auth): RFC 8628 device authorization grant — headless / CLI login on machines with no
         // browser. The device POSTs to /oauth2/device_authorization for a device_code + user_code, shows the
         // user a URL ({issuer}/activate) + the short code; the human approves at /activate (behind login); the
-        // CLI then polls /oauth2/token. The built-in kubedna-cli client requires no consent, so approval is
+        // CLI then polls /oauth2/token. The built-in helix-cli client requires no consent, so approval is
         // one click. Both endpoints are realm-prefixed via the virtual context path like the rest of SAS.
         http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
                 // Helix-branded consent screen (replaces SAS's default page) for the code flow…
@@ -187,7 +187,7 @@ public class SecurityConfig {
                 .deviceVerificationEndpoint(deviceVerificationEndpoint ->
                         deviceVerificationEndpoint.consentPage("/oauth2/consent"))
                 // SAS's built-in public-client converter only activates for a PKCE *token* request, so a public
-                // client (kubedna-cli) cannot start the device flow with the defaults. Add the device-sample
+                // client (helix-cli) cannot start the device flow with the defaults. Add the device-sample
                 // converter+provider so a device_authorization request carrying only client_id authenticates.
                 .clientAuthentication(clientAuthentication -> clientAuthentication
                         .authenticationConverter(new io.helixiam.authorization.security.device.DeviceClientAuthenticationConverter(
@@ -246,6 +246,9 @@ public class SecurityConfig {
         // Security review M3: CSP + clickjacking/sniffing/referrer headers on the server-rendered pages.
         applySecurityHeaders(http);
         http.authorizeHttpRequests(requests -> requests.requestMatchers(whitelist).permitAll());
+        // 1.0 item 8: the container's error page must be reachable, or every unhandled 500 (and every 403/404
+        // rendered via /error) turns into a 401 from the authentication entry point and hides the real failure.
+        http.authorizeHttpRequests(requests -> requests.requestMatchers("/error").permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
         // (confirm) and the mid-login browser (SSE/poll); they are secured by the device signature
         // + single-use rotating token, not the session, so permit them and exempt them from CSRF.

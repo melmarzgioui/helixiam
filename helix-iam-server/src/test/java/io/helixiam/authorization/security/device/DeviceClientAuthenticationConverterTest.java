@@ -46,25 +46,25 @@ class DeviceClientAuthenticationConverterTest {
 
     @Test
     void convertsDeviceAuthorizationStart() {
-        final Authentication auth = converter.convert(post(DEVICE_ENDPOINT, "client_id", "kubedna-cli"));
+        final Authentication auth = converter.convert(post(DEVICE_ENDPOINT, "client_id", "helix-cli"));
         assertNotNull(auth);
-        assertEquals("kubedna-cli", ((OAuth2ClientAuthenticationToken) auth).getPrincipal());
+        assertEquals("helix-cli", ((OAuth2ClientAuthenticationToken) auth).getPrincipal());
         assertEquals(ClientAuthenticationMethod.NONE, ((OAuth2ClientAuthenticationToken) auth).getClientAuthenticationMethod());
     }
 
     @Test
     void convertsDeviceCodeTokenPoll() {
         final Authentication auth = converter.convert(
-                post(TOKEN_ENDPOINT, "grant_type", DEVICE_CODE_GRANT, "client_id", "kubedna-cli", "device_code", "abc"));
+                post(TOKEN_ENDPOINT, "grant_type", DEVICE_CODE_GRANT, "client_id", "helix-cli", "device_code", "abc"));
         assertNotNull(auth, "public client polling the token endpoint with the device_code grant is authenticated");
-        assertEquals("kubedna-cli", ((OAuth2ClientAuthenticationToken) auth).getPrincipal());
+        assertEquals("helix-cli", ((OAuth2ClientAuthenticationToken) auth).getPrincipal());
     }
 
     @Test
     void convertsRefreshTokenGrant() {
         // A public client renews with only client_id (no secret, no PKCE) — SAS's converters don't cover this.
         final Authentication auth = converter.convert(
-                post(TOKEN_ENDPOINT, "grant_type", "refresh_token", "client_id", "kubedna-cli", "refresh_token", "rt"));
+                post(TOKEN_ENDPOINT, "grant_type", "refresh_token", "client_id", "helix-cli", "refresh_token", "rt"));
         assertNotNull(auth, "public client refresh_token renewal is authenticated");
     }
 
@@ -72,10 +72,10 @@ class DeviceClientAuthenticationConverterTest {
     void convertsPushedAuthorizationRequest() {
         // Public-client PAR (RFC 9126 / FAPI2): client_id + PKCE code_challenge, no secret.
         final Authentication auth = converter.convert(
-                post(PAR_ENDPOINT, "client_id", "kubedna-cli", "response_type", "code",
+                post(PAR_ENDPOINT, "client_id", "helix-cli", "response_type", "code",
                         "code_challenge", "abc", "code_challenge_method", "S256"));
         assertNotNull(auth, "public client pushing an authorization request is authenticated");
-        assertEquals("kubedna-cli", ((OAuth2ClientAuthenticationToken) auth).getPrincipal());
+        assertEquals("helix-cli", ((OAuth2ClientAuthenticationToken) auth).getPrincipal());
         assertEquals(ClientAuthenticationMethod.NONE, ((OAuth2ClientAuthenticationToken) auth).getClientAuthenticationMethod());
     }
 
@@ -84,14 +84,14 @@ class DeviceClientAuthenticationConverterTest {
         // Backward-compatible 2-arg ctor: PAR not wired → converter stays out of PAR requests.
         final DeviceClientAuthenticationConverter noPar =
                 new DeviceClientAuthenticationConverter(DEVICE_ENDPOINT, TOKEN_ENDPOINT);
-        assertNull(noPar.convert(post(PAR_ENDPOINT, "client_id", "kubedna-cli")));
+        assertNull(noPar.convert(post(PAR_ENDPOINT, "client_id", "helix-cli")));
     }
 
     @Test
     void ignoresAuthorizationCodeGrant() {
         // authorization_code + PKCE token exchange is handled by SAS's own public/PKCE converter — not us.
         assertNull(converter.convert(
-                post(TOKEN_ENDPOINT, "grant_type", "authorization_code", "client_id", "kubedna-cli", "code", "x")));
+                post(TOKEN_ENDPOINT, "grant_type", "authorization_code", "client_id", "helix-cli", "code", "x")));
     }
 
     @Test
@@ -102,6 +102,6 @@ class DeviceClientAuthenticationConverterTest {
 
     @Test
     void ignoresUnrelatedEndpoints() {
-        assertNull(converter.convert(post("/oauth2/authorize", "client_id", "kubedna-cli")));
+        assertNull(converter.convert(post("/oauth2/authorize", "client_id", "helix-cli")));
     }
 }

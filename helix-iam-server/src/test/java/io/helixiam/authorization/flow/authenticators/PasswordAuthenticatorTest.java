@@ -47,10 +47,10 @@ class PasswordAuthenticatorTest {
     @Test
     void action_validCredentials_succeedsAndEstablishesTheUser() {
         PasswordAuthenticator authenticator = new PasswordAuthenticator((username, password) ->
-                username.equals("admin@e2e.local") && password.equals("kubedna")
+                username.equals("admin@e2e.local") && password.equals("helixiam")
                         ? Optional.of("user-1") : Optional.empty());
         AuthenticationContext ctx = context();
-        ctx.submit(Map.of("username", "admin@e2e.local", "password", "kubedna"));
+        ctx.submit(Map.of("username", "admin@e2e.local", "password", "helixiam"));
 
         authenticator.action(ctx);
 

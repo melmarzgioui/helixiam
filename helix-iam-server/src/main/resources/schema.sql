@@ -898,3 +898,9 @@ CREATE TABLE IF NOT EXISTS agent_identity (
 );
 CREATE INDEX IF NOT EXISTS agent_identity_realm_idx ON agent_identity (realm_id);
 CREATE UNIQUE INDEX IF NOT EXISTS agent_identity_realm_name_idx ON agent_identity (realm_id, name);
+
+-- 1.0 item 8: rename the built-in CLI client kubedna-cli -> helix-cli, and disable the former demo client
+-- "oidc-client" (secret "secret", third-party redirect URIs) that earlier builds seeded (same as Flyway V13).
+UPDATE service_provider_oauth AS o SET client_id = 'helix-cli', name = 'HelixIAM CLI', description = 'Built-in public client for command-line tools (PKCE + device code).' WHERE o.client_id = 'kubedna-cli' AND NOT EXISTS (SELECT 1 FROM service_provider_oauth n WHERE n.client_id = 'helix-cli' AND n.realm_id = o.realm_id);
+UPDATE service_provider_oauth SET deleted = true WHERE client_id = 'kubedna-cli';
+UPDATE service_provider_oauth SET deleted = true WHERE client_id = 'oidc-client' AND tenant_id = '-1234' AND redirect_uris LIKE '%kubedna%';

@@ -38,7 +38,7 @@ class RealmConfigFolderLoaderTest {
     void setUp() {
         importService = mock(RealmImportService.class);
         when(importService.importInto(any(), any(), any()))
-                .thenReturn(new RealmImportResult("x", Map.of(), null));
+                .thenReturn(new RealmImportResult("x", Map.of(), null, null));
     }
 
     @Test

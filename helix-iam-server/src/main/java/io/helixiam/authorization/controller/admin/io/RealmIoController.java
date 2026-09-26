@@ -68,7 +68,7 @@ public class RealmIoController {
                                                          final String onConflict,
                                                          @RequestBody final RealmExportDocument document) {
         final ImportOptions options = new ImportOptions(ImportOptions.conflictOf(onConflict));
-        return ResponseEntity.ok(importService.importInto(realmId, document, options));
+        return respond(importService.importInto(realmId, document, options));
     }
 
     /**
@@ -81,7 +81,12 @@ public class RealmIoController {
     public ResponseEntity<RealmImportResult> importKeycloak(@PathVariable final String realmId,
                                                             @RequestBody final com.fasterxml.jackson.databind.JsonNode keycloakExport) {
         final RealmExportDocument document = KeycloakImporter.translate(keycloakExport);
-        return ResponseEntity.ok(importService.importInto(realmId, document));
+        return respond(importService.importInto(realmId, document));
+    }
+
+    /** 1.0 item 8: 200 when everything applied; 422 (same body, with {@code failed[]}) when any entry failed. */
+    private static ResponseEntity<RealmImportResult> respond(final RealmImportResult result) {
+        return result.hasFailures() ? ResponseEntity.unprocessableEntity().body(result) : ResponseEntity.ok(result);
     }
 
     /** Keeps a realm id safe to drop into a Content-Disposition filename. */

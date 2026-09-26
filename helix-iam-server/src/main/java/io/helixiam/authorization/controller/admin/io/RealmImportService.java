@@ -250,6 +250,13 @@ public class RealmImportService {
         return result.build();
     }
 
+    /** 1.0 item 8: a write that threw is a failure (logged, reported with its reason), never a silent skip. */
+    private static void failed(final RealmImportResult.Builder r, final String slice, final String realmId,
+                               final RuntimeException ex) {
+        LOG.warn("Helix realm import [{}]: {} entry failed: {}", realmId, slice, ex.toString());
+        r.failed(slice, ex.getClass().getSimpleName() + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+    }
+
     /**
      * The conflict gate. Returns {@code true} when an existing entry must NOT be written (it records the
      * {@code skipped}/{@code conflict} outcome itself). A non-existing entry is never blocked — it is
@@ -287,7 +294,7 @@ public class RealmImportService {
         try {
             exists = realmPublisher.get(realmId) != null;
         } catch (final RuntimeException ex) {
-            r.skipped(SLICE_REALM);
+            failed(r, SLICE_REALM, realmId, ex);
             return;
         }
         if (blocked(exists, SLICE_REALM, realmId, opts, r)) {
@@ -316,7 +323,7 @@ public class RealmImportService {
                 r.created(SLICE_REALM);
             }
         } catch (final RuntimeException ex) {
-            r.skipped(SLICE_REALM);
+            failed(r, SLICE_REALM, realmId, ex);
         }
     }
 
@@ -344,7 +351,7 @@ public class RealmImportService {
                     r.created(SLICE_ROLES);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_ROLES);
+                failed(r, SLICE_ROLES, realmId, ex);
             }
         }
     }
@@ -406,7 +413,7 @@ public class RealmImportService {
                     }
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_SCOPES);
+                failed(r, SLICE_SCOPES, realmId, ex);
             }
         }
     }
@@ -445,7 +452,7 @@ public class RealmImportService {
                     r.updated(SLICE_CLIENTS);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_CLIENTS);
+                failed(r, SLICE_CLIENTS, realmId, ex);
             }
         }
     }
@@ -477,7 +484,7 @@ public class RealmImportService {
                     r.created(SLICE_SAML);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_SAML);
+                failed(r, SLICE_SAML, realmId, ex);
             }
         }
     }
@@ -508,7 +515,7 @@ public class RealmImportService {
                     r.created(SLICE_IDPS);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_IDPS);
+                failed(r, SLICE_IDPS, realmId, ex);
             }
         }
     }
@@ -540,7 +547,7 @@ public class RealmImportService {
                     r.created(SLICE_FLOWS);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_FLOWS);
+                failed(r, SLICE_FLOWS, realmId, ex);
             }
         }
     }
@@ -572,7 +579,7 @@ public class RealmImportService {
                     r.updated(SLICE_ORGS);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_ORGS);
+                failed(r, SLICE_ORGS, realmId, ex);
             }
         }
     }
@@ -602,7 +609,7 @@ public class RealmImportService {
                     r.created(SLICE_APPLICATIONS);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_APPLICATIONS);
+                failed(r, SLICE_APPLICATIONS, realmId, ex);
             }
         }
     }
@@ -640,8 +647,7 @@ public class RealmImportService {
                     r.updated(SLICE_AGENTS);
                 }
             } catch (final RuntimeException ex) {
-                LOG.warn("Helix realm import [{}]: skipped agent '{}': {}", realmId, a.name(), ex.toString());
-                r.skipped(SLICE_AGENTS);
+                failed(r, SLICE_AGENTS, realmId, ex);
             }
         }
     }
@@ -672,7 +678,7 @@ public class RealmImportService {
                     r.updated(SLICE_WEBHOOKS);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_WEBHOOKS);
+                failed(r, SLICE_WEBHOOKS, realmId, ex);
             }
         }
     }
@@ -703,7 +709,7 @@ public class RealmImportService {
                     r.updated(SLICE_SCIM);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_SCIM);
+                failed(r, SLICE_SCIM, realmId, ex);
             }
         }
     }
@@ -735,7 +741,7 @@ public class RealmImportService {
                     r.updated(SLICE_WORKLOAD);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_WORKLOAD);
+                failed(r, SLICE_WORKLOAD, realmId, ex);
             }
         }
     }
@@ -767,7 +773,7 @@ public class RealmImportService {
                     r.created(SLICE_MESSAGING);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_MESSAGING);
+                failed(r, SLICE_MESSAGING, realmId, ex);
             }
         }
     }
@@ -798,7 +804,7 @@ public class RealmImportService {
                     r.updated(SLICE_TEMPLATES);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_TEMPLATES);
+                failed(r, SLICE_TEMPLATES, realmId, ex);
             }
         }
     }
@@ -833,7 +839,7 @@ public class RealmImportService {
                     r.created(SLICE_ADMIN_ROLES);
                 }
             } catch (final RuntimeException ex) {
-                r.skipped(SLICE_ADMIN_ROLES);
+                failed(r, SLICE_ADMIN_ROLES, realmId, ex);
             }
         }
     }
@@ -902,8 +908,7 @@ public class RealmImportService {
                         }
                     }
                 } catch (final RuntimeException ex) {
-                    LOG.warn("Helix realm import [{}]: skipped group '{}': {}", realmId, g.name(), ex.toString());
-                    r.skipped(SLICE_GROUPS);
+                    failed(r, SLICE_GROUPS, realmId, ex);
                 }
             }
         }
@@ -951,8 +956,7 @@ public class RealmImportService {
                     }
                 }
             } catch (final RuntimeException ex) {
-                LOG.warn("Helix realm import [{}]: skipped user '{}': {}", realmId, u.username(), ex.toString());
-                r.skipped(SLICE_USERS);
+                failed(r, SLICE_USERS, realmId, ex);
             }
         }
     }
@@ -1000,9 +1004,7 @@ public class RealmImportService {
                     r.updated(SLICE_CLIENT_MAPPERS);
                 }
             } catch (final RuntimeException ex) {
-                LOG.warn("Helix realm import [{}]: skipped protocol mapper '{}' on '{}': {}", realmId, m.name(),
-                        m.clientId(), ex.toString());
-                r.skipped(SLICE_CLIENT_MAPPERS);
+                failed(r, SLICE_CLIENT_MAPPERS, realmId, ex);
             }
         }
     }
@@ -1039,9 +1041,7 @@ public class RealmImportService {
                         r.created(SLICE_CLIENT_ROLES);
                     }
                 } catch (final RuntimeException ex) {
-                    LOG.warn("Helix realm import [{}]: skipped client role '{}' on '{}': {}", realmId, role.name(),
-                            role.clientId(), ex.toString());
-                    r.skipped(SLICE_CLIENT_ROLES);
+                    failed(r, SLICE_CLIENT_ROLES, realmId, ex);
                 }
             }
         }
@@ -1074,9 +1074,7 @@ public class RealmImportService {
                         r.created(SLICE_SA_ROLES);
                     }
                 } catch (final RuntimeException ex) {
-                    LOG.warn("Helix realm import [{}]: skipped service-account role '{}' on '{}': {}", realmId,
-                            sa.roleName(), sa.clientId(), ex.toString());
-                    r.skipped(SLICE_SA_ROLES);
+                    failed(r, SLICE_SA_ROLES, realmId, ex);
                 }
             }
         }
@@ -1114,9 +1112,7 @@ public class RealmImportService {
                     r.created(SLICE_RESOURCE_INDICATORS);
                 }
             } catch (final RuntimeException ex) {
-                LOG.warn("Helix realm import [{}]: skipped resource allow-list for '{}': {}", realmId, aw.clientId(),
-                        ex.toString());
-                r.skipped(SLICE_RESOURCE_INDICATORS);
+                failed(r, SLICE_RESOURCE_INDICATORS, realmId, ex);
             }
         }
     }
@@ -1188,9 +1184,7 @@ public class RealmImportService {
                     r.created(SLICE_AUTHZ);
                 }
             } catch (final RuntimeException ex) {
-                LOG.warn("Helix realm import [{}]: skipped authorization services for '{}': {}", realmId, a.clientId(),
-                        ex.toString());
-                r.skipped(SLICE_AUTHZ);
+                failed(r, SLICE_AUTHZ, realmId, ex);
             }
         }
     }

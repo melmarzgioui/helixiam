@@ -113,7 +113,7 @@ Everything is environment-driven. The essentials (sourced from
 
 | Variable | Purpose |
 |---|---|
-| `DB_HOST` / `DB_PORT` / `DB_NAME` | PostgreSQL location (default DB name `kubeiam`) |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | PostgreSQL location (default DB name `helixiam`) |
 | `DB_USERNAME` / `DB_PASSWORD` | PostgreSQL credentials |
 | `DB_RO_HOST` | optional read-replica host (defaults to `DB_HOST`) |
 | `DB_ENCRYPTION` | hex key encrypting secrets at rest (TOTP seeds, signing keys, IdP secrets); keep stable for the life of the install |

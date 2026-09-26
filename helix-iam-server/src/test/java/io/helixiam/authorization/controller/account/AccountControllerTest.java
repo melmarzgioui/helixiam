@@ -61,11 +61,11 @@ class AccountControllerTest {
     }
 
     private UserCredentials principal(final String userId) {
-        return MAPPER.convertValue(Map.of("userId", userId, "username", userId + "@kubedna.io"), UserCredentials.class);
+        return MAPPER.convertValue(Map.of("userId", userId, "username", userId + "@example.com"), UserCredentials.class);
     }
 
     private UserAdminDto dto(final String userId) {
-        return new UserAdminDto("master", userId, "alice", "alice@kubedna.io", true, false, false,
+        return new UserAdminDto("master", userId, "alice", "alice@example.com", true, false, false,
                 List.of(), Map.of("locale", "en"), 0L);
     }
 
@@ -96,13 +96,13 @@ class AccountControllerTest {
 
         // A malicious body cannot change identity: there is no username field, and email/attrs only.
         controller.updateProfile(principal("alice"),
-                new AccountProfileRequest("new@kubedna.io", Map.of("locale", "nl")));
+                new AccountProfileRequest("new@example.com", Map.of("locale", "nl")));
 
         final ArgumentCaptor<UserWriteDto> write = ArgumentCaptor.forClass(UserWriteDto.class);
         verify(publisher).update(write.capture());
         assertThat(write.getValue().userId()).isEqualTo("alice");            // always the caller
         assertThat(write.getValue().username()).isEqualTo("alice");          // read-only, from persisted record
-        assertThat(write.getValue().email()).isEqualTo("new@kubedna.io");
+        assertThat(write.getValue().email()).isEqualTo("new@example.com");
         assertThat(write.getValue().enabled()).isTrue();                     // preserved
         assertThat(write.getValue().attributes()).containsEntry("locale", "nl");
         assertThat(write.getValue().password()).isNull();                    // never set here

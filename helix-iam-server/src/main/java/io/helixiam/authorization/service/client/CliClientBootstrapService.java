@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Story 4 (CLI auth #148): seeds the built-in {@code kubedna-cli} public client into a realm so the
+ * Story 4 (CLI auth #148): seeds the built-in {@code helix-cli} public client into a realm so the
  * command-line tool works against any Helix deployment out of the box — no admin has to register it first.
  *
  * <p>It is a native/public app: no client secret, PKCE required ({@link ServiceProviderOAuthClient} maps
@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CliClientBootstrapService {
 
     /** The stable client id the CLI authenticates as in every realm. */
-    public static final String CLI_CLIENT_ID = "kubedna-cli";
+    public static final String CLI_CLIENT_ID = "helix-cli";
 
     private static final Logger LOG = LogManager.getLogger(CliClientBootstrapService.class);
 
@@ -49,7 +49,7 @@ public class CliClientBootstrapService {
         this.repository = repository;
     }
 
-    /** Ensures the {@code kubedna-cli} public client exists in {@code realmId}. Idempotent. */
+    /** Ensures the {@code helix-cli} public client exists in {@code realmId}. Idempotent. */
     @Transactional
     public void ensureCliClient(final String realmId) {
         if (repository.findByClientIdAndRealmIdAndDeleted(CLI_CLIENT_ID, realmId, false).isPresent()) {
@@ -62,8 +62,8 @@ public class CliClientBootstrapService {
         client.setDeleted(false);
         client.setPublicClient(true);
         client.setClientSecret(null);
-        client.setName("KubeDNA CLI");
-        client.setDescription("Built-in public client for the kubedna command-line tool (PKCE + device code).");
+        client.setName("HelixIAM CLI");
+        client.setDescription("Built-in public client for command-line tools (PKCE + device code).");
         client.setAuthorizationGrantTypes(GRANT_TYPES);
         client.setRedirectUris(REDIRECT_URIS);
         client.setScopes(SCOPES);

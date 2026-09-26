@@ -70,20 +70,18 @@ public class ServiceProviderService {
     }
 
     /**
-     * Loads a service provider config from file or dummy resource if not found.
+     * Loads the optional initial service-provider config from {@code sp.config.location}. Nothing is seeded when the
+     * file does not exist. (1.0 item 8: the former fallback seeded a demo client "oidc-client" with the secret
+     * "secret" and third-party redirect URIs into every install.)
      */
     private ServiceProviderOAuthClient getServiceProviderOAuthClient() {
         try {
             final File configFile = new File(fileLocation);
-            if (configFile.exists()) {
-                return OBJECT_MAPPER.readValue(configFile, ServiceProviderOAuthClient.class);
-            } else {
-                LOG.warn("Using test service provider configuration");
-                return OBJECT_MAPPER.readValue(
-                        ServiceProviderService.class.getResourceAsStream("/dummy/dummy.json"),
-                        ServiceProviderOAuthClient.class
-                );
+            if (!configFile.exists()) {
+                LOG.info("No initial service provider configuration at " + fileLocation + "; none seeded");
+                return null;
             }
+            return OBJECT_MAPPER.readValue(configFile, ServiceProviderOAuthClient.class);
         } catch (final Exception e) {
             LOG.warn("Failed to parse service provider configuration", e);
             return null;

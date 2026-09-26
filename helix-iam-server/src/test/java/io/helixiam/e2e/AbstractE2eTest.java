@@ -72,9 +72,9 @@ public abstract class AbstractE2eTest {
     @SuppressWarnings("resource")
     static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>("postgres:16-alpine")
-                    .withDatabaseName("kubeiam")
-                    .withUsername("kubeiam")
-                    .withPassword("kubeiam");
+                    .withDatabaseName("helixiam")
+                    .withUsername("helixiam")
+                    .withPassword("helixiam");
 
     /** HTTP-session store (Spring Session Data Redis) — see class javadoc. */
     @SuppressWarnings("resource")
@@ -117,6 +117,7 @@ public abstract class AbstractE2eTest {
         // Every e2e request comes from 127.0.0.1; lift the per-IP login/token buckets so the suite never 429s.
         registry.add("helix.ratelimit.login.burst", () -> "100000");
         registry.add("helix.ratelimit.token.burst", () -> "100000");
+        registry.add("helix.e2e.forced-errors", () -> "true"); // ForcedErrorTestController
         registry.add("helix.admin.username", () -> ADMIN_USERNAME);
         registry.add("helix.admin.password", () -> ADMIN_PASSWORD);
     }

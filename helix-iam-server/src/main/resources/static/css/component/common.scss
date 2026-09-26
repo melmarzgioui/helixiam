@@ -41,17 +41,6 @@
     --color-link: #a3d4c4;
   }
 
-  header {
-    > div.headerBar {
-      a {
-        > div.logo {
-          background-image: url("/img/kubedna-wh.png") !important;
-          opacity: 0.75;
-        }
-      }
-    }
-  }
-
   .image > img {
     opacity: 0.5;
   }

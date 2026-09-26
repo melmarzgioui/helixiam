@@ -21,7 +21,7 @@ export const PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource";
 
 const trimSlash = (s: string) => (s ?? "").replace(/\/+$/, "");
 
-/** Strip a client-role's `clientId/` prefix so `kubedna-cli/mcp:tools` compares as `mcp:tools`. */
+/** Strip a client-role's `clientId/` prefix so `helix-cli/mcp:tools` compares as `mcp:tools`. */
 function bareRole(token: string): string {
   const slash = token.indexOf("/");
   return slash >= 0 ? token.slice(slash + 1) : token;

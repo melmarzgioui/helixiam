@@ -16,7 +16,7 @@ import java.util.Optional;
  * <ol>
  *   <li>the real TLS handshake — the servlet container exposes the chain as the
  *       {@code jakarta.servlet.request.X509Certificate} request attribute (mTLS terminated at the JVM);</li>
- *   <li>a forwarded PEM header — the common KubeDNA topology where TLS terminates at the api-gateway /
+ *   <li>a forwarded PEM header — the common topology where TLS terminates at the api-gateway /
  *       reverse proxy, which forwards the verified client cert (e.g. nginx {@code ssl_client_escaped_cert})
  *       in a configured header.</li>
  * </ol>

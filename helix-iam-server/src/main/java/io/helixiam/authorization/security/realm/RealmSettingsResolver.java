@@ -101,7 +101,7 @@ public class RealmSettingsResolver {
                 0, true,
                 // Adaptive risk-based authentication defaults: policy off → login path unchanged.
                 false, 40, 70, "allow", "step_up", "deny",
-                // B2: no per-realm branding by default (login page uses the built-in KubeDNA theme).
+                // B2: no per-realm branding by default (login page uses the built-in HelixIAM theme).
                 null, null, null, null, null,
                 // Registration on by default; the global master flag (user.register.enabled) still gates it.
                 true);

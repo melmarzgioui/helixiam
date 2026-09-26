@@ -26,9 +26,9 @@ const SPARK =
   "L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z";
 
 /**
- * HelixIAM brand lockup — built exactly like the KubeDNA logotype: the "Helix" (--fg) + "IAM"
- * (--wordmark-accent = deep KubeDNA cyan, one colour on every ground) wordmark in Work Sans 800
- * (self-hosted, KubeDNA's own face), with the spark sitting cap-height at the bottom-right, on the baseline.
+ * HelixIAM brand lockup: the "Helix" (--fg) + "IAM"
+ * (--wordmark-accent, one colour on every ground) wordmark in Work Sans 800
+ * (self-hosted), with the spark sitting cap-height at the bottom-right, on the baseline.
  */
 export function Logo({ variant = "lockup", size = "md" }: LogoProps) {
   const s = SIZES[size];
@@ -50,7 +50,7 @@ export function Logo({ variant = "lockup", size = "md" }: LogoProps) {
       }}
     >
       Helix<span style={{ color: "var(--wordmark-accent)" }}>IAM</span>
-      {/* trailing spark — cap-height, on the baseline, like KubeDNA's mark */}
+      {/* trailing spark — cap-height, on the baseline, like the brand mark */}
       <svg
         viewBox="0 0 125 125"
         aria-hidden="true"

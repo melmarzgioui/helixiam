@@ -5,7 +5,7 @@ connections (DigiD, eHerkenning, eIDAS, generic SAML2, OIDC) and identity broker
 editing YAML. This package is the React app **and** its design system.
 
 The design system is the deliverable for **Epic 8.0**: a Storybook built on
-**BRANDBOOK_KUBEDNA_V2** tokens, used to assemble the connection wizard (E8.4) and console (E8.5).
+the HelixIAM brand tokens, used to assemble the connection wizard (E8.4) and console (E8.5).
 
 ## Stack
 
@@ -26,7 +26,7 @@ npm test               # vitest
 
 ## Design tokens
 
-All visual decisions come from `src/styles/tokens.css` (BRANDBOOK_KUBEDNA_V2):
+All visual decisions come from the brand tokens in `src/styles/brand.css` (imported by `src/styles/tokens.css`):
 
 - **Brand**: Cucumber `#476957` (primary), Jade `#a3d4c4` (dark-mode accent), Black Cat,
   Ink, Willow surfaces. Daylight / Genie blues are **accent-only** and never used in dark mode.
@@ -41,14 +41,14 @@ Use the **theme** toolbar in Storybook to toggle light/dark.
 
 ```
 .storybook/            Storybook config (main, preview + theme toolbar)
-src/styles/tokens.css  BRANDBOOK_KUBEDNA_V2 design tokens (light + dark)
+src/styles/brand.css   Brand design tokens (light + dark); tokens.css = base element styles
 src/components/        Components (see inventory) + co-located stories
 src/stories/           Foundations: Colors, Typography
 ```
 
 ## Component inventory
 
-**Brand** — `Logo` (Helix IAM lockup / wordmark / mark, "by KubeDNA" endorsement).
+**Brand** — `Logo` (Helix IAM lockup / wordmark / mark).
 
 **Foundations** — Colors, Typography.
 

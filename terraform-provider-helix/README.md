@@ -1,6 +1,6 @@
 # terraform-provider-helix
 
-Manage [Helix IAM](https://kubedna.io) as code — realms' applications and roles via the admin API.
+Manage [Helix IAM](https://github.com/melmarzgioui/helixiam) as code — realms' applications and roles via the admin API.
 Built on the Terraform Plugin Framework.
 
 ## Provider configuration
@@ -59,7 +59,7 @@ HELIX_LIVE_BASEURL=http://localhost:8083 go test ./internal/provider -run TestLi
 ```bash
 go build -o terraform-provider-helix
 # Place it on Terraform's local plugin path, e.g.:
-#   ~/.terraform.d/plugins/registry.terraform.io/kubedna/helix/0.1.0/<os>_<arch>/
+#   ~/.terraform.d/plugins/registry.terraform.io/melmarzgioui/helix/0.1.0/<os>_<arch>/
 # then `terraform init` in examples/ and `terraform apply`.
 ```
 

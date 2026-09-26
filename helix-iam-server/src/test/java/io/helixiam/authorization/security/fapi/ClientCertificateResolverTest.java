@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Helix IAM B11 (FAPI / RFC 8705): the client certificate that bound the token is resolved either from a
  * real TLS handshake (the servlet {@code jakarta.servlet.request.X509Certificate} attribute) or — the
- * common KubeDNA deployment, where TLS terminates at the api-gateway / reverse proxy — from a configured
+ * common deployment, where TLS terminates at the api-gateway / reverse proxy — from a configured
  * forwarded PEM header. Resolution is the seam; the binding decision lives in the token customizer.
  */
 class ClientCertificateResolverTest {

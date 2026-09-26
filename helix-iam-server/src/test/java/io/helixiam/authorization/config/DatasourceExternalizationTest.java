@@ -19,10 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Helix IAM PROD-1 (config externalization): the server's datasource connection coordinates must be
- * env-driven so it runs standalone, not only inside the KubeDNA e2e cluster. This pins the
+ * env-driven so it runs standalone, not only inside one fixed deployment. This pins the
  * placeholder contract in {@code application.properties}: with no environment, the datasource URL
- * and username fall back to the in-cluster KubeDNA defaults (so the existing deployment is
- * unchanged); with {@code DB_HOST}/{@code DB_NAME}/{@code DB_USERNAME} set, those flow through into
+ * and username fall back to local defaults ({@code localhost} / {@code helixiam}); with
+ * {@code DB_HOST}/{@code DB_NAME}/{@code DB_USERNAME} set, those flow through into
  * the resolved values (so a standalone install can point at any Postgres).
  * (The original assertions on {@code spring.rabbitmq.virtual-host}/{@code RABBITMQ_VHOST} were
  * dropped in the strip-RabbitMQ migration — helix-iam-server has no broker/AMQP config.)

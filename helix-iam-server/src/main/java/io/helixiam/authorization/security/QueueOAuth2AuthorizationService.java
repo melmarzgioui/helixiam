@@ -25,7 +25,7 @@ import java.util.List;
 
 /**
  * Helix IAM (Q1): a queue-backed {@link OAuth2AuthorizationService} so the publisher needs no database — all
- * persistence is delegated to the subscriber (the {@code kubeiam} owner) over AMQP via
+ * persistence is delegated to the subscriber (the owner of the {@code helixiam} database) over AMQP via
  * {@link AuthorizationStorePublisher}. Structurally mirrors {@link RedisOAuth2AuthorizationService}: the whole
  * (serializable) {@link OAuth2Authorization} is stored as an opaque base64 blob under its id, with one index
  * entry per contained token/code/state value pointing back to the id, so {@code findByToken} resolves by value

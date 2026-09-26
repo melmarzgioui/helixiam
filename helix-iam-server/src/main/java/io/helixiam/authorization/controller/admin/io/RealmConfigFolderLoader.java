@@ -85,6 +85,10 @@ public class RealmConfigFolderLoader implements ApplicationRunner {
             final RealmExportDocument doc = mapper.readValue(file, RealmExportDocument.class);
             final RealmImportResult result = importService.importInto(realmId, doc, options);
             LOG.info("Helix realm-config: applied '{}' → realm '{}' {}", file.getName(), realmId, result.slices());
+            if (result.hasFailures()) {
+                LOG.error("Helix realm-config: '{}' FAILED to apply {} entr(y/ies) to realm '{}': {}",
+                        file.getName(), result.failed().size(), realmId, result.failed());
+            }
             if (result.conflicts() != null && !result.conflicts().isEmpty()) {
                 LOG.warn("Helix realm-config: '{}' had conflicts (on-conflict={}): {}",
                         file.getName(), onConflict, result.conflicts());

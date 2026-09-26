@@ -71,7 +71,7 @@ export const Console: Story = {
         ]}
         activeRealm={realm}
         onRealmChange={setRealm}
-        user={{ name: "Mo Marz", email: "admin@kubedna.io" }}
+        user={{ name: "Mo Marz", email: "admin@example.com" }}
         title="Identity providers"
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.2rem" }}>

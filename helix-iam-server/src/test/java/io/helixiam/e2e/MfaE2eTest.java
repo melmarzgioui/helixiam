@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 1.0 item 6: TOTP two-step sign-in in a realm with {@code requireMfa=true}. Before the fix an admin-created user
  * had no secret ({@code secret=null} in the QR code), the enrolment form posted to a realm-less path (404), the
  * realm flag was never consulted (tokens after password only), "skip" bypassed enrolment for 7 days, codes could
- * be replayed within a ±10 s window, recovery codes were unreachable, and the label said "KubeDNA".
+ * be replayed within a ±10 s window, recovery codes were unreachable, and the label carried the old product name.
  *
  * <p>The shared e2e context runs with the global {@code mfa.enabled=false}; the realm flag alone must enforce.
  */
@@ -69,8 +69,7 @@ class MfaE2eTest extends AbstractE2eTest {
                     assertThat(uri.find()).isTrue();
                     final String otpauth = URLDecoder.decode(uri.group(1).replace("&amp;", "&"), StandardCharsets.UTF_8);
                     assertThat(otpauth).startsWith("otpauth://totp/Monthfold Books:" + owner.username())
-                            .contains("issuer=Monthfold Books").contains("secret=" + secret.get())
-                            .doesNotContainIgnoringCase("kubedna");
+                            .contains("issuer=Monthfold Books").contains("secret=" + secret.get());
                     assertThat(page.body()).doesNotContain("value=\"skip\"");
 
                     // A skip attempt and a wrong code are both refused; the form posts realm-prefixed.

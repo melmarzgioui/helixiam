@@ -13,7 +13,7 @@ export interface CardProps {
   className?: string;
 }
 
-/** Surface card per BRANDBOOK_KUBEDNA_V2 — radius --r, hairline border, soft shadow. Class-based (components.css). */
+/** Surface card per the brand tokens — radius --r, hairline border, soft shadow. Class-based (components.css). */
 export function Card({ title, subtitle, actions, children, className }: CardProps) {
   const hasHead = title || actions;
   return (

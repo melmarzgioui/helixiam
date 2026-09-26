@@ -94,7 +94,7 @@ class QueueOAuth2AuthorizationServiceTest {
         final FakeStore store = new FakeStore();
         final QueueOAuth2AuthorizationService service = new QueueOAuth2AuthorizationService(store);
 
-        final RegisteredClient client = RegisteredClient.withId("cli").clientId("kubedna-cli")
+        final RegisteredClient client = RegisteredClient.withId("cli").clientId("helix-cli")
                 .authorizationGrantType(new AuthorizationGrantType("urn:ietf:params:oauth:grant-type:device_code"))
                 .build();
         final OAuth2Authorization auth = OAuth2Authorization.withRegisteredClient(client)
