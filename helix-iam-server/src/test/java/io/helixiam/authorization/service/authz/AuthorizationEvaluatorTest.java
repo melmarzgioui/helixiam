@@ -75,6 +75,31 @@ class AuthorizationEvaluatorTest {
     }
 
     @Test
+    void lowercaseScopePermission_limitsToItsScope_andDoesNotGrantTheWholeResource() {
+        // Permissions are stored Keycloak-style with a lowercase type. A scope permission on doc:delete must
+        // NOT grant doc:read — the earlier case-sensitive match let it fall through to a resource grant.
+        final var perms = List.of(new PermissionView("p", "scope", "doc", "delete", List.of("admins"), "UNANIMOUS"));
+        final var pol = policies(new PolicyView("admins", "ROLE", "POSITIVE", Set.of("admin")));
+        assertTrue(AuthorizationEvaluator.evaluate("doc", "delete", Set.of("admin"), perms, pol, "UNANIMOUS").granted());
+        assertFalse(AuthorizationEvaluator.evaluate("doc", "read", Set.of("admin"), perms, pol, "UNANIMOUS").granted());
+        assertFalse(AuthorizationEvaluator.evaluate("doc", null, Set.of("admin"), perms, pol, "UNANIMOUS").granted());
+    }
+
+    @Test
+    void lowercaseResourcePermission_stillGrantsTheResource() {
+        final var perms = List.of(new PermissionView("p", "resource", "report", null, List.of("admins"), "UNANIMOUS"));
+        final var pol = policies(new PolicyView("admins", "ROLE", "POSITIVE", Set.of("admin")));
+        assertTrue(AuthorizationEvaluator.evaluate("report", null, Set.of("admin"), perms, pol, "UNANIMOUS").granted());
+    }
+
+    @Test
+    void unknownPermissionType_deniesRatherThanGrants() {
+        final var perms = List.of(new PermissionView("p", "bogus", "report", null, List.of("admins"), "UNANIMOUS"));
+        final var pol = policies(new PolicyView("admins", "ROLE", "POSITIVE", Set.of("admin")));
+        assertFalse(AuthorizationEvaluator.evaluate("report", null, Set.of("admin"), perms, pol, "UNANIMOUS").granted());
+    }
+
+    @Test
     void defaultDenyWhenNoPermissionApplies() {
         final EvaluationResult r = AuthorizationEvaluator.evaluate("report", null, Set.of("admin"), List.of(), Map.of(), "UNANIMOUS");
         assertFalse(r.granted());

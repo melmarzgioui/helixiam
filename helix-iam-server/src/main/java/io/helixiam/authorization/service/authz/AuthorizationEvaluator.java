@@ -57,14 +57,21 @@ public final class AuthorizationEvaluator {
     }
 
     private static boolean applies(final PermissionView p, final String resource, final String scope) {
-        if ("SCOPE".equals(p.type())) {
+        // Type is compared case-INSENSITIVELY: the console/import store it Keycloak-style ("scope"/"resource"),
+        // while a permission built in code may use upper case. A prior bug matched only "SCOPE" (upper), so a
+        // stored "scope" permission fell through to the RESOURCE branch and granted the WHOLE resource for every
+        // scope — i.e. it stopped limiting access. An unknown type denies rather than silently granting.
+        final String type = p.type() == null ? "" : p.type().trim().toUpperCase(java.util.Locale.ROOT);
+        if ("SCOPE".equals(type)) {
             if (p.scopeName() == null || !p.scopeName().equals(scope)) {
                 return false;
             }
             return p.resourceName() == null || p.resourceName().equals(resource);
         }
-        // RESOURCE permission
-        return p.resourceName() != null && p.resourceName().equals(resource);
+        if ("RESOURCE".equals(type)) {
+            return p.resourceName() != null && p.resourceName().equals(resource);
+        }
+        return false; // unknown/blank permission type → deny
     }
 
     private static boolean permissionGrants(final PermissionView p, final Set<String> roles, final Map<String, PolicyView> policiesByName) {
