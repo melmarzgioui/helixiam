@@ -3,6 +3,28 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## 1.0 release blockers (branch `fix/1.0-blockers`, after `v1.0.0-rc.2`)
+
+> **SECURITY ADVISORY — claim injection (item 1, critical).** In rc.1 and rc.2 a signed-in user could set
+> their own profile attributes (`PUT /realms/{realm}/account/profile`) and the token customizer copied the
+> whole profile into tokens, so `attributes.sub=<another user's id>` (or `iss`, `aud`, roles) produced
+> validly signed tokens, userinfo and introspection for the other user. Fixed in `8b632d2`. Upgrade; review
+> `user_attributes` for reserved names (`sub`, `iss`, `aud`, `roles`, …) set by users before the upgrade.
+
+- **1 — security** — `8b632d2` Profile attributes no longer reach tokens wholesale; reserved claims can never come from attributes or mappers (mapper save 400); users may only edit admin-allowlisted attributes (`/admin/realms/{r}/settings/self-editable-attributes`, empty by default).
+- **2** — `d1ca907` Admin-created/imported clients are bound to their realm (`realm_id`); `UNIQUE(client_id, realm_id)` on both schema paths; by-id client admin calls can no longer reach another realm's client (secret read/rotate); Flyway boots an empty database (V10 seed) and is the default in the app, image and Helm chart.
+- **3** — `d266e34` Permission types parsed case-insensitively into `RESOURCE`/`SCOPE`; unknown types refused on save (400) and import, denied at evaluation; a `scope` permission grants only its scope.
+- **4** — `2baaff9` Admin API accepts service-account bearer tokens (client_credentials only, revocation-aware, realm RBAC, no CSRF for bearer); `44644f6` master-realm admins administer every realm, so realms can be provisioned over the API.
+- **5** — `448b010` Token exchange honours `audience`/`resource` (`invalid_target` for unknown targets), enforces the target client's exchange allowlist (`/admin/realms/{r}/clients/{id}/token-exchange`), adds `act`, keeps organization claims.
+- **6** — `043fcbe` TOTP: secret generated per enrolment and confirmed with a first code; realm-prefixed MFA forms; `requireMfa` enforced before any code is issued (all login paths); skip grace per realm, off by default (`/admin/realms/{r}/settings/mfa`); ±30 s window with replay protection; recovery codes usable at sign-in and regenerable (`POST /account/mfa/recovery-codes`), no broker; otpauth issuer/label = realm name.
+- **6 — magic link** — removed from 1.0 (`043fcbe`): the unwired prototype (no endpoint, template or persistent store) and its default email template are gone; planned for a later release.
+- **7 — deferred** — per-organization branding and verified custom domains ship after 1.0 (new feature; host-based issuer routing needs its own design and security review).
+- **8** — `3710b0c` KubeDNA/kubeiam names removed (seed client `kubedna-cli` → `helix-cli` via Flyway V13; Terraform module/registry `melmarzgioui/helix`); the demo client `oidc-client`/`secret` is no longer seeded and is disabled on upgrade; `/error` permitted so server errors are `500` with a `correlationId`; realm import reports `failed[]` with reasons and answers `422`.
+- **ops** — `591f7db` Dev profile needs no Redis (PostgreSQL sessions); with Redis sessions, startup fails fast with a clear message if Redis is unreachable; rate limits (per IP, shared-egress caveat) and memory (container limit ≥ 1 GiB) documented.
+- **session** — `8fca429` An unset realm SSO idle timeout (0) no longer invalidates every session immediately (found by the release gate).
+- **release gate** — `14db0d0` `e2e/monthfold/k3d-helm.sh`: Helm defaults on a fresh k3d cluster + scripted Monthfold run + Go jwx validation (38/38 checks, 6/6 tokens).
+- **Known, not fixed here:** usernames are unique across all realms (`user_credentials.username`), so the same username cannot exist in two realms.
+
 ## Decisions (agreed with maintainer)
 - **No-AI scrub scope:** remove AI *as tool/author* only (tooling config, "agent" tester framing);
   **keep** the product's AI-agent identity feature (the Phase-1 differentiator).
