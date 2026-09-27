@@ -157,6 +157,7 @@ class OrganizationAdminServiceTest {
     @Test
     void listMembers_resolvesUsernames_andRole() {
         final Organization o = new Organization("gov", "acme", null, null, true);
+        when(organizations.findById(o.getOrgId())).thenReturn(Optional.of(o));
         when(members.findAllByOrgId(o.getOrgId())).thenReturn(List.of(new OrganizationMember(o.getOrgId(), "u1", "admin")));
         final UserCredentials user = new UserCredentials();
         user.setUsername("alice");

@@ -35,6 +35,13 @@ public class FederatedIdentityService {
     private final UserCredentialsRepository users;
     private final FederatedLinkService links;
 
+    private io.helixiam.authorization.repository.tenant.TenantUserRepository memberships;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMemberships(final io.helixiam.authorization.repository.tenant.TenantUserRepository memberships) {
+        this.memberships = memberships;
+    }
+
     public FederatedIdentityService(final UserCredentialsRepository users, final FederatedLinkService links) {
         this.users = users;
         this.links = links;
@@ -42,7 +49,7 @@ public class FederatedIdentityService {
 
     /** The local user previously linked to this external subject for the given provider, if any. */
     public Optional<String> findLinkedUser(final String idpAlias, final String externalSubject) {
-        return links.findLinkedUser(idpAlias, externalSubject);
+        return links.findLinkedUser(idpAlias, externalSubject).filter(this::eligibleInCurrentRealm);
     }
 
     /** Record (or overwrite) the federated link. */
@@ -55,7 +62,21 @@ public class FederatedIdentityService {
         if (email == null || email.isBlank()) {
             return Optional.empty();
         }
-        return users.findByUsername(email.toLowerCase()).map(UserCredentials::getUserId);
+        return users.findByUsername(email.toLowerCase()).map(UserCredentials::getUserId).filter(this::eligibleInCurrentRealm);
+    }
+
+    /**
+     * Review rc.3 #1 (security): federation in realm X may only resolve to a user of realm X — never to a user who
+     * belongs only to other realms (a realm's IdP or LDAP returning a master admin's email must not sign in as the
+     * master admin). Users with no realm link at all (JIT users from before 1.0) stay eligible.
+     */
+    private boolean eligibleInCurrentRealm(final String userId) {
+        if (memberships == null) {
+            return true;
+        }
+        final java.util.List<io.helixiam.authorization.domain.tenant.TenantUser> links = memberships.findAllByUserId(userId);
+        final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+        return links.isEmpty() || (realm != null && links.stream().anyMatch(l -> realm.equals(l.getTenantId())));
     }
 
     /**
@@ -84,6 +105,14 @@ public class FederatedIdentityService {
             user.getUserAttributes().putAll(attributes);
         }
         final String userId = users.save(user).getUserId();
+        // Review rc.3 #1: a JIT user belongs to the realm whose identity provider created it.
+        final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+        if (realm != null && memberships != null) {
+            final io.helixiam.authorization.domain.tenant.TenantUser link = new io.helixiam.authorization.domain.tenant.TenantUser();
+            link.setTenantId(realm);
+            link.setUserId(userId);
+            memberships.save(link);
+        }
         LOG.info("JIT-provisioned conservative federated user {} ({}) — no roles/tenant", userId, username);
         return userId;
     }

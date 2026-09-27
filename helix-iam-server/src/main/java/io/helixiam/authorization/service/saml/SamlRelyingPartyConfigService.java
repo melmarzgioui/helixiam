@@ -54,7 +54,9 @@ public class SamlRelyingPartyConfigService {
         entity.setSingleLogoutServiceUrl(config.singleLogoutServiceUrl());
         entity.setSigningCertificate(config.signingCertificate());
         entity.setEnabled(config.enabled());
-        entity.setApplicationId(config.applicationId());
+        // Review rc.3 #1: only an application of this realm (ids are realm|name).
+        entity.setApplicationId(io.helixiam.authorization.service.client.ClientAdminService
+                .sameRealmApplication(config.realmId(), config.applicationId()));
         applyOptions(entity, config.options());
         final SamlRelyingPartyEntity saved = repository.save(entity);
         LOG.debug("Saved SAML relying party {} for realm {}", config.entityId(), config.realmId());

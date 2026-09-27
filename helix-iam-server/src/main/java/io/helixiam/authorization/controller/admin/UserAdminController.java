@@ -196,9 +196,12 @@ public class UserAdminController {
     /** Every enrolled authentication factor for the user — the console's Device &amp; passkeys screen. */
     @GetMapping("/{userId}/credentials")
     @Operation(summary = "List credentials", description = "Every enrolled authentication factor for the user.")
-    public List<CredentialSummary> credentials(@PathVariable final String realmId,
-                                               @PathVariable final String userId) {
-        return publisher.listCredentials(new UserAdminRef(realmId, userId));
+    public ResponseEntity<List<CredentialSummary>> credentials(@PathVariable final String realmId,
+                                                               @PathVariable final String userId) {
+        if (!inRealm(realmId, userId)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(publisher.listCredentials(new UserAdminRef(realmId, userId)));
     }
 
     /** Revoke a single factor by type + id; 404 when it is absent or not owned by the user. */
@@ -206,6 +209,9 @@ public class UserAdminController {
     @Operation(summary = "Revoke a credential", description = "Revoke one factor by type + id; 404 if absent/not owned.")
     public ResponseEntity<Void> revokeCredential(@PathVariable final String realmId, @PathVariable final String userId,
                                                  @PathVariable final String type, @PathVariable final String id) {
+        if (!inRealm(realmId, userId)) {
+            return ResponseEntity.notFound().build();
+        }
         final boolean removed = Boolean.TRUE.equals(
                 publisher.revokeCredential(new CredentialRevokeRef(realmId, userId, type, id)));
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
@@ -238,9 +244,12 @@ public class UserAdminController {
     /** B1: the user's pending required actions (CSV) — the console's Required-actions control reads this. */
     @GetMapping("/{userId}/required-actions")
     @Operation(summary = "Get required actions", description = "The CSV of actions the user must complete at next login.")
-    public Map<String, String> getRequiredActions(@PathVariable final String realmId, @PathVariable final String userId) {
+    public ResponseEntity<Map<String, String>> getRequiredActions(@PathVariable final String realmId, @PathVariable final String userId) {
+        if (!inRealm(realmId, userId)) {
+            return ResponseEntity.notFound().build();
+        }
         final String csv = publisher.getRequiredActions(userId);
-        return Map.of("requiredActions", csv == null ? "" : csv);
+        return ResponseEntity.ok(Map.of("requiredActions", csv == null ? "" : csv));
     }
 
     /** B1: replace the user's required actions (CSV, e.g. "UPDATE_PASSWORD,VERIFY_EMAIL"; empty clears). */
@@ -248,9 +257,20 @@ public class UserAdminController {
     @Operation(summary = "Set required actions", description = "Replace the actions the user must complete at next login.")
     public ResponseEntity<Void> setRequiredActions(@PathVariable final String realmId, @PathVariable final String userId,
                                                    @RequestBody final RequiredActionsRequest body) {
+        if (!inRealm(realmId, userId)) {
+            return ResponseEntity.notFound().build();
+        }
         final boolean ok = Boolean.TRUE.equals(publisher.setRequiredActions(
                 new UserRequiredActionsDto(realmId, userId, body.requiredActions())));
         return ok ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
+    /**
+     * Review rc.3 #1: the credential and required-action services key on the user id alone, so check here that the
+     * user belongs to the path realm — never touch another realm's user by id.
+     */
+    private boolean inRealm(final String realmId, final String userId) {
+        return publisher.get(new UserAdminRef(realmId, userId)) != null;
     }
 
     /** Body for setting required actions: the full comma-separated replacement list (empty = none). */

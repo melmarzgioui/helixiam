@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.federation.ldap;
 
+import io.helixiam.authorization.security.realm.RealmContextHolder;
+
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.federation.AccountLinkingPolicy;
 import io.helixiam.authorization.federation.BrokerResult;
@@ -54,6 +56,21 @@ public class LdapSyncService {
     /** Sync the named enabled LDAP/AD provider in a realm. Unknown/disabled/mismatched alias → an empty result. */
     public Result sync(final String realmId, final String alias) {
         final String realm = realmId == null || realmId.isBlank() ? "master" : realmId;
+        // Review rc.3 #1: the admin API runs outside /realms/{realm}; brokering resolves users within this realm.
+        final String previousRealm = RealmContextHolder.get();
+        RealmContextHolder.set(realm);
+        try {
+            return syncInRealm(realm, alias);
+        } finally {
+            if (previousRealm == null) {
+                RealmContextHolder.clear();
+            } else {
+                RealmContextHolder.set(previousRealm);
+            }
+        }
+    }
+
+    private Result syncInRealm(final String realm, final String alias) {
         int synced = 0;
         int failed = 0;
         final List<String> errors = new ArrayList<>();

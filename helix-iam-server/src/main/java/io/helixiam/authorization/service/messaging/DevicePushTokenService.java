@@ -26,9 +26,19 @@ public class DevicePushTokenService {
         this.tokens = tokens;
     }
 
+    private io.helixiam.authorization.repository.tenant.TenantUserRepository memberships;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMemberships(final io.helixiam.authorization.repository.tenant.TenantUserRepository memberships) {
+        this.memberships = memberships;
+    }
+
     /** Register (idempotent upsert by realm + user + platform + token) a device push token. */
     @Transactional
     public DevicePushTokenDto register(final DevicePushTokenDto dto) {
+        if (memberships != null && memberships.findByTenantIdAndUserId(dto.realmId(), dto.userId()).isEmpty()) {
+            return null; // review rc.3 #1: only users of the path realm
+        }
         final DevicePushToken entity = tokens
                 .findByRealmIdAndUserIdAndPlatformAndToken(dto.realmId(), dto.userId(), dto.platform(), dto.token())
                 .orElseGet(DevicePushToken::new);

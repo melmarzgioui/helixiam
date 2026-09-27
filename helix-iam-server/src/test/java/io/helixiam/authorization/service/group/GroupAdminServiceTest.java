@@ -28,6 +28,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -99,7 +100,19 @@ class GroupAdminServiceTest {
     }
 
     @Test
+    void anotherRealmsGroup_isNeverReadOrChanged() {
+        when(groups.findById("g-9")).thenReturn(Optional.of(new UserGroup("Other", null, "other")));
+        when(tenantUsers.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(new TenantUser()));
+        assertFalse(service.addMember(new GroupRef("gov", "g-9", "u-1", null)));
+        assertFalse(service.removeMember(new GroupRef("gov", "g-9", "u-1", null)));
+        assertNull(service.listMembers(new GroupRef("gov", "g-9", null, null)));
+        assertNull(service.listRoles(new GroupRef("gov", "g-9", null, null)));
+        verify(members, never()).save(any());
+    }
+
+    @Test
     void addMember_savesMembership_whenUserBelongsToTheRealm() {
+        when(groups.findById("g-1")).thenReturn(Optional.of(new UserGroup("Civil servants", null, "gov")));
         when(tenantUsers.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(new TenantUser()));
         when(members.findByGroupIdAndUserId("g-1", "u-1")).thenReturn(Optional.empty());
 

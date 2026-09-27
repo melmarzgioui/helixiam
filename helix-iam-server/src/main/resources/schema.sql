@@ -920,3 +920,6 @@ CREATE TABLE IF NOT EXISTS magic_link_token (
     FOREIGN KEY (user_id) REFERENCES user_credentials(user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS magic_link_token_expiry_idx ON magic_link_token (expires_at);
+
+-- Review rc.3 #1 (security): drop role grants whose user is not a member of the role's realm (same as Flyway V16).
+DELETE FROM user_in_role uir WHERE NOT EXISTS (SELECT 1 FROM user_roles r JOIN tenant_user tu ON tu.tenant_id = r.tenant_id WHERE r.role_id = uir.role_id AND tu.user_id = uir.user_id);

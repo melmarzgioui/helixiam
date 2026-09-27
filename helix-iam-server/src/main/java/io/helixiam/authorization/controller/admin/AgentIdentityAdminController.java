@@ -100,7 +100,8 @@ public class AgentIdentityAdminController {
     public ResponseEntity<?> update(@PathVariable final String realmId, @PathVariable final String id,
                                     @Valid @RequestBody final AgentRequest body) {
         try {
-            return ResponseEntity.ok(publisher.save(toDto(id, realmId, body)));
+            final Object saved = publisher.save(toDto(id, realmId, body));
+            return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(saved);
         } catch (final RuntimeException e) {
             LOG.warn("Agent update failed for {} in realm {}: {}", id, realmId, e.getMessage());
             return ResponseEntity.badRequest().body(Map.of("message", "Could not update the agent (the name may already be in use)."));

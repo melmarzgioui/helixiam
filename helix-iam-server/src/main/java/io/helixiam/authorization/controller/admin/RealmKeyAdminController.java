@@ -49,6 +49,10 @@ public class RealmKeyAdminController {
     /** Retire a (rotated) key so it drops out of the published JWKS. 404 if the key id is unknown. */
     @DeleteMapping("/{keyId}")
     public ResponseEntity<Void> retire(@PathVariable final String realmId, @PathVariable final String keyId) {
+        // Review rc.3 #1: only a key of the path realm (key ids are public in every JWKS).
+        if (publisher.list(realmId).stream().noneMatch(k -> keyId.equals(k.keyId()))) {
+            return ResponseEntity.notFound().build();
+        }
         final Boolean retired = publisher.retire(keyId);
         return Boolean.TRUE.equals(retired) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }

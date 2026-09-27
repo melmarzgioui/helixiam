@@ -149,6 +149,7 @@ class RoleAdminServiceTest {
         link.setTenantId("gov");
         link.setUserId("u-1");
         when(tenantUserRepository.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(link));
+        when(userRolesRepository.findById("r-1")).thenReturn(Optional.of(role("auditor", "gov")));
         when(userInRoleRepository.findByRoleIdAndUserId("r-1", "u-1")).thenReturn(Optional.empty());
 
         assertTrue(service.assign("gov", "u-1", "r-1"));
@@ -156,8 +157,20 @@ class RoleAdminServiceTest {
     }
 
     @Test
+    void anotherRealmsRole_canNeverBeGrantedOrRevoked() {
+        when(tenantUserRepository.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(new TenantUser()));
+        when(userRolesRepository.findById("r-master-admin")).thenReturn(Optional.of(role("admin", "master")));
+        assertFalse(service.assign("gov", "u-1", "r-master-admin"));
+        assertFalse(service.unassign("gov", "u-1", "r-master-admin"));
+        verify(userInRoleRepository, never()).save(any());
+        verify(userInRoleRepository, never()).delete(any());
+    }
+
+    @Test
     void unassign_deletesUserInRole_whenPresent() {
         final UserInRole uir = new UserInRole("r-1", "u-1", "tu-1");
+        when(tenantUserRepository.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(new TenantUser()));
+        when(userRolesRepository.findById("r-1")).thenReturn(Optional.of(role("auditor", "gov")));
         when(userInRoleRepository.findByRoleIdAndUserId("r-1", "u-1")).thenReturn(Optional.of(uir));
         assertTrue(service.unassign("gov", "u-1", "r-1"));
         verify(userInRoleRepository).delete(uir);

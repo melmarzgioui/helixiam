@@ -130,6 +130,7 @@ class UserAdminServiceTest {
         when(userCredentialsRepository.findByUserId("u-1")).thenReturn(Optional.of(user));
         when(userCredentialsRepository.findByUserId("ghost")).thenReturn(Optional.empty());
         when(passwordEncoderService.encode("newpass")).thenReturn("$argon2id$new");
+        when(tenantUserRepository.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(new TenantUser()));
         when(userCredentialsRepository.save(any(UserCredentials.class))).thenAnswer(inv -> inv.getArgument(0));
 
         assertTrue(service.resetPassword(new UserPasswordDto("gov", "u-1", "newpass")));

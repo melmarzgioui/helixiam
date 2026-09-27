@@ -219,6 +219,9 @@ public class ClaimScopeAdminService {
     /** Maps a catalogue claim into a scope; idempotent. */
     @Transactional
     public boolean addClaim(final ScopeRef ref) {
+        if (!scopeAndClaimInRealm(ref)) {
+            return false; // review rc.3 #1: both the scope and the claim must be of the path realm
+        }
         if (scopeClaims.findByScopeIdAndClaimId(ref.scopeId(), ref.claimId()).isEmpty()) {
             scopeClaims.save(new ScopeClaim(ref.scopeId(), ref.claimId()));
             LOG.debug("Mapped claim {} into scope {}", ref.claimId(), ref.scopeId());
@@ -229,10 +232,19 @@ public class ClaimScopeAdminService {
     /** Removes a claim mapping from a scope; {@code false} if it wasn't mapped. */
     @Transactional
     public boolean removeClaim(final ScopeRef ref) {
+        if (!scopeAndClaimInRealm(ref)) {
+            return false;
+        }
         return scopeClaims.findByScopeIdAndClaimId(ref.scopeId(), ref.claimId()).map(sc -> {
             scopeClaims.delete(sc);
             return true;
         }).orElse(false);
+    }
+
+    private boolean scopeAndClaimInRealm(final ScopeRef ref) {
+        return ref.scopeId() != null && ref.claimId() != null
+                && scopes.findById(ref.scopeId()).filter(sc -> ref.realmId().equals(sc.getTenantId())).isPresent()
+                && claims.findById(ref.claimId()).filter(c -> ref.realmId().equals(c.getTenantId())).isPresent();
     }
 
     // ---- Subject identifier (which claim becomes `sub`) -------------------------------------------

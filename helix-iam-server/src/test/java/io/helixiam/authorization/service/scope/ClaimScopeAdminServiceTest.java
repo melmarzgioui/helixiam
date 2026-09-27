@@ -138,8 +138,25 @@ class ClaimScopeAdminServiceTest {
         assertTrue(dto.mandatory());
     }
 
+    /** Scope s-1 and claim c-1 belong to {@code realm}. */
+    private void inRealm(final String realm) {
+        when(scopes.findById("s-1")).thenReturn(Optional.of(new io.helixiam.authorization.domain.scope.ClientScope(realm, "profile", null)));
+        final io.helixiam.authorization.domain.scope.ClaimDef claim = mock(io.helixiam.authorization.domain.scope.ClaimDef.class);
+        when(claim.getTenantId()).thenReturn(realm);
+        when(claims.findById("c-1")).thenReturn(Optional.of(claim));
+    }
+
+    @Test
+    void anotherRealmsScopeOrClaim_isNeverMapped() {
+        inRealm("other");
+        assertFalse(service.addClaim(new ScopeRef("gov", "s-1", "c-1")));
+        assertFalse(service.removeClaim(new ScopeRef("gov", "s-1", "c-1")));
+        verify(scopeClaims, never()).save(any(ScopeClaim.class));
+    }
+
     @Test
     void addClaim_mapsClaimIntoScope_whenNotAlreadyMapped() {
+        inRealm("gov");
         when(scopeClaims.findByScopeIdAndClaimId("s-1", "c-1")).thenReturn(Optional.empty());
 
         assertTrue(service.addClaim(new ScopeRef("gov", "s-1", "c-1")));
@@ -148,6 +165,7 @@ class ClaimScopeAdminServiceTest {
 
     @Test
     void addClaim_isIdempotent_whenAlreadyMapped() {
+        inRealm("gov");
         when(scopeClaims.findByScopeIdAndClaimId("s-1", "c-1")).thenReturn(Optional.of(new ScopeClaim("s-1", "c-1")));
 
         assertTrue(service.addClaim(new ScopeRef("gov", "s-1", "c-1")));

@@ -65,13 +65,17 @@ public class GroupAdminController {
     }
 
     @GetMapping("/{groupId}/members")
-    public List<GroupMemberDto> members(@PathVariable final String realmId, @PathVariable final String groupId) {
-        return publisher.members(new GroupRef(realmId, groupId, null, null));
+    public ResponseEntity<List<GroupMemberDto>> members(@PathVariable final String realmId, @PathVariable final String groupId) {
+        final List<GroupMemberDto> members = publisher.members(new GroupRef(realmId, groupId, null, null));
+        return members == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(members);
     }
 
     @PutMapping("/{groupId}/members/{userId}")
     public ResponseEntity<Void> addMember(@PathVariable final String realmId, @PathVariable final String groupId,
                                           @PathVariable final String userId) {
+        if (publisher.members(new GroupRef(realmId, groupId, null, null)) == null) {
+            return ResponseEntity.notFound().build(); // review rc.3 #1: not a group of this realm
+        }
         return Boolean.TRUE.equals(publisher.addMember(new GroupRef(realmId, groupId, userId, null)))
                 ? ResponseEntity.noContent().build() : ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
@@ -84,8 +88,9 @@ public class GroupAdminController {
     }
 
     @GetMapping("/{groupId}/roles")
-    public List<RoleDto> roles(@PathVariable final String realmId, @PathVariable final String groupId) {
-        return publisher.roles(new GroupRef(realmId, groupId, null, null));
+    public ResponseEntity<List<RoleDto>> roles(@PathVariable final String realmId, @PathVariable final String groupId) {
+        final List<RoleDto> roles = publisher.roles(new GroupRef(realmId, groupId, null, null));
+        return roles == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(roles);
     }
 
     @PutMapping("/{groupId}/roles/{roleId}")

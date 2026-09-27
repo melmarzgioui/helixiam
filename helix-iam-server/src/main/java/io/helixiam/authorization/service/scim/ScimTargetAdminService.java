@@ -41,6 +41,11 @@ public class ScimTargetAdminService {
 
     @Transactional
     public ScimTargetDto save(final ScimTargetDto dto) {
+        // Review rc.3 #1: an id that belongs to another realm is never updated (nor moved into this one).
+        if (dto.id() != null && !dto.id().isBlank()
+                && repository.findById(dto.id()).filter(e -> !dto.realmId().equals(e.getRealmId())).isPresent()) {
+            return null;
+        }
         final ScimTarget entity = dto.id() == null || dto.id().isBlank()
                 ? newEntity(dto.realmId())
                 : repository.findById(dto.id()).orElseGet(() -> newEntity(dto.realmId()));

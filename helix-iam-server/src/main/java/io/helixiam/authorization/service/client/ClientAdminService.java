@@ -127,7 +127,7 @@ public class ClientAdminService {
         client.setScopes(join(write.scopes()));
         client.setSubjectClaim(blankToNull(write.subjectClaim()));
         client.setAuthFlowAlias(blankToNull(write.authFlowAlias()));
-        client.setApplicationId(blankToNull(write.applicationId()));
+        client.setApplicationId(sameRealmApplication(write.realmId(), blankToNull(write.applicationId())));
         client.setName(blankToNull(write.name()));
         client.setDescription(blankToNull(write.description()));
         client.setWebOrigins(join(write.webOrigins()));
@@ -182,5 +182,20 @@ public class ClientAdminService {
                 client.getBackchannelLogoutUri(), client.getFrontchannelLogoutUri(), client.getApplicationId(),
                 client.getX509CertificateBoundAccessTokens(), client.getRequireSignedRequestObject(),
                 client.getJarmResponseMode());
+    }
+
+    /**
+     * Review rc.3 #1: an application reference must be an application of the client's realm (application ids are
+     * {@code realm|name}); another realm's application is ignored.
+     */
+    public static String sameRealmApplication(final String realmId, final String applicationId) {
+        if (applicationId == null || realmId == null) {
+            return applicationId;
+        }
+        if (!applicationId.startsWith(realmId + "|")) {
+            LOG.warn("Ignored application reference {} from another realm on a client of realm {}", applicationId, realmId);
+            return null;
+        }
+        return applicationId;
     }
 }

@@ -61,7 +61,7 @@ public class WebhookAdminController {
                                                          @Valid @RequestBody final WebhookRequest body) {
         final WebhookSubscriptionDto saved = publisher.save(new WebhookSubscriptionDto(id, realmId, body.name(),
                 body.url(), body.secret(), false, body.eventTypes(), body.enabled() == null || body.enabled(), null));
-        return ResponseEntity.ok(withoutSecret(saved));
+        return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(withoutSecret(saved));
     }
 
     @DeleteMapping("/{id}")

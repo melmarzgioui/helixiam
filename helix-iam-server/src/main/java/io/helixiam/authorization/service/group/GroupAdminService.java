@@ -69,6 +69,9 @@ public class GroupAdminService {
     /** Creates a group; idempotent on (parent, name) — returns the existing group if already present. */
     @Transactional
     public GroupDto create(final GroupWriteDto write) {
+        if (write.parentId() != null && !inRealm(write.realmId(), write.parentId())) {
+            return null; // review rc.3 #1: the parent must be a group of this realm
+        }
         ensureTenant(write.realmId());
         if (groups.existsByTenantIdAndParentIdAndName(write.realmId(), write.parentId(), write.name())) {
             return groups.findAllByTenantId(write.realmId()).stream()
@@ -86,6 +89,9 @@ public class GroupAdminService {
         final Optional<UserGroup> existing = groups.findById(write.groupId());
         if (existing.isEmpty() || !write.realmId().equals(existing.get().getTenantId())) {
             return null;
+        }
+        if (write.parentId() != null && !inRealm(write.realmId(), write.parentId())) {
+            return null; // review rc.3 #1
         }
         final UserGroup group = existing.get();
         group.setName(write.name());
@@ -112,6 +118,9 @@ public class GroupAdminService {
 
     /** The users who belong to a group, with their usernames. */
     public List<GroupMemberDto> listMembers(final GroupRef ref) {
+        if (!inRealm(ref.realmId(), ref.groupId())) {
+            return null; // review rc.3 #1: another realm's group -> not found
+        }
         return members.findAllByGroupId(ref.groupId()).stream()
                 .map(m -> users.findByUserId(m.getUserId())
                         .map(u -> new GroupMemberDto(u.getUserId(), u.getUsername()))
@@ -122,6 +131,9 @@ public class GroupAdminService {
     /** Adds a user to a group; {@code false} if the user is not a member of the realm. */
     @Transactional
     public boolean addMember(final GroupRef ref) {
+        if (!inRealm(ref.realmId(), ref.groupId())) {
+            return false;
+        }
         if (tenantUsers.findByTenantIdAndUserId(ref.realmId(), ref.userId()).isEmpty()) {
             return false;
         }
@@ -135,6 +147,9 @@ public class GroupAdminService {
     /** Removes a user from a group; {@code false} if they weren't a member. */
     @Transactional
     public boolean removeMember(final GroupRef ref) {
+        if (!inRealm(ref.realmId(), ref.groupId())) {
+            return false;
+        }
         return members.findByGroupIdAndUserId(ref.groupId(), ref.userId()).map(m -> {
             members.delete(m);
             return true;
@@ -143,6 +158,9 @@ public class GroupAdminService {
 
     /** The realm roles mapped onto a group. */
     public List<RoleDto> listRoles(final GroupRef ref) {
+        if (!inRealm(ref.realmId(), ref.groupId())) {
+            return null;
+        }
         return groupRoles.findAllByGroupId(ref.groupId()).stream()
                 .map(gr -> roles.findById(gr.getRoleId())
                         .map(r -> new RoleDto(ref.realmId(), r.getRoleId(), r.getName(), r.isSystemRole(), r.isDefaultRole()))
@@ -154,6 +172,9 @@ public class GroupAdminService {
     /** Maps a realm role onto a group; {@code false} if the role isn't in this realm. */
     @Transactional
     public boolean assignRole(final GroupRef ref) {
+        if (!inRealm(ref.realmId(), ref.groupId())) {
+            return false;
+        }
         final Optional<UserRoles> role = roles.findById(ref.roleId());
         if (role.isEmpty() || !ref.realmId().equals(role.get().getTenantId())) {
             return false;
@@ -168,10 +189,18 @@ public class GroupAdminService {
     /** Removes a role mapping from a group; {@code false} if it wasn't mapped. */
     @Transactional
     public boolean unassignRole(final GroupRef ref) {
+        if (!inRealm(ref.realmId(), ref.groupId())) {
+            return false;
+        }
         return groupRoles.findByGroupIdAndRoleId(ref.groupId(), ref.roleId()).map(gr -> {
             groupRoles.delete(gr);
             return true;
         }).orElse(false);
+    }
+
+    /** Review rc.3 #1: whether {@code groupId} is a group of {@code realmId}. */
+    private boolean inRealm(final String realmId, final String groupId) {
+        return groupId != null && groups.findById(groupId).filter(g -> realmId.equals(g.getTenantId())).isPresent();
     }
 
     private GroupDto toDto(final UserGroup g) {

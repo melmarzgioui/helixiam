@@ -119,8 +119,8 @@ public class RoleAdminService {
     @Transactional
     public boolean assign(final String realmId, final String userId, final String roleId) {
         final Optional<TenantUser> link = tenantUserRepository.findByTenantIdAndUserId(realmId, userId);
-        if (link.isEmpty()) {
-            return false;
+        if (link.isEmpty() || !roleInRealm(realmId, roleId)) {
+            return false; // review rc.3 #1: never another realm's role (master's admin role = every realm)
         }
         if (userInRoleRepository.findByRoleIdAndUserId(roleId, userId).isEmpty()) {
             userInRoleRepository.save(new UserInRole(roleId, userId, link.get().getTenantUserId()));
@@ -132,11 +132,18 @@ public class RoleAdminService {
     /** Revokes a role from a user; {@code false} if it wasn't assigned. */
     @Transactional
     public boolean unassign(final String realmId, final String userId, final String roleId) {
+        if (tenantUserRepository.findByTenantIdAndUserId(realmId, userId).isEmpty() || !roleInRealm(realmId, roleId)) {
+            return false; // review rc.3 #1
+        }
         return userInRoleRepository.findByRoleIdAndUserId(roleId, userId).map(uir -> {
             userInRoleRepository.delete(uir);
             LOG.debug("Revoked role {} from user {} in {}", roleId, userId, realmId);
             return true;
         }).orElse(false);
+    }
+
+    private boolean roleInRealm(final String realmId, final String roleId) {
+        return roleId != null && userRolesRepository.findById(roleId).filter(r -> realmId.equals(r.getTenantId())).isPresent();
     }
 
     private RoleDto toDto(final String realmId, final UserRoles role) {

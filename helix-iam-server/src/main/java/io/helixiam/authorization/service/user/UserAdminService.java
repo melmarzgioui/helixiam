@@ -145,6 +145,10 @@ public class UserAdminService {
     /** Updates the enabled/locked flags and (when supplied) replaces the attribute set. */
     @Transactional
     public Optional<UserAdminDto> update(final UserWriteDto write) {
+        // Review rc.3 #1: only a user of the path realm (never another realm's user by id).
+        if (tenantUserRepository.findByTenantIdAndUserId(write.realmId(), write.userId()).isEmpty()) {
+            return Optional.empty();
+        }
         return userCredentialsRepository.findByUserId(write.userId()).map(user -> {
             user.setDisabled(!write.enabled());
             user.setAccountLocked(write.locked());
@@ -169,6 +173,9 @@ public class UserAdminService {
     public boolean resetPassword(final UserPasswordDto reset) {
         if (reset.newPassword() == null || reset.newPassword().isBlank()) {
             throw new IllegalArgumentException("New password is required.");
+        }
+        if (tenantUserRepository.findByTenantIdAndUserId(reset.realmId(), reset.userId()).isEmpty()) {
+            return false; // review rc.3 #1: another realm's user
         }
         return userCredentialsRepository.findByUserId(reset.userId()).map(user -> {
             // Auth-hardening: enforce the realm's password policy on reset too.

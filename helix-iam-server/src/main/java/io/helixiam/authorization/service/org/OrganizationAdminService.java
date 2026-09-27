@@ -130,6 +130,9 @@ public class OrganizationAdminService {
 
     /** The users who belong to an organization, with their usernames and role within the org. */
     public List<OrgMemberDto> listMembers(final OrgRef ref) {
+        if (!orgInRealm(ref)) {
+            return null; // review rc.3 #1: another realm's organization -> not found
+        }
         return members.findAllByOrgId(ref.orgId()).stream()
                 .map(m -> users.findByUserId(m.getUserId())
                         .map(u -> new OrgMemberDto(u.getUserId(), u.getUsername(), m.getRole()))
@@ -142,6 +145,10 @@ public class OrganizationAdminService {
      * role if already a member. {@code false} if the user is not a member of the realm or the org is absent.
      */
     @Transactional
+    private boolean orgInRealm(final OrgRef ref) {
+        return ref.orgId() != null && organizations.findById(ref.orgId()).filter(o -> ref.realmId().equals(o.getTenantId())).isPresent();
+    }
+
     public boolean addMember(final OrgRef ref) {
         if (organizations.findById(ref.orgId()).filter(o -> ref.realmId().equals(o.getTenantId())).isEmpty()) {
             return false;
@@ -163,6 +170,9 @@ public class OrganizationAdminService {
     /** Removes a user from an organization; {@code false} if they weren't a member. */
     @Transactional
     public boolean removeMember(final OrgRef ref) {
+        if (!orgInRealm(ref)) {
+            return false;
+        }
         return members.findByOrgIdAndUserId(ref.orgId(), ref.userId()).map(m -> {
             members.delete(m);
             return true;

@@ -63,7 +63,7 @@ public class ScimTargetAdminController {
                                                 @Valid @RequestBody final ScimTargetRequest body) {
         final ScimTargetDto saved = publisher.save(new ScimTargetDto(id, realmId, body.name(), body.baseUrl(),
                 body.token(), false, body.eventTypes(), body.enabled() == null || body.enabled(), null));
-        return ResponseEntity.ok(withoutToken(saved));
+        return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(withoutToken(saved));
     }
 
     @DeleteMapping("/{id}")

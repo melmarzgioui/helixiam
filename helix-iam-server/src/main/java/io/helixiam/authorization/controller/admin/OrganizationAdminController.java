@@ -88,8 +88,9 @@ public class OrganizationAdminController {
 
     @GetMapping("/{orgId}/members")
     @Operation(summary = "List members", description = "Users that are members of the organization.")
-    public List<OrgMemberDto> members(@PathVariable final String realmId, @PathVariable final String orgId) {
-        return publisher.members(new OrgRef(realmId, orgId, null, null));
+    public ResponseEntity<List<OrgMemberDto>> members(@PathVariable final String realmId, @PathVariable final String orgId) {
+        final List<OrgMemberDto> members = publisher.members(new OrgRef(realmId, orgId, null, null));
+        return members == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(members);
     }
 
     @PutMapping("/{orgId}/members/{userId}")

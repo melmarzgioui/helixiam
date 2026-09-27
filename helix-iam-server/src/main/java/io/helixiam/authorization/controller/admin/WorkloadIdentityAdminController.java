@@ -92,7 +92,8 @@ public class WorkloadIdentityAdminController {
         if (error != null) {
             return ResponseEntity.badRequest().body(Map.of("message", error));
         }
-        return ResponseEntity.ok(publisher.save(toDto(id, realmId, body)));
+        final Object saved = publisher.save(toDto(id, realmId, body));
+        return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(saved);
     }
 
     /**

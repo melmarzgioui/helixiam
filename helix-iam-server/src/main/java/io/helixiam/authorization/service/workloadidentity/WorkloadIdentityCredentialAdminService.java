@@ -45,6 +45,11 @@ public class WorkloadIdentityCredentialAdminService {
 
     @Transactional
     public WorkloadIdentityCredentialDto save(final WorkloadIdentityCredentialDto dto) {
+        // Review rc.3 #1: an id that belongs to another realm is never updated (nor moved into this one).
+        if (dto.id() != null && !dto.id().isBlank()
+                && repository.findById(dto.id()).filter(e -> !dto.realmId().equals(e.getRealmId())).isPresent()) {
+            return null;
+        }
         final WorkloadIdentityCredential entity = (dto.id() == null || dto.id().isBlank())
                 ? new WorkloadIdentityCredential()
                 : repository.findById(dto.id()).orElseGet(WorkloadIdentityCredential::new);
