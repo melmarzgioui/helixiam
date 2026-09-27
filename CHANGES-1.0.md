@@ -35,6 +35,11 @@ Open issues found when Monthfold moved its production sign-in to rc.4
   and every remaining authorization with its refresh token (those clients get a `sub`-only logout token). Answers the
   counts; 404 for a user outside the path realm; needs `manage-users`; audited as `USER_SESSIONS_REVOKE`.
   See `docs/oidc-sessions-and-logout.md`.
+- **E8** — Documented how role names appear in tokens (`docs/role-names-in-tokens.md`): a user's realm roles are
+  `<role>_<realm>` in `realm_access.roles` (for example `user_monthfold`), service-account and agent roles are plain.
+  The suffix is not made configurable per realm in this release; the page gives the reasons (delegation and mapper
+  consumers depend on today's strings, the realm-settings change is cross-cutting, and RPs need a migration path) and
+  the recommended follow-up. `RealmRoleNamesInTokensE2eTest` pins the documented behaviour.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 
