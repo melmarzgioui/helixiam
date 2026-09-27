@@ -404,6 +404,38 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- rc.6 item 1: the e2e context uses the Redis session store. This second run starts its own
+                 JVM + context with the queue (PostgreSQL) store, as `HELIX_SESSION_STORE=queue` does in
+                 production, and repeats the browser tests whose sessions carry the most state: the account
+                 console (flash attributes, step-up, sign out elsewhere) and the sign-in journeys. Run one class
+                 on the queue store locally with `-Dtest=… -Dhelix.iam.session-store=queue`. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>browser-on-queue-session-store</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>io/helixiam/e2e/browser/AccountConsoleBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/CrossOriginSignInBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/MfaGateBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/RegistrationReturnBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/RegistrationVerificationBrowserE2eTest.java</include>
+                            </includes>
+                            <systemPropertyVariables>
+                                <helix.iam.session-store>queue</helix.iam.session-store>
+                            </systemPropertyVariables>
+                            <reportsDirectory>${project.build.directory}/surefire-reports-queue-session-store</reportsDirectory>
+                            <!-- `-Dtest=SomeOtherTest` selects nothing here; that is not a failure. -->
+                            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

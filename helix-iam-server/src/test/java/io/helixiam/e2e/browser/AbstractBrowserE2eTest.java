@@ -14,6 +14,7 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Tracing;
 import com.microsoft.playwright.impl.driver.Driver;
 import com.microsoft.playwright.options.LoadState;
+import io.helixiam.authorization.session.QueueIndexedSessionRepository;
 import io.helixiam.e2e.AbstractE2eTest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -58,7 +59,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * <h2>Switches</h2>
  * {@code -Dhelix.e2e.browser=false} skips every browser test (e.g. no network for the one-time Chromium download);
- * {@code -Dhelix.e2e.browser.headed=true} shows the browser while debugging.
+ * {@code -Dhelix.e2e.browser.headed=true} shows the browser while debugging;
+ * {@code -Dhelix.iam.session-store=queue} runs the same tests on the queue (PostgreSQL) session store instead of Redis
+ * (the pom repeats the account-console and sign-in classes that way; see {@link #sessionStore()}).
  */
 @ExtendWith(AbstractBrowserE2eTest.FailureCapture.class)
 public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
@@ -131,8 +134,19 @@ public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
         }
     }
 
+    /**
+     * The HTTP-session store this JVM runs on: {@code redis} (the e2e default) or {@code queue} (the PostgreSQL store,
+     * {@code -Dhelix.iam.session-store=queue}; the pom's {@code browser-on-queue-session-store} run).
+     */
+    protected static String sessionStore() {
+        return System.getProperty("helix.iam.session-store", "redis");
+    }
+
     @BeforeEach
     void openPage() {
+        if ("queue".equals(sessionStore()) && context.getBeansOfType(QueueIndexedSessionRepository.class).isEmpty()) {
+            throw new IllegalStateException("-Dhelix.iam.session-store=queue, but the queue session store is not active");
+        }
         rp.reset();
         browserContext = browser.newContext(new Browser.NewContextOptions().setLocale("en-GB")
                 .setViewportSize(1280, 900));
@@ -360,7 +374,7 @@ public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
             return;
         }
         final Path dir = Path.of(System.getProperty("basedir", "."), "target", "browser-failures",
-                getClass().getSimpleName());
+                getClass().getSimpleName() + ("queue".equals(sessionStore()) ? "-queue-session-store" : ""));
         try {
             Files.createDirectories(dir);
             page.screenshot(new Page.ScreenshotOptions().setPath(dir.resolve(testName + ".png")).setFullPage(true));

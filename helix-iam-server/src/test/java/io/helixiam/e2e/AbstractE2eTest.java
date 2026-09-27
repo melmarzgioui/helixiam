@@ -42,7 +42,10 @@ import java.nio.file.Path;
  *       tests) is a no-op on Boot 3 — that property was removed — so without a live Redis the context still
  *       boots (MockMvc tests never create a session) but the first request that saves a session 500s with
  *       {@code RedisConnectionFailureException}. The OAuth2 authorization store stays the in-process
- *       Postgres adapter.</li>
+ *       Postgres adapter. {@code -Dhelix.iam.session-store=queue} (a JVM system property, so the
+ *       {@code QueueSessionEnvironmentPostProcessor} sees it like {@code HELIX_SESSION_STORE}) boots the same context
+ *       on the queue (PostgreSQL) session store instead; the pom's {@code browser-on-queue-session-store} run does
+ *       that for the account-console and sign-in browser tests.</li>
  * </ul>
  *
  * <h2>Settings that keep the login password-only (no MFA / required actions / flow engine)</h2>

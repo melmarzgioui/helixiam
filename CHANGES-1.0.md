@@ -22,6 +22,15 @@ CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven
 - **security** — `22a2942` After registering or verifying an address, the user is sent back to the pending sign-in by
   path only, never by the saved request's scheme and host, and a path that starts with `//` is refused (CodeQL #255,
   hardening: the saved request always came from the user's own session on this server).
+- **rc.6 item 1** — The account console no longer signs the user out on the `queue` (PostgreSQL) session store. Every
+  console form that redirects (password change, a wrong recovery code, …) leaves flash attributes in the session, and
+  Spring's `FlashMap` holds its target parameters in `LinkedMultiValueMap` (a `MultiValueMapAdapter`), which the
+  store's deserialisation allowlist rejected. The whole session was then silently read back as empty, so the next
+  page asked for a sign-in; Redis was not affected. The allowlist now names exactly those two
+  `org.springframework.util` classes, and a session the store has to drop is logged (WARN) with the rejected class
+  name only, never its contents. The account-console and sign-in browser tests (password + TOTP to the relying party,
+  MFA gate, registration) now also run on the queue store in CI (a second surefire run); the whole browser package
+  passes on it with no dropped session.
 
 ## Next release (after `v1.0.0-rc.4`)
 
