@@ -84,6 +84,30 @@ off). `health` is anonymous for k8s probes with the default `show-details=never`
 authentication unless an operator enables anonymous access, and `ProductionReadinessCheck` warns when
 they do. No sensitive endpoint (`env`, `heapdump`, `loggers`, `configprops`, …) is exposed.
 
+### Still reported after the fixes (scan of `a30ad06`)
+CodeQL re-reports some alerts under a new number when the flagged line moves, and cannot see a fix that
+depends on a setting or a custom guard.
+
+- **#250** (`DelegationTokenController`, was #92), **#251** (`RealmAdminBootstrapService:119`, the password
+  *file path*, never the password), **#252** (`OutboundUrlGuard`, logs `safe(url)` = `scheme://host[:port]`
+  only): same reasoning as #92/#93/#96 above and the #97 fix; the logged values are not secrets.
+- **#243, #244** (`RealmAdminAuthorities`): the real problem behind them (a role named `admin_<x>` reading as
+  admin of another realm) is fixed in `f063eac` (reserved names refused) and `aadb9ef` (an existing reserved
+  name grants no authority), with `AdminRoleNameCollisionE2eTest`. The flagged comparisons themselves are the
+  exact-match checks and fail closed.
+- **#90** (`java/insecure-cookie`, `RiskAuthenticator`): the device cookie's `Secure` flag follows
+  `helix.security.cookie-secure` (default `true`), like the session cookie; it must stay switchable for local
+  plain-http development. CodeQL only accepts a literal `true`.
+- **#249** (`java/local-temp-file-or-directory-information-disclosure`, `RealmAdminBootstrapService:110`):
+  when no password file path is configured, the generated bootstrap password goes to
+  `<java.io.tmpdir>/helixiam-admin-password`. The file is created with `rw-------` as a creation attribute
+  (`Files.createTempFile(..., PosixFilePermissions.asFileAttribute(...))`) and atomically renamed into place,
+  so it is never readable by other users, and a rename replaces (never follows) anything planted at that path.
+  In the container image `/tmp` is private to the process. Production deployments set `HELIX_ADMIN_PASSWORD`.
+- **#248** (`js/user-controlled-bypass`, `helix-mcp-demo/mcp-server.js:93`): the flagged condition is the
+  router (`POST /mcp`). Every request to that endpoint goes through `verify()` (signature, RS256, issuer,
+  audience, `exp`/`nbf`, scope); there is no branch on the Authorization header that skips it.
+
 ## Fixed (for reference)
 
 | Alert(s) | Rule | Fix | Test |
