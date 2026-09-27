@@ -68,7 +68,7 @@ public class ScimGroupController {
         final int start = startIndex == null || startIndex < 1 ? 1 : startIndex;
         final int size = count == null || count < 0 ? DEFAULT_COUNT : count;
         final int from = Math.min(start - 1, total);
-        final int to = Math.min(from + size, total);
+        final int to = from + Math.min(size, total - from); // never from + size: a huge count overflows
         final String base = ScimSupport.baseUrl();
         final List<ScimGroup> page = all.subList(from, to).stream()
                 .map(g -> ScimMapper.toScimGroup(g, base, members(realm, g.groupId(), base))).toList();
