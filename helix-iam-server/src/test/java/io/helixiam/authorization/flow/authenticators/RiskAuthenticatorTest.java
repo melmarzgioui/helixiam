@@ -217,4 +217,32 @@ class RiskAuthenticatorTest {
         // No signals → score 0 → LOW → ALLOW. A subscriber/AMQP hiccup never blocks login.
         assertThat(ctx.status()).isEqualTo(AuthenticationContext.Status.SUCCESS);
     }
+
+    @Test
+    void newDeviceCookie_isSecure_evenWhenTheRequestLooksPlainHttp() {
+        // Behind a TLS-terminating proxy that doesn't send X-Forwarded-Proto, request.isSecure() is false.
+        // The remembered-device token lowers the risk score, so it must follow the pinned cookie-secure
+        // policy (like the session cookie), not the per-request guess.
+        FakePublisher publisher = new FakePublisher(signals(false, false, false, false, 0));
+        RiskPolicy policy = new RiskPolicy(true, 40, 70, RiskAction.ALLOW, RiskAction.STEP_UP, RiskAction.DENY);
+        RiskAuthenticator a = new RiskAuthenticator(resolver(policy), evaluator, publisher,
+                gatherer(new RiskSignalGatherer.RawSignals("1.2.3.4", "agent", null, null)), (u, c) -> true, true);
+        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
+        request.setSecure(false);
+        org.springframework.mock.web.MockHttpServletResponse response = new org.springframework.mock.web.MockHttpServletResponse();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(request, response));
+        try {
+            AuthenticationContext ctx = context();
+            a.authenticate(ctx);
+
+            assertThat(ctx.status()).isEqualTo(AuthenticationContext.Status.SUCCESS);
+            jakarta.servlet.http.Cookie cookie = response.getCookie(RiskSignalGatherer.DEVICE_COOKIE);
+            assertThat(cookie).isNotNull();
+            assertThat(cookie.getSecure()).isTrue();
+            assertThat(cookie.isHttpOnly()).isTrue();
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
 }
