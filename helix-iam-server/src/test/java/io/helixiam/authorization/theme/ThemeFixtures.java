@@ -9,17 +9,17 @@ import java.util.List;
 import java.util.Map;
 
 /** Themes shared by the theme tests — the Monthfold reference consumer from the spec. */
-final class ThemeFixtures {
+public final class ThemeFixtures {
 
     private ThemeFixtures() {
     }
 
-    static ThemeColor c(final String light, final String dark) {
+    public static ThemeColor c(final String light, final String dark) {
         return new ThemeColor(light, dark);
     }
 
     /** The spec's Monthfold tokens (light + dark), fonts, radius 6, split, English only. */
-    static Theme monthfold() {
+    public static Theme monthfold() {
         final ThemeColors colors = new ThemeColors(c("#1f4d47", "#7fb8ac"), c("#173b36", "#9ccbc0"),
                 c("#e3eeeb", "#1a2e2b"), c("#f7f8f6", "#111615"), c("#ffffff", "#192120"), c("#eef1ee", "#0c100f"),
                 c("#16211f", "#e8eeec"), c("#56635f", "#a3b0ac"), null, c("#b3401b", "#f0936b"), null,
@@ -33,7 +33,7 @@ final class ThemeFixtures {
     }
 
     /** A catalog in which the realm "firm" has the two Monthfold fonts and asset logo01.svg uploaded. */
-    static ThemeAssetCatalog monthfoldCatalog() {
+    public static ThemeAssetCatalog monthfoldCatalog() {
         return new ThemeAssetCatalog() {
             @Override
             public boolean hasFont(final String realmId, final String fontName) {
