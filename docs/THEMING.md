@@ -79,10 +79,10 @@ the organization theme. On a branded page:
 **Set the realm's display name** when you brand a realm; titles and the text logo use whatever display name the
 realm has, or no name at all when it has none.
 
-Texts are different: a text field that is **not set** (`null`) still shows the built-in message. On the split layout
-that includes HelixIAM's panel copy ("Secure access for every human and machine.", the "Self-hosted identity"
-byline and the OpenID Connect / SAML 2.0 / SCIM / Passkeys badges). Set these texts to your own wording, or to `""`
-(texts) and `[]` (badges) to hide them. See [Texts](#texts).
+- the brand-panel texts you do not set (`brandHeadline`, `brandSubhead`, `brandByline`, `brandBadges`) are
+  **hidden**: HelixIAM's panel copy ("Secure access for every human and machine.", the "Self-hosted identity"
+  byline and the OpenID Connect / SAML 2.0 / SCIM / Passkeys badges) appears only on unbranded pages. The panel then
+  shows just the logo or name. See [Texts](#texts).
 
 ---
 
@@ -155,8 +155,10 @@ Rules:
   - `focusRing`: `primary`;
   - `primaryTint`, `negativeTint`, `positiveTint`: 12 % of the colour in `surfaceRaised` (18 % in dark);
   - `surfaceSunken`: 4 % ink in surface (dark: surface darkened by 30 %).
-- `primaryStrong`, `negative` and `positive` are **not** derived. If you leave them unset they keep HelixIAM's green
-  and red, so set them whenever you set `primary`.
+  - `primaryStrong`: `primary` 18 % darker (light) / 20 % lighter (dark), adjusted until the text on it
+    (`surfaceRaised`) and its use as a link on `surface` reach 4.5:1.
+- `negative` and `positive` keep HelixIAM's red and green when unset, but their lightness is adjusted until they reach
+  4.5:1 on your `surface` and `surfaceRaised`.
 - The split layout's **brand panel** has no colour field of its own. It is derived (see `--hx-brand-*` in the
   [variables contract](#4-css-variables-contract-v1)): in light mode it inverts the page (ground `ink`, text
   `surface`); in dark mode the ground is 14 % of the dark `primary` in the dark `surfaceSunken`, with `ink` text.
@@ -279,7 +281,8 @@ All texts are **plain text** and are always escaped when rendered.
   For a page in `nl-BE` the lookup is `nl-BE`, then `nl`, then `default`. If nothing matches, the built-in message is
   used.
 - `brandBadges` is an array, or an object of locale to array.
-- **Unset (`null`) means the built-in text; `""` hides the text; `[]` hides the badges.**
+- **Unset (`null`) means the built-in text on an unbranded page and hidden on a branded one** (brand-panel texts and
+  badges; see [What "branded" means](#what-branded-means)); `""` hides the text; `[]` hides the badges.
 - Refused: `<` and `>`; control characters other than a newline; bidirectional embedding, override and isolate
   characters (U+202A–U+202E, U+2066–U+2069); U+200B and U+FEFF. Locale keys must be `default` or a language tag, at
   most 21 keys.
@@ -1003,7 +1006,8 @@ before upgrading if you may need to roll back with branding intact.
   background step, so right after the first start on the new version pages can show the default look for a moment.
 - **`themeName` is not exported** in realm export and import.
 - **The brand panel has no colour field.** It is derived from `ink`, `surface`, `surfaceSunken` and `primary`.
-- **`primaryStrong`, `negative` and `positive` are not derived** from a theme's palette; set them explicitly.
+- **`negative` and `positive` keep HelixIAM's hue** when unset (only their lightness is adjusted for contrast); set
+  them if red and green do not suit your brand.
 - **Contrast checks** cover the three pairs listed above. An organization layer is not re-checked when the realm's
   colours change later.
 - **Identity-provider logo origins** are added to `img-src` from the global provider registry, not only from the
