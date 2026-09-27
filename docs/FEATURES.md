@@ -23,7 +23,7 @@ status.
 | RS256 + PS256 signing, per-realm keys & rotation | Stable | `authorization/security/RealmJwkSource`, realm-keys | realm-signing tests |
 | Passkeys / WebAuthn (FIDO2) | Stable | `authentication/webauthn` | Passkey (5), WebAuthn (4) |
 | TOTP / OTP factors (enrolment confirmed by a first code, ±30 s, replay-protected, recovery codes, per-realm `requireMfa` + skip grace) | Stable | `service/mfa`, `security/mfa` | `MfaE2eTest`, `TotpServiceTest` |
-| Magic-link / passwordless | **Not in 1.0** — the unwired prototype was removed; planned for a later release | — | — |
+| Magic-link / passwordless (opt-in per realm; hashed single-use links, 15-min expiry, rate limited per email + IP; emailed via the realm's provider; TOTP still enforced) | Stable | `service/magiclink`, `controller/MagicLinkController` | `MagicLinkE2eTest`, `MagicLinkServiceTest` |
 | Device push login | Beta | `notification/delivery` push + login | partial |
 | Risk-based / adaptive step-up | Beta | `authentication` adaptive | Adaptive (4) |
 | Brute-force lockout, password policy, HIBP | Stable | `authentication` policy | policy suites |

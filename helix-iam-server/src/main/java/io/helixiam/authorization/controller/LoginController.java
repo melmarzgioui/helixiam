@@ -46,6 +46,9 @@ public class LoginController {
     @Autowired(required = false)
     private BrandingSupport brandingSupport;
 
+    @Autowired(required = false)
+    private io.helixiam.authorization.service.magiclink.MagicLinkService magicLinks;
+
     // Federation: source of the in-flight flow so an "Identity Provider Redirector" step can skip/augment
     // local login (field-injected so existing tests that build the controller directly still work).
     @Autowired(required = false)
@@ -92,6 +95,7 @@ public class LoginController {
         model.addAttribute("captchaProvider", captchaEnabled ? captchaService.providerOf(realm) : "none");
         model.addAttribute("captchaSiteKey", captchaEnabled ? captchaService.siteKey(realm) : null);
         addBranding(model, realm);
+        model.addAttribute("magicLinkEnabled", magicLinks != null && magicLinks.enabled(realm));
         return "login";
     }
 

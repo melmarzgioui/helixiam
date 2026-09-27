@@ -234,7 +234,7 @@ body {
   box-shadow: 0 0 0 3px rgba(71, 105, 87, 0.14);
 }
 
-.helix-form .resetPasswordContainer { margin: 0.75rem 0 0; }
+.helix-form .resetPasswordContainer { margin: 0.75rem 0 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; }
 .helix-form .resetPasswordContainer > a { font-size: 0.82rem; }
 
 /* primary submit — full width, unified HelixIAM ink button, arrow glyph (no icon-font dependency).

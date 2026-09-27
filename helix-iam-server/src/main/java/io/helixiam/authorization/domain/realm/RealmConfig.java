@@ -81,6 +81,11 @@ public class RealmConfig {
     @JsonProperty
     private int mfaSkipGraceDays = 0;
 
+    /** 1.0 item 6: passwordless sign-in by emailed link (off by default). */
+    @Column(name = "magic_link_enabled")
+    @JsonProperty
+    private boolean magicLinkEnabled = false;
+
     @Column(name = "password_min_length")
     @JsonProperty
     private int passwordMinLength = DEFAULT_PASSWORD_MIN_LENGTH;
@@ -309,6 +314,14 @@ public class RealmConfig {
 
     public void setReuseRefreshTokens(final boolean reuseRefreshTokens) {
         this.reuseRefreshTokens = reuseRefreshTokens;
+    }
+
+    public boolean isMagicLinkEnabled() {
+        return magicLinkEnabled;
+    }
+
+    public void setMagicLinkEnabled(final boolean magicLinkEnabled) {
+        this.magicLinkEnabled = magicLinkEnabled;
     }
 
     public int getMfaSkipGraceDays() {

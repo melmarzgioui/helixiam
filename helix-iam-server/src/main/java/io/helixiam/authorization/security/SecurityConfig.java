@@ -252,6 +252,8 @@ public class SecurityConfig {
         // 1.0 item 8: the container's error page must be reachable, or every unhandled 500 (and every 403/404
         // rendered via /error) turns into a 401 from the authentication entry point and hides the real failure.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/error").permitAll());
+        // 1.0 item 6: magic-link sign-in pages (each answers 404 unless the realm enabled magic links).
+        http.authorizeHttpRequests(requests -> requests.requestMatchers("/login/magic", "/login/magic/verify").permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
         // (confirm) and the mid-login browser (SSE/poll); they are secured by the device signature
         // + single-use rotating token, not the session, so permit them and exempt them from CSRF.

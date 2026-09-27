@@ -907,3 +907,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS agent_identity_realm_name_idx ON agent_identit
 UPDATE service_provider_oauth AS o SET client_id = 'helix-cli', name = 'HelixIAM CLI', description = 'Built-in public client for command-line tools (PKCE + device code).' WHERE o.client_id = 'kubedna-cli' AND NOT EXISTS (SELECT 1 FROM service_provider_oauth n WHERE n.client_id = 'helix-cli' AND n.realm_id = o.realm_id);
 UPDATE service_provider_oauth SET deleted = true WHERE client_id = 'kubedna-cli';
 UPDATE service_provider_oauth SET deleted = true WHERE client_id = 'oidc-client' AND tenant_id = '-1234' AND redirect_uris LIKE '%kubedna%';
+
+-- 1.0 item 6 (magic link): opt-in per realm; single-use hashed sign-in links (same as Flyway V15).
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS magic_link_enabled boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS magic_link_token (
+    token_hash  character varying(64)  NOT NULL PRIMARY KEY,
+    realm_id    character varying(255) NOT NULL,
+    user_id     character varying(255) NOT NULL,
+    created_at  timestamp              NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  timestamp              NOT NULL,
+    used_at     timestamp              DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES user_credentials(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS magic_link_token_expiry_idx ON magic_link_token (expires_at);

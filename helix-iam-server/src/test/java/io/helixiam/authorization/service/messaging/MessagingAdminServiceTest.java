@@ -92,8 +92,7 @@ class MessagingAdminServiceTest {
 
         verify(templates).saveAll(anyList());
         assertThat(seeded).extracting(MessageTemplateDto::templateKey)
-                .contains("otp-sms", "otp-email", "push-approval")
-                .doesNotContain("magic-link-email"); // magic-link sign-in is not part of 1.0
+                .contains("otp-sms", "otp-email", "magic-link-email", "push-approval");
         assertThat(seeded).allSatisfy(t -> assertThat(t.body()).isNotBlank());
     }
 

@@ -117,7 +117,8 @@
                 <div th:replace="~{fragments/captcha :: widget}"></div>
 
                 <div class="resetPasswordContainer">
-                    <a href="/reset/password" th:text="#{login.forgotPassword}">Forgot Password?</a>
+                    <a th:href="@{/reset/password}" th:text="#{login.forgotPassword}">Forgot Password?</a>
+                    <a th:if="${magicLinkEnabled}" class="magicLink" th:href="@{/login/magic}" th:text="#{login.magic.link}">Email me a sign-in link instead</a>
                 </div>
 
                 <div class="buttonHolder">
