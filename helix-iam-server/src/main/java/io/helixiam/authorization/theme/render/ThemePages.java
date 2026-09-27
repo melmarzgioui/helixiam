@@ -48,7 +48,9 @@ public final class ThemePages {
         final Function<String, String> image = url -> image(url, realmId);
 
         final String logo = image.apply(a.logoUrl());
-        final boolean branded = logo != null;
+        // Branded = the customer's look: a logo, or any theme layer above the HelixIAM default. A branded page never
+        // shows the HelixIAM wordmark, favicon or panel artwork; without a logo it shows its own name in text.
+        final boolean branded = logo != null || effective.customized();
         final String brandName = orgName != null && !orgName.isBlank() ? orgName
                 : branded ? (realmDisplayName == null ? "" : realmDisplayName.strip())
                 : DEFAULT_BRAND_NAME;

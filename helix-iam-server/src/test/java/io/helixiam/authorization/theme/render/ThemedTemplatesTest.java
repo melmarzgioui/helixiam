@@ -15,6 +15,8 @@ import io.helixiam.authorization.theme.EffectiveTheme;
 import io.helixiam.authorization.theme.LocalizedList;
 import io.helixiam.authorization.theme.LocalizedText;
 import io.helixiam.authorization.theme.Theme;
+import io.helixiam.authorization.theme.ThemeColor;
+import io.helixiam.authorization.theme.ThemeColors;
 import io.helixiam.authorization.theme.ThemeAssets;
 import io.helixiam.authorization.theme.ThemeDefaults;
 import io.helixiam.authorization.theme.ThemeFixtures;
@@ -173,7 +175,7 @@ class ThemedTemplatesTest {
 
     static ThemePage page(final Theme layer, final String orgName, final String realmDisplayName) {
         final Theme t = ThemePalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, layer)));
-        return ThemePages.build(new EffectiveTheme(t, "v1", Set.of(), Set.of()), REALM,
+        return ThemePages.build(new EffectiveTheme(t, "v1", Set.of(), Set.of(), !Theme.EMPTY.equals(layer)), REALM,
                 orgName == null ? null : "org-7", orgName, realmDisplayName, Locale.ENGLISH, "abcdef0123456789");
     }
 
@@ -314,6 +316,21 @@ class ThemedTemplatesTest {
         if (!SPLIT.contains(template)) {
             assertThat(render(template, model(page(Theme.EMPTY, null, null)))).as("review S9").doesNotContain("<footer");
         }
+    }
+
+    /**
+     * A realm that sets its own theme but no logo is still a branded realm: it shows its own name, never the
+     * HelixIAM wordmark, favicon or panel artwork.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("templates")
+    void aThemedRealmWithoutALogo_showsItsOwnName_neverTheHelixIamWordmark(final String template) throws Exception {
+        final Theme coloursOnly = new Theme(new ThemeColors(new ThemeColor("#1f4d47", null), null, null, null, null,
+                null, null, null, null, null, null, null, null, null), null, null, null, null, null, null, null);
+        final String html = render(template, model(page(coloursOnly, null, "Acme Accounting")));
+        assertThat(html).as("no HelixIAM wordmark").doesNotContain("Helix<b>IAM</b>");
+        assertThat(html).as("no HelixIAM favicon").doesNotContain("helix-favicon");
+        assertThat(html).as("the realm's own name").contains("Acme Accounting");
     }
 
     static Stream<String> errorPages() {

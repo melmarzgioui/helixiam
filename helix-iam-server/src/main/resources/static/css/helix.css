@@ -828,3 +828,10 @@ main .container article.hx-narrow {
   flex: 1;
   cursor: pointer;
 }
+
+/* A branded realm without a logo: its name, set in the theme's display face. */
+.hx-wordmark.hx-wordmark-text {
+  font-family: var(--hx-font-display);
+  font-weight: var(--hx-font-display-weight);
+  letter-spacing: var(--hx-font-display-tracking);
+}

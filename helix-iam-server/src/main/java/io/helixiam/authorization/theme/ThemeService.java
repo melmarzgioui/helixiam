@@ -201,7 +201,7 @@ public class ThemeService {
         merged = merged.withCustomCss(servableCss(realmId, merged.customCss()));
         final ThemeValidator validator = validator();
         return new EffectiveTheme(merged, ThemeJson.hash(merged), validator.imageOrigins(merged),
-                validator.cssUrlOrigins());
+                validator.cssUrlOrigins(), customized(layers));
     }
 
     /**
@@ -282,7 +282,7 @@ public class ThemeService {
         Theme merged = ThemePalette.resolve(ThemeMerger.merge(layers));
         merged = merged.withCustomCss(servableCss(realmId, merged.customCss()));
         return new EffectiveTheme(merged, ThemeJson.hash(merged), validator.imageOrigins(merged),
-                validator.cssUrlOrigins());
+                validator.cssUrlOrigins(), customized(layers));
     }
 
     /** Validates and stores an organization's layer; empty when the organization is not in the realm. */
@@ -449,6 +449,11 @@ public class ThemeService {
     }
 
     /** Default + base layers (e.g. a file theme) for the realm. */
+    /** True when any layer above the built-in default (always first) sets something. */
+    private static boolean customized(final List<Theme> layers) {
+        return layers.stream().skip(1).anyMatch(l -> l != null && !Theme.EMPTY.equals(l));
+    }
+
     private List<Theme> belowRealm(final String realmId) {
         final List<Theme> layers = new ArrayList<>();
         layers.add(ThemeDefaults.THEME);

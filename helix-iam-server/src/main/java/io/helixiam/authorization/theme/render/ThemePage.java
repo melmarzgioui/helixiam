@@ -21,7 +21,8 @@ import java.util.List;
  * @param cssVersion      cache-busting version of the realm's {@code theme.css} ({@code ?v=})
  * @param preview         only for the admin preview: the stylesheet inlined and its per-response CSP; null otherwise
  * @param layout          {@code split} (brand panel + form) or {@code centered} (form only)
- * @param branded         true when the theme sets a logo (the HelixIAM wordmark and artwork are then hidden)
+ * @param branded         true when the theme sets a logo or anything else above the HelixIAM default (the HelixIAM
+ *                        wordmark, favicon and artwork are then hidden)
  * @param brandName       the name for titles and the logo's alt text: the organization, the realm's display name
  *                        when branded, {@code HelixIAM} when not branded, or empty
  * @param badges          brand badges; null = the built-in ones, empty = none
