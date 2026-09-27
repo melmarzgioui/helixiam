@@ -864,14 +864,22 @@ The preview has its own, stricter policy (see [Preview](#preview)). Theme assets
 When a browser request to a realm endpoint ends in a 4xx error that cannot go back to the application, the page is
 themed (`protocol-error`): an unknown `client_id`, a `redirect_uri` that is not registered for the client, an
 authorization request without `client_id`, an end-session request (`/connect/logout`) without `id_token_hint`, and
-any other 4xx of a realm page (404, 403, 405). The page shows a title, a message from a fixed set, the OAuth error code
-when it is a standard one (`invalid_request`, …) and a reference that is logged with the error. It never shows the
+any other 4xx of a realm page (404, 403, 405). Each kind has its own title, message and hint (English and Dutch), and
+a way back to a page of the realm: "Back to sign in" after a failed sign-out or a 403, "Go to your account"
+otherwise. It never links to a URI from the request. The reference logged with the error is shown small and
+monospace; the OAuth error code, when it is a standard one (`invalid_request`, …), is under "Technical details". It
+has no language switcher, because switching would reload the page without the failed request. It never shows the
 request's parameters, the error description, an exception or a stack trace. Only requests whose `Accept` asks for
 HTML get the page; API clients keep the JSON error body.
 
 The OIDC front-channel logout page (`logout/frontchannel`) is themed too. It loads each client's
-`frontchannel_logout_uri` in a hidden iframe and moves on to the post-logout URI after two seconds (or with its
-Continue link), without inline script. Its `frame-src` allows exactly the origins of those logout URIs.
+`frontchannel_logout_uri` in a hidden iframe and moves on to the post-logout URI after two seconds, which the page
+states in a `role="status"` line (or with its Continue link), without inline script. Its `frame-src` allows exactly
+the origins of those logout URIs.
+
+An RP-initiated logout without a `post_logout_redirect_uri` ends on the realm's themed "You're signed out" page
+(`/realms/{realm}/signed-out`, template `logout/signed-out`), with a link back to sign in and the language switcher.
+It used to end at the server root, a plain-text 404.
 
 ---
 

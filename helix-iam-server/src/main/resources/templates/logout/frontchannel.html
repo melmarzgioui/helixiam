@@ -3,8 +3,8 @@
 <!--/*
   OIDC Front-Channel Logout (SSO P6, themed in item 6): one hidden iframe per client of the session, each on its
   frontchannel_logout_uri with iss + sid, then on to the post-logout URI. No inline script or style (CSP): the
-  iframes use the hidden attribute and the page moves on with a meta refresh, or the Continue link.
-  Model: frames (the iframe URLs), redirect (the post-logout URI).
+  iframes use the hidden attribute and the page moves on with a meta refresh after the delay it states (WCAG 2.2.1),
+  or with the Continue link. Model: frames (the iframe URLs), redirect (the post-logout URI).
 */-->
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead(#{logout.frontchannel.title}, false)}"></th:block>
@@ -17,11 +17,13 @@
     <main>
         <div class="container title">
             <h1 class="hx-title" th:text="#{logout.frontchannel.title}">Signing you out</h1>
-            <div class="description" th:text="#{logout.frontchannel.description}">Signing you out of all applications…</div>
+            <p class="hx-lead" role="status" th:text="#{logout.frontchannel.description}">
+                We're signing you out of every app you used. You'll be taken on in 2 seconds.</p>
         </div>
 
         <div class="container">
-            <article>
+            <article class="hx-error-card">
+                <p class="hx-muted" th:text="#{logout.frontchannel.stuck}">Not taken on? Continue to the next page.</p>
                 <div class="buttonHolder">
                     <a class="button" th:href="${redirect}"><span th:text="#{logout.frontchannel.continue}">Continue</span></a>
                 </div>

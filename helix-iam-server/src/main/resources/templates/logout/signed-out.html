@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/*
+  Where an RP-initiated logout without a post_logout_redirect_uri ends (/realms/{realm}/signed-out): the realm's
+  themed confirmation, with a way back to sign in.
+*/-->
+<head>
+    <th:block th:replace="~{fragments/theme :: hxHead(#{logout.signedOut.title}, false)}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+    <header th:replace="~{fragments/theme :: hxHeader(true)}"></header>
+
+    <main>
+        <div class="container title">
+            <h1 class="hx-title" th:text="#{logout.signedOut.title}">You're signed out</h1>
+            <p class="hx-lead" role="status" th:text="#{logout.signedOut.description}">You have been signed out.</p>
+        </div>
+
+        <div class="container">
+            <article class="hx-error-card">
+                <p th:text="#{logout.signedOut.hint}">You can close this window, or sign in again.</p>
+                <div class="text"><a class="hx-back" th:href="@{/login}" th:text="#{logout.signedOut.signIn}">Sign in again</a></div>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

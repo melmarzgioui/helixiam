@@ -199,6 +199,45 @@ h1, h2, h3, h4 {
 .hx-muted {
   color: var(--hx-ink-muted);
 }
+.hx-small {
+  font-size: 0.875rem;
+}
+/* Error, sign-out and front-channel cards (rc.6 review S1/S2): the card's gap spaces the paragraphs. */
+.mainWrapper > main > div.container article.hx-error-card {
+  gap: calc(var(--hx-space) * 3);
+  padding-block: calc(var(--hx-space) * 4);
+}
+.mainWrapper > main > div.container article.hx-error-card > p {
+  margin: 0;
+}
+.mainWrapper > main > div.container .hx-reference,
+.mainWrapper > main > div.container .hx-details {
+  color: var(--hx-ink-muted);
+}
+/* the global "*" rule sets colour and size on every element, so the children take them from the line */
+.hx-reference *,
+.hx-details * {
+  color: inherit;
+  font-size: inherit;
+}
+.mainWrapper > main > div.container .hx-reference code {
+  font-family: var(--hx-font-mono);
+  font-weight: normal;
+  letter-spacing: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.hx-details > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.hx-details > p {
+  margin: var(--hx-space) 0 0;
+}
 .hx-strong {
   font-weight: 600;
   margin: var(--hx-space) 0;
