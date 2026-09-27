@@ -58,11 +58,11 @@ class SamlRelyingPartyAdminControllerTest {
     }
 
     @Test
-    void importMetadataUrl_withNonHttpScheme_returns400_mentioningHttp() {
+    void importMetadataUrl_withNonHttpsScheme_returns400_mentioningHttps() {
         final ResponseEntity<?> response = controller.importMetadataUrl("master", new ImportMetadataUrlRequest("ftp://x"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(message(response)).contains("http://");
+        assertThat(message(response)).contains("https://"); // metadata is only fetched over https
         verify(metadataParser, never()).parse(anyString());
     }
 

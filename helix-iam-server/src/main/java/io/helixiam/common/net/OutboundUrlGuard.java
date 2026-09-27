@@ -151,7 +151,73 @@ public class OutboundUrlGuard {
                 || address.isLinkLocalAddress()  // 169.254.0.0/16 (incl. metadata 169.254.169.254), fe80::/10
                 || address.isSiteLocalAddress()  // 10/8, 172.16/12, 192.168/16
                 || address.isMulticastAddress()  // 224/4, ff00::/8
-                || isUniqueLocalIpv6(address);   // fc00::/7 (IPv6 ULA — not covered by isSiteLocalAddress)
+                || isUniqueLocalIpv6(address)    // fc00::/7 (IPv6 ULA — not covered by isSiteLocalAddress)
+                || isReservedIpv4(address);      // 0.0.0.0/8, 100.64.0.0/10 (carrier-grade NAT)
+    }
+
+    private static boolean isReservedIpv4(final InetAddress address) {
+        if (!(address instanceof java.net.Inet4Address)) {
+            return false;
+        }
+        final byte[] b = address.getAddress();
+        final int first = b[0] & 0xff;
+        final int second = b[1] & 0xff;
+        return first == 0 || (first == 100 && second >= 64 && second <= 127);
+    }
+
+    /** Largest document {@link #fetch} reads. */
+    public static final int MAX_FETCH_BYTES = 1_048_576;
+
+    /**
+     * GETs {@code url} and returns its body as text, for an admin-triggered fetch whose response is shown back
+     * (e.g. SAML metadata import). Every hop — including each redirect, at most 3 — passes {@link #checkAllowed};
+     * {@code httpsOnly} also requires https on every hop; the body is capped at {@link #MAX_FETCH_BYTES}. Failures
+     * are {@link SsrfBlockedException}s whose message is safe to show (no network error details).
+     */
+    public String fetch(final String url, final String accept, final boolean httpsOnly) throws SsrfBlockedException {
+        final java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(8))
+                .followRedirects(java.net.http.HttpClient.Redirect.NEVER).build();
+        String current = url == null ? "" : url.trim();
+        for (int hop = 0; hop <= 3; hop++) {
+            if (httpsOnly && !current.regionMatches(true, 0, "https://", 0, 8)) {
+                throw new SsrfBlockedException("The URL must start with https://");
+            }
+            checkAllowed(current);
+            final java.net.http.HttpResponse<java.io.InputStream> res;
+            try {
+                res = client.send(java.net.http.HttpRequest.newBuilder(URI.create(current))
+                        .timeout(java.time.Duration.ofSeconds(10)).header("Accept", accept).GET().build(),
+                        java.net.http.HttpResponse.BodyHandlers.ofInputStream());
+            } catch (final java.io.IOException | IllegalArgumentException e) {
+                throw new SsrfBlockedException("Could not fetch that URL.");
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new SsrfBlockedException("Could not fetch that URL.");
+            }
+            try (java.io.InputStream in = res.body()) {
+                final int status = res.statusCode();
+                if (status / 100 == 3) {
+                    final String location = res.headers().firstValue("Location").orElse(null);
+                    if (location == null) {
+                        throw new SsrfBlockedException("The URL redirected without a location.");
+                    }
+                    current = URI.create(current).resolve(location).toString();
+                    continue;
+                }
+                if (status / 100 != 2) {
+                    throw new SsrfBlockedException("The URL returned HTTP " + status + ".");
+                }
+                final byte[] body = in.readNBytes(MAX_FETCH_BYTES + 1);
+                if (body.length > MAX_FETCH_BYTES) {
+                    throw new SsrfBlockedException("The document is larger than 1 MB.");
+                }
+                return new String(body, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (final java.io.IOException e) {
+                throw new SsrfBlockedException("Could not fetch that URL.");
+            }
+        }
+        throw new SsrfBlockedException("Too many redirects.");
     }
 
     /** IPv6 unique-local addresses ({@code fc00::/7}); the JDK's {@code isSiteLocalAddress()} is IPv4-only. */

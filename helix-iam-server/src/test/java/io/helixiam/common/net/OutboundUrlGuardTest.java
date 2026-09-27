@@ -43,6 +43,23 @@ class OutboundUrlGuardTest {
     }
 
     @Test
+    void blocks_carrierGradeNat_theZeroNetwork_andMappedIpv6() {
+        assertThat(blocking.isAllowed("http://100.64.0.1")).isFalse();      // 100.64.0.0/10 (CGNAT, some clouds)
+        assertThat(blocking.isAllowed("http://100.127.255.254")).isFalse();
+        assertThat(blocking.isAllowed("http://0.1.2.3")).isFalse();         // 0.0.0.0/8
+        assertThat(blocking.isAllowed("http://[::ffff:127.0.0.1]/")).isFalse();
+        assertThat(blocking.isAllowed("http://100.128.0.1")).isTrue();      // just outside CGNAT
+    }
+
+    @Test
+    void fetch_refusesInternalTargets_withoutNetworkDetails() {
+        assertThatThrownBy(() -> blocking.fetch("https://127.0.0.1:1/metadata", "application/xml", true))
+                .isInstanceOf(SsrfBlockedException.class).hasMessageNotContaining("Connection refused");
+        assertThatThrownBy(() -> blocking.fetch("http://example.com/metadata", "application/xml", true))
+                .as("https required").isInstanceOf(SsrfBlockedException.class).hasMessageContaining("https");
+    }
+
+    @Test
     void blocks_privateRanges() {
         assertThat(blocking.isAllowed("http://10.0.0.5")).isFalse();
         assertThat(blocking.isAllowed("http://172.16.0.9")).isFalse();

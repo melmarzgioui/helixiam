@@ -23,10 +23,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.List;
 
 /**
@@ -68,6 +64,14 @@ public class SamlRelyingPartyAdminController {
      * WSO2/URL onboarding: fetch an SP's metadata from its published endpoint and parse it
      * into a pre-filled request. Fetched server-side so it works cross-origin and behind the dashboard proxy.
      */
+    /** SSRF guard for the metadata fetch (secure default when constructed outside Spring, e.g. unit tests). */
+    private io.helixiam.common.net.OutboundUrlGuard outboundUrlGuard = new io.helixiam.common.net.OutboundUrlGuard();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setOutboundUrlGuard(final io.helixiam.common.net.OutboundUrlGuard outboundUrlGuard) {
+        this.outboundUrlGuard = outboundUrlGuard;
+    }
+
     @PostMapping("/import-url")
     public ResponseEntity<?> importMetadataUrl(@PathVariable final String realmId,
                                                @RequestBody final ImportMetadataUrlRequest body) {
@@ -78,29 +82,24 @@ public class SamlRelyingPartyAdminController {
         } catch (final RuntimeException e) {
             return badRequest("That is not a valid URL.");
         }
-        final String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
-        if (!scheme.equals("http") && !scheme.equals("https")) {
-            return badRequest("Metadata URL must start with http:// or https://");
-        }
+        // Security (SSRF): https to public hosts only — loopback, private, link-local (cloud metadata) and other
+        // reserved addresses are refused on every redirect hop; 1 MB cap; no network details in the error.
         final String xml;
         try {
-            final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-                    .followRedirects(HttpClient.Redirect.NORMAL).build();
-            final HttpResponse<String> res = client.send(
-                    HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10)).header("Accept", "application/samlmetadata+xml, application/xml, text/xml").GET().build(),
-                    HttpResponse.BodyHandlers.ofString());
-            if (res.statusCode() / 100 != 2) {
-                return badRequest("Metadata endpoint returned HTTP " + res.statusCode() + ".");
-            }
-            xml = res.body();
-        } catch (final Exception e) {
-            final String why = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            return badRequest("Could not fetch metadata from that URL: " + why);
+            xml = outboundUrlGuard.fetch(uri.toString(), "application/samlmetadata+xml, application/xml, text/xml", true);
+        } catch (final io.helixiam.common.net.SsrfBlockedException e) {
+            return badRequest("Could not fetch metadata: " + safeReason(e));
         }
         if (xml == null || xml.isBlank()) {
             return badRequest("Metadata endpoint returned an empty document.");
         }
         return parseToResponse(xml);
+    }
+
+    /** The guard's own messages are safe to show; address details from a block are not repeated. */
+    private static String safeReason(final io.helixiam.common.net.SsrfBlockedException e) {
+        final String m = e.getMessage() == null ? "" : e.getMessage();
+        return m.startsWith("Outbound") ? "that host is not allowed (internal or reserved address)." : m;
     }
 
     /** Parse SP metadata XML into a pre-filled request (200), or a 400 {@code {"message":...}} on failure. */
