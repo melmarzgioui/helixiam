@@ -45,6 +45,18 @@ class SsoSessionRollupTest {
     }
 
     @Test
+    void sameClientTwiceInOneSession_showsOnce_butEveryAuthorizationIsTerminated() {
+        final SsoSession a = SsoSessionRollup.assemble(List.of(
+                entry("sid-A", "web", 100, 900),
+                entry("sid-A", "web", 200, 900),
+                entry("sid-A", "portal", 150, 900)), AT_EPOCH).get(0);
+
+        assertEquals(2, a.clients().size(), "one row per app");
+        assertEquals(List.of("authz-portal-150", "authz-web-100", "authz-web-200"),
+                a.authorizationIds().stream().sorted().toList(), "A4: logout removes the older web authorization too");
+    }
+
+    @Test
     void dropsAuthorizationsWithoutASid() {
         final List<SsoSession> sessions = SsoSessionRollup.assemble(List.of(
                 entry(null, "svc-account", 100, 900),

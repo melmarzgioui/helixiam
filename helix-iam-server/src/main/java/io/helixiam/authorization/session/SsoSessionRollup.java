@@ -108,7 +108,9 @@ public final class SsoSessionRollup {
             // when the id_token carries no sid and authorizations group by principal); end = latest expiry.
             final Instant issued = group.stream().map(Entry::issuedAt).filter(i -> i != null).max(Comparator.naturalOrder()).orElse(null);
             final Instant expires = group.stream().map(Entry::expiresAt).filter(i -> i != null).max(Comparator.naturalOrder()).orElse(null);
-            sessions.add(new SsoSession(sid, principal, clients, issued, expires));
+            final List<String> allIds = new ArrayList<>(group.stream().map(Entry::authorizationId)
+                    .filter(java.util.Objects::nonNull).distinct().toList());
+            sessions.add(new SsoSession(sid, principal, clients, issued, expires, allIds));
         });
         return sessions;
     }

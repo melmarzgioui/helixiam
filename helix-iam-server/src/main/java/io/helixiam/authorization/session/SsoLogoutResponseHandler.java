@@ -61,21 +61,26 @@ public class SsoLogoutResponseHandler implements AuthenticationSuccessHandler {
         if (authentication instanceof OidcLogoutAuthenticationToken token) {
             postLogoutRedirectUri = token.getPostLogoutRedirectUri();
             state = token.getState();
-            // The SSO-session key == oauth2_authorization.principal_name == the id_token `sub` (the userId),
-            // which is NOT the session's display principal. Terminate by the sub so the cascade matches.
+            // A4: the SSO session is the id_token_hint's `sid` (one browser login, every client in it). Only an
+            // ID token issued before sids existed falls back to the `sub`, the key such sid-less sessions have.
             final String subject = token.getIdToken() != null ? token.getIdToken().getSubject()
                     : (token.getPrincipal() instanceof Authentication p ? p.getName() : null);
-            if (subject != null) {
+            final String sid = token.getIdToken() != null ? token.getIdToken().getClaimAsString("sid") : null;
+            final String ssoSessionId = sid != null && !sid.isBlank() ? sid : subject;
+            if (ssoSessionId != null) {
                 // The logout_token `iss` MUST equal the issuer the RP validated its id_token against — read it
                 // straight off the id_token so a back-channel logout_token is accepted by every RP. The realm
                 // (for resolving each client's back-/front-channel URI) comes from the in-flight request context.
                 issuerUrl = token.getIdToken() != null && token.getIdToken().getIssuer() != null
                         ? token.getIdToken().getIssuer().toString() : null;
                 realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
-                terminated = ssoLogoutService.terminate(subject, realm, issuerUrl);
+                terminated = ssoLogoutService.terminate(ssoSessionId, realm, issuerUrl);
                 if (terminated != null) {
-                    LOG.info("OIDC end_session terminated SSO session for {} (realm {})",
-                            LogSafe.sanitize(subject), LogSafe.sanitize(realm));
+                    LOG.info("OIDC end_session terminated SSO session {} for {} (realm {})",
+                            LogSafe.sanitize(ssoSessionId), LogSafe.sanitize(subject), LogSafe.sanitize(realm));
+                } else {
+                    LOG.info("OIDC end_session: no active SSO session {} (realm {})",
+                            LogSafe.sanitize(ssoSessionId), LogSafe.sanitize(realm));
                 }
             }
         }

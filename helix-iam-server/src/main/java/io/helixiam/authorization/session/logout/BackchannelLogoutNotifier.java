@@ -40,9 +40,14 @@ public class BackchannelLogoutNotifier {
     private final LogoutTokenIssuer issuer;
     private final Poster poster;
 
+    /**
+     * Production wiring: the egress-guarded HTTP poster, unless a {@link Poster} bean is present (the e2e suite
+     * registers one that records the logout tokens instead of sending them).
+     */
     @org.springframework.beans.factory.annotation.Autowired
-    public BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final OutboundUrlGuard egressGuard) {
-        this(issuer, new HttpPoster(egressGuard));
+    public BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final OutboundUrlGuard egressGuard,
+                                     final org.springframework.beans.factory.ObjectProvider<Poster> posterOverride) {
+        this(issuer, posterOverride.getIfAvailable(() -> new HttpPoster(egressGuard)));
     }
 
     BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final Poster poster) {
