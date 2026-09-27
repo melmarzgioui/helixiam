@@ -36,4 +36,10 @@ public interface ClientAdminPublisher {
     ClientDto regenerate(final ClientRef ref);
 
     ClientDto reveal(final ClientRef ref);
+
+    /**
+     * C2: sets a caller-chosen secret; returns {@code SET}, {@code NOT_FOUND} (no such client in the realm) or
+     * {@code PUBLIC_CLIENT}. The secret is never returned.
+     */
+    String setSecret(final ClientRef ref, final String secret);
 }

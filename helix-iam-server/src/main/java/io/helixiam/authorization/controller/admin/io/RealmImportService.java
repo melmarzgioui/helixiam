@@ -570,7 +570,22 @@ public class RealmImportService {
         }
     }
 
-    // --- OIDC clients: match by clientId; update keeps the existing id, secret never written. ---
+    /**
+     * C2: a client's secret from the document ({@code clientSecret}, or {@code secret}; a {@code ${ENV}} placeholder
+     * is resolved from the environment). Null keeps the stored secret on update and generates one on create. An
+     * unacceptable value fails that client (the message never carries the value) instead of being stored.
+     */
+    private String importedSecret(final ClientDto c, final ImportOptions opts) {
+        final String secret = resolveSecret(c.secret(), opts);
+        if (secret == null || secret.isEmpty()) {
+            return null;
+        }
+        io.helixiam.authorization.service.client.ClientAdminService.requireSettableSecret(secret,
+                Boolean.TRUE.equals(c.publicClient()));
+        return secret;
+    }
+
+    // --- OIDC clients: match by clientId; update keeps the existing id; a document secret (C2) is set, never read. ---
     private void importClients(final String realmId, final RealmExportDocument doc, final ImportOptions opts,
                                final RealmImportResult.Builder r) {
         if (doc.clients() == null) {
@@ -595,7 +610,8 @@ public class RealmImportService {
                         c.alwaysDisplayInConsole(), c.accessTokenLifespan(), c.refreshTokenLifespan(),
                         c.idTokenSignatureAlg(), c.reuseRefreshTokens(), c.tokenEndpointAuthMethod(), c.jwksUrl(),
                         c.backchannelLogoutUri(), c.frontchannelLogoutUri(), c.applicationId(),
-                        c.x509CertificateBoundAccessTokens(), c.requireSignedRequestObject(), c.jarmResponseMode());
+                        c.x509CertificateBoundAccessTokens(), c.requireSignedRequestObject(), c.jarmResponseMode(),
+                        importedSecret(c, opts));
                 if (current == null) {
                     clientPublisher.create(write);
                     r.created(SLICE_CLIENTS);

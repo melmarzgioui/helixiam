@@ -11,6 +11,7 @@ import io.helixiam.authorization.amqp.user.UserRequiredActionsDto;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.security.flow.FlowLoginSuccessHandler;
 import io.helixiam.authorization.security.requiredactions.RequiredActionsGate;
+import io.helixiam.authorization.service.emailverification.EmailVerificationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -39,12 +40,24 @@ import java.util.List;
 public class RequiredActionsController {
 
     public static final String UPDATE_PASSWORD = "UPDATE_PASSWORD";
+    /** C3: set once the verification link was sent automatically for this pending sign-in. */
+    static final String VERIFY_EMAIL_SENT_ATTR = "HELIX_VERIFY_EMAIL_SENT";
 
     private static final Logger LOG = LogManager.getLogger(RequiredActionsController.class);
 
     private final UserAdminPublisher userPublisher;
     private final FlowLoginSuccessHandler flowSuccessHandler;
     private final String spBaseUrl;
+    private EmailVerificationService emailVerification;
+    private String idpBaseUrl = "";
+
+    /** C3: the email-verification action (setter-injected so the constructor stays as it is). */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setEmailVerification(final EmailVerificationService emailVerification,
+                                     @Value("${idp.base.url:}") final String idpBaseUrl) {
+        this.emailVerification = emailVerification;
+        this.idpBaseUrl = idpBaseUrl == null ? "" : idpBaseUrl.trim().replaceAll("/+$", "");
+    }
 
     public RequiredActionsController(final UserAdminPublisher userPublisher,
                                      final io.helixiam.authorization.flow.FlowExecutor flowExecutor,
@@ -72,6 +85,15 @@ public class RequiredActionsController {
         model.addAttribute("action", action);
         model.addAttribute("actionLabel", label(action));
         model.addAttribute("remaining", pending.size());
+        if (EmailVerificationService.VERIFY_EMAIL.equalsIgnoreCase(action)) {
+            // C3: send the link once when the user first lands here; "send again" is an explicit, rate-limited POST.
+            final HttpSession session = request.getSession();
+            if (session.getAttribute(VERIFY_EMAIL_SENT_ATTR) == null) {
+                session.setAttribute(VERIFY_EMAIL_SENT_ATTR, Boolean.TRUE);
+                sendVerification(request);
+            }
+            return verifyEmailPage(request, model);
+        }
         return UPDATE_PASSWORD.equalsIgnoreCase(action)
                 ? "required-actions/update-password"
                 : "required-actions/acknowledge";
@@ -123,7 +145,58 @@ public class RequiredActionsController {
         if (pending.isEmpty()) {
             return finish(request, response);
         }
+        if (EmailVerificationService.VERIFY_EMAIL.equalsIgnoreCase(pending.get(0))) {
+            // C3: verifying an email address is proven by the emailed link, never acknowledged.
+            response.sendRedirect(request.getContextPath() + "/required-actions");
+            return null;
+        }
         return completeOne(pending.get(0), request, response);
+    }
+
+    /** C3: sends the verification link again (rate limited per user). */
+    @PostMapping("/required-actions/verify-email/resend")
+    public String resendVerification(final HttpServletRequest request, final HttpServletResponse response,
+                                     final Model model) throws IOException {
+        if (userId(request) == null) {
+            response.sendRedirect(request.getContextPath() + "/login");
+            return null;
+        }
+        final EmailVerificationService.SendResult result = sendVerification(request);
+        model.addAttribute("sent", result == EmailVerificationService.SendResult.SENT);
+        model.addAttribute("rateLimited", result == EmailVerificationService.SendResult.RATE_LIMITED);
+        return verifyEmailPage(request, model);
+    }
+
+    /** C3: continues once the address is verified (checked server-side); otherwise shows the page again. */
+    @PostMapping("/required-actions/verify-email/continue")
+    public String continueAfterVerification(final HttpServletRequest request, final HttpServletResponse response,
+                                            final Model model) throws IOException {
+        final String userId = userId(request);
+        if (userId == null) {
+            response.sendRedirect(request.getContextPath() + "/login");
+            return null;
+        }
+        if (!emailVerification.verified(userId)) {
+            model.addAttribute("notYet", true);
+            return verifyEmailPage(request, model);
+        }
+        return completeOne(EmailVerificationService.VERIFY_EMAIL, request, response);
+    }
+
+    private String verifyEmailPage(final HttpServletRequest request, final Model model) {
+        model.addAttribute("action", EmailVerificationService.VERIFY_EMAIL);
+        model.addAttribute("email", emailVerification.emailOf(userId(request)).orElse(null));
+        return "required-actions/verify-email";
+    }
+
+    private EmailVerificationService.SendResult sendVerification(final HttpServletRequest request) {
+        final String realm = realm(request);
+        if (idpBaseUrl.isEmpty()) {
+            // Security: the link's host comes from configuration, never from the request (Host header injection).
+            LOG.error("Verification email not sent: idp.base.url (IDP_BASE_URL) is not configured");
+            return EmailVerificationService.SendResult.NOT_DELIVERED;
+        }
+        return emailVerification.send(realm, userId(request), idpBaseUrl + "/realms/" + realm);
     }
 
     /** Clear one completed action server-side, advance the session, and finish when none remain. */
@@ -133,7 +206,8 @@ public class RequiredActionsController {
         final String realm = realm(request);
         final String remaining = userPublisher.clearRequiredAction(new UserRequiredActionsDto(realm, userId, action));
         request.getSession().setAttribute(RequiredActionsGate.PENDING_ACTIONS_ATTR, remaining);
-        LOG.info("User {} completed required action {} (remaining: [{}])", userId, action, remaining);
+        LOG.info("User {} completed required action {} (remaining: [{}])", io.helixiam.common.log.LogSafe.sanitize(userId),
+                io.helixiam.common.log.LogSafe.sanitize(action), io.helixiam.common.log.LogSafe.sanitize(remaining));
         if (remaining == null || remaining.isBlank()) {
             return finish(request, response);
         }
@@ -150,6 +224,7 @@ public class RequiredActionsController {
             session.removeAttribute(RequiredActionsGate.PENDING_AUTH_ATTR);
             session.removeAttribute(RequiredActionsGate.PENDING_ACTIONS_ATTR);
             session.removeAttribute(RequiredActionsGate.PENDING_REALM_ATTR);
+            session.removeAttribute(VERIFY_EMAIL_SENT_ATTR);
         }
         if (original == null) {
             response.sendRedirect(request.getContextPath() + "/login");

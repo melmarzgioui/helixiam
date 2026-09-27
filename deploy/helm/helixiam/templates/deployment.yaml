@@ -90,9 +90,24 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.secrets.bootstrapClientId }}
+            - name: bootstrap-client-secret
+              mountPath: /etc/helixiam/bootstrap
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.secrets.bootstrapClientId }}
+        # The bootstrap service account's secret, as a file (HELIX_BOOTSTRAP_CLIENT_SECRET_FILE), never an env var.
+        - name: bootstrap-client-secret
+          secret:
+            secretName: {{ .Values.secrets.existingSecret }}
+            defaultMode: 0440   # readable by the pod's fsGroup (10001), not world
+            items:
+              - key: {{ .Values.secrets.bootstrapClientSecretKey }}
+                path: client-secret
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

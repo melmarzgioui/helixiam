@@ -257,7 +257,9 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
         if (clientSecret == null) {
             return null; // public clients have no secret
         }
-        if(clientSecret.contains("noop")) {
+        // C2: only an explicit {noop} prefix means "already prefixed". The former contains("noop") test broke any
+        // secret that merely contained those letters (a caller-chosen secret, or a rare generated one).
+        if (clientSecret.startsWith("{noop}")) {
             return clientSecret;
         }
         return "{noop}" + clientSecret;
@@ -562,7 +564,7 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
                 "serviceProviderId='" + serviceProviderId + '\'' +
                 ", clientId='" + clientId + '\'' +
                 ", clientIdIssuedAt=" + clientIdIssuedAt +
-                ", clientSecret='" + clientSecret + '\'' +
+                ", clientSecret='" + (clientSecret == null ? null : "***") + '\'' +
                 ", authorizationGrantTypes='" + authorizationGrantTypes + '\'' +
                 ", redirectUris='" + redirectUris + '\'' +
                 '}';

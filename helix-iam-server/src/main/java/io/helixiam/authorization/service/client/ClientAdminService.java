@@ -58,8 +58,14 @@ public class ClientAdminService {
         if (write.clientId() == null || write.clientId().isBlank()) {
             throw new IllegalArgumentException("Client ID is required.");
         }
+        final boolean publicClient = Boolean.TRUE.equals(write.publicClient());
+        final String supplied = write.clientSecret();
+        if (supplied != null) {
+            requireSettableSecret(supplied, publicClient);
+        }
         // Public clients (SPA/native) authenticate with no secret — PKCE protects the code exchange.
-        final String secret = Boolean.TRUE.equals(write.publicClient()) ? null : generateSecret();
+        // C2: a caller-supplied secret is stored exactly like a generated one, but never returned.
+        final String secret = publicClient ? null : supplied != null ? supplied : generateSecret();
         final ServiceProviderOAuthClient client = new ServiceProviderOAuthClient();
         client.setClientId(write.clientId());
         client.setTenantId(write.realmId());
@@ -70,17 +76,75 @@ public class ClientAdminService {
         client.setClientSecret(secret);
         applyWrite(client, write);
         final ServiceProviderOAuthClient saved = repository.save(client);
-        LOG.debug("Registered client {} in realm {}", write.clientId(), write.realmId());
-        return toDto(saved, secret);
+        LOG.debug("Registered client {} in realm {}", LogSafe.sanitize(write.clientId()), LogSafe.sanitize(write.realmId()));
+        return toDto(saved, supplied != null ? null : secret);
     }
 
-    /** Updates a client's grant types / redirect URIs / scopes; secret unchanged. */
+    /**
+     * Updates a client's grant types / redirect URIs / scopes. The secret is unchanged unless the write carries a
+     * caller-supplied {@code clientSecret} (C2), which replaces it (never returned).
+     */
     @Transactional
     public Optional<ClientDto> update(final ClientWriteDto write) {
+        if (write.clientSecret() != null) {
+            requireSettableSecret(write.clientSecret(), Boolean.TRUE.equals(write.publicClient()));
+        }
         return inRealm(write.realmId(), write.id()).map(client -> {
             applyWrite(client, write);
+            if (write.clientSecret() != null) {
+                client.setClientSecret(write.clientSecret());
+            }
             return toDto(repository.save(client), null);
         });
+    }
+
+    /** Outcome of {@link #setSecret}. */
+    public enum SetSecretResult { SET, NOT_FOUND, PUBLIC_CLIENT }
+
+    /**
+     * C2: sets a caller-chosen secret (from a secrets manager) on a confidential client of {@code realmId}. Stored
+     * exactly like a generated secret; the value is never returned or logged.
+     */
+    @Transactional
+    public SetSecretResult setSecret(final String realmId, final String id, final String secret) {
+        requireSettableSecret(secret, false);
+        return inRealm(realmId, id).map(client -> {
+            if (Boolean.TRUE.equals(client.getPublicClient())) {
+                return SetSecretResult.PUBLIC_CLIENT;
+            }
+            client.setClientSecret(secret);
+            repository.save(client);
+            LOG.debug("Set a caller-supplied secret on client {} in realm {}", LogSafe.sanitize(client.getClientId()),
+                    LogSafe.sanitize(realmId));
+            return SetSecretResult.SET;
+        }).orElse(SetSecretResult.NOT_FOUND);
+    }
+
+    /** Minimum length of a caller-supplied secret (C2). */
+    public static final int MIN_SECRET_LENGTH = 32;
+    /** Maximum length: the AES-GCM-encrypted, Base64-encoded value must fit {@code client_secret varchar(200)}. */
+    public static final int MAX_SECRET_LENGTH = 120;
+
+    /**
+     * The service-side guard behind the admin API's Bean Validation (the realm import writes through here without
+     * it): 32–120 printable ASCII characters, and only on a confidential client. The message never carries the value.
+     */
+    public static void requireSettableSecret(final String secret, final boolean publicClient) {
+        if (publicClient) {
+            throw new IllegalArgumentException("A public client has no secret.");
+        }
+        if (!isValidSecret(secret)) {
+            throw new IllegalArgumentException(
+                    "The client secret must be 32 to 120 printable ASCII characters without spaces.");
+        }
+    }
+
+    /** Whether {@code secret} is an acceptable caller-supplied client secret. */
+    public static boolean isValidSecret(final String secret) {
+        if (secret == null || secret.length() < MIN_SECRET_LENGTH || secret.length() > MAX_SECRET_LENGTH) {
+            return false;
+        }
+        return secret.chars().allMatch(ch -> ch >= 0x21 && ch <= 0x7E);
     }
 
     /** Reveals a client's current secret (Credentials tab); the rest of the DTO is the client as-is. */

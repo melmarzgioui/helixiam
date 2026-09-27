@@ -119,8 +119,12 @@ public class OAuthConfig {
                                                                         final io.helixiam.authorization.observability.HelixMetrics helixMetrics,
                                                                         final io.helixiam.authorization.security.fapi.ClientCertificateResolver clientCertificateResolver,
                                                                         final AgentIdentityPublisher agentIdentityPublisher,
-                                                                        final io.helixiam.authorization.service.client.TokenExchangePolicyService tokenExchangePolicy) {
+                                                                        final io.helixiam.authorization.service.client.TokenExchangePolicyService tokenExchangePolicy,
+                                                                        final io.helixiam.authorization.service.emailverification.EmailVerificationService emailVerification) {
         return context -> {
+            // C3: no user tokens while the user still has to verify their email address (realm setting or the
+            // VERIFY_EMAIL required action) — whatever the sign-in method or grant. Deliberately NOT swallowed.
+            io.helixiam.authorization.security.requiredactions.EmailVerificationTokenGuard.check(context, emailVerification);
             // The principal's effective roles, Keycloak-namespaced: realm roles under `realm_access.roles`
             // and client roles under `resource_access.<clientId>.roles` (never one flat ambiguous list).
             // The flat union is kept only to feed any USER_ROLE protocol mapper.

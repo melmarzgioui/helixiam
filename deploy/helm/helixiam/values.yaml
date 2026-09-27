@@ -33,6 +33,15 @@ config:
   migrationsEnabled: true        # HELIX_MIGRATIONS_ENABLED — Flyway owns the schema in production
   sessionStore: redis            # HELIX_SESSION_STORE
   samlIdpEnabled: true           # HELIX_SAML_IDP_ENABLED
+  # Global switch for interactive TOTP (MFA_ENABLED). true = every password sign-in of every realm goes through the
+  # second factor. false = only realms with requireMfa=true (and users who enrolled) are asked for it. It never
+  # applies to client_credentials tokens, so provisioning with secrets.bootstrapClientId works with MFA on.
+  mfaEnabled: true               # MFA_ENABLED
+  # Private hosts outbound calls may reach (SSRF guard allowlist), e.g. an in-cluster HTTP email/SMS gateway:
+  # [mailer.mail.svc.cluster.local, "sms-gateway.internal:8080"]. Exact host names or IP literals, optionally with
+  # a port; everything else that resolves to a private address stays blocked. Replaces the deprecated
+  # HELIX_EGRESS_ALLOW_PRIVATE=true (all hosts). Also allow the port in networkPolicy.extraEgressPorts.
+  egressAllowedPrivateHosts: []  # HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS
   extraEnv: []                   # list of {name, value} or {name, valueFrom}
 
 database:
@@ -58,6 +67,14 @@ secrets:
   # empty, the server generates a strong random password once and logs it.
   adminUsername: admin
   adminPasswordKey: admin-password
+  # Bootstrap service account for provisioning (automation such as Terraform or a tenant provisioner). When
+  # bootstrapClientId is set, the first boot creates a confidential client_credentials client with that id in the
+  # master realm, holding the master `admin` role, with the secret from the key below (32-120 printable ASCII
+  # characters; mounted as a file, never an env var). Create-only: an existing client is never changed, so rotate
+  # with POST /admin/realms/master/clients/{id}/secret. Use this instead of signing in as the bootstrap admin user,
+  # so MFA (config.mfaEnabled) can stay on.
+  bootstrapClientId: ""                               # HELIX_BOOTSTRAP_CLIENT_ID; empty = no service account
+  bootstrapClientSecretKey: bootstrap-client-secret   # key in existingSecret → HELIX_BOOTSTRAP_CLIENT_SECRET_FILE
 
 service:
   type: ClusterIP

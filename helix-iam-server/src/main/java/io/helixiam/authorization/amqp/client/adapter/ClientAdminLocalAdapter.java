@@ -66,6 +66,11 @@ public class ClientAdminLocalAdapter implements ClientAdminPublisher {
     }
 
     @Override
+    public String setSecret(final ClientRef ref, final String secret) {
+        return service.setSecret(ref.realmId(), ref.id(), secret).name();
+    }
+
+    @Override
     public ClientDto reveal(final ClientRef ref) {
         return bridge.to(service.reveal(ref.realmId(), ref.id()).orElse(null), ClientDto.class);
     }

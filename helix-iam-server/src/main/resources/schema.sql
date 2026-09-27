@@ -996,3 +996,19 @@ CREATE INDEX IF NOT EXISTS theme_asset_realm_idx ON theme_asset (realm_id, kind)
 DROP INDEX IF EXISTS theme_asset_font_face_uq;
 CREATE UNIQUE INDEX IF NOT EXISTS theme_asset_font_face_ci_uq
     ON theme_asset (realm_id, lower(name), font_weight, font_style) WHERE kind = 'font';
+
+-- C3: realm-required email verification + single-use verification links (same as Flyway V40).
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS verify_email boolean NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS email_verification_token (
+    token_hash  character varying(64)  NOT NULL PRIMARY KEY,
+    realm_id    character varying(255) NOT NULL,
+    user_id     character varying(255) NOT NULL,
+    email       character varying(255) NOT NULL,
+    created_at  timestamp              NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  timestamp              NOT NULL,
+    used_at     timestamp              DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES user_credentials(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS email_verification_token_expiry_idx ON email_verification_token (expires_at);
+CREATE INDEX IF NOT EXISTS email_verification_token_user_idx ON email_verification_token (user_id);

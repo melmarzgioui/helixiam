@@ -17,5 +17,12 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record UserAdminDto(String realmId, String userId, String username, String email, boolean enabled,
                            boolean locked, boolean mfaEnabled, List<String> roles, Map<String, String> attributes,
-                           Long createdAt) {
+                           Long createdAt, boolean emailVerified) {
+
+    /** C3: without {@code emailVerified} (false). */
+    public UserAdminDto(final String realmId, final String userId, final String username, final String email,
+                        final boolean enabled, final boolean locked, final boolean mfaEnabled, final List<String> roles,
+                        final Map<String, String> attributes, final Long createdAt) {
+        this(realmId, userId, username, email, enabled, locked, mfaEnabled, roles, attributes, createdAt, false);
+    }
 }

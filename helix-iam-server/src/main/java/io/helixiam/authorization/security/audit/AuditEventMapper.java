@@ -52,6 +52,9 @@ public final class AuditEventMapper {
                 if ("password".equals(sub)) {
                     yield "PASSWORD_RESET";
                 }
+                if ("send-verification-email".equals(sub)) {
+                    yield "VERIFY_EMAIL_SENT"; // C3
+                }
                 if ("roles".equals(sub)) {
                     yield "PUT".equals(method) ? "ROLE_ASSIGN" : "ROLE_UNASSIGN";
                 }

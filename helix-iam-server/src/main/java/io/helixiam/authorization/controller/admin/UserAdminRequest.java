@@ -17,12 +17,14 @@ import java.util.Map;
  * create; {@code enabled} defaults to true when omitted so a new user is active unless disabled.
  * Password is intentionally unconstrained here (the same record is reused for update where it is optional);
  * "password required on create" is guarded in the subscriber's {@code UserAdminService.create}.
+ * C3: {@code emailVerified} marks the address verified or not (null: unverified on create, unchanged on update —
+ * except that a changed address is unverified).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record UserAdminRequest(@NotBlank(message = "Username is required.") @Size(max = 255, message = "Username must be at most 255 characters.") String username,
                                @Email(message = "Email must be a valid address.") String email,
                                String password, Boolean enabled, boolean locked,
-                               Map<String, String> attributes) {
+                               Map<String, String> attributes, Boolean emailVerified) {
 
     public boolean enabledOrDefault() {
         return enabled == null || enabled;

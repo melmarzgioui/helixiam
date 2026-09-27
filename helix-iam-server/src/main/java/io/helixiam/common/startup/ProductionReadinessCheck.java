@@ -112,7 +112,8 @@ public class ProductionReadinessCheck {
             insecure.add("OpenAPI/Swagger is PUBLIC (HELIX_API_DOCS_PUBLIC=true)");
         }
         if (egressAllowPrivate) {
-            insecure.add("SSRF egress guard relaxed to allow private/loopback (HELIX_EGRESS_ALLOW_PRIVATE=true)");
+            insecure.add("SSRF egress guard relaxed to allow private/loopback for every host (HELIX_EGRESS_ALLOW_PRIVATE=true, "
+                    + "deprecated) — list the internal hosts in HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS instead");
         }
 
         if (!fatal.isEmpty()) {

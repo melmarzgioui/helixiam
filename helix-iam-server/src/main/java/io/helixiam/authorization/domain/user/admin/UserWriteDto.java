@@ -15,5 +15,12 @@ import java.util.Map;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record UserWriteDto(String realmId, String userId, String username, String email, String password,
-                           boolean enabled, boolean locked, Map<String, String> attributes) {
+                           boolean enabled, boolean locked, Map<String, String> attributes, Boolean emailVerified) {
+
+    /** C3: without {@code emailVerified} (null = unchanged on update, unverified on create). */
+    public UserWriteDto(final String realmId, final String userId, final String username, final String email,
+                        final String password, final boolean enabled, final boolean locked,
+                        final Map<String, String> attributes) {
+        this(realmId, userId, username, email, password, enabled, locked, attributes, null);
+    }
 }

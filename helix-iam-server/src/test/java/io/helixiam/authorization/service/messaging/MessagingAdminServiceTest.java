@@ -97,10 +97,34 @@ class MessagingAdminServiceTest {
     }
 
     @Test
-    void listTemplates_doesNotReseed_whenAlreadyPresent() {
+    void listTemplates_keepsExistingTemplates_andOnlyAddsMissingDefaults() {
         final MessageTemplate t = new MessageTemplate();
         t.setRealmId("master"); t.setTemplateKey("otp-sms"); t.setChannel("SMS"); t.setBody("x");
         when(templates.findByRealmId("master")).thenReturn(List.of(t));
+
+        final List<MessageTemplateDto> listed = service.listTemplates("master");
+
+        // C3: a realm seeded before a key existed (verify-email) gets the missing defaults; the edited one stays.
+        @SuppressWarnings("unchecked")
+        final org.mockito.ArgumentCaptor<List<MessageTemplate>> added = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(templates).saveAll(added.capture());
+        assertThat(added.getValue()).extracting(MessageTemplate::getTemplateKey)
+                .doesNotContain("otp-sms").contains("verify-email", "magic-link-email");
+        assertThat(listed).filteredOn(d -> "otp-sms".equals(d.templateKey())).singleElement()
+                .satisfies(d -> assertThat(d.body()).isEqualTo("x"));
+    }
+
+    @Test
+    void listTemplates_doesNotReseed_whenEveryDefaultIsPresent() {
+        when(templates.findByRealmId("master")).thenReturn(List.of());
+        final List<MessageTemplateDto> seeded = service.listTemplates("master");
+        final List<MessageTemplate> all = seeded.stream().map(d -> {
+            final MessageTemplate m = new MessageTemplate();
+            m.setRealmId("master"); m.setTemplateKey(d.templateKey()); m.setChannel(d.channel()); m.setBody(d.body());
+            return m;
+        }).toList();
+        org.mockito.Mockito.reset(templates);
+        when(templates.findByRealmId("master")).thenReturn(all);
 
         service.listTemplates("master");
 

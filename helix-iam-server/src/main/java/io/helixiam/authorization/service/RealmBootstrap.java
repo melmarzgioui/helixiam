@@ -34,6 +34,14 @@ public class RealmBootstrap implements ApplicationRunner {
     private final CliClientBootstrapService cliClientBootstrapService;
     private final ConsoleClientBootstrapService consoleClientBootstrapService;
     private final DefaultRolesBootstrapService defaultRolesBootstrapService;
+    private io.helixiam.authorization.service.client.BootstrapServiceAccountService bootstrapServiceAccount;
+
+    /** C5: the optional bootstrap service account (setter-injected so the constructor stays as it is). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBootstrapServiceAccount(
+            final io.helixiam.authorization.service.client.BootstrapServiceAccountService bootstrapServiceAccount) {
+        this.bootstrapServiceAccount = bootstrapServiceAccount;
+    }
 
     public RealmBootstrap(final RealmService realmService, final AuthFlowService authFlowService,
                           final RealmAdminBootstrapService realmAdminBootstrapService,
@@ -62,6 +70,10 @@ public class RealmBootstrap implements ApplicationRunner {
             // Self-heal + reconcile the built-in console client every startup (recreated if deleted, redirect
             // URIs refreshed from HELIX_CONSOLE_BASE_URL) so the admin console can always log in via SSO.
             consoleClientBootstrapService.ensureConsoleClient(RealmConfig.ADMIN_REALM_ID);
+            // C5: HELIX_BOOTSTRAP_CLIENT_ID → a master-realm service account with the admin role (first boot only).
+            if (bootstrapServiceAccount != null) {
+                bootstrapServiceAccount.ensureBootstrapServiceAccount();
+            }
             // Every realm that has a config also gets the default roles + an admin user + the built-in CLI + console clients.
             realmService.list().forEach(realm -> {
                 try {

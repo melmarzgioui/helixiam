@@ -150,6 +150,15 @@ the admin console/API and take priority over the global SMTP fallback above.
 | Variable | Purpose |
 |---|---|
 | `HELIX_ADMIN_USERNAME` / `HELIX_ADMIN_PASSWORD` | the master-realm admin user created on first boot. Username defaults to `admin`. **If `HELIX_ADMIN_PASSWORD` is unset, a strong random password is generated once and written (0600) to `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`); the password itself is never logged** — set it explicitly for any non-local use. |
+| `HELIX_BOOTSTRAP_CLIENT_ID` | optional bootstrap **service account** for provisioning: on first boot a confidential `client_credentials` client with this id is created in the master realm, holding the master `admin` role (administers every realm through the admin API with a bearer token). Create-only — an existing client is never changed; rotate with `POST /admin/realms/master/clients/{id}/secret`. |
+| `HELIX_BOOTSTRAP_CLIENT_SECRET_FILE` / `HELIX_BOOTSTRAP_CLIENT_SECRET` | its secret (32–120 printable ASCII characters), preferably from a file (e.g. a mounted Kubernetes secret; the file wins when both are set). Without an acceptable secret no client is created and an error is logged (never the value). |
+
+**Provisioning and MFA.** `MFA_ENABLED` (`mfa.enabled`, default `true`) is a deployment-wide switch: `true` sends
+*every* password sign-in in *every* realm through TOTP; `false` leaves it to each realm's `requireMfa` (and to users
+who enrolled). Neither applies to `client_credentials` tokens. So automation should not sign in as the bootstrap admin
+user (which forced operators to set `MFA_ENABLED=false` globally): use the bootstrap service account above, keep
+`MFA_ENABLED=true` or set per-realm `requireMfa`, and grant other service accounts narrower roles
+(`view-users`, `manage-users`, …) through `POST /admin/realms/{r}/clients/{clientId}/service-account/roles`.
 
 **Feature toggles**
 
@@ -163,6 +172,8 @@ the admin console/API and take priority over the global SMTP fallback above.
 | `HELIX_SAML_IDP_ENABLED` | `true` | enable the SAML 2.0 IdP role |
 | `HELIX_SQL_INIT_MODE` | `never` | legacy idempotent `schema.sql` init; set `always` together with `HELIX_MIGRATIONS_ENABLED=false` |
 | `HELIX_MIGRATIONS_ENABLED` | `true` | Flyway (`db/migration/V*`) manages the schema (default everywhere: app, image, Helm) |
+| `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS` | *(empty)* | private hosts outbound calls (email/SMS HTTP drivers, webhooks, SCIM, federation) may reach, e.g. `mailer.mail.svc.cluster.local,sms-gateway.internal:8080`: exact host names or IP literals, optionally with a port. Matched by the configured name, never by the address it resolves to; link-local/cloud-metadata, multicast and wildcard addresses stay blocked. Global, not per realm, because realm admins configure the outbound URLs. |
+| `HELIX_EGRESS_ALLOW_PRIVATE` | `false` | **deprecated**: lets *every* outbound URL reach private and loopback addresses (still honoured; logged as insecure). Use `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`. |
 
 ### Rate limits
 

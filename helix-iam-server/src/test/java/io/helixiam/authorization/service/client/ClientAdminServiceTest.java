@@ -145,4 +145,50 @@ class ClientAdminServiceTest {
         c.setScopes("openid");
         return c;
     }
+
+    @Test
+    void secretValidation_requires32To120PrintableAsciiCharacters() {
+        assertFalse(ClientAdminService.isValidSecret(null));
+        assertFalse(ClientAdminService.isValidSecret("x".repeat(31)));
+        assertTrue(ClientAdminService.isValidSecret("x".repeat(32)));
+        assertTrue(ClientAdminService.isValidSecret("x".repeat(120)));
+        assertFalse(ClientAdminService.isValidSecret("x".repeat(121)));
+        assertFalse(ClientAdminService.isValidSecret("x".repeat(31) + " "));
+        assertFalse(ClientAdminService.isValidSecret("x".repeat(31) + "\u00e9"));
+        final IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> ClientAdminService.requireSettableSecret("short-secret-value", false));
+        assertFalse(ex.getMessage().contains("short-secret-value"), "the message never carries the value");
+        assertThrows(IllegalArgumentException.class,
+                () -> ClientAdminService.requireSettableSecret("x".repeat(40), true));
+    }
+
+    @Test
+    void aSecretContainingNoop_isStillPrefixedForThePasswordEncoder() {
+        final ServiceProviderOAuthClient client = new ServiceProviderOAuthClient();
+        client.setClientSecret("my-noop-looking-secret-0123456789abcdef");
+        assertEquals("{noop}my-noop-looking-secret-0123456789abcdef", client.getClientSecret());
+        client.setClientSecret("{noop}already-prefixed");
+        assertEquals("{noop}already-prefixed", client.getClientSecret());
+    }
+
+    @Test
+    void setSecret_isScopedToTheRealm_andRefusesPublicClients() {
+        final ServiceProviderOAuthClient confidential = new ServiceProviderOAuthClient();
+        confidential.setRealmId("gov");
+        confidential.setPublicClient(false);
+        when(repository.findByIdAndDeleted("c1", false)).thenReturn(Optional.of(confidential));
+        final String secret = "s".repeat(40);
+
+        assertEquals(ClientAdminService.SetSecretResult.NOT_FOUND, service.setSecret("other", "c1", secret));
+        verify(repository, never()).save(any());
+        assertEquals(ClientAdminService.SetSecretResult.SET, service.setSecret("gov", "c1", secret));
+        assertEquals(secret, confidential.getRawSecret());
+
+        final ServiceProviderOAuthClient spa = new ServiceProviderOAuthClient();
+        spa.setRealmId("gov");
+        spa.setPublicClient(true);
+        when(repository.findByIdAndDeleted("c2", false)).thenReturn(Optional.of(spa));
+        assertEquals(ClientAdminService.SetSecretResult.PUBLIC_CLIENT, service.setSecret("gov", "c2", secret));
+        assertNull(spa.getRawSecret());
+    }
 }
