@@ -129,7 +129,11 @@ public class UserCredentials implements UserDetails {
     public Collection<GrantedAuthority> getAuthorities() {
         final Set<GrantedAuthority> processed = new HashSet<>();
 
-        authorities.forEach(role -> processed.add(role::getTenantRoleName));
+        // A reserved (admin_-prefixed) role name left over from before the reservation must not become an
+        // authority: admin_prod in realm acme would read as "admin of realm prod_acme".
+        authorities.stream()
+                .filter(role -> !io.helixiam.authorization.security.adminrbac.RealmAdminAuthorities.isReservedRoleName(role.getName()))
+                .forEach(role -> processed.add(role::getTenantRoleName));
 
         return processed;
     }

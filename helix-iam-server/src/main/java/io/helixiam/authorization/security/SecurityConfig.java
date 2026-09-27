@@ -89,7 +89,7 @@ public class SecurityConfig {
                           // Secure by default; application-dev.properties flips it off for plain-HTTP localhost.
                           @Value("${helix.security.cookie-secure:true}") final boolean cookieSecure,
                           // Security review L2: whether /actuator/prometheus is reachable anonymously.
-                          @Value("${helix.actuator.prometheus-anonymous:true}") final boolean prometheusAnonymous,
+                          @Value("${helix.actuator.prometheus-anonymous:false}") final boolean prometheusAnonymous,
                           // Security review L3: whether the OpenAPI document / Swagger UI are anonymous.
                           @Value("${helix.springdoc.public:false}") final boolean springdocPublic) {
         this.whitelist = whitelist;
@@ -328,9 +328,9 @@ public class SecurityConfig {
         // management.endpoints.web.exposure.include) — it discloses build/git metadata for no benefit here.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/actuator/health", "/actuator/health/**").permitAll());
         // Security review L2: /actuator/prometheus anonymity is now an explicit, deliberate switch rather
-        // than an accident of the allowlist. It stays anonymous BY DEFAULT so in-cluster scraping is
-        // unchanged — restrict the scrape path with a NetworkPolicy / ingress rule. Set
-        // helix.actuator.prometheus-anonymous=false to push it behind the authenticated gate instead.
+        // than an accident of the allowlist. It is authenticated by default (here and in
+        // application.properties); set helix.actuator.prometheus-anonymous=true for anonymous in-cluster
+        // scraping, and restrict the scrape path with a NetworkPolicy / ingress rule.
         if (prometheusAnonymous) {
             http.authorizeHttpRequests(requests -> requests.requestMatchers("/actuator/prometheus").permitAll());
         }

@@ -114,6 +114,7 @@ public class AdminBearerTokenFilter extends OncePerRequestFilter {
             final List<ServiceAccountRoleDto> roles = clientRoles.serviceAccountRoles(RealmScopedKey.pack(realm, clientId.toString()));
             final List<GrantedAuthority> authorities = (roles == null ? List.<ServiceAccountRoleDto>of() : roles).stream()
                     .filter(r -> r.roleType() == null || "REALM".equalsIgnoreCase(r.roleType()))
+                    .filter(r -> !RealmAdminAuthorities.isReservedRoleName(r.roleName()))
                     .map(r -> (GrantedAuthority) new SimpleGrantedAuthority(r.roleName() + "_" + realm))
                     .toList();
             return new ServiceAccountAuthentication(clientId.toString(), realm, authorities);
