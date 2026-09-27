@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.session;
 
+import io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService;
 import io.helixiam.authorization.session.logout.BackchannelLogoutNotifier;
 import io.helixiam.authorization.session.logout.LogoutTargetResolver;
 import io.helixiam.common.log.LogSafe;
@@ -14,11 +15,14 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Helix IAM SSO P5/P6: terminates a whole SSO session — removes every client authorization it spans (so no
- * refresh token survives) and deletes the user's HTTP session(s). When a realm + issuer are supplied it also
+ * refresh token survives) and ends that session's browser login (the HTTP session(s) recorded on its
+ * authorizations; the user's other browser sessions are untouched). When a realm + issuer are supplied it also
  * fans out OIDC Back-Channel Logout {@code logout_token}s to the clients that registered a back-channel URI.
  * Returns the terminated {@link SsoSession} so callers (OIDC end_session, SAML SLO, the Sessions admin) can
  * additionally drive front-channel logout.
@@ -33,16 +37,19 @@ public class SsoLogoutService {
     private final SpringSessionStore springSessionStore;
     private final BackchannelLogoutNotifier backchannelNotifier;
     private final LogoutTargetResolver targetResolver;
+    private final HttpSessionTerminator httpSessions;
 
     public SsoLogoutService(final SsoSessionStore sessionStore, final OAuth2AuthorizationService authorizationService,
                             final SpringSessionStore springSessionStore,
                             final BackchannelLogoutNotifier backchannelNotifier,
-                            final LogoutTargetResolver targetResolver) {
+                            final LogoutTargetResolver targetResolver,
+                            final HttpSessionTerminator httpSessions) {
         this.sessionStore = sessionStore;
         this.authorizationService = authorizationService;
         this.springSessionStore = springSessionStore;
         this.backchannelNotifier = backchannelNotifier;
         this.targetResolver = targetResolver;
+        this.httpSessions = httpSessions;
     }
 
     /** Terminate the SSO session with this id (no logout fan-out); returns it or {@code null} if unknown. */
@@ -59,13 +66,24 @@ public class SsoLogoutService {
         if (session == null) {
             return null;
         }
+        boolean sidBound = false;
+        final Set<String> browserSessions = new LinkedHashSet<>();
         for (final String authorizationId : session.authorizationIds()) {
             final OAuth2Authorization authorization = authorizationService.findById(authorizationId);
             if (authorization != null) {
+                sidBound |= authorization.getAttribute(SsoSessionBindingAuthorizationService.SID_ATTRIBUTE) != null;
+                final Object httpSession = authorization.getAttribute(SsoSessionBindingAuthorizationService.HTTP_SESSION_ATTRIBUTE);
+                if (httpSession instanceof String id && !id.isBlank()) {
+                    browserSessions.add(id);
+                }
                 authorizationService.remove(authorization);
             }
         }
-        if (session.principalName() != null) {
+        if (sidBound) {
+            // End only this SSO session's browser login(s); the user's other browsers stay signed in.
+            httpSessions.deleteAll(browserSessions);
+        } else if (session.principalName() != null) {
+            // Legacy session without a sid (authorizations from before sids): the old by-user behaviour.
             springSessionStore.deleteByPrincipal(session.principalName());
         }
         LOG.info("Terminated SSO session {} ({} client authorizations)",

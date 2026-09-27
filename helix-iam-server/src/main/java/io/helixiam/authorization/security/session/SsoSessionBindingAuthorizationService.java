@@ -28,6 +28,8 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
     public static final String SID_ATTRIBUTE = "helix.sid";
     /** Authorization attribute: epoch-second {@code auth_time} of the interactive login (Long). */
     public static final String AUTH_TIME_ATTRIBUTE = "helix.auth_time";
+    /** Authorization attribute: id of the browser (HTTP) session that approved the code (String). */
+    public static final String HTTP_SESSION_ATTRIBUTE = "helix.http_session";
 
     private final OAuth2AuthorizationService delegate;
     private final AuthTimeStamper authTimeStamper = new AuthTimeStamper();
@@ -80,6 +82,11 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
         final OAuth2Authorization.Builder builder = OAuth2Authorization.from(authorization);
         if (sid != null) {
             builder.attribute(SID_ATTRIBUTE, sid);
+            // So logout can end exactly this browser login (and not the user's other sessions).
+            final jakarta.servlet.http.HttpSession session = request.getSession(false);
+            if (session != null) {
+                builder.attribute(HTTP_SESSION_ATTRIBUTE, session.getId());
+            }
         }
         if (authTime != null) {
             builder.attribute(AUTH_TIME_ATTRIBUTE, authTime);
