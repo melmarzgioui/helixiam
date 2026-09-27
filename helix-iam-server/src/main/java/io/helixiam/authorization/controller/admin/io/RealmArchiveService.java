@@ -182,7 +182,8 @@ public class RealmArchiveService {
             }
         }
         final List<Replaced> keptReplaced = new ArrayList<>();
-        for (final Replaced r : stage.replaced()) {
+        // Reverse order, so a chain of replacements unwinds back to the original (final check F-M1).
+        for (final Replaced r : stage.replaced().reversed()) {
             final boolean referencedByUrl = assets.references(realmId, r.replacement()).stream()
                     .anyMatch(f -> !f.endsWith("typography.fontSans") && !f.endsWith("typography.fontDisplay"));
             if (referencedByUrl) {
@@ -302,6 +303,7 @@ public class RealmArchiveService {
     /** One manifest entry per file and one file per entry; ids, kinds and hashes consistent. */
     private static void checkManifest(final List<ManifestEntry> manifest, final Map<String, byte[]> files) {
         final Set<String> named = new HashSet<>();
+        final Set<String> faces = new HashSet<>();
         for (final ManifestEntry e : manifest) {
             if (e == null || e.id() == null || e.ext() == null || e.sha256() == null || e.kind() == null
                     || !e.id().matches("[A-Za-z0-9_-]{1,64}") || !e.ext().matches("woff2|svg|png|webp")) {
@@ -310,6 +312,17 @@ public class RealmArchiveService {
             final boolean font = "woff2".equals(e.ext());
             if (!(font ? "font" : "image").equals(e.kind())) {
                 throw new RealmArchiveException("The asset manifest entry " + e.id() + " has the wrong kind.");
+            }
+            if (font) {
+                // Final check F-M1: one face per (family case-insensitively, weight, style), or overwrite would replace
+                // a face it created itself and the undo could not restore it.
+                final String face = String.valueOf(e.name()).toLowerCase(java.util.Locale.ROOT) + "|"
+                        + (e.weight() == null ? "400" : e.weight()) + "|" + (e.style() == null ? "normal" : e.style());
+                if (!faces.add(face)) {
+                    throw new RealmArchiveException("The asset manifest lists the font face " + e.name() + " "
+                            + (e.weight() == null ? "400" : e.weight()) + " " + (e.style() == null ? "normal" : e.style())
+                            + " more than once.");
+                }
             }
             final String file = e.id() + "." + e.ext();
             if (!named.add(file)) {

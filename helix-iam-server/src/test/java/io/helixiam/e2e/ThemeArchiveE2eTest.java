@@ -253,6 +253,26 @@ class ThemeArchiveE2eTest extends AbstractE2eTest {
                 .isEqualTo("Public Sans");
     }
 
+    @Test
+    void finalCheckFM1_aManifestListingTheSameFontFaceTwice_isRefused() throws Exception {
+        final Map<String, byte[]> entries = unzip(themedArchive());
+        final ArrayNode manifest = (ArrayNode) JSON.readTree(entries.get("theme-assets/manifest.json"));
+        final byte[] other = AssetFixtures.woff2(4096);
+        final ObjectNode twin = JSON.createObjectNode();
+        twin.put("id", "twin-face").put("kind", "font").put("name", "public SANS").put("ext", "woff2")
+                .put("weight", "400").put("style", "normal").put("sha256", sha256(other)).put("size", other.length);
+        manifest.add(twin);
+        entries.put("theme-assets/manifest.json", JSON.writeValueAsBytes(manifest));
+        entries.put("theme-assets/twin-face.woff2", other);
+        final String target = E2eSeed.unique("twin");
+        seed().realm(target);
+        final E2eAdminSession master = adminSession();
+        final E2eHttp.Response r = master.postBytes("/admin/realms/" + target + "/import", "application/zip", zip(entries));
+        assertThat(r.status()).as(r.toString()).isEqualTo(400);
+        assertThat(r.json().path("message").asText()).containsIgnoringCase("public sans").contains("400").contains("normal");
+        assertThat(master.get("/admin/realms/" + target + "/theme/assets").json()).isEmpty();
+    }
+
     private static String fontSha(final E2eAdminSession who, final String path) {
         for (final JsonNode a : who.get(path).json()) {
             if ("font".equals(a.path("kind").asText())) {
