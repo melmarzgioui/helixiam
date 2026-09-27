@@ -147,7 +147,15 @@
   .hx-topbar__brand { width: auto; padding: 0 1rem; gap: .6rem; }
 }
 .hx-topbar__right { display: flex; align-items: center; gap: 1rem; margin-left: auto; }
-@media (max-width: 560px) { .hx-topbar__realm { width: 132px !important; } }
+/* Phones: the bar must fit 390px and narrower. Tighter gutters and gaps, and the realm switcher gives up width
+   (it truncates its label) so the language, theme and account controls always stay on screen. */
+@media (max-width: 560px) {
+  .hx-topbar { padding-right: .75rem; }
+  .hx-topbar__brand { padding: 0 .4rem 0 .75rem; gap: .35rem; }
+  .hx-topbar__right { flex: 1 1 auto; min-width: 0; justify-content: flex-end; gap: .4rem; }
+  .hx-topbar__right > * { flex-shrink: 0; }
+  .hx-topbar__right > .hx-topbar__realm { width: auto !important; flex: 0 1 132px; min-width: 64px; flex-shrink: 1; }
+}
 
 .hx-content { min-height: 0; overflow-y: auto; overflow-x: hidden; background-image: var(--grad-canvas); background-attachment: fixed; }
 /* Tables scroll horizontally inside their card on narrow viewports instead of pushing the page wider.
@@ -501,3 +509,9 @@
 .hx-alert { padding: .6rem .8rem; border-radius: var(--radius-sm, 8px); font-size: .85rem; border: 1px solid; }
 .hx-alert--danger { background: var(--danger-soft, #fdecec); color: var(--danger-fg, #9a2b2b); border-color: #f1c9c9; }
 .hx-mono { font-family: var(--mono); }
+/* Phones: a card's actions move to their own row, so the name and status badges keep the full width. */
+@media (max-width: 560px) {
+  .hx-conncard { flex-wrap: wrap; }
+  .hx-conncard > .hx-rowcard__actions { flex-basis: 100%; justify-content: flex-end; }
+  .hx-conncard .hx-conn__name { overflow-wrap: anywhere; }
+}
