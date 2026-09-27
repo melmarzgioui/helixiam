@@ -58,6 +58,11 @@ public class WorkloadTokenVerifier {
         this.egressGuard = egressGuard;
     }
 
+    /** M6: rejects an issuer-discovery URL (derived from the admin-configured WIF issuer) the egress policy forbids. */
+    public void checkEgress(final String url) throws SsrfBlockedException {
+        egressGuard.checkAllowed(url);
+    }
+
     /** A cached JWKS handle for {@code jwksUri} (Nimbus refreshes the key set behind it). */
     public JWKSource<SecurityContext> jwkSource(final String jwksUri) {
         return jwkSourceCache.computeIfAbsent(jwksUri, uri -> {
