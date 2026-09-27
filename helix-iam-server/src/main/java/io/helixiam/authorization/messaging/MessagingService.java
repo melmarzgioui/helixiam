@@ -139,7 +139,8 @@ public class MessagingService {
      * the branded layout, with a plain-text part derived from it (every link and code kept, item 3).
      */
     private Rendered render(final String realm, final String templateKey, final Map<String, String> vars) {
-        final Map<String, String> v = vars == null ? Map.of() : vars;
+        final EmailBranding branding = emailBranding == null ? EmailBranding.helixIam() : emailBranding.brandingFor(realm);
+        final Map<String, String> v = withRealmName(realm, vars, branding);
         final java.util.Locale locale = org.springframework.context.i18n.LocaleContextHolder.getLocale();
         final MessageTemplateDto stored = template(realm, templateKey);
         final DefaultMessageTemplates.Template template = stored == null ? null
@@ -147,13 +148,30 @@ public class MessagingService {
         final String subject = template == null ? "" : TemplateRenderer.render(template.subject(), v);
         if (template != null && template.html()) {
             // HTML email: escaped values, inside the shared branded layout (organization in context, else realm).
-            final EmailBranding branding = emailBranding == null ? EmailBranding.helixIam() : emailBranding.brandingFor(realm);
             final String bodyHtml = TemplateRenderer.renderHtml(template.body(), v);
             return new Rendered(subject, EmailLayout.wrap(branding, subject, bodyHtml, locale), true,
                     EmailLayout.text(branding, EmailText.fromHtml(bodyHtml), locale));
         }
         final String body = template == null ? v.getOrDefault("code", "") : TemplateRenderer.render(template.body(), v);
         return new Rendered(subject, body, false, body);
+    }
+
+    /**
+     * Item 4: {@code {{realm}}} is the name users know: the organization in context, else the realm's display name,
+     * else the realm id. A caller that passes the realm id gets the name; a value a caller chose itself is kept. The id
+     * stays available as {@code {{realmId}}}.
+     */
+    private Map<String, String> withRealmName(final String realm, final Map<String, String> vars,
+                                              final EmailBranding branding) {
+        final Map<String, String> v = new java.util.LinkedHashMap<>(vars == null ? Map.of() : vars);
+        if (realm != null) {
+            v.putIfAbsent("realmId", realm);
+            final String given = v.get("realm");
+            if (emailBranding != null && (given == null || given.equals(realm))) {
+                v.put("realm", branding.nameOr(realm));
+            }
+        }
+        return v;
     }
 
     /** The brand HTML emails are sent under; without one, HelixIAM's. */

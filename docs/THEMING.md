@@ -859,7 +859,9 @@ The preview has its own, stricter policy (see [Preview](#preview)). Theme assets
 Verification, password-reset, magic-link and one-time-code emails use the effective theme of the realm, with the
 organization in context for that sign-in layered on top:
 
-- **Name:** the organization's display name, else the realm's display name, else HelixIAM.
+- **Name:** the organization's display name, else the realm's display name, else HelixIAM. Subjects and texts name
+  the realm the same way: `{{realm}}` in a message template is the organization's name, else the realm's display
+  name, else (only then) the realm id. `{{realmId}}` is always the id.
 - **Logo:** `assets.logoUrl`. An `https` logo is used as is. An uploaded logo is made absolute on `IDP_BASE_URL`
   (`idp.base.url`); without `IDP_BASE_URL` the email has no logo. Many email clients do not display SVG, so a PNG logo
   is the safer choice when you rely on emails.

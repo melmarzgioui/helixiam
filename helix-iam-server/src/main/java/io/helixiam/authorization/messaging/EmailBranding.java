@@ -55,6 +55,14 @@ public record EmailBranding(String name, String logoUrl, String color, String on
         this(name, https(logoUrl), color, null, null, null, null, null, null, null, null, null, null);
     }
 
+    /**
+     * Item 4: the name to show users for {@code realmId}: this brand's name (the organization in context, else the
+     * realm's display name), or {@code realmId} when there is neither (never "HelixIAM" for a customer's realm).
+     */
+    public String nameOr(final String realmId) {
+        return DEFAULT_NAME.equals(name) && realmId != null && !realmId.isBlank() ? realmId : name;
+    }
+
     public static EmailBranding helixIam() {
         return new EmailBranding(DEFAULT_NAME, null, DEFAULT_COLOR);
     }

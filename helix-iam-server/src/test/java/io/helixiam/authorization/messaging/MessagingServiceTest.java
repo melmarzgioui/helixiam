@@ -118,7 +118,7 @@ class MessagingServiceTest {
                 Map.of("realm", "mf", "user", "<b>Ada</b>", "link", "https://idp.example/v?t=1"))).isTrue();
 
         final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
-        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Sign in to mf"), body.capture(), eq(true), any());
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Sign in to Harbor & Pine"), body.capture(), eq(true), any());
         assertThat(body.getValue()).startsWith("<!DOCTYPE html>").contains("https://cdn.example/logo.png")
                 .contains("bgcolor=\"#B4532A\"").contains("&lt;b&gt;Ada&lt;/b&gt;").doesNotContain("<b>Ada</b>");
     }
@@ -198,5 +198,51 @@ class MessagingServiceTest {
         }
         org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Code"), any(), eq(true),
                 eq("Code 9\n\n-- \nVerstuurd door HelixIAM."));
+    }
+
+    @Test
+    void theRealmVariable_isTheRealmsDisplayName_notItsId() {
+        final EmailDriver driver = htmlDriverFor("monthfold", new MessageTemplateDto("t", "monthfold", "verify-email",
+                "EMAIL", "Verify your email address for {{realm}}", "<p>Your {{realm}} account ({{realmId}})</p>", true, true));
+        final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+        service.setEmailBranding(realm -> new EmailBranding("Monthfold", null, "#1f4d47"));
+
+        service.sendEmail("monthfold", "ada@h.test", "verify-email", Map.of("realm", "monthfold"));
+
+        final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Verify your email address for Monthfold"),
+                body.capture(), eq(true), org.mockito.ArgumentMatchers.startsWith("Your Monthfold account (monthfold)"));
+        assertThat(body.getValue()).contains("Your Monthfold account (monthfold)");
+    }
+
+    @Test
+    void withoutADisplayName_theRealmVariableIsTheId_andAValueTheCallerChoseIsKept() {
+        final EmailDriver driver = htmlDriverFor("monthfold", new MessageTemplateDto("t", "monthfold", "otp-email",
+                "EMAIL", "Your {{realm}} code", "<p>{{code}}</p>", true, true));
+        final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+        service.setEmailBranding(realm -> EmailBranding.helixIam());
+
+        service.sendEmail("monthfold", "ada@h.test", "otp-email", Map.of("realm", "monthfold", "code", "1"));
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Your monthfold code"), any(), eq(true), any());
+
+        service.setEmailBranding(realm -> new EmailBranding("Monthfold", null, "#1f4d47"));
+        service.sendEmail("monthfold", "bob@h.test", "otp-email", Map.of("realm", "Monthfold Test", "code", "1"));
+        org.mockito.Mockito.verify(driver).send(any(), eq("bob@h.test"), eq("Your Monthfold Test code"), any(), eq(true),
+                any());
+    }
+
+    @Test
+    void anSms_namesTheRealmByItsDisplayName() {
+        final CapturingSms driver = new CapturingSms();
+        final MessagingService service = new MessagingService(publisher, List.of(driver), List.of(), List.of());
+        service.setEmailBranding(realm -> new EmailBranding("Monthfold", null, "#1f4d47"));
+        when(publisher.enabledProviders(any(ResolveRequest.class))).thenReturn(List.of(
+                new ResolvedProviderDto("SMS", "HTTP", "+15550100", "Helix", Map.of("url", "https://gw/send"), "tok")));
+        when(publisher.listTemplates("monthfold")).thenReturn(List.of(
+                new MessageTemplateDto("t1", "monthfold", "otp-sms", "SMS", null, "{{realm}} code {{code}}", true, false)));
+
+        service.sendSms("monthfold", "+15551234567", "otp-sms", Map.of("realm", "monthfold", "code", "987654"));
+
+        assertThat(driver.message).isEqualTo("Monthfold code 987654");
     }
 }

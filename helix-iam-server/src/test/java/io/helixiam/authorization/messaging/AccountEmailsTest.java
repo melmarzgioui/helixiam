@@ -153,4 +153,23 @@ class AccountEmailsTest {
         assertThat(mail.text()).contains("https://auth.monthfold.example/realms/monthfold/verify-email?token=t0k")
                 .contains("24 uur").doesNotContain("<");
     }
+
+    @Test
+    void aRealmWithoutADisplayName_isNamedByItsId_notHelixIam() {
+        final EmailComposer.ComposedEmail mail = emails.compose("USER_SIGNUP", "monthfold", "c0de", Locale.ENGLISH,
+                EmailBranding.helixIam());
+        assertThat(mail.subject()).isEqualTo("Confirm your email address for monthfold");
+        assertThat(mail.text()).startsWith("Thanks for creating your monthfold account.");
+    }
+
+    @Test
+    void theOrganizationInContext_namesTheEmail() {
+        final AccountEmails withOrg = new AccountEmails(new I18nConfig().messageSource(),
+                realm -> new EmailBranding("Acme Accountants", null, "#1f4d47"), "https://auth.monthfold.example");
+        final NotificationRequest reset = new NotificationRequest("USER_RESET_PASSWORD");
+        reset.setNotificationCode(new NotificationCode("u1", "r-1", "USER_RESET_PASSWORD"));
+        RealmContextHolder.set("monthfold");
+        assertThat(withOrg.compose(reset)).get().extracting(EmailComposer.ComposedEmail::subject)
+                .isEqualTo("Reset your Acme Accountants password");
+    }
 }

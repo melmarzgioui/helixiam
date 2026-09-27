@@ -87,8 +87,9 @@ public class AccountEmails implements EmailComposer {
         final String link = realmUrl == null ? null
                 : realmUrl + (signup ? "/register/verify/" : "/reset/password/") + enc(code);
         final String codePage = signup && realmUrl != null ? realmUrl + "/register/verify" : null;
-        final String subject = text(prefix + "subject", locale, b.name());
-        final String intro = text(prefix + "intro", locale, b.name());
+        final String name = b.nameOr(realm);
+        final String subject = text(prefix + "subject", locale, name);
+        final String intro = text(prefix + "intro", locale, name);
         final String button = text(prefix + "button", locale);
         final String codeLabel = text(prefix + "code", locale);
         final String ignore = text(prefix + "ignore", locale);
@@ -143,8 +144,8 @@ public class AccountEmails implements EmailComposer {
     ComposedEmail composeVerifyLink(final String realm, final String link, final long ttlHours, final Locale locale,
                                     final EmailBranding brand) {
         final EmailBranding b = brand == null ? EmailBranding.helixIam() : brand;
-        final String subject = text("email.verify.subject", locale, b.name());
-        final String intro = text("email.verifyLink.intro", locale, b.name());
+        final String subject = text("email.verify.subject", locale, b.nameOr(realm));
+        final String intro = text("email.verifyLink.intro", locale, b.nameOr(realm));
         final String button = text("email.verify.button", locale);
         final String expiry = text("email.verifyLink.expiry", locale, DefaultMessageTemplates.hours(ttlHours, locale));
         final String ignore = text("email.verifyLink.ignore", locale);

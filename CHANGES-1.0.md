@@ -33,6 +33,11 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   templates (code, magic link, verify email, email change) are sent in Dutch to Dutch users, with the expiry
   (`{{ttl}}`) in Dutch too.
 
+- **Item 4** — Emails name the realm by its display name. `{{realm}}` in the realm's message templates (and in SMS
+  and push) was the realm id, so the verify-email subject read "for monthfold". It is now the organization in
+  context, else the realm's display name, else the id; `{{realmId}}` keeps the id. The registration and reset emails
+  no longer say "HelixIAM" for a realm without a display name; they use its id.
+
 ## Next release (after `v1.0.0-rc.4`)
 
 Open issues found when Monthfold moved its production sign-in to rc.4
