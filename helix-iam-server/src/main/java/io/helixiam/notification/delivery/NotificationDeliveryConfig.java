@@ -5,8 +5,8 @@
 
 package io.helixiam.notification.delivery;
 
-import io.helixiam.authorization.messaging.driver.EmailDriver;
 import io.helixiam.authorization.messaging.driver.SmsDriver;
+import io.helixiam.authorization.messaging.email.EmailDelivery;
 import io.helixiam.authorization.repository.messaging.MessagingProviderRepository;
 import io.helixiam.notification.Notifier;
 import io.helixiam.notification.delivery.spi.AppSender;
@@ -55,10 +55,8 @@ public class NotificationDeliveryConfig {
 
     @Bean
     @ConditionalOnProperty(name = "helix.notification.provider", havingValue = "smtp", matchIfMissing = true)
-    public Notifier smtpNotifier(final List<EmailDriver> emailDrivers, final MessagingProviderRepository providerRepository,
-            final SmsSender smsSender, final AppSender appSender, final SmtpProperties smtpProperties,
-            final org.springframework.beans.factory.ObjectProvider<EmailComposer> emailComposer) {
-        return new SmtpNotifier(emailDrivers, providerRepository, smsSender, appSender, smtpProperties,
-                emailComposer.getIfAvailable());
+    public Notifier smtpNotifier(final EmailDelivery emailDelivery, final SmsSender smsSender,
+            final AppSender appSender, final org.springframework.beans.factory.ObjectProvider<EmailComposer> emailComposer) {
+        return new SmtpNotifier(emailDelivery, smsSender, appSender, emailComposer.getIfAvailable());
     }
 }

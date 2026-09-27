@@ -31,6 +31,8 @@ public class HelixMetrics {
     static final String TOKENS_ISSUED_TOTAL = "helix_tokens_issued_total";
     static final String MFA_CHALLENGE_TOTAL = "helix_mfa_challenge_total";
     static final String ADMIN_WRITE_TOTAL = "helix_admin_write_total";
+    static final String EMAIL_SEND_TOTAL = "helix_email_send_total";
+    static final String EMAIL_PROVIDER_AUTH_FAILURES_TOTAL = "helix_email_provider_auth_failures_total";
 
     private static final String UNKNOWN = "unknown";
 
@@ -64,6 +66,23 @@ public class HelixMetrics {
      */
     public void recordAdminWrite(final String realm, final String method, final String outcome) {
         increment(ADMIN_WRITE_TOTAL, "realm", realm, "method", safe(method), "outcome", safe(outcome));
+    }
+
+    /**
+     * Record one email delivery attempt: {@code driver} is the transport id ({@code SMTP}, {@code CLOUDFLARE}, …) and
+     * {@code result} the {@code DeliveryResult} status ({@code ACCEPTED}, {@code QUEUED}, {@code PERMANENT_FAILURE},
+     * {@code TRANSIENT_FAILURE}). Both are bounded vocabularies.
+     */
+    public void recordEmailSend(final String realm, final String driver, final String result) {
+        increment(EMAIL_SEND_TOTAL, "realm", realm, "driver", safe(driver), "result", safe(result));
+    }
+
+    /**
+     * Record an email provider refusing HelixIAM's credentials (bad API token or password, sending domain not
+     * onboarded): an operator must act. Alert on any increase.
+     */
+    public void recordEmailProviderAuthFailure(final String realm, final String driver) {
+        increment(EMAIL_PROVIDER_AUTH_FAILURES_TOTAL, "realm", realm, "driver", safe(driver));
     }
 
     private void increment(final String name, final String... tags) {

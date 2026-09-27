@@ -68,7 +68,7 @@ class MessagingServiceTest {
 
     @Test
     void sendEmail_rendersSubjectAndBody_andDispatches() {
-        final var driver = mock(EmailDriver.class);
+        final var driver = mock(EmailDriver.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         when(driver.driver()).thenReturn("SMTP");
         final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
         when(publisher.enabledProviders(any())).thenReturn(List.of(
@@ -87,7 +87,7 @@ class MessagingServiceTest {
 
     @Test
     void sendEmail_passesHtmlFlag_whenTemplateIsHtml() {
-        final var driver = mock(EmailDriver.class);
+        final var driver = mock(EmailDriver.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         when(driver.driver()).thenReturn("SMTP");
         final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
         when(publisher.enabledProviders(any())).thenReturn(List.of(
@@ -105,7 +105,7 @@ class MessagingServiceTest {
 
     @Test
     void htmlEmail_isWrappedInTheBrandedLayout_withEscapedValues() {
-        final var driver = mock(EmailDriver.class);
+        final var driver = mock(EmailDriver.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         when(driver.driver()).thenReturn("SMTP");
         final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
         service.setEmailBranding(realm -> new EmailBranding("Harbor & Pine", "https://cdn.example/logo.png", "#B4532A"));
@@ -124,7 +124,7 @@ class MessagingServiceTest {
     }
 
     private EmailDriver htmlDriverFor(final String realm, final MessageTemplateDto template) {
-        final var driver = mock(EmailDriver.class);
+        final var driver = mock(EmailDriver.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         when(driver.driver()).thenReturn("SMTP");
         when(publisher.enabledProviders(any())).thenReturn(List.of(
                 new ResolvedProviderDto("EMAIL", "SMTP", "no-reply@h.test", "Helix", Map.of("host", "smtp"), "pw")));

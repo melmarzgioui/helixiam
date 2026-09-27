@@ -10,21 +10,28 @@ import io.helixiam.authorization.amqp.messaging.MessageTemplateDto;
 import io.helixiam.authorization.amqp.messaging.MessagingAdminPublisher;
 import io.helixiam.authorization.amqp.messaging.ResolveRequest;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
-import io.helixiam.authorization.messaging.driver.EmailDriver;
 import io.helixiam.authorization.messaging.driver.PushDriver;
 import io.helixiam.authorization.messaging.driver.SmsDriver;
+import io.helixiam.authorization.messaging.email.DeliveryResult;
+import io.helixiam.authorization.messaging.email.EmailDelivery;
+import io.helixiam.authorization.messaging.email.EmailDeliveryException;
+import io.helixiam.authorization.messaging.email.EmailMessage;
+import io.helixiam.authorization.messaging.email.EmailTransport;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Helix IAM notifications (N3): the send path. Resolves the realm's enabled provider for a channel + the
  * named template, renders the message, and dispatches via the matching driver. Returns {@code false} (so the
- * caller can fall back to the dev log) when the realm has no provider configured, or no driver matches.
+ * caller can fall back to the dev log) when the realm has no provider configured, or no driver matches. Email goes
+ * through {@link EmailDelivery} (the email transport SPI), which classifies the outcome.
  */
 @Service
 public class MessagingService {
@@ -33,16 +40,24 @@ public class MessagingService {
 
     private final MessagingAdminPublisher publisher;
     private final List<SmsDriver> smsDrivers;
-    private final List<EmailDriver> emailDrivers;
+    private final EmailDelivery emailDelivery;
     private final List<PushDriver> pushDrivers;
     private EmailBrandingSource emailBranding;
 
+    @Autowired
     public MessagingService(final MessagingAdminPublisher publisher, final List<SmsDriver> smsDrivers,
-                            final List<EmailDriver> emailDrivers, final List<PushDriver> pushDrivers) {
+                            final EmailDelivery emailDelivery, final List<PushDriver> pushDrivers) {
         this.publisher = publisher;
         this.smsDrivers = smsDrivers;
-        this.emailDrivers = emailDrivers;
+        this.emailDelivery = emailDelivery;
         this.pushDrivers = pushDrivers;
+    }
+
+    /** Email through {@code emailTransports} for the realm's own providers only (no global default; tests). */
+    public MessagingService(final MessagingAdminPublisher publisher, final List<SmsDriver> smsDrivers,
+                            final List<? extends EmailTransport> emailTransports, final List<PushDriver> pushDrivers) {
+        this(publisher, smsDrivers, new EmailDelivery(realm -> publisher.enabledProviders(new ResolveRequest(realm, "EMAIL")),
+                emailTransports, null, null, null), pushDrivers);
     }
 
     /** Render {@code templateKey} and SMS it to {@code to}; false if the realm has no SMS provider. */
@@ -63,22 +78,34 @@ public class MessagingService {
         return true;
     }
 
-    /** Render {@code templateKey} and email it to {@code to}; false if the realm has no email provider. */
+    /**
+     * Render {@code templateKey} and email it to {@code to}; false if the realm has no email provider.
+     *
+     * @throws EmailDeliveryException when the provider did not take the email (the classified result is attached)
+     */
     public boolean sendEmail(final String realm, final String to, final String templateKey, final Map<String, String> vars) {
-        final ResolvedProviderDto provider = firstEnabled(realm, "EMAIL");
-        if (provider == null) {
+        final Optional<DeliveryResult> result = sendEmailWithResult(realm, to, templateKey, vars);
+        if (result.isEmpty()) {
             return false;
         }
-        final EmailDriver driver = emailDrivers.stream().filter(d -> d.driver().equalsIgnoreCase(provider.driver()))
-                .findFirst().orElse(null);
-        if (driver == null) {
-            LOG.warn("No email driver for '{}' in realm {}",
-                    LogSafe.sanitize(provider.driver()), LogSafe.sanitize(realm));
-            return false;
+        if (!result.get().isSuccess()) {
+            throw new EmailDeliveryException(result.get());
+        }
+        return true;
+    }
+
+    /**
+     * Render {@code templateKey} and email it to {@code to} through the realm's email provider; the classified
+     * result, or empty when the realm has no enabled email provider with a known driver.
+     */
+    public Optional<DeliveryResult> sendEmailWithResult(final String realm, final String to, final String templateKey,
+                                                        final Map<String, String> vars) {
+        if (emailDelivery.realmProvider(realm).isEmpty()) {
+            return Optional.empty();
         }
         final Rendered r = render(realm, templateKey, vars);
-        driver.send(provider, to, r.subject(), r.body(), r.html(), r.text());
-        return true;
+        final EmailMessage message = EmailMessage.of(null, to, r.subject(), r.body(), r.html(), r.text());
+        return Optional.of(emailDelivery.deliver(realm, message));
     }
 
     /**

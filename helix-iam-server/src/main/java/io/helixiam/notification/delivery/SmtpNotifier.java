@@ -5,9 +5,13 @@
 
 package io.helixiam.notification.delivery;
 
-import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
-import io.helixiam.authorization.domain.messaging.MessagingProvider;
-import io.helixiam.authorization.messaging.driver.EmailDriver;
+import io.helixiam.authorization.messaging.email.CloudflareProperties;
+import io.helixiam.authorization.messaging.email.DeliveryResult;
+import io.helixiam.authorization.messaging.email.EmailDelivery;
+import io.helixiam.authorization.messaging.email.EmailMessage;
+import io.helixiam.authorization.messaging.email.EmailProperties;
+import io.helixiam.authorization.messaging.email.EmailTransport;
+import io.helixiam.authorization.messaging.email.GlobalEmailProvider;
 import io.helixiam.authorization.repository.messaging.MessagingProviderRepository;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.notification.NotificationConstant;
@@ -21,8 +25,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 /**
  * Task 4 (strip-RabbitMQ notification delivery). Real {@link Notifier}: EMAIL goes out over SMTP (or
@@ -38,9 +40,10 @@ import java.util.Optional;
  * Email delivery prefers the realm's own configured provider — {@code MessagingProvider} rows entered
  * via Realm Settings &gt; Messaging &gt; Providers, the same store
  * {@code io.helixiam.authorization.messaging.MessagingService} reads for the OTP email
- * senders — dispatched through whichever {@link EmailDriver} (SMTP or HTTP) matches that provider's
- * {@code driver} id. Falls back to the {@link SmtpProperties} global SMTP config
- * ({@code helix.notification.smtp.*}) only when the realm has none enabled (or there is no realm in
+ * senders — dispatched by {@link EmailDelivery} through whichever {@code EmailTransport} (SMTP, CLOUDFLARE, HTTP,
+ * LOG) matches that provider's {@code driver} id. Falls back to the global default
+ * ({@code helix.notification.email.driver}, {@code helix.notification.smtp.*} / {@code helix.notification.cloudflare.*})
+ * only when the realm has none enabled (or there is no realm in
  * context, e.g. for the platform-level {@code USER_SIGNUP}/{@code USER_RESET_PASSWORD} notifications
  * fired from the default/master realm's public signup and reset-password endpoints). When neither is
  * configured, the notification is logged and dropped — never an exception, never a hang.
@@ -49,32 +52,36 @@ public class SmtpNotifier implements Notifier {
 
     private static final Logger LOG = LogManager.getLogger(NotificationConstant.MODULE_NAME);
     private static final String EMAIL_CHANNEL = "EMAIL";
-    private static final String SMTP_DRIVER = "SMTP";
 
-    private final List<EmailDriver> emailDrivers;
-    private final MessagingProviderRepository providerRepository;
+    private final EmailDelivery emailDelivery;
     private final SmsSender smsSender;
     private final AppSender appSender;
-    private final SmtpProperties smtpProperties;
     private final EmailComposer emailComposer;
 
-    public SmtpNotifier(final List<EmailDriver> emailDrivers, final MessagingProviderRepository providerRepository,
+    /**
+     * A notifier over {@code emailTransports}, the realm providers of {@code providerRepository} and the global SMTP of
+     * {@code smtpProperties} (tests and simple wiring).
+     */
+    public SmtpNotifier(final List<? extends EmailTransport> emailTransports,
+                        final MessagingProviderRepository providerRepository,
                         final SmsSender smsSender, final AppSender appSender, final SmtpProperties smtpProperties) {
-        this(emailDrivers, providerRepository, smsSender, appSender, smtpProperties, null);
+        this(new EmailDelivery(realm -> providerRepository.findByRealmIdAndChannel(realm, EMAIL_CHANNEL).stream()
+                        .filter(p -> Boolean.TRUE.equals(p.getEnabled()))
+                        .map(MessagingProviderMapper::toResolvedProviderDto).toList(),
+                        emailTransports, new GlobalEmailProvider(new EmailProperties(), smtpProperties,
+                        new CloudflareProperties()), null, null),
+                smsSender, appSender, null);
     }
 
     /**
      * @param emailComposer renders the emails it knows (realm-branded, localised verification and reset emails);
      *                      null or an empty result falls back to {@link NotificationMessageComposer}'s plain text
      */
-    public SmtpNotifier(final List<EmailDriver> emailDrivers, final MessagingProviderRepository providerRepository,
-                        final SmsSender smsSender, final AppSender appSender, final SmtpProperties smtpProperties,
+    public SmtpNotifier(final EmailDelivery emailDelivery, final SmsSender smsSender, final AppSender appSender,
                         final EmailComposer emailComposer) {
-        this.emailDrivers = emailDrivers;
-        this.providerRepository = providerRepository;
+        this.emailDelivery = emailDelivery;
         this.smsSender = smsSender;
         this.appSender = appSender;
-        this.smtpProperties = smtpProperties;
         this.emailComposer = emailComposer;
     }
 
@@ -86,19 +93,24 @@ public class SmtpNotifier implements Notifier {
             return;
         }
 
-        final EmailComposer.ComposedEmail message = composeEmail(notification);
+        final EmailComposer.ComposedEmail composed = composeEmail(notification);
         try {
-            final ResolvedEmail resolved = resolveEmailDriver();
-            if (resolved == null) {
+            final EmailMessage message = EmailMessage.of(null, to, composed.subject(), composed.body(),
+                    composed.html(), composed.text());
+            final DeliveryResult result = emailDelivery.deliver(RealmContextHolder.get(), message);
+            if (result.reason() == DeliveryResult.Reason.NO_PROVIDER) {
                 LOG.warn("No email provider configured (realm messaging provider or global "
-                        + "helix.notification.smtp.host); dropping EMAIL notification (type={})", notification.getType());
-                return;
+                        + "helix.notification.email / smtp settings); dropping EMAIL notification (type={})",
+                        notification.getType());
+            } else if (result.isSuccess()) {
+                LOG.info("Sent EMAIL notification (type={}): {}", notification.getType(), result.status());
+            } else {
+                LOG.warn("Failed to send EMAIL notification (type={}): {} {}", notification.getType(), result.status(),
+                        LogSafe.sanitize(result.diagnostic()));
             }
-            resolved.driver().send(resolved.provider(), to, message.subject(), message.body(), message.html(),
-                    message.text());
-            LOG.info("Sent EMAIL notification (type={}) via {}", notification.getType(), resolved.provider().driver());
         } catch (final RuntimeException e) {
-            LOG.warn("Failed to send EMAIL notification (type={}): {}", notification.getType(), e.getMessage());
+            LOG.warn("Failed to send EMAIL notification (type={}): {}", notification.getType(),
+                    LogSafe.sanitize(e.getClass().getSimpleName()));
         }
     }
 
@@ -149,48 +161,5 @@ public class SmtpNotifier implements Notifier {
         }
         final NotificationMessageComposer.ComposedMessage plain = NotificationMessageComposer.compose(notification);
         return new EmailComposer.ComposedEmail(plain.subject(), plain.body(), false);
-    }
-
-    private record ResolvedEmail(EmailDriver driver, ResolvedProviderDto provider) {
-    }
-
-    private ResolvedEmail resolveEmailDriver() {
-        final String realm = RealmContextHolder.get();
-        if (realm != null) {
-            final Optional<MessagingProvider> enabled = providerRepository.findByRealmIdAndChannel(realm, EMAIL_CHANNEL)
-                    .stream().filter(p -> Boolean.TRUE.equals(p.getEnabled())).findFirst();
-            if (enabled.isPresent()) {
-                final MessagingProvider provider = enabled.get();
-                final EmailDriver driver = findDriver(provider.getDriver());
-                if (driver != null) {
-                    return new ResolvedEmail(driver, MessagingProviderMapper.toResolvedProviderDto(provider));
-                }
-                LOG.warn("Realm {} has an EMAIL provider configured with unknown driver '{}'; falling back to global SMTP",
-                        LogSafe.sanitize(realm), LogSafe.sanitize(provider.getDriver()));
-            }
-        }
-
-        if (smtpProperties.getHost() == null || smtpProperties.getHost().isBlank()) {
-            return null;
-        }
-        final EmailDriver smtpDriver = findDriver(SMTP_DRIVER);
-        if (smtpDriver == null) {
-            return null;
-        }
-        return new ResolvedEmail(smtpDriver, globalProvider());
-    }
-
-    private EmailDriver findDriver(final String driverId) {
-        return emailDrivers.stream().filter(d -> d.driver().equalsIgnoreCase(driverId)).findFirst().orElse(null);
-    }
-
-    private ResolvedProviderDto globalProvider() {
-        return new ResolvedProviderDto(EMAIL_CHANNEL, SMTP_DRIVER, smtpProperties.getFromAddress(), smtpProperties.getFromName(),
-                Map.of(
-                        "host", smtpProperties.getHost(),
-                        "port", String.valueOf(smtpProperties.getPort()),
-                        "username", smtpProperties.getUsername() == null ? "" : smtpProperties.getUsername(),
-                        "starttls", String.valueOf(smtpProperties.isStarttls())),
-                smtpProperties.getPassword());
     }
 }

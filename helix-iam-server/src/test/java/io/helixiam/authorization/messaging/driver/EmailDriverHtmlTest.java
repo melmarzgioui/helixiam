@@ -6,6 +6,8 @@
 package io.helixiam.authorization.messaging.driver;
 
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
+import io.helixiam.authorization.messaging.email.DeliveryResult;
+import io.helixiam.authorization.messaging.email.EmailMessage;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
 import org.junit.jupiter.api.Test;
@@ -33,7 +35,7 @@ class EmailDriverHtmlTest {
         final AtomicReference<MimeMessage> captured = new AtomicReference<>();
         final SmtpEmailDriver driver = new SmtpEmailDriver((session, message, username, password) -> captured.set(message));
 
-        driver.send(smtpProvider(), "ada@helix.test", "Hi", "<h1>Hello</h1>", true);
+        driver.deliver(smtpProvider(), EmailMessage.of(null, "ada@helix.test", "Hi", "<h1>Hello</h1>", true, null));
 
         // Item 3: an HTML email is multipart/alternative, with a plain-text part derived from the HTML.
         assertThat(captured.get().getContentType()).contains("multipart/alternative");
@@ -50,8 +52,8 @@ class EmailDriverHtmlTest {
         final AtomicReference<MimeMessage> captured = new AtomicReference<>();
         final SmtpEmailDriver driver = new SmtpEmailDriver((session, message, username, password) -> captured.set(message));
 
-        driver.send(smtpProvider(), "ada@helix.test", "Verify", "<p><a href=\"https://idp/v?t=1\" data-button>Verify</a></p>",
-                true, "Verify: https://idp/v?t=1\n\nCode: 0b7c");
+        driver.deliver(smtpProvider(), EmailMessage.of(null, "ada@helix.test", "Verify",
+                "<p><a href=\"https://idp/v?t=1\" data-button>Verify</a></p>", true, "Verify: https://idp/v?t=1\n\nCode: 0b7c"));
 
         captured.get().writeTo(java.io.OutputStream.nullOutputStream()); // the message serialises
         final MimeMultipart parts = (MimeMultipart) captured.get().getContent();
@@ -64,7 +66,7 @@ class EmailDriverHtmlTest {
         final AtomicReference<MimeMessage> captured = new AtomicReference<>();
         final SmtpEmailDriver driver = new SmtpEmailDriver((session, message, username, password) -> captured.set(message));
 
-        driver.send(smtpProvider(), "ada@helix.test", "Hi", "plain body", false);
+        driver.deliver(smtpProvider(), EmailMessage.of(null, "ada@helix.test", "Hi", "plain body", false, null));
 
         assertThat(captured.get().getContentType()).contains("text/plain");
     }
@@ -80,8 +82,8 @@ class EmailDriverHtmlTest {
         final Map<String, String> config = new LinkedHashMap<>();
         config.put("url", "https://email.api/send");
 
-        driver.send(new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test", "Helix", config, "key"),
-                "ada@helix.test", "Hi", "<p>Hello</p>", true);
+        driver.deliver(new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test", "Helix", config, "key"),
+                EmailMessage.of(null, "ada@helix.test", "Hi", "<p>Hello</p>", true, null));
 
         assertThat(body.get()).contains("\"html\":true").contains("<p>Hello</p>");
         // Item 3: the plain-text alternative travels with it, for APIs that send multipart/alternative.
@@ -96,8 +98,8 @@ class EmailDriverHtmlTest {
             return 202;
         });
 
-        driver.send(new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test", "Helix", Map.of("url", "https://e/send"),
-                null), "ada@helix.test", "Hi", "<p>x</p>", true, "Verify: https://idp/v?t=1");
+        driver.deliver(new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test", "Helix", Map.of("url", "https://e/send"),
+                null), EmailMessage.of(null, "ada@helix.test", "Hi", "<p>x</p>", true, "Verify: https://idp/v?t=1"));
 
         assertThat(body.get()).contains("\"text\":\"Verify: https://idp/v?t=1\"");
     }
@@ -110,9 +112,43 @@ class EmailDriverHtmlTest {
             return 202;
         });
 
-        driver.send(new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test", "Helix", Map.of("url", "https://e/send"),
-                null), "ada@helix.test", "Hi", "Your code: 1", false);
+        driver.deliver(new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test", "Helix", Map.of("url", "https://e/send"),
+                null), EmailMessage.of(null, "ada@helix.test", "Hi", "Your code: 1", false, null));
 
         assertThat(body.get()).contains("\"text\":\"Your code: 1\"").contains("\"html\":false");
+    }
+
+    @Test
+    void httpDriver_keepsItsPayloadAndHeaders_andClassifiesTheStatus() {
+        final AtomicReference<Map<String, String>> sentHeaders = new AtomicReference<>();
+        final int[] status = {202};
+        final HttpEmailDriver driver = new HttpEmailDriver((url, headers, payload) -> {
+            sentHeaders.set(headers);
+            return status[0];
+        });
+        final ResolvedProviderDto provider = new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test", "Helix",
+                Map.of("url", "https://e/send", "authHeader", "X-Api-Key", "authScheme", ""), "key-1");
+        final EmailMessage message = EmailMessage.of(null, "ada@helix.test", "Hi", "x", false, null);
+
+        assertThat(driver.deliver(provider, message).status()).isEqualTo(DeliveryResult.Status.ACCEPTED);
+        assertThat(sentHeaders.get()).containsEntry("X-Api-Key", "key-1");
+        status[0] = 401;
+        assertThat(driver.deliver(provider, message).status()).isEqualTo(DeliveryResult.Status.TRANSIENT_FAILURE);
+        status[0] = 503;
+        assertThat(driver.deliver(provider, message).status()).isEqualTo(DeliveryResult.Status.TRANSIENT_FAILURE);
+        status[0] = 400;
+        assertThat(driver.deliver(provider, message).status()).isEqualTo(DeliveryResult.Status.PERMANENT_FAILURE);
+    }
+
+    @Test
+    void httpDriver_aUrlTheEgressGuardRefuses_isAConfigurationFailure() {
+        final HttpEmailDriver driver = new HttpEmailDriver(new HttpTransport.Default(
+                io.helixiam.common.net.OutboundUrlGuard.blocking()));
+
+        final DeliveryResult result = driver.deliver(new ResolvedProviderDto("EMAIL", "HTTP", "no-reply@helix.test",
+                null, Map.of("url", "http://127.0.0.1:9/send"), null),
+                EmailMessage.of(null, "ada@helix.test", "Hi", "x", false, null));
+
+        assertThat(result.reason()).isEqualTo(DeliveryResult.Reason.CONFIGURATION);
     }
 }

@@ -19,7 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Test-only (e2e context): the production SSRF guard, plus one narrow exception for the harness's own loopback
  * servers. The test relying party ({@link TestRelyingParty}, back-channel logout) and the mail sink
  * ({@link MailSink}, the realm's HTTP email driver) listen on {@code 127.0.0.1:<random port>}, which the real guard
- * refuses as loopback. Only {@code http://127.0.0.1:<registered port>} is let through; every other URL, including
+ * refuses as loopback (the email API mocks of the email-delivery tests listen on https). Only
+ * {@code http(s)://127.0.0.1:<registered port>} is let through; every other URL, including
  * the IdP's own port and any other loopback port, still gets the full block-private check (so
  * {@code SamlMetadataImportE2eTest} keeps proving the guard).
  */
@@ -57,7 +58,8 @@ public class HarnessEgressGuard extends OutboundUrlGuard {
         }
         try {
             final URI uri = new URI(url.trim());
-            return "http".equalsIgnoreCase(uri.getScheme()) && "127.0.0.1".equals(uri.getHost())
+            return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    && "127.0.0.1".equals(uri.getHost())
                     && HARNESS_PORTS.contains(uri.getPort());
         } catch (final java.net.URISyntaxException e) {
             return false;

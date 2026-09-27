@@ -8,21 +8,30 @@ package io.helixiam.authorization.messaging.driver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
-import io.helixiam.authorization.messaging.EmailText;
+import io.helixiam.authorization.messaging.email.DeliveryResult;
+import io.helixiam.authorization.messaging.email.DeliveryResult.Reason;
+import io.helixiam.authorization.messaging.email.EmailMessage;
+import io.helixiam.authorization.messaging.email.EmailTransport;
+import io.helixiam.common.net.SsrfBlockedException;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Helix IAM notifications (N3): a generic HTTP email-API driver (SendGrid / SES-style) for setups that block
- * SMTP. {@code config.url} is the endpoint; the JSON body carries {@code from/fromName/to/subject/body/html/contentType}
- * and {@code text} (the plain-text part; for an HTML email, its text alternative with every link); {@code secret}
- * is sent as the {@code Authorization} header value (default {@code Bearer }-prefixed; overridable via
- * {@code config.authHeader}/{@code config.authScheme}).
+ * The generic HTTP email driver, for custom relays: it posts one fixed JSON shape
+ * {@code {from, fromName, to, subject, body, html, contentType, text}} to {@code config.url}. {@code text} is the
+ * plain-text part (for an HTML email, its text alternative with every link). The secret is sent as the
+ * {@code Authorization} header value (default {@code Bearer }-prefixed; overridable with {@code config.authHeader} /
+ * {@code config.authScheme}). The provider drivers (SMTP, CLOUDFLARE) are preferred where they fit.
+ *
+ * <p>Classification: 2xx is accepted; 401/403 (credentials), 408, 429 and 5xx are transient; any other status is a
+ * permanent rejection. A URL the egress guard refuses is a configuration failure.
  */
 @Component
-public class HttpEmailDriver implements EmailDriver {
+public class HttpEmailDriver implements EmailTransport {
+
+    public static final String DRIVER = "HTTP";
 
     private final HttpTransport http;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -33,43 +42,32 @@ public class HttpEmailDriver implements EmailDriver {
 
     @Override
     public String driver() {
-        return "HTTP";
+        return DRIVER;
     }
 
     @Override
-    public void send(final ResolvedProviderDto provider, final String to, final String subject, final String body,
-                     final boolean html) {
-        send(provider, to, subject, body, html, null);
-    }
-
-    /**
-     * The payload also carries {@code text}: the plain-text part (for an HTML email {@code text}, else derived from
-     * the HTML; for a plain email the body), for APIs that send {@code multipart/alternative} (item 3).
-     */
-    @Override
-    public void send(final ResolvedProviderDto provider, final String to, final String subject, final String body,
-                     final boolean html, final String text) {
+    public DeliveryResult deliver(final ResolvedProviderDto provider, final EmailMessage message) {
         final Map<String, String> config = provider.config() == null ? Map.of() : provider.config();
         final String url = config.get("url");
         if (url == null || url.isBlank()) {
-            throw new IllegalStateException("HTTP email provider is missing url");
+            return DeliveryResult.permanent(Reason.CONFIGURATION, "The HTTP email provider has no url");
         }
         final ObjectNode json = objectMapper.createObjectNode();
-        json.put("from", provider.fromAddress());
-        json.put("fromName", provider.fromName());
-        json.put("to", to);
-        json.put("subject", subject == null ? "" : subject);
-        json.put("body", body == null ? "" : body);
+        json.put("from", message.from() != null ? message.from().address() : provider.fromAddress());
+        json.put("fromName", message.from() != null ? message.from().name() : provider.fromName());
+        json.put("to", message.primaryRecipient().address());
+        json.put("subject", message.subject());
+        json.put("body", message.isHtml() ? message.html() : message.text());
         // Content type signal for the API: html=true means the body is text/html (an "html" field is also set so
         // SendGrid/SES-style APIs that key off a dedicated HTML field pick it up directly).
-        json.put("html", html);
-        json.put("contentType", html ? "text/html" : "text/plain");
-        json.put("text", html ? (text != null ? text : EmailText.fromHtml(body)) : (body == null ? "" : body));
+        json.put("html", message.isHtml());
+        json.put("contentType", message.isHtml() ? "text/html" : "text/plain");
+        json.put("text", message.text());
         final String payload;
         try {
             payload = objectMapper.writeValueAsString(json);
         } catch (final Exception e) {
-            throw new IllegalStateException("Could not build email payload: " + e.getMessage(), e);
+            return DeliveryResult.permanent(Reason.MESSAGE_REJECTED, "The email could not be encoded");
         }
         final Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
@@ -77,9 +75,33 @@ public class HttpEmailDriver implements EmailDriver {
             headers.put(config.getOrDefault("authHeader", "Authorization"),
                     config.getOrDefault("authScheme", "Bearer ") + provider.secret());
         }
-        final int status = http.post(url, headers, payload);
-        if (status >= 300) {
-            throw new IllegalStateException("HTTP email API rejected the message (HTTP " + status + ")");
+        final int status;
+        try {
+            status = http.post(url, headers, payload);
+        } catch (final SsrfBlockedException e) {
+            return DeliveryResult.permanent(Reason.CONFIGURATION, "The email API URL is not allowed by the egress policy");
+        } catch (final RuntimeException e) {
+            return e.getCause() instanceof SsrfBlockedException
+                    ? DeliveryResult.permanent(Reason.CONFIGURATION, "The email API URL is not allowed by the egress policy")
+                    : DeliveryResult.transientFailure(Reason.NETWORK, "Could not reach the email API");
         }
+        return classify(status);
+    }
+
+    static DeliveryResult classify(final int status) {
+        final String diagnostic = "HTTP " + status;
+        if (status >= 200 && status < 300) {
+            return DeliveryResult.accepted(null, diagnostic);
+        }
+        if (status == 401 || status == 403) {
+            return DeliveryResult.transientFailure(Reason.AUTHENTICATION, diagnostic + " (credentials refused)");
+        }
+        if (status == 429) {
+            return DeliveryResult.transientFailure(Reason.RATE_LIMITED, diagnostic);
+        }
+        if (status == 408 || status >= 500) {
+            return DeliveryResult.transientFailure(Reason.PROVIDER_ERROR, diagnostic);
+        }
+        return DeliveryResult.permanent(Reason.MESSAGE_REJECTED, diagnostic);
     }
 }
