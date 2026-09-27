@@ -127,6 +127,40 @@ class PromptAndMaxAgeAuthorizeFilterTest {
     }
 
     @Test
+    void promptLogin_resumedAfterTheReLogin_passesThroughOnce_insteadOfLooping() throws Exception {
+        // A2: the unauthenticated first hit notes when the prompt was seen …
+        final MockHttpServletRequest first = authorize("client_id=app&redirect_uri=" + REDIRECT + "&prompt=login");
+        filter.doFilter(first, new MockHttpServletResponse(), chain);
+        final var session = first.getSession(false);
+        assertEquals(NOW, session.getAttribute(PromptAndMaxAgeAuthorizeFilter.PROMPT_LOGIN_SINCE));
+
+        // … the user signs in (auth_time stamped at/after that moment) and the saved request is resumed.
+        authenticate(NOW);
+        session.setAttribute(AuthTimeStamper.HELIX_AUTH_TIME, NOW);
+        final MockHttpServletRequest resumed = authorize("client_id=app&redirect_uri=" + REDIRECT + "&prompt=login");
+        resumed.setSession(session);
+        filter.doFilter(resumed, new MockHttpServletResponse(), chain);
+
+        org.junit.jupiter.api.Assertions.assertEquals("alice",
+                SecurityContextHolder.getContext().getAuthentication().getPrincipal(), "not forced a second time");
+        org.junit.jupiter.api.Assertions.assertNull(session.getAttribute(PromptAndMaxAgeAuthorizeFilter.PROMPT_LOGIN_SINCE),
+                "the marker is consumed, so a later prompt=login forces again");
+    }
+
+    @Test
+    void promptLogin_withAnOlderLogin_stillForces() throws Exception {
+        authenticate(NOW);
+        final MockHttpServletRequest req = authorize("client_id=app&redirect_uri=" + REDIRECT + "&prompt=login");
+        req.getSession(true).setAttribute(AuthTimeStamper.HELIX_AUTH_TIME, NOW - 30);
+        req.getSession().setAttribute(PromptAndMaxAgeAuthorizeFilter.PROMPT_LOGIN_SINCE, NOW - 10);
+
+        filter.doFilter(req, new MockHttpServletResponse(), chain);
+
+        org.junit.jupiter.api.Assertions.assertNull(SecurityContextHolder.getContext().getAuthentication());
+        assertEquals(NOW, req.getSession().getAttribute(PromptAndMaxAgeAuthorizeFilter.PROMPT_LOGIN_SINCE));
+    }
+
+    @Test
     void maxAgeExceeded_forcesReauth() throws Exception {
         authenticate(NOW);
         final MockHttpServletRequest req = authorize("client_id=app&redirect_uri=" + REDIRECT + "&max_age=10");

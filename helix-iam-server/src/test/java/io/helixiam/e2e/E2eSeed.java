@@ -39,6 +39,9 @@ public final class E2eSeed {
     /** Redirect URI registered on seeded clients; never actually requested — tests read {@code code} off the 302. */
     public static final String REDIRECT_URI = "http://localhost/cb";
 
+    /** Post-logout redirect URI registered by {@link #backchannelClient}; never requested. */
+    public static final String POST_LOGOUT_REDIRECT_URI = "http://localhost/signed-out";
+
     private final ClientAdminPublisher clients;
     private final UserAdminPublisher users;
     private final RealmService realms;
@@ -94,13 +97,29 @@ public final class E2eSeed {
         return client(realmId, clientId, List.of("client_credentials"), List.of(), scopes, false);
     }
 
+    /**
+     * A confidential code-flow client that registered an OIDC back-channel logout URI (and
+     * {@link #POST_LOGOUT_REDIRECT_URI} for RP-initiated logout).
+     */
+    public SeededClient backchannelClient(final String realmId, final String clientId, final List<String> scopes,
+                                          final String backchannelLogoutUri) {
+        return client(realmId, clientId, List.of("authorization_code", "refresh_token"), List.of(REDIRECT_URI),
+                scopes, false, List.of(POST_LOGOUT_REDIRECT_URI), backchannelLogoutUri);
+    }
+
     /** Low-level client creation through {@link ClientAdminPublisher#create}; returns the one-time secret. */
     public SeededClient client(final String realmId, final String clientId, final List<String> grantTypes,
                                final List<String> redirectUris, final List<String> scopes, final boolean consent) {
+        return client(realmId, clientId, grantTypes, redirectUris, scopes, consent, List.of(), null);
+    }
+
+    private SeededClient client(final String realmId, final String clientId, final List<String> grantTypes,
+                                final List<String> redirectUris, final List<String> scopes, final boolean consent,
+                                final List<String> postLogoutRedirectUris, final String backchannelLogoutUri) {
         final ClientDto saved = clients.create(new ClientWriteDto(realmId, null, clientId, grantTypes, redirectUris,
-                scopes, null, null, clientId, "e2e test client", List.of(), List.of(),
+                scopes, null, null, clientId, "e2e test client", postLogoutRedirectUris, List.of(),
                 false, consent, true, null, null, null, null, false,
-                null, null, null, false, null, null, null, null, null, false, false, null));
+                null, null, null, false, null, null, backchannelLogoutUri, null, null, false, false, null));
         if (saved == null || saved.secret() == null) {
             throw new AssertionError("Client creation returned no secret for " + clientId);
         }

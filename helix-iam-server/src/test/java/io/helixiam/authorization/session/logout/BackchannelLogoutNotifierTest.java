@@ -37,7 +37,7 @@ class BackchannelLogoutNotifierTest {
         when(jwtEncoder.encode(any())).thenReturn(jwt);
         doThrow(new RuntimeException("rp down")).when(poster).post(eq("https://b/logout"), any());
 
-        notifier.notifyClients("https://idp/realms/master", "user-1", "sid-1", List.of(
+        notifier.notifyClients("master", "https://idp/realms/master", "user-1", "sid-1", List.of(
                 new BackchannelLogoutNotifier.Target("a", "https://a/logout"),
                 new BackchannelLogoutNotifier.Target("b", "https://b/logout"),
                 new BackchannelLogoutNotifier.Target("c", "https://c/logout")));
@@ -54,7 +54,7 @@ class BackchannelLogoutNotifierTest {
         when(jwt.getTokenValue()).thenReturn("t");
         when(jwtEncoder.encode(any())).thenReturn(jwt);
 
-        notifier.notifyClients("https://idp/realms/master", "user-1", "sid-1", List.of(
+        notifier.notifyClients("master", "https://idp/realms/master", "user-1", "sid-1", List.of(
                 new BackchannelLogoutNotifier.Target("a", null),
                 new BackchannelLogoutNotifier.Target("b", "")));
 

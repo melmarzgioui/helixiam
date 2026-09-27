@@ -71,7 +71,7 @@ class SsoLogoutServiceTest {
         service.terminate("alice", "master", "https://idp/realms/master");
 
         verify(authorizationService, org.mockito.Mockito.times(2)).remove(any());
-        verify(notifier).notifyClients("https://idp/realms/master", "alice", "alice", targets);
+        verify(notifier).notifyClients("master", "https://idp/realms/master", "alice", "alice", targets);
     }
 
     @Test
@@ -82,7 +82,7 @@ class SsoLogoutServiceTest {
 
         service.terminate("alice");
 
-        verify(notifier, never()).notifyClients(any(), any(), any(), any());
+        verify(notifier, never()).notifyClients(any(), any(), any(), any(), any());
     }
 
     @Test

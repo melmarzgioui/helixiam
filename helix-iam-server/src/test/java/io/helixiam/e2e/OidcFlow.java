@@ -139,6 +139,16 @@ public final class OidcFlow {
     /** As {@link #authorize(String, String, String, String, String)}, answering MFA pages with {@code secondFactor}. */
     public AuthorizationResult authorize(final String clientId, final String redirectUri, final String username,
                                          final String password, final String scope, final SecondFactor secondFactor) {
+        return authorize(clientId, redirectUri, username, password, scope, secondFactor, Map.of());
+    }
+
+    /**
+     * As {@link #authorize(String, String, String, String, String, SecondFactor)}, adding {@code extraParams}
+     * (e.g. {@code prompt=login}, {@code max_age}) to the authorize request.
+     */
+    public AuthorizationResult authorize(final String clientId, final String redirectUri, final String username,
+                                         final String password, final String scope, final SecondFactor secondFactor,
+                                         final Map<String, String> extraParams) {
         final Pkce pkce = Pkce.create();
         final String state = randomToken();
         final String nonce = randomToken();
@@ -150,7 +160,8 @@ public final class OidcFlow {
                 + "&state=" + enc(state)
                 + "&nonce=" + enc(nonce)
                 + "&code_challenge=" + enc(pkce.challenge())
-                + "&code_challenge_method=S256";
+                + "&code_challenge_method=S256"
+                + extraQuery(extraParams);
 
         // 1-2: anonymous authorize → login page.
         E2eHttp.Response r = http.followRedirectsUntil(http.get(authorizeUrl), hit -> hit.locationStartsWith(redirectUri));
@@ -344,6 +355,12 @@ public final class OidcFlow {
     private static String text(final JsonNode json, final String field) {
         final JsonNode n = json.get(field);
         return n == null || n.isNull() ? null : n.asText();
+    }
+
+    private static String extraQuery(final Map<String, String> extraParams) {
+        final StringBuilder out = new StringBuilder();
+        extraParams.forEach((k, v) -> out.append('&').append(enc(k)).append('=').append(enc(v)));
+        return out.toString();
     }
 
     private static String enc(final String s) {

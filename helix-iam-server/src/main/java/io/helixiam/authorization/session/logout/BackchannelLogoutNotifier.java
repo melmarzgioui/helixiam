@@ -40,9 +40,14 @@ public class BackchannelLogoutNotifier {
     private final LogoutTokenIssuer issuer;
     private final Poster poster;
 
+    /**
+     * Production wiring: the egress-guarded HTTP poster, unless a {@link Poster} bean is present (the e2e suite
+     * registers one that records the logout tokens instead of sending them).
+     */
     @org.springframework.beans.factory.annotation.Autowired
-    public BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final OutboundUrlGuard egressGuard) {
-        this(issuer, new HttpPoster(egressGuard));
+    public BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final OutboundUrlGuard egressGuard,
+                                     final org.springframework.beans.factory.ObjectProvider<Poster> posterOverride) {
+        this(issuer, posterOverride.getIfAvailable(() -> new HttpPoster(egressGuard)));
     }
 
     BackchannelLogoutNotifier(final LogoutTokenIssuer issuer, final Poster poster) {
@@ -50,8 +55,12 @@ public class BackchannelLogoutNotifier {
         this.poster = poster;
     }
 
-    /** POST a fresh logout_token to every target that has a back-channel URI. */
-    public void notifyClients(final String issuerUrl, final String subject, final String sid, final List<Target> targets) {
+    /**
+     * POST a fresh logout_token to every target that has a back-channel URI, signed with {@code realm}'s key
+     * (the realm of the terminated session) and carrying {@code issuerUrl} (that realm's issuer).
+     */
+    public void notifyClients(final String realm, final String issuerUrl, final String subject, final String sid,
+                              final List<Target> targets) {
         if (targets == null) {
             return;
         }
@@ -60,7 +69,7 @@ public class BackchannelLogoutNotifier {
                 continue;
             }
             try {
-                final String logoutToken = issuer.issue(issuerUrl, target.clientId(), subject, sid);
+                final String logoutToken = issuer.issue(realm, issuerUrl, target.clientId(), subject, sid);
                 poster.post(target.backchannelLogoutUri(), logoutToken);
                 LOG.info("Back-channel logout sent to {} ({})", target.clientId(), target.backchannelLogoutUri());
             } catch (final RuntimeException e) {
