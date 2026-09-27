@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.theme.render;
 
+import io.helixiam.authorization.theme.BrandPanel;
 import io.helixiam.authorization.theme.Theme;
 import io.helixiam.authorization.theme.ThemeColor;
 import io.helixiam.authorization.theme.ThemeColorMath;
@@ -83,11 +84,15 @@ public final class ThemeCssRenderer {
         // Text on primary is surfaceRaised: the pair the validator checks for WCAG AA contrast.
         prop(css, "  ", "on-primary", light.apply("surfaceRaised"));
         // The split layout's brand panel inverts the page: ink ground, surface text, the light-on-dark primary.
-        prop(css, "  ", "brand-bg", light.apply("ink"));
-        prop(css, "  ", "brand-fg", light.apply("surface"));
-        prop(css, "  ", "brand-accent", dark.apply("primary"));
+        final ThemeColors safe = ThemeColors.from(role -> new ThemeColor(light.apply(role), dark.apply(role)));
+        final BrandPanel.Colors lightPanel = BrandPanel.light(safe);
+        prop(css, "  ", "brand-bg", lightPanel.background());
+        prop(css, "  ", "brand-fg", lightPanel.foreground());
+        prop(css, "  ", "brand-accent", lightPanel.accent());
         prop(css, "  ", "font-sans", stack(fontSans));
         prop(css, "  ", "font-display", stack(fontDisplay));
+        prop(css, "  ", "font-display-weight", String.valueOf(displayWeight(fontDisplay)));
+        prop(css, "  ", "font-display-tracking", serifLike(fontDisplay) ? "-0.005em" : "-0.02em");
         prop(css, "  ", "font-mono", MONO);
         prop(css, "  ", "font-size", baseSize(theme) + "px");
         prop(css, "  ", "radius", radius(theme) + "px");
@@ -97,9 +102,10 @@ public final class ThemeCssRenderer {
         css.append("@media (prefers-color-scheme: dark) {\n  :root {\n");
         colorBlock(css, dark, "    ");
         prop(css, "    ", "on-primary", dark.apply("surfaceRaised"));
-        prop(css, "    ", "brand-bg", dark.apply("surfaceSunken"));
-        prop(css, "    ", "brand-fg", dark.apply("ink"));
-        prop(css, "    ", "brand-accent", dark.apply("primary"));
+        final BrandPanel.Colors darkPanel = BrandPanel.dark(safe);
+        prop(css, "    ", "brand-bg", darkPanel.background());
+        prop(css, "    ", "brand-fg", darkPanel.foreground());
+        prop(css, "    ", "brand-accent", darkPanel.accent());
         css.append("  }\n}\n");
 
         for (final FontFace face : fonts == null ? List.<FontFace>of() : fonts) {
@@ -127,6 +133,23 @@ public final class ThemeCssRenderer {
     static String stack(final String font) {
         final String builtIn = BUILT_IN_STACKS.get(font);
         return builtIn != null ? builtIn : "\"" + font + "\", " + SYSTEM_SANS;
+    }
+
+    /**
+     * The heading weight for a display font: 800 for the bundled Work Sans (the built-in look), 700 for other sans
+     * faces, 600 for serif and mono faces (a heavy serif at 800 is dense). Uploaded families are classified by name.
+     */
+    static int displayWeight(final String font) {
+        if ("helix-sans".equals(font)) {
+            return 800;
+        }
+        return serifLike(font) ? 600 : 700;
+    }
+
+    static boolean serifLike(final String font) {
+        final String f = font == null ? "" : font.toLowerCase(Locale.ROOT);
+        return "system-serif".equals(f) || "system-mono".equals(f)
+                || (f.contains("serif") && !f.contains("sans")) || f.contains("mono");
     }
 
     private static void colorBlock(final StringBuilder css, final Function<String, String> value, final String indent) {

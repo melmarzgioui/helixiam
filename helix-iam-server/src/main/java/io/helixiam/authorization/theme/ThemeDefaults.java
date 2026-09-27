@@ -31,13 +31,13 @@ public final class ThemeDefaults {
                     new ThemeColor("#ffffff", "#1b2721"),   // surfaceRaised — cards, fields; text on primary
                     new ThemeColor("#efe8dc", "#0f1612"),   // surfaceSunken
                     new ThemeColor("#22352b", "#eef0ea"),   // ink — green ink
-                    new ThemeColor("#7a857f", "#a9b5ad"),   // inkMuted
+                    new ThemeColor("#5f6b64", "#a9b5ad"),   // inkMuted (AA on surface and raised)
                     new ThemeColor("#e7ded0", "#2c3b33"),   // border
                     new ThemeColor("#9c4b3e", "#f0a58c"),   // negative
                     new ThemeColor("#f6e9e5", "#3a231c"),   // negativeTint
                     new ThemeColor("#2f6b52", "#8fd4b0"),   // positive
                     new ThemeColor("#e6efe9", "#173326"),   // positiveTint
-                    new ThemeColor("#8fb5a4", "#a7d8c4")),  // focusRing
+                    new ThemeColor("#2f6b52", "#a7d8c4")),  // focusRing = primary (≥ 3:1)
             new ThemeTypography("helix-sans", "helix-sans", 16),
             new ThemeShape(8, "comfortable"),
             new ThemeAssets(null, null, null, null),

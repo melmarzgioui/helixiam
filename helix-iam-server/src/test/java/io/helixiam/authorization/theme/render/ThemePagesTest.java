@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.theme.render;
 
-import io.helixiam.authorization.theme.DarkPalette;
+import io.helixiam.authorization.theme.ThemePalette;
 import io.helixiam.authorization.theme.EffectiveTheme;
 import io.helixiam.authorization.theme.LocalizedList;
 import io.helixiam.authorization.theme.LocalizedText;
@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ThemePagesTest {
 
     private static EffectiveTheme effective(final Theme layer) {
-        final Theme t = DarkPalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, layer)));
+        final Theme t = ThemePalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, layer)));
         return new EffectiveTheme(t, "v", Set.of(), Set.of());
     }
 

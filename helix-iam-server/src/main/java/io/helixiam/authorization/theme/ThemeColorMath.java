@@ -128,6 +128,19 @@ public final class ThemeColorMath {
         return lighten ? fromHsl(hsl[0], hsl[1], 1) : fromHsl(hsl[0], hsl[1], 0);
     }
 
+    /** {@code a} mixed into {@code b} in sRGB, {@code weightA} of {@code a} (like CSS {@code color-mix(in srgb, a w, b)}). */
+    public static String mix(final String a, final String b, final double weightA) {
+        final String x = normalize(a);
+        final String y = normalize(b);
+        final int[] out = new int[3];
+        for (int i = 0; i < 3; i++) {
+            final int ca = Integer.parseInt(x.substring(1 + 2 * i, 3 + 2 * i), 16);
+            final int cb = Integer.parseInt(y.substring(1 + 2 * i, 3 + 2 * i), 16);
+            out[i] = (int) Math.round(ca * weightA + cb * (1 - weightA));
+        }
+        return String.format(Locale.ROOT, "#%02x%02x%02x", out[0], out[1], out[2]);
+    }
+
     /** Formats a ratio as {@code 3.2:1}. */
     public static String ratio(final double r) {
         return String.format(Locale.ROOT, "%.1f:1", Math.floor(r * 10) / 10);

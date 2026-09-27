@@ -72,7 +72,8 @@ class ThemeValidatorTest {
             case "surface" -> c("#f7f8f6", "#111111");
             default -> null;
         });
-        assertThat(realm(colors(cs))).containsOnlyKeys("contrast.inkOnSurface.dark");
+        // The dark brand panel uses the same dark ink, so it is named too (review M1).
+        assertThat(realm(colors(cs))).containsOnlyKeys("contrast.inkOnSurface.dark", "contrast.brandPanel.dark");
     }
 
     @Test
@@ -223,5 +224,26 @@ class ThemeValidatorTest {
     void texts_allowNewlinesAndOrdinaryUnicode() {
         assertThat(realm(Theme.EMPTY.withTexts(new ThemeTexts(null, null, null,
                 LocalizedText.of("Welkom bij Café Ærø — 月報\nTot ziens"), null, null)))).isEmpty();
+    }
+
+    // ---- Task 3 review M1: the brand panel's own pairs (its dark ground, its accent) are checked too.
+
+    @Test
+    void anIllegibleDarkBrandPanel_isRejected_namingThePair() {
+        // ink.dark close to the dark sunken surface the dark brand panel is built from.
+        final Theme layer = colors(ThemeColors.from(r -> switch (r) {
+            case "ink" -> c("#16211f", "#3a4a46");
+            case "surfaceSunken" -> c("#eef1ee", "#2b3835");
+            default -> null;
+        }));
+        final Map<String, String> errors = realm(layer);
+        assertThat(errors).containsKey("contrast.brandPanel.dark");
+        assertThat(errors.get("contrast.brandPanel.dark")).contains("Brand panel").contains("4.5:1");
+    }
+
+    @Test
+    void brandPanelPairsAreOnlyCheckedWhenTheLayerTouchesTheirColours() {
+        assertThat(realm(colors(only("negative", c("#b3401b", null))))).doesNotContainKeys(
+                "contrast.brandPanel.dark");
     }
 }

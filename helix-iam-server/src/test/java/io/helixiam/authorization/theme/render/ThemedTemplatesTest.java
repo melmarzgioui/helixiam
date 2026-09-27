@@ -10,7 +10,7 @@ import io.helixiam.authorization.domain.ChangePassword;
 import io.helixiam.authorization.domain.UserRegister;
 import io.helixiam.authorization.federation.spi.IdpMetadata;
 import io.helixiam.authorization.i18n.I18nConfig;
-import io.helixiam.authorization.theme.DarkPalette;
+import io.helixiam.authorization.theme.ThemePalette;
 import io.helixiam.authorization.theme.EffectiveTheme;
 import io.helixiam.authorization.theme.LocalizedList;
 import io.helixiam.authorization.theme.LocalizedText;
@@ -148,7 +148,7 @@ class ThemedTemplatesTest {
     }
 
     static ThemePage page(final Theme layer, final String orgName, final String realmDisplayName) {
-        final Theme t = DarkPalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, layer)));
+        final Theme t = ThemePalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, layer)));
         return ThemePages.build(new EffectiveTheme(t, "v1", Set.of(), Set.of()), REALM,
                 orgName == null ? null : "org-7", orgName, realmDisplayName, Locale.ENGLISH, "abcdef0123456789");
     }

@@ -90,7 +90,9 @@ class ThemeServiceTest {
         assertThat(withOrg.assets().logoUrl()).isEqualTo("https://cdn.org.example/logo.svg");
         assertThat(withOrg.colors().surface()).as("inherited from the realm").isEqualTo(c("#f7f8f6", "#111615"));
         assertThat(withOrg.typography().fontSans()).isEqualTo("Public Sans");
-        assertThat(withOrg.colors().border()).as("default").isEqualTo(ThemeDefaults.THEME.colors().border());
+        assertThat(withOrg.colors().border()).as("derived from the theme's own ink and surface (review B1), not HelixIAM's")
+                .isNotEqualTo(ThemeDefaults.THEME.colors().border())
+                .isEqualTo(realmOnly.colors().border());
         // Another realm's organization never applies.
         assertThat(service.effectiveTheme("firm", Optional.of("org-x")).theme()).isEqualTo(realmOnly);
         // The version changes with the theme.

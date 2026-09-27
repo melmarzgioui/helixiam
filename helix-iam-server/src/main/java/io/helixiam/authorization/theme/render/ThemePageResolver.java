@@ -11,7 +11,7 @@ import io.helixiam.authorization.security.realm.OrganizationContext;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.security.realm.RealmSettingsResolver;
 import io.helixiam.authorization.service.org.OrganizationBrandingService;
-import io.helixiam.authorization.theme.DarkPalette;
+import io.helixiam.authorization.theme.ThemePalette;
 import io.helixiam.authorization.theme.EffectiveTheme;
 import io.helixiam.authorization.theme.ThemeDefaults;
 import io.helixiam.authorization.theme.ThemeService;
@@ -76,7 +76,7 @@ public class ThemePageResolver {
 
     /** The HelixIAM default page model (no realm theme). */
     public static ThemePage defaults(final String realm, final Locale locale) {
-        final EffectiveTheme effective = new EffectiveTheme(DarkPalette.resolve(ThemeDefaults.THEME), "default",
+        final EffectiveTheme effective = new EffectiveTheme(ThemePalette.resolve(ThemeDefaults.THEME), "default",
                 Set.of(), Set.of());
         return ThemePages.build(effective, realm, null, null, null, locale, "default");
     }

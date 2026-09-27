@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.theme.render;
 
-import io.helixiam.authorization.theme.DarkPalette;
+import io.helixiam.authorization.theme.ThemePalette;
 import io.helixiam.authorization.theme.Theme;
 import io.helixiam.authorization.theme.ThemeColor;
 import io.helixiam.authorization.theme.ThemeColors;
@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ThemeCssRendererTest {
 
     private static Theme effective(final Theme layer) {
-        return DarkPalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, layer)));
+        return ThemePalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, layer)));
     }
 
     private static String lightBlock(final String css) {
@@ -49,8 +49,10 @@ class ThemeCssRendererTest {
                 "--hx-brand-accent: #a7d8c4;", "--hx-font-size: 16px;", "--hx-radius: 8px;", "--hx-space: 4px;",
                 "--hx-font-sans: \"Work Sans\",", "--hx-font-display: \"Work Sans\",", "--hx-font-mono: ",
                 "color-scheme: light dark;");
+        assertThat(lightBlock(css)).contains("--hx-font-display-weight: 800;", "--hx-font-display-tracking: -0.02em;");
         assertThat(darkBlock(css)).contains("--hx-primary: #a7d8c4;", "--hx-on-primary: #1b2721;",
-                "--hx-brand-bg: #0f1612;", "--hx-brand-fg: #eef0ea;");
+                "--hx-brand-bg: " + io.helixiam.authorization.theme.ThemeColorMath.mix("#a7d8c4", "#0f1612", 0.14) + ";",
+                "--hx-brand-fg: #eef0ea;");
         assertThat(css).doesNotContain("@font-face").doesNotContain("@import");
         assertThat(ThemeCssRenderer.render(effective(Theme.EMPTY), List.of())).as("deterministic").isEqualTo(css);
     }
@@ -73,7 +75,12 @@ class ThemeCssRendererTest {
     void builtInStacks() {
         final String css = ThemeCssRenderer.render(effective(new Theme(null,
                 new ThemeTypography("system-serif", "system-mono", null), null, null, null, null, null, null)), List.of());
-        assertThat(lightBlock(css)).contains("--hx-font-sans: ui-serif,").contains("--hx-font-display: ui-monospace,");
+        assertThat(lightBlock(css)).contains("--hx-font-sans: ui-serif,").contains("--hx-font-display: ui-monospace,")
+                .contains("--hx-font-display-weight: 600;");
+        assertThat(ThemeCssRenderer.displayWeight("Source Serif 4")).isEqualTo(600);
+        assertThat(ThemeCssRenderer.displayWeight("Public Sans")).isEqualTo(700);
+        assertThat(ThemeCssRenderer.displayWeight("PT Sans Serif")).as("a sans that says serif").isEqualTo(700);
+        assertThat(ThemeCssRenderer.displayWeight("system-sans")).isEqualTo(700);
     }
 
     @Test

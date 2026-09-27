@@ -89,7 +89,7 @@ public class ThemeValidator {
             }
         }
         if (coloursOk && candidate.colors() != null) {
-            contrast(candidate.colors(), DarkPalette.resolve(merged).colors(), errors);
+            contrast(candidate.colors(), ThemePalette.resolve(merged).colors(), errors);
         }
         return errors;
     }
@@ -308,6 +308,32 @@ public class ThemeValidator {
                                  final Map<String, String> errors) {
         pair(candidate, effective, "inkOnSurface", "Ink on surface", "ink", "surface", errors);
         pair(candidate, effective, "textOnPrimary", "Text on primary", "surfaceRaised", "primary", errors);
+        // Task 3 review M1: the split layout's brand panel (BrandPanel): its dark-scheme text on its dark ground.
+        if (touches(candidate, "ink", "surface", "surfaceSunken", "primary")) {
+            final BrandPanel.Colors dark = BrandPanel.dark(effective);
+            check("brandPanel.dark", "Brand panel text (dark)", "ink.dark", dark.foreground(),
+                    "the brand panel ground", dark.background(), errors);
+        }
+        // The accent needs no check: BrandPanel nudges it to AA on both grounds.
+    }
+
+    private static boolean touches(final ThemeColors candidate, final String... roles) {
+        for (final String role : roles) {
+            if (candidate.role(role) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void check(final String key, final String label, final String fgName, final String f,
+                              final String bgName, final String b, final Map<String, String> errors) {
+        final double ratio = ThemeColorMath.contrast(f, b);
+        if (ratio < ThemeColorMath.AA_TEXT) {
+            errors.put("contrast." + key, String.format(Locale.ROOT,
+                    "%s: %s %s on %s %s has a contrast of %s; WCAG AA needs at least 4.5:1.",
+                    label, fgName, f, bgName, b, ThemeColorMath.ratio(ratio)));
+        }
     }
 
     private static void pair(final ThemeColors candidate, final ThemeColors effective, final String key,

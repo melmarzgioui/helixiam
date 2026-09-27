@@ -197,7 +197,7 @@ public class ThemeService {
         final List<Theme> layers = new ArrayList<>(belowRealm(realmId));
         layers.add(realmTheme(realmId));
         resolvedOrgId.ifPresent(id -> layers.add(storedOrganizationTheme(id)));
-        Theme merged = DarkPalette.resolve(ThemeMerger.merge(layers));
+        Theme merged = ThemePalette.resolve(ThemeMerger.merge(layers));
         merged = merged.withCustomCss(servableCss(realmId, merged.customCss()));
         final ThemeValidator validator = validator();
         return new EffectiveTheme(merged, ThemeJson.hash(merged), validator.imageOrigins(merged),
@@ -279,7 +279,7 @@ public class ThemeService {
             throw new ThemeValidationException(errors);
         }
         layers.add(candidate);
-        Theme merged = DarkPalette.resolve(ThemeMerger.merge(layers));
+        Theme merged = ThemePalette.resolve(ThemeMerger.merge(layers));
         merged = merged.withCustomCss(servableCss(realmId, merged.customCss()));
         return new EffectiveTheme(merged, ThemeJson.hash(merged), validator.imageOrigins(merged),
                 validator.cssUrlOrigins());
