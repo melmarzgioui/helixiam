@@ -308,6 +308,10 @@ others.
 | `helix.notification.reset-password.code-ttl` | `1h` | How long a password-reset code works. Single-use; an expired or used code is refused on the reset page. |
 | `helix.notification.signup.code-ttl` | `24h` | How long the sign-up verification code works. Single-use. |
 
+The password-reset link is sent only to the account's stored email address (verified or not, bounced or not): what
+the user types on the reset page only finds the account. An unknown account, or one without an address, gets no
+email, and the page answers the same in every case.
+
 The reset and sign-up codes are stored only as their SHA-256 (the plain code is in the email alone), like the
 magic-link tokens; each request issues a new code and invalidates the previous one.
 

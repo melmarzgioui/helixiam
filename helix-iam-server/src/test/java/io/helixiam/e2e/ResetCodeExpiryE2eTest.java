@@ -169,4 +169,70 @@ class ResetCodeExpiryE2eTest extends AbstractE2eTest {
         final E2eHttp browser = newBrowser();
         assertThat(setPassword(browser, baseUrl() + "/realms/" + realm, plain).isRedirect()).isTrue();
     }
+
+    /** Creates a user with its own username and email address through the admin API. */
+    private String createUser(final String realm, final String username, final String email) {
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("username", username);
+        body.put("email", email);
+        body.put("password", "Before-Passw0rd!");
+        body.put("enabled", true);
+        final E2eHttp.Response created = adminSession().post("/admin/realms/" + realm + "/users", body);
+        assertThat(created.status()).as(created.toString()).isEqualTo(201);
+        return created.json().path("userId").asText();
+    }
+
+    private E2eHttp.Response askReset(final E2eHttp browser, final String realmUrl, final String typed) {
+        final Map<String, String> form = new LinkedHashMap<>();
+        form.put("_csrf", E2eHttp.csrf(browser.get(realmUrl + "/reset/password?lang=en").body()));
+        form.put("username", typed);
+        return browser.postForm(realmUrl + "/reset/password?lang=en", form);
+    }
+
+    /** The page without per-request tokens, to compare two answers. */
+    private static String stable(final String html) {
+        return html.replaceAll("(?i)(name=\"_csrf\"[^>]*value=\")[^\"]*", "$1").replaceAll("nonce=\"[^\"]*\"", "");
+    }
+
+    @Test
+    void theResetLink_goesOnlyToTheStoredAddress_neverToTheTypedValue() {
+        final String realm = E2eSeed.unique("acme-reset-to");
+        seed().realm(realm, "Acme");
+        mailToSink(realm);
+        final String realmUrl = baseUrl() + "/realms/" + realm;
+        final String suffix = E2eSeed.unique("x");
+        final io.helixiam.e2e.browser.MailSink sink = io.helixiam.e2e.browser.MailSink.get();
+
+        // Typing a username: the stored address gets the link.
+        final String plainName = "ada-" + suffix;
+        final String adaMail = "ada-" + suffix + "@example.com";
+        createUser(realm, plainName, adaMail);
+        final E2eHttp browser = newBrowser();
+        final E2eHttp.Response known = askReset(browser, realmUrl, plainName);
+        assertThat(known.status()).isEqualTo(200);
+        assertThat(sink.await(adaMail, m -> m.link("/reset/password/").isPresent(), Duration.ofSeconds(10))).isNotNull();
+
+        // A username that looks like another address: only the stored address gets it.
+        final String oldAddress = "old-" + suffix + "@example.org";
+        final String newAddress = "new-" + suffix + "@example.com";
+        createUser(realm, oldAddress, newAddress);
+        askReset(browser, realmUrl, oldAddress);
+        assertThat(sink.await(newAddress, m -> m.link("/reset/password/").isPresent(), Duration.ofSeconds(10)))
+                .isNotNull();
+
+        // An unknown account: the same answer, and no email.
+        final String unknown = "nobody-" + suffix + "@example.org";
+        final E2eHttp.Response none = askReset(browser, realmUrl, unknown);
+        assertThat(none.status()).isEqualTo(known.status());
+        assertThat(stable(none.body())).isEqualTo(stable(known.body()));
+        // Give any (wrong) email time to arrive before asserting there is none.
+        try {
+            Thread.sleep(1_500);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        assertThat(sink.emailsTo(oldAddress)).isEmpty();
+        assertThat(sink.emailsTo(plainName)).isEmpty();
+        assertThat(sink.emailsTo(unknown)).isEmpty();
+    }
 }

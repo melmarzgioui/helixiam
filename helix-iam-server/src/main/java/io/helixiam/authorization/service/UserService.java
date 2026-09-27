@@ -41,6 +41,13 @@ public class UserService {
     private final MfaUserRepository mfaUserRepository;
     private final Notifier notifier;
     private io.helixiam.authorization.messaging.email.JdbcBounceRecorder emailBounces;
+    private PasswordResetMailer passwordResetMailer;
+
+    /** Sends the reset email to the account's stored address. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPasswordResetMailer(final PasswordResetMailer passwordResetMailer) {
+        this.passwordResetMailer = passwordResetMailer;
+    }
     private io.helixiam.notification.NotificationCodePolicy codePolicy =
             io.helixiam.notification.NotificationCodePolicy.defaults();
 
@@ -135,13 +142,26 @@ public class UserService {
     }
 
     /**
-     * Initiates password reset flow and sends email with reset code.
+     * Starts a password reset. {@code typed} (username or email address) only finds the account in the realm; the
+     * link goes to the account's stored email address, off the request thread ({@link PasswordResetMailer}). An unknown
+     * account or one without an address gets nothing, and the caller cannot tell: both lookups always run, and the
+     * answer does not depend on the account.
+     *
+     * @return the account found, or null (for the caller's own use; never to be shown to the requester)
      */
-    @Notification(mediaType = NotificationMediaType.EMAIL, type = "USER_RESET_PASSWORD", generateCode = true)
-    public UserCredentials resetPasswordRequest(@NotificationEmail final String username) {
-        final String identifier = username == null ? "" : username.trim().toLowerCase();
-        return userCredentialsRepository.findByRealmIdAndUsername(currentRealm(), identifier)
-                .or(() -> userCredentialsRepository.findByRealmIdAndEmail(currentRealm(), identifier)).orElse(null);
+    public UserCredentials resetPasswordRequest(final String typed) {
+        final String identifier = typed == null ? "" : typed.trim().toLowerCase();
+        final String realm = currentRealm();
+        // Both lookups always run, so an existing and an unknown account take the same work.
+        final java.util.Optional<UserCredentials> byUsername = userCredentialsRepository.findByRealmIdAndUsername(realm,
+                identifier);
+        final java.util.Optional<UserCredentials> byEmail = userCredentialsRepository.findByRealmIdAndEmail(realm,
+                identifier);
+        final UserCredentials account = byUsername.or(() -> byEmail).orElse(null);
+        if (account != null && passwordResetMailer != null) {
+            passwordResetMailer.send(account);
+        }
+        return account;
     }
 
     /**

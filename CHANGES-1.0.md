@@ -142,6 +142,15 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   creation) and becomes the email's `expiresAt`, so a reset email is never retried after its code died. The other
   emailed codes and links were checked and already expire and work once: the email OTP (5 minutes, attempt-limited),
   the magic link, the verification link and the email-change link.
+- **security** — The password-reset email went to whatever was typed on the reset page, not to the account's address:
+  typing a username sent the link to that username as if it were an address, and an account whose username looks like
+  an address (for example `old@example.org` with the stored email `new@example.com`) had its reset link sent to the
+  typed address, possibly someone else's mailbox. The typed value now only finds the account in the realm (username or
+  email); the link goes only to the account's stored email address, and an account without one gets nothing. The
+  answer is the same for an existing account, an unknown one and one without an address; both lookups always run and
+  the code is issued and the email sent off the request thread, so the timing does not tell them apart either. The
+  link goes to the stored address whether or not it is verified or has bounced, as most identity providers do: it is
+  the account's only address and the user needs a way back in.
 - **security** — Emailed reset and sign-up codes are stored hashed: `notification_code.code` holds the hex
   SHA-256 of the code, like the magic-link tokens, and the plain code exists only in the email. Lookup and the atomic
   single-use consume go by the hash. The codes are random UUIDs (122 bits), so a plain hash is enough (no salt or slow

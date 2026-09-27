@@ -14,7 +14,6 @@ import io.helixiam.notification.annotation.NotificationMediaType;
 import io.helixiam.notification.domain.NotificationCode;
 import io.helixiam.notification.domain.NotificationRequest;
 import io.helixiam.notification.repository.NotificationCodeRepository;
-import io.helixiam.notification.utils.CodeGeneration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -51,6 +50,21 @@ public class NotificationAspect {
     private final NotificationCodeRepository notificationCodeRepository;
     private io.helixiam.notification.NotificationCodePolicy codePolicy =
             io.helixiam.notification.NotificationCodePolicy.defaults();
+
+    private io.helixiam.notification.NotificationCodeIssuer codeIssuer;
+
+    /** Issues the codes (hashed at rest); without one (tests), a default issuer over the repository. */
+    @Autowired(required = false)
+    public void setCodeIssuer(final io.helixiam.notification.NotificationCodeIssuer codeIssuer) {
+        this.codeIssuer = codeIssuer;
+    }
+
+    private io.helixiam.notification.NotificationCodeIssuer codeIssuer() {
+        if (codeIssuer == null) {
+            codeIssuer = new io.helixiam.notification.NotificationCodeIssuer(notificationCodeRepository, codePolicy);
+        }
+        return codeIssuer;
+    }
 
     /** How long the generated codes work (password reset 1 hour, sign-up 24 hours by default). */
     @Autowired(required = false)
@@ -100,20 +114,9 @@ public class NotificationAspect {
             notificationRequest.setEmailAddress(userDetails.get("EMAIL"));
 
             if (notification.generateCode() || notification.generateSimpleCode()) {
-                // A new code on every request: only its SHA-256 is stored, so a pending code cannot be sent again;
-                // the new one replaces it (an older link stops working).
-                final java.time.Instant now = java.time.Instant.now();
-                notificationCodeRepository.findByIdentifierAndType(identifier, notification.type())
-                        .ifPresent(notificationCodeRepository::delete);
-                final String plain = generateCode(notification);
-                final java.util.Date expiresAt = codePolicy.expiryFor(notification.type(), now);
-                final NotificationCode stored = new NotificationCode(identifier,
-                        io.helixiam.notification.NotificationCodePolicy.hash(plain), notification.type());
-                stored.setExpiresAt(expiresAt);
-                notificationCodeRepository.save(stored);
-                // The request (and so the email) carries the plain code; it is never persisted.
-                final NotificationCode notificationCode = new NotificationCode(identifier, plain, notification.type());
-                notificationCode.setExpiresAt(expiresAt);
+                // A new code on every request; only its SHA-256 is stored (NotificationCodeIssuer).
+                final NotificationCode notificationCode = codeIssuer().issue(identifier, notification.type(),
+                        notification.generateSimpleCode());
                 notificationRequest.setNotificationCode(notificationCode);
             }
 
@@ -121,13 +124,6 @@ public class NotificationAspect {
         }
 
         return Optional.empty();
-    }
-
-    private String generateCode(final Notification notification) {
-        if(notification.generateSimpleCode()) {
-            return CodeGeneration.generateSimpleCode();
-        }
-        return CodeGeneration.generateCode();
     }
 
     private static boolean isNotEmpty(final String value) {

@@ -154,7 +154,8 @@ class EmailDriversBrowserE2eTest extends AbstractBrowserE2eTest {
      * both parts.
      */
     private Sent sendAll(final String realm, final Function<String, Mail> read) {
-        final E2eSeed.SeededUser ada = seed().user(realm, E2eSeed.unique("ada") + "@example.com", "Email-Drivers-Passw0rd-2026!");
+        // The reset page (an email field) is given the account's address; the link goes to that stored address.
+        final E2eSeed.SeededUser ada = seed().user(realm, E2eSeed.unique("ada"), "Email-Drivers-Passw0rd-2026!");
         final String inbox = E2eSeed.unique("inbox") + "@example.com";
         final String realmUrl = baseUrl() + "/realms/" + realm;
         final String verifyLink = realmUrl + "/verify-email?token=" + E2eSeed.unique("v3r1fy");
@@ -179,10 +180,11 @@ class EmailDriversBrowserE2eTest extends AbstractBrowserE2eTest {
         assertLinkInBothParts(magic, magicLink);
 
         page().navigate(realmUrl + "/reset/password?lang=en");
-        page().locator("#username").fill(ada.username());
+        page().locator("#username").fill(ada.username() + "@e2e.helixiam.test");
         submit(page().locator("#passwordReset button[type=submit]"));
         final String resetPrefix = realmUrl + "/reset/password/";
         final Mail reset = read.apply(resetPrefix);
+        assertThat(reset.to()).isEqualTo(ada.username() + "@e2e.helixiam.test"); // the stored address, not the typed one
         final java.util.regex.Matcher m = java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(resetPrefix)
                 + "[A-Za-z0-9_-]+").matcher(reset.text());
         assertThat(m.find()).as("a reset link in the text part: " + reset.text()).isTrue();
