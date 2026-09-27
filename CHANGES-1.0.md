@@ -131,7 +131,7 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
     files are read at every send, and realm providers are read at every send, so a rotated secret needs no restart.
   - **Helm** — `8cc0116` optional `email.*` values; the credentials are keys of the existing Secret, mounted as files.
   - Retries, bounce marking, the per-realm send rate cap, the remaining metrics and `docs/EMAIL.md` follow in stage 2.
-- **security** — `ITEM1_HASH` Password-reset codes expired never: a reset link from any time in the past still set a new
+- **security** — `3892c16` Password-reset codes expired never: a reset link from any time in the past still set a new
   password, and a code already used, expired or unknown still "succeeded" (the reset page redirected as if it had
   worked). Reset codes now expire after `helix.notification.reset-password.code-ttl` (default 1 hour) and the
   sign-up verification code after `helix.notification.signup.code-ttl` (default 24 hours); both are single-use,
@@ -142,6 +142,22 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   creation) and becomes the email's `expiresAt`, so a reset email is never retried after its code died. The other
   emailed codes and links were checked and already expire and work once: the email OTP (5 minutes, attempt-limited),
   the magic link, the verification link and the email-change link.
+- **Test a chosen provider** — `492d221` `POST /admin/realms/{r}/messaging/providers/{channel}/test` takes an optional
+  `driver`: it tests the realm's provider with that driver even when it is disabled (to check it before switching),
+  and without it the active provider as before. The answer now also names the tested `driver` (EMAIL). An unknown
+  driver is a 400 with `fieldErrors.driver`; a known one the realm has not configured answers `sent: false`.
+- **One active email provider per realm** — `059e73d` Saving an enabled `EMAIL` provider switches the realm to it:
+  the realm's other email providers are disabled in the same transaction (serialised per realm), and logged. Saving a
+  disabled provider changes no other, so a new provider can be prepared and tested before the switch. Delivery never
+  has to choose between enabled providers any more. Realms that already had several enabled are repaired at startup:
+  the most recently saved stays enabled, the others are disabled with a WARN line each.
+- **Clear a provider secret** — `0bd926a` `PUT /admin/realms/{r}/messaging/providers` takes `"clearSecret": true` to
+  remove the stored secret without deleting the provider. An absent, null or blank `secret` still keeps it, and a
+  value replaces it; `clearSecret` with a `secret` is a 400 (`fieldErrors.clearSecret`). The Cloudflare API token is
+  now required only to enable the provider (a disabled one may have none).
+- **Helm** — `b2009bc` `email.retry.*` (`enabled`, `delays`, `maxAge`, `jitter`, `pollInterval`, `batchSize`,
+  `lease`), `email.rateLimit.realmPerMinute` / `.globalPerMinute` and `email.codes.resetPasswordTtl` / `.signupTtl`;
+  empty keeps the server default, `0` and `false` are passed through. `e2e/helm-template-check.sh` checks each.
 - **Email delivery, stage 2** — `1e3b2c4` Callers send through `EmailOutbox`, around `EmailDelivery`. See
   `docs/EMAIL.md`.
   - **Retries** — The first attempt stays synchronous (the flow and the admin test endpoint get the real result). A
