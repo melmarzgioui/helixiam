@@ -1,0 +1,96 @@
+# CodeQL triage: Java security alerts
+
+These are the CodeQL alerts from the first `master` scan that were reviewed and found to be **false positives**.
+Code was not changed just to silence them. Alerts that were real are fixed in code and covered by tests; see
+the list at the end. `java/log-injection` is tracked separately. Line numbers are those in the scanned commit
+(`169d051`).
+
+## False positives
+
+### #84, #85: `java/ssrf`: `authorization/federation/UpstreamLogoutClient.java:44`, `:46`
+`Http.get(url)` calls `egressGuard.checkAllowed(url)` (line 42) before it builds or sends the request, so
+the guard rejects a non-http(s) scheme, an unresolvable host, or any resolved address that is loopback,
+link-local (metadata), private, ULA, CGNAT or multicast. `HttpClient.newBuilder()` keeps the JDK default
+`Redirect.NEVER`, so a public host cannot redirect the request inward. The response is discarded. The
+remaining DNS-rebinding window is the documented, accepted residual in `OutboundUrlGuard`'s javadoc.
+CodeQL does not model `OutboundUrlGuard` as a sanitizer.
+
+### #245: `java/potentially-weak-cryptographic-algorithm`: `authorization/service/security/BreachedPasswordChecker.java:89`
+SHA-1 is not used for security here. The HIBP Pwned Passwords k-anonymity range API is keyed by SHA-1:
+the server sends only the first 5 hex characters of the digest and compares suffixes locally. The digest
+is never stored, compared as a credential, or used as a MAC or signature. Passwords are hashed with
+Argon2id elsewhere. Any other algorithm would break the protocol.
+
+### #240, #241: `java/user-controlled-bypass`: `authorization/idp/agent/DelegationTokenController.java:176`, `:187`
+The "sensitive" calls are `actorClientAuthenticated` and `subjectTokenAuthorizesAgent`. The only
+user-controlled conditions that skip them are the earlier `return error(...)` rejections (bad grant or
+token type, bad `resource`, bad signature, non-agent actor, issuer mismatch, unknown or suspended agent).
+Each of those rejects the request, so no token is minted without the checks. The short-circuit operands
+`requireActorAuth` and `requireSubjectBinding` are server configuration
+(`@Value helix.agent.delegation.*`, default `true`), not request data.
+
+### #242: `java/user-controlled-bypass`: `authorization/idp/workloadidentity/WorkloadIdentityTokenController.java:152`
+`mint(...)` runs only after `verifier.verify(...)` succeeds. Every user-influenced branch before it
+(missing token, malformed JWT, missing iss/sub/aud, no matching credential, verification failure) returns
+`denied(...)`, a 401. No condition skips verification and still reaches the mint. Triaging this alert did
+turn up an unguarded issuer-discovery fetch in the same method. That one is fixed separately; see below.
+
+### #100: `java/uncontrolled-arithmetic`: `persistence/security/AttributeEncryption.java:87`
+`iv.length + encrypted.length` adds a 12-byte IV to an AES-GCM output of `plaintext + 16` bytes. The
+"uncontrolled" source is `SecureRandom` filling the IV bytes, which does not change the IV length. An
+overflow would need a column value near 2 GiB, which a JPA `String` attribute cannot hold.
+
+### #92: `java/sensitive-log`: `authorization/idp/agent/DelegationTokenController.java:255`
+This logs `creds[0]`, the **client_id** (a public identifier), at DEBUG. The secret is `creds[1]` and is
+never logged. CodeQL taints the whole array.
+
+### #93, #96: `java/sensitive-log`: `authorization/service/realm/RealmAdminBootstrapService.java:110`, `:157`
+These log the password-file **path** and a `java.nio.file` exception message ("could not write file X").
+They do not log the password. The variables are only flagged because their names contain "password".
+The neighbouring line that did log the password (#94) is fixed. #95 (`:154`) was the same kind of path
+log, and that line was removed by the fix (the atomic temp-file rename leaves no partial file to clean up).
+
+### #91: `java/sensitive-log`: `authorization/flow/push/LoggingPushSender.java:25`
+This is the dev push sender. It logs the approval id, user id, the number-matching number with its
+decoy choices, and the challenge nonce. None of these can approve a login. The browser that started the
+login already shows the expected number (that is how number matching works). The challenge is a public
+nonce that is also sent in clear through FCM/APNs. `PushApprovalService.approve` and `.deny` require an
+ES256 signature over it from the device key enrolled for the user the approval is bound to.
+
+### #86: `java/xss`: `authorization/idp/saml/SamlIdpController.java:432`
+The only request-derived value in the metadata document is the realm, which appears in the SSO and SLO
+`Location="..."` attribute values. `RealmRoutingFilter` takes it from the **raw, undecoded**
+`getRequestURI()` segment, and it 404s unknown realms. Realm ids are `[A-Za-z0-9._-]`. Tomcat rejects
+unencoded `<`, `>` and `"` in the request line, and percent-escapes stay escaped. A raw `&...;` entity
+inside an XML attribute value is character data. It cannot close the attribute or add markup, and the
+worst case is malformed XML. The response is `application/xml`, not HTML.
+
+### #87: `java/unvalidated-url-redirection`: `authorization/security/flow/ResolveSavedRequestRedirect.java:61`
+The target is `SavedRequest.getRedirectUrl()` from Spring Security's session-scoped `HttpSessionRequestCache`.
+Spring Security stores it when this user's own browser asked this server for a protected URL. It is
+rebuilt from that request's scheme, host, port, URI and query, so it always points back to this server's
+own origin as the browser addressed it. An attacker cannot write another user's session cache, and
+nothing from the current request feeds the target.
+
+### #88: `java/unvalidated-url-redirection`: `authorization/security/oidc/PromptAndMaxAgeAuthorizeFilter.java:180`
+The redirect happens only after `client.getRedirectUris().contains(redirectUri)`, an exact match against
+the client's registered redirect URIs. An unknown client, a missing URI or a mismatch gets a 400. The only
+additions are `error=login_required` and a URL-encoded `state`, which is what OIDC Core §3.1.2.6 requires.
+
+### #89: `java/spring-boot-exposed-actuators-config`: `pom.xml:314`
+`application.properties` exposes only `health,prometheus` (`/actuator/info` and everything else are
+off). `health` is anonymous for k8s probes with the default `show-details=never`.
+`helix.actuator.prometheus-anonymous` defaults to `false`, so `/actuator/prometheus` needs
+authentication unless an operator enables anonymous access, and `ProductionReadinessCheck` warns when
+they do. No sensitive endpoint (`env`, `heapdump`, `loggers`, `configprops`, …) is exposed.
+
+## Fixed (for reference)
+
+| Alert(s) | Rule | Fix | Test |
+|---|---|---|---|
+| #90 | insecure-cookie | device cookie `Secure` follows `helix.security.cookie-secure`, not `request.isSecure()` | `RiskAuthenticatorTest.newDeviceCookie_isSecure_evenWhenTheRequestLooksPlainHttp` |
+| #98, #99 | tainted-arithmetic | SCIM paging end = `from + min(count, total - from)` | `ScimListPagingTest` |
+| #94 | sensitive-log | generated bootstrap admin password is never logged; always written 0600 | `RealmAdminBootstrapServiceL6Test` |
+| #97 | sensitive-log | `OutboundUrlGuard` logs and echoes only `scheme://host[:port]` | `OutboundUrlGuardTest.blockedUrl_neverLogsOrEchoesCredentialsPathOrQuery` |
+| #243, #244 | user-controlled-bypass | The flagged flow is fail-closed, but review found a real cross-realm escalation: role `admin_x` in realm `y` produced the authority `admin_x_y`, the same string as "admin of realm `x_y`". Role names starting with `admin_` are now reserved. | `AdminRoleNameCollisionE2eTest`, `RoleAdminServiceTest.create_rejectsAReservedAdminPrefixedName_soItCannotPoseAsAnotherRealmsAdmin` |
+| (from #242 review) | ssrf | WIF issuer-discovery GET now passes `OutboundUrlGuard` | `WorkloadIdentityDiscoveryEgressTest` |
