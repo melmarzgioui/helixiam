@@ -35,5 +35,24 @@ helm install helixiam deploy/helm/helixiam \
   --set secrets.existingSecret=helixiam-secrets
 ```
 
+## Provisioning without turning MFA off
+Automation (Terraform, a tenant provisioner) should use a **bootstrap service account**, not the bootstrap admin
+user — that user is subject to TOTP, and turning `config.mfaEnabled` (`MFA_ENABLED`) off to let a script sign in
+weakens every realm. Put a secret of 32–120 printable ASCII characters in the referenced Secret and name the client:
+
+```bash
+kubectl create secret generic helixiam-secrets ... \
+  --from-literal=bootstrap-client-secret="$(openssl rand -base64 48 | tr -d '\n=+/' | cut -c1-64)"
+helm upgrade --install helixiam deploy/helm/helixiam ... --set secrets.bootstrapClientId=provisioner
+```
+
+On first boot the server creates `provisioner` in the master realm with the master `admin` role (the secret is
+mounted as a file, `HELIX_BOOTSTRAP_CLIENT_SECRET_FILE`). Get a token with `client_credentials` at
+`/realms/master/oauth2/token` and call the admin API with it. The client is created once and never changed
+afterwards; rotate its secret with `POST /admin/realms/master/clients/{id}/secret`.
+
+`config.mfaEnabled: true` (default) requires TOTP for every password sign-in in every realm; `false` leaves it to
+each realm's `requireMfa`. Neither affects `client_credentials` tokens.
+
 See [`values.yaml`](values.yaml) for the full set of options (ingress, resources, probes,
 NetworkPolicy selectors, extra env).
