@@ -38,6 +38,15 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   context, else the realm's display name, else the id; `{{realmId}}` keeps the id. The registration and reset emails
   no longer say "HelixIAM" for a realm without a display name; they use its id.
 
+- **Item 5** — The Helm chart runs without Redis. `redis.host` is required only when `config.sessionStore` or the new
+  `config.tokenStore` (`HELIX_TOKEN_STORE`, default `queue`) is `redis`; otherwise the chart sets no `REDIS_HOST`
+  and the NetworkPolicy opens no Redis port, and an unknown store name fails the render. `HELIX_TOKEN_STORE` is now
+  mapped to `helix.iam.token-store` (the env var alone bound to nothing, so `HELIX_TOKEN_STORE=redis` had no effect
+  while the health check assumed Redis was in use). The chart README lists what uses Redis (only those two stores)
+  and what stays per replica (rate limits, SAML replay cache, QR / push / transaction-signing state).
+  `e2e/helm-template-check.sh` checks the renders; `STORE=queue e2e/image-boot-smoke.sh` and
+  `NO_REDIS=1 e2e/monthfold/k3d-helm.sh` boot without any Redis (k3d: readiness UP, 38/38 checks, 6/6 tokens).
+
 - **Item 7a** — The theme validator checks muted text: `inkMuted` on `surface` and on `surfaceRaised`, light and
   dark, at least 4.5:1 (`contrast.inkMutedOnSurface.*`, `contrast.inkMutedOnSurfaceRaised.*`, same message format).
   So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's

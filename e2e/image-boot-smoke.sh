@@ -9,12 +9,19 @@
 # runnable locally (e.g. an arm64 Mac).
 #
 # Usage (repo root): e2e/image-boot-smoke.sh
+#   STORE=queue                             sessions and tokens in PostgreSQL, and NO Redis container at all (item 5:
+#                                           the chart with config.sessionStore=queue and no redis.host)
 #   IMAGE=helixiam/helix-iam-server:smoke   image tag to build/run
 #   SKIP_BUILD=1                            run an already built $IMAGE
 #   TIMEOUT=300                             seconds to wait for readiness
 set -euo pipefail
 cd "$(dirname "$0")/.."
 IMAGE=${IMAGE:-helixiam/helix-iam-server:smoke}
+STORE=${STORE:-redis}
+case "$STORE" in
+  redis | queue) ;;
+  *) echo "STORE must be redis or queue" >&2; exit 2 ;;
+esac
 TIMEOUT=${TIMEOUT:-300}
 RUN=helix-smoke-$$
 NET=$RUN-net
@@ -45,7 +52,11 @@ fi
 docker network create "$NET" >/dev/null
 docker run -d --name "$RUN-postgres" --network "$NET" --network-alias postgres \
   -e POSTGRES_DB=helixiam -e POSTGRES_USER=helixiam -e POSTGRES_PASSWORD=helixiam-db-pw postgres:16-alpine >/dev/null
-docker run -d --name "$RUN-redis" --network "$NET" --network-alias redis redis:7-alpine >/dev/null
+REDIS_ENV=()
+if [ "$STORE" = redis ]; then
+  docker run -d --name "$RUN-redis" --network "$NET" --network-alias redis redis:7-alpine >/dev/null
+  REDIS_ENV=(-e REDIS_HOST=redis -e REDIS_PORT=6379)
+fi
 for _ in $(seq 1 60); do
   docker exec "$RUN-postgres" pg_isready -U helixiam -d helixiam >/dev/null 2>&1 && break
   sleep 1
@@ -57,10 +68,10 @@ docker run -d --name "$RUN-server" --network "$NET" -p "127.0.0.1:$PORT:8080" \
   --read-only --tmpfs /tmp:rw,size=256m --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges \
   -e SERVER_PORT=8080 \
   -e DB_HOST=postgres -e DB_RO_HOST=postgres -e DB_PORT=5432 -e DB_NAME=helixiam \
-  -e REDIS_HOST=redis -e REDIS_PORT=6379 \
+  ${REDIS_ENV[@]+"${REDIS_ENV[@]}"} \
   -e IDP_BASE_URL=https://idp.example.test -e SP_BASE_URL=https://console.example.test \
   -e HELIX_SAML_IDP_ENTITY_ID=https://idp.example.test/realms/master -e HELIX_SAML_IDP_ENABLED=true \
-  -e HELIX_SESSION_STORE=redis -e USER_REGISTRATION_ENABLED=false -e HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS=false \
+  -e HELIX_SESSION_STORE="$STORE" -e HELIX_TOKEN_STORE=queue -e USER_REGISTRATION_ENABLED=false -e HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS=false \
   -e HELIX_COOKIE_SECURE=true -e HELIX_MIGRATIONS_ENABLED=true -e HELIX_SQL_INIT_MODE=never \
   -e HELIX_ADMIN_USERNAME=admin -e HELIX_ADMIN_PASSWORD='Smoke-Admin-Passw0rd!' \
   -e DB_USERNAME=helixiam -e DB_PASSWORD=helixiam-db-pw -e DB_ENCRYPTION=00112233445566778899aabbccddeeff \
@@ -83,7 +94,19 @@ elapsed=$(( $(date +%s) - start ))
 
 case "$status" in
   *'"status":"UP"'*)
-    echo "readiness UP after ${elapsed}s on linux/$IMAGE_ARCH: $status"
+    echo "readiness UP after ${elapsed}s on linux/$IMAGE_ARCH (session store: $STORE): $status"
+    if [ "$STORE" = queue ]; then
+      health=$(curl -fsS "http://127.0.0.1:$PORT/actuator/health")
+      echo "health: $health"
+      case "$health" in
+        *'"status":"UP"'*) ;;
+        *) echo "/actuator/health is not UP without Redis" >&2; exit 1 ;;
+      esac
+      if docker ps -a --format '{{.Names}}' | grep -qx "$RUN-redis"; then
+        echo "a Redis container is running in the queue variant" >&2
+        exit 1
+      fi
+    fi
     echo "liveness: $(curl -fsS "http://127.0.0.1:$PORT/actuator/health/liveness")"
     echo "flyway: $(docker exec "$RUN-postgres" psql -U helixiam -d helixiam -tAc \
       "select 'V' || max(version::int) || ', all successful: ' || bool_and(success) from flyway_schema_history")"

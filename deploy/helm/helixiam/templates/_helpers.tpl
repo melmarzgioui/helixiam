@@ -40,6 +40,27 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}
 
+{{/*
+Whether the release needs Redis: the Redis HTTP-session store or the Redis token store (item 5). Fails on a store
+name the server does not know. Renders "true" or "".
+*/}}
+{{- define "helixiam.redisRequired" -}}
+{{- $session := .Values.config.sessionStore | default "redis" -}}
+{{- $token := .Values.config.tokenStore | default "queue" -}}
+{{- if not (has $session (list "redis" "queue")) -}}
+{{- fail (printf "helixiam: config.sessionStore must be redis or queue (got %q)" $session) -}}
+{{- end -}}
+{{- if not (has $token (list "queue" "redis")) -}}
+{{- fail (printf "helixiam: config.tokenStore must be queue or redis (got %q)" $token) -}}
+{{- end -}}
+{{- if or (eq $session "redis") (eq $token "redis") -}}true{{- end -}}
+{{- end -}}
+
+{{/* Whether the pod connects to Redis: it is required, or a host is configured anyway. Renders "true" or "". */}}
+{{- define "helixiam.redisUsed" -}}
+{{- if or (include "helixiam.redisRequired" .) .Values.redis.host -}}true{{- end -}}
+{{- end -}}
+
 {{/* Fail fast on required values so a bad install is caught at render time. */}}
 {{- define "helixiam.require" -}}
 {{- if not .val -}}

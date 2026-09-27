@@ -1,7 +1,7 @@
 # helixiam Helm chart
 
 Deploys **helix-iam-server** (the HelixIAM identity server). PostgreSQL and Redis are **not**
-bundled — point the chart at your own managed instances.
+bundled — point the chart at your own managed instances. Redis is optional: see [Running without Redis](#running-without-redis).
 
 ## Security posture
 - Non-root (uid 10001), `readOnlyRootFilesystem: true` (writes only an `emptyDir` `/tmp`),
@@ -10,12 +10,13 @@ bundled — point the chart at your own managed instances.
 - Secure config defaults: self-registration off, Prometheus scrape non-anonymous, secure cookies,
   Flyway-managed schema.
 - **Secrets are referenced, never inlined** — you supply an existing `Secret`.
-- A `NetworkPolicy` restricts ingress to the HTTP port and egress to DNS + database + Redis + TLS.
+- A `NetworkPolicy` restricts ingress to the HTTP port and egress to DNS + database + Redis (when used) + TLS.
 - Startup / liveness / readiness probes hit the actuator health groups.
 
 ## Required values
-`config.idpBaseUrl`, `config.spBaseUrl`, `database.host`, `redis.host`, `secrets.existingSecret`
-(render fails fast if any is missing).
+`config.idpBaseUrl`, `config.spBaseUrl`, `database.host`, `secrets.existingSecret`, and `redis.host` when
+`config.sessionStore` or `config.tokenStore` is `redis` (the default session store is `redis`). Rendering fails fast
+if one is missing, or if a store is not `redis` or `queue`.
 
 ## Install
 ```bash
@@ -34,6 +35,28 @@ helm install helixiam deploy/helm/helixiam \
   --set redis.host=redis.redis.svc \
   --set secrets.existingSecret=helixiam-secrets
 ```
+
+## Running without Redis
+Redis is used by exactly two things, both selectable:
+
+| Value | `redis` | `queue` |
+|---|---|---|
+| `config.sessionStore` (`HELIX_SESSION_STORE`) — browser sessions | Redis (default) | PostgreSQL |
+| `config.tokenStore` (`HELIX_TOKEN_STORE`) — authorization codes, tokens, SSO sessions | Redis (high-throughput tier) | PostgreSQL (default) |
+
+With both on `queue`, leave `redis.host` empty: the chart sets no `REDIS_HOST`, the NetworkPolicy opens no Redis port,
+and the server never contacts Redis (its health indicator is off, so readiness does not depend on it).
+
+```bash
+helm install helixiam deploy/helm/helixiam ... --set config.sessionStore=queue   # no redis.host
+```
+
+Nothing else needs Redis. Account lockout (failed sign-ins) is kept in PostgreSQL. These are kept in each replica's
+memory whatever the stores are, so with more than one replica they are per pod: the rate limits (the per-IP limits
+on sign-in and token endpoints, the account console's and the verification email's per-user limits; the effective
+limit is the configured one times the number of replicas), the SAML assertion replay cache, and the short-lived QR
+sign-in, push-approval, transaction-signing and device-enrolment state (a sign-in that uses one of these must reach
+the same pod, or be retried).
 
 ## Provisioning without turning MFA off
 Automation (Terraform, a tenant provisioner) should use a **bootstrap service account**, not the bootstrap admin

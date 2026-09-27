@@ -3,6 +3,7 @@ HelixIAM ({{ include "helixiam.fullname" . }}) is installed.
 Image:   {{ include "helixiam.image" . }}
 IdP URL: {{ .Values.config.idpBaseUrl }}
 SP URL:  {{ .Values.config.spBaseUrl }}
+Stores:  sessions {{ .Values.config.sessionStore | default "redis" }}, tokens {{ .Values.config.tokenStore | default "queue" }}{{ if include "helixiam.redisUsed" . }} (Redis {{ .Values.redis.host }}:{{ .Values.redis.port }}){{ else }} (no Redis){{ end }}
 
 Check rollout:
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "helixiam.fullname" . }}
