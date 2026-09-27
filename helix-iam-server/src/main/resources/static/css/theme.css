@@ -384,8 +384,10 @@ header > div.headerBar a > div.logo {
 /* per-realm custom logo image, shown only when a realm sets one */
 header > div.headerBar a > div.logo > img {
   display: block;
-  max-height: 26px;
+  height: 26px; /* a fixed height, so logos without intrinsic size (e.g. SVG) still render */
   width: auto;
+  max-width: 180px;
+  object-fit: contain;
 }
 /* default HelixIAM wordmark — ink "Helix" + sage "IAM" + sage spark (matches helixiam.com) */
 .hx-wordmark {
@@ -509,7 +511,7 @@ form label.invalid {
   color: var(--color_grade_out);
 }
 
-input[type=text], input[type=search], input[type=number], input[type=password], input[type=date], select, textarea {
+input[type=text], input[type=email], input[type=search], input[type=number], input[type=password], input[type=date], select, textarea {
   width: 100%;
   border: 1px solid var(--color-box-border);
   border-radius: 5px;
@@ -654,9 +656,6 @@ main .title h3 {
 @media (max-width: 480px) {
   .mainWrapper > main > div.container ul.recoveryCodes {
     grid-template-columns: 1fr;
-  }
-  .buttonHolder > a.button {
-    width: 100%;
   }
 }
 
