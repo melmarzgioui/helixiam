@@ -39,4 +39,11 @@ describe("createMessagingHttpClient", () => {
     expect(r).toMatchObject({ result: "TRANSIENT_FAILURE", reason: "AUTHENTICATION", diagnostic: "HTTP 401" });
     expect(fn).toHaveBeenCalledWith("/admin/realms/acme/messaging/providers/EMAIL/test", expect.objectContaining({ method: "POST", body: JSON.stringify({ to: "me@example.com" }) }));
   });
+
+  it("tests a chosen provider when a driver is given", async () => {
+    const fn = stub(200, { sent: true, message: "Test email sent.", result: "ACCEPTED", reason: "NONE", driver: "CLOUDFLARE" });
+    const r = await createMessagingHttpClient("").testProvider("acme", "EMAIL", "me@example.com", "CLOUDFLARE");
+    expect(r.driver).toBe("CLOUDFLARE");
+    expect(fn).toHaveBeenCalledWith("/admin/realms/acme/messaging/providers/EMAIL/test", expect.objectContaining({ body: JSON.stringify({ to: "me@example.com", driver: "CLOUDFLARE" }) }));
+  });
 });

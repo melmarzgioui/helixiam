@@ -318,8 +318,10 @@ td.hx-col-sticky { background: var(--bg); }
 .hx-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 /* Dimmed/inactive card ("Not set up" family). */
 .hx-card--muted { opacity: .6; }
-/* Dynamic-size avatar — size driven by the --avatar-size custom property. */
-.hx-avatar--sized { width: var(--avatar-size); height: var(--avatar-size); font-size: calc(var(--avatar-size) * .36); }
+/* Avatar sizes (UsersPage Avatar): list rows, mobile cards, detail header. */
+.hx-avatar--34 { width: 34px; height: 34px; font-size: .77rem; }
+.hx-avatar--38 { width: 38px; height: 38px; font-size: .86rem; }
+.hx-avatar--46 { width: 46px; height: 46px; font-size: 1.02rem; }
 /* Tree row indent — depth driven by the --depth custom property (× 18px). */
 .hx-tree-row { margin-left: calc(var(--depth) * 18px); }
 
@@ -472,4 +474,65 @@ td.hx-col-sticky { background: var(--bg); }
 @media (max-width: 560px) {
   .hx-inputrow--stack { flex-direction: column; align-items: stretch; }
   .hx-inputrow--stack > .hx-input { width: 100%; }
+}
+/* An alert that follows a switch row explains what saving the switch will do. */
+.hx-switchrow + .hx-alert { margin-top: var(--sp-3); }
+/* Explanatory note beside a field in a field grid (aligned with the input, not the label). */
+.hx-limitnote { margin-top: 1.7rem; }
+@media (max-width: 560px) {
+  .hx-limitnote { margin-top: 0; }
+  /* Section header: title and description take the full width; header actions (status badges) stack below. */
+  .hx-section > .hx-section__head { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+  .hx-section > .hx-section__head > div:first-child { flex: none; }
+  .hx-section__headctl { flex-wrap: wrap; }
+  .hx-section__headctl > span { max-width: 100%; white-space: normal; }
+  /* Input + action rows: the action gets the full width under the input. */
+  .hx-inputrow--stack > .hx-btn { width: 100%; justify-content: center; }
+}
+/* FormField: the <label> holds the label text and the control; hint and error follow it (aria-describedby). */
+.hx-field__control { display: block; }
+/* RadioCard parts (no inline styles): the title row wraps its tags (status chips) evenly under or beside the name. */
+.hx-tile__icon { flex-shrink: 0; margin-top: 1px; }
+.hx-tile__text { display: block; min-width: 0; }
+.hx-tile__title { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; font: 600 1rem var(--font); color: var(--fg); }
+.hx-tile__desc { display: block; margin-top: .2rem; font-size: .85rem; color: var(--fg-muted); }
+.hx-tile__title > .hx-tile__tag { margin-left: 0; }
+/* Dismiss buttons on alerts and toasts: a 44px touch target around the small icon, without growing the box. */
+.hx-alert__x, .hx-toast__x { min-width: 44px; min-height: 44px; display: grid; place-items: center; margin: -12px -12px -12px 0; }
+.hx-alert__x:focus-visible, .hx-toast__x:focus-visible { outline: none; box-shadow: var(--ring); }
+/* A test result that describes the SAVED settings while the form has unsaved changes (B1). */
+.hx-testresult--stale { opacity: .62; }
+.hx-testresult__stale { font: 600 .78rem var(--font); letter-spacing: .02em; text-transform: uppercase; }
+.hx-testresult > div { min-width: 0; }
+.hx-testresult .hx-codeblock { width: 100%; box-sizing: border-box; }
+/* A value with a copy button on one line (provider message id). */
+.hx-copyline { display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 100%; }
+.hx-copyline > code { overflow-wrap: anywhere; }
+/* Links to the fields that failed validation, inside the save banner. */
+.hx-errorlinks { margin: .35rem 0 0; padding-left: 1.1rem; display: grid; gap: .2rem; }
+.hx-errorlinks .hx-link { background: none; border: none; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+.hx-errorlinks .hx-link:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 4px; }
+/* Small vertical stack inside a dialog body. */
+.hx-stackgap { display: grid; gap: var(--sp-3); }
+.hx-stackgap > p { margin: 0; }
+/* The sending-limit explanation: one line, the rest behind a disclosure. */
+.hx-limitnote > .hx-help { margin: 0 0 var(--sp-2); }
+.hx-limitnote .hx-disclosure { margin-top: 0; }
+/* A badge that is a button (keyboard focus shows its tooltip). */
+.hx-badge-btn { display: inline-flex; padding: 0; border: none; background: none; border-radius: 999px; cursor: help; font: inherit; }
+.hx-badge-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+@media (max-width: 560px) {
+  /* Save bar on phones: the primary action first and full width, like the other stacked actions. */
+  .hx-savebar__actions { flex-direction: column-reverse; align-items: stretch; width: 100%; margin-left: 0; }
+  .hx-savebar__actions > .hx-btn { width: 100%; justify-content: center; }
+}
+/* Dialog footer: long confirm labels wrap onto a second row instead of pushing Cancel out of the dialog. */
+.hx-dialog > footer { flex-wrap: wrap; }
+@media (max-width: 560px) {
+  /* Phones: dialogs are bottom sheets sized to their content (long forms scroll inside), with the actions stacked
+     full width, primary first. */
+  .hx-scrim-modal { align-items: flex-end; }
+  .hx-dialog { height: auto; max-height: 92dvh; border-radius: var(--r) var(--r) 0 0; }
+  .hx-dialog > footer { flex-direction: column-reverse; align-items: stretch; }
+  .hx-dialog > footer > .hx-btn { width: 100%; justify-content: center; }
 }

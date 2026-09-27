@@ -11,7 +11,13 @@ import {
   formFromProvider,
   initialEmailDriver,
   isDirty,
-  otherEnabledEmailDrivers,
+  activeEmailProvider,
+  switchesFrom,
+  clearSecretBlocked,
+  clearSecretWrite,
+  validateSendLimit,
+  testBlocked,
+  testResultState,
   resolveTlsMode,
   setPort,
   setTlsMode,
@@ -252,9 +258,12 @@ describe("validateEmailForm — Cloudflare", () => {
     expect(validateEmailForm(cloudflare({ config: { accountId: "abc/def" } }))["config.accountId"]).toBe("email.err.accountIdInvalid");
     expect(validateEmailForm(cloudflare({ config: { accountId: "a".repeat(65) } }))["config.accountId"]).toBe("email.err.accountIdInvalid");
   });
-  it("requires the API token unless one is stored", () => {
+  it("requires the API token to enable, unless one is stored", () => {
     expect(validateEmailForm(cloudflare({ secret: { stored: false, replacing: false, value: "" } })).secret).toBe("email.err.tokenRequired");
     expect(validateEmailForm(cloudflare({ secret: { stored: true, replacing: false, value: "" } })).secret).toBeUndefined();
+  });
+  it("lets a switched-off Cloudflare provider be saved without a token", () => {
+    expect(validateEmailForm(cloudflare({ enabled: false, secret: { stored: false, replacing: false, value: "" } })).secret).toBeUndefined();
   });
   it("requires an https base URL without credentials, query or fragment", () => {
     const base = (u: string) => validateEmailForm(cloudflare({ config: { accountId: "a", baseUrl: u } }))["config.baseUrl"];
@@ -306,7 +315,7 @@ describe("splitServerErrors", () => {
   });
 });
 
-describe("initialEmailDriver / otherEnabledEmailDrivers", () => {
+describe("initialEmailDriver / activeEmailProvider", () => {
   const list = [
     provider({ driver: "SMTP", enabled: false }),
     provider({ driver: "CLOUDFLARE", enabled: true }),
@@ -320,9 +329,9 @@ describe("initialEmailDriver / otherEnabledEmailDrivers", () => {
     expect(initialEmailDriver([])).toBe("SMTP");
     expect(initialEmailDriver([provider({ driver: "SENDGRID", enabled: true })])).toBe("SMTP");
   });
-  it("lists the other enabled email drivers only", () => {
-    expect(otherEnabledEmailDrivers(list, "SMTP")).toEqual(["CLOUDFLARE"]);
-    expect(otherEnabledEmailDrivers(list, "CLOUDFLARE")).toEqual([]);
+  it("finds the enabled email provider, ignoring other channels", () => {
+    expect(activeEmailProvider(list)?.driver).toBe("CLOUDFLARE");
+    expect(activeEmailProvider([provider({ channel: "SMS", driver: "HTTP", enabled: true })])).toBeUndefined();
   });
 });
 
@@ -345,6 +354,26 @@ describe("describeTestResult", () => {
     expect(d("QUEUED", true)).toMatchObject({ tone: "info", title: "email.test.status.QUEUED" });
     expect(d("PERMANENT_FAILURE", false)).toMatchObject({ tone: "danger", title: "email.test.status.PERMANENT_FAILURE" });
     expect(d("TRANSIENT_FAILURE", false)).toMatchObject({ tone: "warning", title: "email.test.status.TRANSIENT_FAILURE" });
+  });
+
+  it("marks accepted and queued as ok, failures as not ok", () => {
+    const ok = (result: string, sent: boolean) => describeTestResult({ sent, message: "", result, reason: "NONE" }, "SMTP").ok;
+    expect(ok("ACCEPTED", true)).toBe(true);
+    expect(ok("QUEUED", true)).toBe(true);
+    expect(ok("PERMANENT_FAILURE", false)).toBe(false);
+    expect(ok("TRANSIENT_FAILURE", false)).toBe(false);
+    expect(describeTestResult({ sent: false, message: "No enabled EMAIL provider for this realm." }, "SMTP").ok).toBe(false);
+  });
+
+  it("calls refused credentials and unusable settings a settings problem, not a temporary failure", () => {
+    for (const reason of ["AUTHENTICATION", "CONFIGURATION"]) {
+      for (const result of ["TRANSIENT_FAILURE", "PERMANENT_FAILURE"]) {
+        expect(describeTestResult({ sent: false, message: "", result, reason }, "CLOUDFLARE")).toMatchObject({ tone: "danger", title: "email.test.status.SETTINGS" });
+      }
+    }
+    for (const reason of ["RATE_LIMITED", "RATE_CAPPED", "NETWORK"]) {
+      expect(describeTestResult({ sent: false, message: "", result: "TRANSIENT_FAILURE", reason }, "SMTP")).toMatchObject({ tone: "warning", title: "email.test.status.TRANSIENT_FAILURE" });
+    }
   });
 
   it("gives Cloudflare token and domain guidance on authentication failures", () => {
@@ -383,5 +412,113 @@ describe("describeTestResult", () => {
   it("falls back to the server message when the answer is not classified", () => {
     const d = describeTestResult({ sent: false, message: "No enabled EMAIL provider for this realm." }, "SMTP");
     expect(d).toMatchObject({ tone: "danger", title: "email.test.notSent", message: "No enabled EMAIL provider for this realm.", guidance: "email.test.guide.noProvider" });
+  });
+});
+
+describe("send rate cap (config.sendLimitPerMinute)", () => {
+  it("accepts empty (server default) and 1 to 1000000", () => {
+    expect(validateSendLimit(undefined)).toBeNull();
+    expect(validateSendLimit("")).toBeNull();
+    expect(validateSendLimit("1")).toBeNull();
+    expect(validateSendLimit("1000000")).toBeNull();
+  });
+  it("rejects 0, negatives, fractions, text and values over the maximum", () => {
+    for (const v of ["0", "-5", "2.5", "ten", "1000001"]) expect(validateSendLimit(v)).toBe("email.err.sendLimit");
+  });
+  it("is checked for every driver, LOG included", () => {
+    expect(validateEmailForm(smtp({ config: { host: "h", sendLimitPerMinute: "0" } }))["config.sendLimitPerMinute"]).toBe("email.err.sendLimit");
+    expect(validateEmailForm({ ...formFromProvider("LOG"), config: { sendLimitPerMinute: "abc" } })["config.sendLimitPerMinute"]).toBe("email.err.sendLimit");
+    expect(validateEmailForm(cloudflare({ config: { accountId: "a", sendLimitPerMinute: "60" } }))).toEqual({});
+  });
+  it("is sent with the provider and carried to a new driver", () => {
+    expect(toWrite(smtp({ config: { host: "h", sendLimitPerMinute: " 60 " } })).config.sendLimitPerMinute).toBe("60");
+    const next = formFromProvider("CLOUDFLARE", undefined, { fromAddress: "a@b.co", fromName: "", sendLimitPerMinute: "60" });
+    expect(next.config.sendLimitPerMinute).toBe("60");
+    const saved = formFromProvider("CLOUDFLARE", provider({ driver: "CLOUDFLARE", config: { accountId: "a" } }), { fromAddress: "", fromName: "", sendLimitPerMinute: "60" });
+    expect(saved.config.sendLimitPerMinute).toBeUndefined();
+  });
+  it("puts a server error on the field", () => {
+    expect(splitServerErrors("LOG", { "config.sendLimitPerMinute": "Enter a limit." }).fields).toEqual({ "config.sendLimitPerMinute": "Enter a limit." });
+  });
+});
+
+describe("switchesFrom (one active email provider per realm)", () => {
+  const list = [provider({ driver: "SMTP", enabled: true }), provider({ driver: "CLOUDFLARE", enabled: false })];
+  it("names the provider that saving this one switched on will turn off", () => {
+    expect(switchesFrom(list, cloudflare({ enabled: true }))).toBe("SMTP");
+  });
+  it("is null when this one is already active, is saved off, or nothing else is on", () => {
+    expect(switchesFrom(list, smtp({ enabled: true }))).toBeNull();
+    expect(switchesFrom(list, cloudflare({ enabled: false }))).toBeNull();
+    expect(switchesFrom([provider({ driver: "SMTP", enabled: false })], cloudflare({ enabled: true }))).toBeNull();
+  });
+});
+
+describe("removing a stored secret", () => {
+  it("is blocked when nothing is stored", () => {
+    expect(clearSecretBlocked(undefined)).toBe("email.secret.remove.nothing");
+    expect(clearSecretBlocked(provider({ secretSet: false }))).toBe("email.secret.remove.nothing");
+  });
+  it("is blocked for an enabled Cloudflare provider, which needs its token", () => {
+    expect(clearSecretBlocked(provider({ driver: "CLOUDFLARE", enabled: true, secretSet: true }))).toBe("email.secret.remove.blockedCloudflare");
+    expect(clearSecretBlocked(provider({ driver: "CLOUDFLARE", enabled: false, secretSet: true }))).toBeNull();
+    expect(clearSecretBlocked(provider({ driver: "SMTP", enabled: true, secretSet: true }))).toBeNull();
+  });
+  it("sends the saved settings with clearSecret and no secret, without the deprecated starttls", () => {
+    const w = clearSecretWrite(provider({ driver: "SMTP", enabled: true, secretSet: true, config: { host: "mail", starttls: "true", port: "587" } }));
+    expect(w).toMatchObject({ channel: "EMAIL", driver: "SMTP", enabled: true, fromAddress: "no-reply@example.com", clearSecret: true });
+    expect(w).not.toHaveProperty("secret");
+    expect(w.config).toEqual({ host: "mail", port: "587", tlsMode: "STARTTLS_REQUIRED" });
+  });
+  it("never adds clearSecret to a normal save", () => {
+    expect(toWrite(smtp())).not.toHaveProperty("clearSecret");
+  });
+});
+
+describe("describeTestResult for a chosen provider that is not configured", () => {
+  it("guides the user to save it", () => {
+    const d = describeTestResult({ sent: false, message: "No EMAIL provider with driver CLOUDFLARE is configured for this realm." }, "CLOUDFLARE");
+    expect(d.guidance).toBe("email.test.guide.noProvider");
+  });
+});
+
+describe("describeTestResult for HelixIAM's own send rate cap", () => {
+  it("explains the cap instead of blaming the provider", () => {
+    const d = describeTestResult({ sent: false, message: "Test email not delivered.", result: "TRANSIENT_FAILURE", reason: "RATE_CAPPED", diagnostic: "The realm's send rate cap (60 emails per minute) is reached" }, "SMTP");
+    expect(d).toMatchObject({ tone: "warning", title: "email.test.status.TRANSIENT_FAILURE", reason: "email.test.reason.RATE_CAPPED", guidance: "email.test.guide.rateCapped" });
+  });
+});
+
+describe("describeTestResult for unusable settings", () => {
+  it("points Cloudflare users at the account id, token and base URL", () => {
+    const d = describeTestResult({ sent: false, message: "", result: "PERMANENT_FAILURE", reason: "CONFIGURATION", diagnostic: "The Cloudflare provider has no API token" }, "CLOUDFLARE");
+    expect(d.guidance).toBe("email.test.guide.cloudflareConfiguration");
+    expect(describeTestResult({ sent: false, message: "", result: "PERMANENT_FAILURE", reason: "CONFIGURATION" }, "SMTP").guidance).toBe("email.test.guide.configuration");
+  });
+});
+
+describe("testBlocked (can this saved provider be test-sent?)", () => {
+  it("needs a saved provider", () => {
+    expect(testBlocked(undefined)).toBe("email.test.needSave");
+  });
+  it("needs the Cloudflare API token, which is what the 'has no API token' failure means", () => {
+    expect(testBlocked(provider({ driver: "CLOUDFLARE", secretSet: false, enabled: false }))).toBe("email.test.needToken");
+    expect(testBlocked(provider({ driver: "CLOUDFLARE", secretSet: true, enabled: false }))).toBeNull();
+  });
+  it("lets SMTP, HTTP and LOG test without a secret (sign-in is optional)", () => {
+    for (const driver of ["SMTP", "HTTP", "LOG"]) expect(testBlocked(provider({ driver, secretSet: false }))).toBeNull();
+  });
+});
+
+describe("testResultState (B1: a test result must never describe other settings)", () => {
+  it("shows a result taken at the current saved version", () => {
+    expect(testResultState(3, 3, false)).toBe("current");
+  });
+  it("clears it once the provider is saved again, its secret removed, or the driver changed (the version moves on)", () => {
+    expect(testResultState(3, 4, false)).toBe("cleared");
+    expect(testResultState(3, 4, true)).toBe("cleared");
+  });
+  it("marks it stale while the form has unsaved changes", () => {
+    expect(testResultState(3, 3, true)).toBe("stale");
   });
 });

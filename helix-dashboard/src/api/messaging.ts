@@ -17,8 +17,12 @@ export interface MessagingProvider {
   secretSet: boolean;
 }
 
-/** Create/update payload. `secret` is write-only: null or blank keeps the stored secret (the API cannot
- *  clear one; delete the provider instead). `config` replaces the stored config as a whole. */
+/**
+ * Create/update payload. `secret` is write-only: absent, null or blank keeps the stored secret, a value replaces it,
+ * and `clearSecret: true` (without a secret) removes it. `config` replaces the stored config as a whole. For EMAIL,
+ * saving with `enabled: true` makes this the realm's only enabled email provider (the server turns the others off);
+ * the response is only the saved provider, so re-read the list.
+ */
 export interface MessagingProviderWrite {
   channel: string;
   driver: string;
@@ -27,6 +31,7 @@ export interface MessagingProviderWrite {
   fromName?: string | null;
   config: Record<string, string>;
   secret?: string | null;
+  clearSecret?: boolean;
 }
 
 /** A per-realm message template. `subject` applies to email only. */
@@ -55,6 +60,8 @@ export interface TestResult {
   reason?: string;
   diagnostic?: string;
   providerMessageId?: string;
+  /** The driver that was tested (EMAIL). */
+  driver?: string;
 }
 
 /**
@@ -73,7 +80,8 @@ export interface MessagingApi {
   listProviders(realmId: string): Promise<MessagingProvider[]>;
   saveProvider(realmId: string, body: MessagingProviderWrite): Promise<MessagingProvider>;
   deleteProvider(realmId: string, channel: string, driver: string): Promise<void>;
-  testProvider(realmId: string, channel: string, to: string): Promise<TestResult>;
+  /** Send a test through the realm's active provider, or, with `driver`, through that provider even when it is off. */
+  testProvider(realmId: string, channel: string, to: string, driver?: string): Promise<TestResult>;
   listTemplates(realmId: string): Promise<MessageTemplate[]>;
   saveTemplate(realmId: string, body: MessageTemplate): Promise<MessageTemplate>;
   previewTemplate(realmId: string, subject: string | null, templateBody: string, html?: boolean): Promise<RenderedPreview>;
@@ -107,8 +115,8 @@ export function createMessagingHttpClient(baseUrl = ""): MessagingApi {
     saveProvider: (realmId, body) => send(`${root(realmId)}/providers`, "PUT", body),
     deleteProvider: (realmId, channel, driver) =>
       send(`${root(realmId)}/providers/${encodeURIComponent(channel)}/${encodeURIComponent(driver)}`, "DELETE").then(() => undefined),
-    testProvider: (realmId, channel, to) =>
-      send(`${root(realmId)}/providers/${encodeURIComponent(channel)}/test`, "POST", { to }),
+    testProvider: (realmId, channel, to, driver) =>
+      send(`${root(realmId)}/providers/${encodeURIComponent(channel)}/test`, "POST", driver ? { to, driver } : { to }),
     listTemplates: (realmId) => fetch(`${root(realmId)}/templates`).then(json),
     saveTemplate: (realmId, body) => send(`${root(realmId)}/templates`, "PUT", body),
     previewTemplate: (realmId, subject, templateBody, html) =>

@@ -100,8 +100,8 @@ export function NotificationsPage({ api, realmId }: NotificationsPageProps) {
           <TemplatesEditor api={api} realmId={realmId} templates={templates} onSaved={(tmpl) => { setTemplates(tmpl); setNote({ tone: "success", title: t("notifications.toast.templateSaved") }); }} onError={(m) => setNote({ tone: "error", title: t("notifications.toast.templateSaveError"), message: m })} />
         ) : tab === "EMAIL" ? (
           <EmailDeliverySettings key={realmId} api={api} realmId={realmId} providers={providers}
-            onChanged={() => api.listProviders(realmId).then(setProviders)}
-            onSaved={() => setNote({ tone: "success", title: t("notifications.toast.providerSaved") })} />
+            onChanged={() => api.listProviders(realmId).then((list) => { setProviders(list); return list; })}
+            onSaved={(title) => setNote({ tone: "success", title: title ?? t("notifications.toast.providerSaved") })} />
         ) : (
           <ChannelForm key={tab} api={api} realmId={realmId} channel={tab} providers={providers}
             onSaved={() => { reload(); setNote({ tone: "success", title: t("notifications.toast.providerSaved") }); }}
@@ -111,7 +111,7 @@ export function NotificationsPage({ api, realmId }: NotificationsPageProps) {
       </PageBody>
 
       {note && (
-        <div className="hx-toasthost">
+        <div className={tab === "EMAIL" ? "hx-toasthost hx-toasthost--savebar" : "hx-toasthost"}>
           <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
         </div>
       )}
