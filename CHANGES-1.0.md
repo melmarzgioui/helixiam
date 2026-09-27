@@ -24,6 +24,13 @@ Open issues found when Monthfold moved its production sign-in to rc.4
 - **A9 — security** — `2414be0` Logout tokens expire after 120 s (`HELIX_LOGOUT_TOKEN_TTL_SECONDS`, 1–600) and every
   token has its own `jti`. `docs/oidc-sessions-and-logout.md` tells relying parties how to validate a logout token,
   including rejecting a `jti` they have already seen until its `exp`.
+- **security** — `6b22406` Ending an SSO session (RP logout, admin revoke, account self-service) ends only that
+  session's browser login, found through the HTTP session recorded when its codes were issued, in whichever session
+  store is active. Before, the Redis default ended no browser session at all, so a revoked user's browser silently
+  got new codes. The queue store ended every browser session of the user. The by-user deletion remains only for
+  sessions from before `sid` existed.
+- `98adc78` Discovery lists `claims_supported` (including `auth_time` and `sid`) and advertises
+  `backchannel_logout_supported` and `backchannel_logout_session_supported`.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 
