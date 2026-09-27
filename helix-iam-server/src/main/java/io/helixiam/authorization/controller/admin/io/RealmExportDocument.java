@@ -59,6 +59,7 @@ import java.util.List;
  *                      fails the current rules); ignored on import
  * @param themeAssets   read-only list of the realm's uploaded theme fonts and images (metadata only: id, kind, name,
  *                      ext, size, sha256, created, url; never bytes); ignored on import
+ * @param accountConsole what the realm's account console lets users do themselves (B1); absent = left as it is
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -92,7 +93,8 @@ public record RealmExportDocument(Integer formatVersion,
                                   io.helixiam.authorization.theme.Theme theme,
                                   List<OrganizationThemeExport> organizationThemes,
                                   List<String> themeNotices,
-                                  List<io.helixiam.authorization.theme.asset.ThemeAssetMetadata> themeAssets) {
+                                  List<io.helixiam.authorization.theme.asset.ThemeAssetMetadata> themeAssets,
+                                  io.helixiam.authorization.service.account.AccountConsoleSettings accountConsole) {
 
     /**
      * The current document format version. v2 added the {@code requiredEnv} manifest, switched secret
@@ -172,7 +174,33 @@ public record RealmExportDocument(Integer formatVersion,
         this(formatVersion, realm, clients, samlClients, roles, clientScopes, identityProviders, flows, organizations,
                 applications, webhooks, scimTargets, workloadIdentity, messagingProviders, messageTemplates, adminRoles,
                 groups, users, clientProtocolMappers, clientRoles, serviceAccountRoles, resourceIndicators,
-                authorizationServices, agents, requiredEnv, theme, organizationThemes, themeNotices, null);
+                authorizationServices, agents, requiredEnv, theme, organizationThemes, themeNotices, null, null);
+    }
+
+    /** Back-compat constructor (structured theming with asset metadata, before the account console settings). */
+    public RealmExportDocument(final Integer formatVersion, final RealmSettingsDto realm,
+                               final List<ClientDto> clients, final List<SamlRelyingPartyConfig> samlClients,
+                               final List<RoleDto> roles, final List<ScopeDetailDto> clientScopes,
+                               final List<IdentityProviderConfig> identityProviders,
+                               final List<FlowDefinitionDto> flows, final List<OrgDto> organizations,
+                               final List<ApplicationConfig> applications, final List<WebhookSubscriptionDto> webhooks,
+                               final List<ScimTargetDto> scimTargets,
+                               final List<WorkloadIdentityCredentialDto> workloadIdentity,
+                               final List<MessagingProviderWriteDto> messagingProviders,
+                               final List<MessageTemplateDto> messageTemplates, final List<AdminRoleGrantsDto> adminRoles,
+                               final List<GroupDto> groups, final List<UserAdminDto> users,
+                               final List<ProtocolMapperDto> clientProtocolMappers, final List<ClientRoleDto> clientRoles,
+                               final List<ServiceAccountRoleDto> serviceAccountRoles,
+                               final List<AllowedResourcesWrite> resourceIndicators,
+                               final List<ClientAuthorizationDto> authorizationServices,
+                               final List<io.helixiam.authorization.amqp.agent.AgentIdentityDto> agents,
+                               final List<String> requiredEnv, final io.helixiam.authorization.theme.Theme theme,
+                               final List<OrganizationThemeExport> organizationThemes, final List<String> themeNotices,
+                               final List<io.helixiam.authorization.theme.asset.ThemeAssetMetadata> themeAssets) {
+        this(formatVersion, realm, clients, samlClients, roles, clientScopes, identityProviders, flows, organizations,
+                applications, webhooks, scimTargets, workloadIdentity, messagingProviders, messageTemplates, adminRoles,
+                groups, users, clientProtocolMappers, clientRoles, serviceAccountRoles, resourceIndicators,
+                authorizationServices, agents, requiredEnv, theme, organizationThemes, themeNotices, themeAssets, null);
     }
 
     /** A copy with other theme layers (the archive import rewrites asset references). */
@@ -182,7 +210,7 @@ public record RealmExportDocument(Integer formatVersion,
                 identityProviders, flows, organizations, applications, webhooks, scimTargets, workloadIdentity,
                 messagingProviders, messageTemplates, adminRoles, groups, users, clientProtocolMappers, clientRoles,
                 serviceAccountRoles, resourceIndicators, authorizationServices, agents, requiredEnv, newTheme,
-                newOrganizationThemes, themeNotices, themeAssets);
+                newOrganizationThemes, themeNotices, themeAssets, accountConsole);
     }
 
     /** One organization's theme layer in an export, matched by organization name on import. */

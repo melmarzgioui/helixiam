@@ -996,3 +996,20 @@ CREATE INDEX IF NOT EXISTS theme_asset_realm_idx ON theme_asset (realm_id, kind)
 DROP INDEX IF EXISTS theme_asset_font_face_uq;
 CREATE UNIQUE INDEX IF NOT EXISTS theme_asset_font_face_ci_uq
     ON theme_asset (realm_id, lower(name), font_weight, font_style) WHERE kind = 'font';
+
+-- B1 account console (same as Flyway V60-V62): what users may do themselves, email-change links, "sign out others".
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS account_allow_authenticator_removal boolean NOT NULL DEFAULT true;
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS account_allow_data_export boolean NOT NULL DEFAULT true;
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS account_allow_deletion boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS email_change_token (
+    token_hash  character varying(64)  NOT NULL PRIMARY KEY,
+    realm_id    character varying(255) NOT NULL,
+    user_id     character varying(255) NOT NULL,
+    email       character varying(255) NOT NULL,
+    created_at  timestamp              NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  timestamp              NOT NULL,
+    used_at     timestamp              DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES user_credentials(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS email_change_token_user_idx ON email_change_token (user_id);
+ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS sessions_revoked_at bigint;

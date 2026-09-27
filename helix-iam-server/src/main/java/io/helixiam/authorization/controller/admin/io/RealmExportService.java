@@ -141,6 +141,15 @@ public class RealmExportService {
         this.themeService = themeService;
     }
 
+    private io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings;
+
+    /** B1: what the realm's account console allows is exported as {@code accountConsole}. */
+    @Autowired(required = false)
+    public void setAccountConsoleSettings(
+            final io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings) {
+        this.accountConsoleSettings = accountConsoleSettings;
+    }
+
     private io.helixiam.authorization.theme.asset.ThemeAssetService themeAssetService;
 
     /** Structured theming: the metadata of uploaded theme fonts and images is exported (never their bytes). */
@@ -249,7 +258,8 @@ public class RealmExportService {
                 theme,
                 organizationThemes,
                 themeNotices,
-                themeAssets(realmId));
+                themeAssets(realmId),
+                accountConsoleSettings == null ? null : accountConsoleSettings.find(realmId).orElse(null));
     }
 
     private List<io.helixiam.authorization.theme.asset.ThemeAssetMetadata> themeAssets(final String realmId) {
