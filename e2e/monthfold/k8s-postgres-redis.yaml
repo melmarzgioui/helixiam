@@ -1,12 +1,22 @@
 # Throw-away PostgreSQL + Redis for the release-gate check (e2e/monthfold/k3d-helm.sh). Not for production.
+# Hardened as far as the stock images allow: non-root with the image's own user (postgres uid/gid 70,
+# redis uid 999 gid 1000), no privilege escalation, all capabilities dropped, RuntimeDefault seccomp,
+# read-only root filesystem (writable paths are emptyDir volumes) and resource requests/limits.
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: postgres}
+metadata: {name: postgres, namespace: helix}
 spec:
   selector: {matchLabels: {app: postgres}}
   template:
     metadata: {labels: {app: postgres}}
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -14,25 +24,71 @@ spec:
             - {name: POSTGRES_DB, value: helixiam}
             - {name: POSTGRES_USER, value: helixiam}
             - {name: POSTGRES_PASSWORD, value: helixiam-db-pw}
+            # A subdirectory of the emptyDir, so the entrypoint creates it owned by uid 70 with mode 0700
+            # (initdb refuses a data directory it cannot chmod).
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
           ports: [{containerPort: 5432}]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: run, mountPath: /var/run/postgresql}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: data, emptyDir: {}}
+        - {name: run, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: postgres}
+metadata: {name: postgres, namespace: helix}
 spec: {selector: {app: postgres}, ports: [{port: 5432}]}
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: redis}
+metadata: {name: redis, namespace: helix}
 spec:
   selector: {matchLabels: {app: redis}}
   template:
     metadata: {labels: {app: redis}}
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
       containers:
-        - {name: redis, image: "redis:7-alpine", ports: [{containerPort: 6379}]}
+        - name: redis
+          image: "redis:7-alpine"
+          ports: [{containerPort: 6379}]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - {name: data, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: redis}
+metadata: {name: redis, namespace: helix}
 spec: {selector: {app: redis}, ports: [{port: 6379}]}
