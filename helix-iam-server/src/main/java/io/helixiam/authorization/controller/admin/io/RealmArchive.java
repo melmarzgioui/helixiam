@@ -120,23 +120,31 @@ public final class RealmArchive {
                 if (!seen.add(name)) {
                     throw new RealmArchiveException("The archive holds the entry " + safe(name) + " more than once.");
                 }
-                if (ASSET_DIR.equals(name) && e.isDirectory()) {
-                    continue;
-                }
-                if (DOCUMENT.equals(name)) {
-                    document = readCapped(zip, limits.maxDocumentBytes(), total, limits.maxTotalBytes(), name);
-                } else if (MANIFEST.equals(name)) {
-                    manifest = readCapped(zip, limits.maxAssetBytes(), total, limits.maxTotalBytes(), name);
+                // Review R-I1: decide the entry's cap first, then ALWAYS read its data through the counter; no path
+                // skips an entry (ZipInputStream would inflate a skipped entry's data uncounted).
+                final Matcher m = ASSET_ENTRY.matcher(name);
+                final int cap;
+                if (ASSET_DIR.equals(name)) {
+                    cap = 0; // the folder entry some zip tools write: it may carry no data
+                } else if (DOCUMENT.equals(name)) {
+                    cap = limits.maxDocumentBytes();
+                } else if (MANIFEST.equals(name) || (!e.isDirectory() && m.matches())) {
+                    cap = limits.maxAssetBytes();
                 } else {
-                    final Matcher m = ASSET_ENTRY.matcher(name);
-                    if (e.isDirectory() || !m.matches()) {
-                        throw new RealmArchiveException("Unexpected archive entry " + safe(name) + "; only " + DOCUMENT
-                                + ", " + MANIFEST + " and theme-assets/{id}.{woff2|svg|png|webp} are allowed.");
-                    }
-                    assets.put(m.group(1), readCapped(zip, limits.maxAssetBytes(), total, limits.maxTotalBytes(), name));
+                    throw new RealmArchiveException("Unexpected archive entry " + safe(name) + "; only " + DOCUMENT
+                            + ", " + MANIFEST + " and theme-assets/{id}.{woff2|svg|png|webp} are allowed.");
+                }
+                final byte[] data = readCapped(zip, cap, total, limits.maxTotalBytes(), name);
+                if (DOCUMENT.equals(name)) {
+                    document = data;
+                } else if (MANIFEST.equals(name)) {
+                    manifest = data;
+                } else if (!ASSET_DIR.equals(name)) {
+                    assets.put(m.group(1), data);
                 }
             }
-        } catch (final ZipException ex) {
+        } catch (final ZipException | IllegalArgumentException ex) {
+            // IllegalArgumentException: an entry name that is not valid UTF-8 (review N1).
             throw new RealmArchiveException("The archive is not a valid zip file.");
         } catch (final IOException ex) {
             throw new UncheckedIOException(ex);
@@ -155,8 +163,8 @@ public final class RealmArchive {
         while ((n = in.read(buf)) > 0) {
             total[0] += n;
             if (out.size() + n > max) {
-                throw new RealmArchiveException("The archive entry " + safe(name) + " is too large (at most " + max
-                        + " bytes).");
+                throw new RealmArchiveException(max == 0 ? "The archive entry " + safe(name) + " must be empty."
+                        : "The archive entry " + safe(name) + " is too large (at most " + max + " bytes).");
             }
             if (total[0] > maxTotal) {
                 throw new RealmArchiveException("The archive is too large once uncompressed (at most " + maxTotal

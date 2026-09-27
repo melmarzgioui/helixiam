@@ -131,6 +131,52 @@ class RealmArchiveTest {
     }
 
     @Test
+    void reviewRI1_aDirectoryEntryWithDataIsCountedAndRefused_quickly() throws IOException {
+        // The reader used to skip "theme-assets/" without counting; ZipInputStream then inflated its data uncounted.
+        final Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(RealmArchive.DOCUMENT, DOC);
+        entries.put(RealmArchive.ASSET_DIR, new byte[64 * 1024 * 1024]);
+        final byte[] bomb = zip(entries);
+        assertThat(bomb.length).isLessThan(200_000);
+        final long start = System.nanoTime();
+        assertThatThrownBy(() -> read(bomb)).isInstanceOf(RealmArchiveException.class).hasMessageContaining("theme-assets/");
+        assertThat((System.nanoTime() - start) / 1_000_000).as("stopped at the first bytes, not after inflating").isLessThan(500);
+        // An empty directory entry (as some zip tools write) is still fine.
+        final Map<String, byte[]> empty = new LinkedHashMap<>();
+        empty.put(RealmArchive.ASSET_DIR, new byte[0]);
+        empty.put(RealmArchive.DOCUMENT, DOC);
+        assertThat(read(zip(empty)).document()).isEqualTo(DOC);
+    }
+
+    @Test
+    void reviewRI1_everyEntryCountsAgainstTheTotal() throws IOException {
+        final Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(RealmArchive.ASSET_DIR, new byte[0]);
+        entries.put(RealmArchive.DOCUMENT, new byte[900]);
+        entries.put(RealmArchive.MANIFEST, new byte[900]);
+        entries.put("theme-assets/a.png", new byte[900]);
+        final RealmArchive.Limits limits = new RealmArchive.Limits(64, 1000, 1000, 2000, 1024 * 1024);
+        assertThatThrownBy(() -> RealmArchive.read(new ByteArrayInputStream(zip(entries)), limits))
+                .isInstanceOf(RealmArchiveException.class).hasMessageContaining("large");
+    }
+
+    @Test
+    void reviewN1_aNameThatIsNotUtf8_isABadArchive() throws IOException {
+        final Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(RealmArchive.DOCUMENT, DOC);
+        entries.put("theme-assets/QQ.png", new byte[] {1});
+        final byte[] bytes = zip(entries);
+        final byte[] marker = "QQ".getBytes(StandardCharsets.US_ASCII);
+        for (int i = 0; i + 1 < bytes.length; i++) {
+            if (bytes[i] == marker[0] && bytes[i + 1] == marker[1]) {
+                bytes[i] = (byte) 0xC3;
+                bytes[i + 1] = (byte) 0x28; // an invalid UTF-8 sequence
+            }
+        }
+        assertThatThrownBy(() -> read(bytes)).isInstanceOf(RealmArchiveException.class);
+    }
+
+    @Test
     void assetReferencesAreRewrittenToTheTargetRealm() {
         final String logo = "/realms/src/theme/assets/old-1.svg";
         final Theme theme = new Theme(null, new ThemeTypography("Public Sans", null, null), null,
