@@ -126,4 +126,23 @@ class OutboundUrlGuardTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Blocked JWKS URI");
     }
+
+    @Test
+    void blockedUrl_neverLogsOrEchoesCredentialsPathOrQuery() {
+        // Webhook / logout / JWKS URLs routinely carry secrets in userinfo, path or query (e.g. a Slack
+        // hook path, ?token=). A blocked URL is logged and its message may be surfaced — only scheme+host
+        // (+port) may appear, never the secret-bearing parts.
+        final String url = "http://svc:pa55w0rd@127.0.0.1:8080/hooks/T0K3NPATH?token=qu3rys3cret";
+        try (io.helixiam.testsupport.LogCapture logs = io.helixiam.testsupport.LogCapture.of(OutboundUrlGuard.class)) {
+            assertThatThrownBy(() -> blocking.checkAllowed(url))
+                    .isInstanceOf(SsrfBlockedException.class)
+                    .hasMessageNotContaining("pa55w0rd").hasMessageNotContaining("T0K3NPATH")
+                    .hasMessageNotContaining("qu3rys3cret");
+            assertThat(logs.text()).contains("127.0.0.1")
+                    .doesNotContain("pa55w0rd").doesNotContain("T0K3NPATH").doesNotContain("qu3rys3cret");
+        }
+        assertThatThrownBy(() -> blocking.checkAllowed("ftp://svc:pa55w0rd@example.com/x?token=qu3rys3cret"))
+                .isInstanceOf(SsrfBlockedException.class)
+                .hasMessageNotContaining("pa55w0rd").hasMessageNotContaining("qu3rys3cret");
+    }
 }

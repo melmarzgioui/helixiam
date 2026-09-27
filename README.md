@@ -99,7 +99,8 @@ On first boot the server seeds the `master` realm, default `user` / `auditor` ro
 self-generated RSA signing keypair (no external key mount required to start). The bootstrap admin
 **username** defaults to `admin`. The **password** is `HELIX_ADMIN_PASSWORD` when set (the
 docker-compose stack and the command above set it to `admin` for convenience); **when it is left
-unset, a strong random password is generated once and printed to the logs** — sign in, change it,
+unset, a strong random password is generated once and written (0600) to
+`HELIX_ADMIN_PASSWORD_FILE`, default `$TMPDIR/helixiam-admin-password`; only the path is logged** — sign in, change it,
 and set `HELIX_ADMIN_PASSWORD` for any non-local use (see [Bootstrap admin](#configuration)).
 
 To run only the console separately, see [`helix-dashboard`](helix-dashboard/).
@@ -148,7 +149,7 @@ the admin console/API and take priority over the global SMTP fallback above.
 
 | Variable | Purpose |
 |---|---|
-| `HELIX_ADMIN_USERNAME` / `HELIX_ADMIN_PASSWORD` | the master-realm admin user created on first boot. Username defaults to `admin`. **If `HELIX_ADMIN_PASSWORD` is unset, a strong random password is generated and printed to the logs once** — set it explicitly for any non-local use. |
+| `HELIX_ADMIN_USERNAME` / `HELIX_ADMIN_PASSWORD` | the master-realm admin user created on first boot. Username defaults to `admin`. **If `HELIX_ADMIN_PASSWORD` is unset, a strong random password is generated once and written (0600) to `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`); the password itself is never logged** — set it explicitly for any non-local use. |
 
 **Feature toggles**
 
