@@ -81,7 +81,7 @@
                     <a th:if="${account.twoStep().enrolled() and account.twoStep().canRemove()}" class="hx-btn hx-btn-danger"
                        id="authenticator-remove" th:href="@{/account/authenticator/remove}" th:text="#{account.twoStep.remove}">Remove</a>
                 </div>
-                <th:block th:if="${account.twoStep().enrolled()}">
+                <div class="hx-account-sub" th:if="${account.twoStep().enrolled()}">
                     <div class="hx-account-head">
                         <h2 id="recovery-heading" th:text="#{account.recovery.heading}">Recovery codes</h2>
                         <span class="hx-badge hx-badge-neutral" id="recovery-left" th:text="#{account.recovery.left(${account.twoStep().recoveryCodesLeft()})}">8 left</span>
@@ -98,7 +98,7 @@
                         </div>
                         <button type="submit" class="hx-btn hx-btn-secondary" th:text="#{account.recovery.regenerate}">Get new codes</button>
                     </form>
-                </th:block>
+                </div>
             </article>
 
             <!--/* Sessions */-->

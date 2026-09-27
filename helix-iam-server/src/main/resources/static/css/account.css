@@ -57,6 +57,16 @@
   color: var(--hx-ink-muted);
 }
 
+/* A second topic inside a section (recovery codes under the authenticator app). */
+.hx-account-sub {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 1.5);
+  margin-top: calc(var(--hx-space) * 2);
+  padding-top: calc(var(--hx-space) * 3.5);
+  border-top: 1px solid var(--hx-border);
+}
+
 /* ---------------------------------------------------------------- badges -- */
 .hx-badge {
   display: inline-flex;
@@ -95,8 +105,11 @@
   gap: calc(var(--hx-space) * 2);
   align-items: center;
 }
+form.hx-account-actions,
 .hx-account-actions form {
   width: auto;
+  flex-direction: row;
+  justify-content: flex-start;
 }
 a.hx-btn,
 button.hx-btn,
@@ -149,16 +162,21 @@ form button.hx-btn-danger.hx-btn-solid {
 }
 
 /* ------------------------------------------------ inline code + button row -- */
-.hx-account-inline {
+form.hx-account-inline {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
+  justify-content: flex-start;
   align-items: flex-end;
   gap: calc(var(--hx-space) * 2);
 }
 .hx-account-inline > div {
-  flex: 1 1 14rem;
+  flex: 0 1 16rem;
   display: flex;
   flex-direction: column;
+}
+.hx-account-inline .error {
+  order: 3;
 }
 .hx-account-inline label {
   margin-top: 0;
@@ -248,5 +266,8 @@ form button.hx-btn-danger.hx-btn-solid {
   .hx-sessions li {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .hx-account-inline > div {
+    flex: 1 1 100%;
   }
 }
