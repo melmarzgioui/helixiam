@@ -32,8 +32,9 @@ public class LogEmailDriver implements EmailTransport {
 
     @Override
     public DeliveryResult deliver(final ResolvedProviderDto provider, final EmailMessage message) {
-        LOG.info("LOG email driver: not sending email {} (subject \"{}\", {} recipient(s))",
-                LogSafe.sanitize(message.messageId()), LogSafe.sanitize(message.subject()), message.to().size());
+        // Never the subject or body: a template may carry a one-time code or a link in either.
+        LOG.info("LOG email driver: not sending email {} ({} recipient(s))",
+                LogSafe.sanitize(message.messageId()), message.to().size());
         return DeliveryResult.accepted(message.messageId(), "Logged, not sent (LOG driver)");
     }
 }

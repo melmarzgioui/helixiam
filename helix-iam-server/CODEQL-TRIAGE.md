@@ -182,3 +182,12 @@ reads `additionalData.get("realm")` → that realm id reaches the flagged log li
 CodeQL models the map as one `<map.value>` and cannot tell the keys apart, so every value read from the map looks
 like the token. What is logged is the realm id (and exception messages / theme names), never the link: nothing in
 `notification`, `messaging` or `emailverification` logs the link, the token or `additionalData`.
+
+## rc.6 release scan (`b87423c`)
+
+- **#280** `java/sensitive-log` — `LogEmailDriver:36` logged the email subject; an admin-edited template may put a
+  one-time code in the subject. **Fixed**: the LOG driver logs only the message id and the recipient count
+  (`LogEmailDriverTest`).
+- **#279** `java/unsafe-cert-trust` — `src/test/java/io/helixiam/testsupport/TestSmtpServer.java:209`. False positive:
+  a test-only SMTP server used to exercise STARTTLS/SMTPS against a throw-away self-signed certificate; it is not on
+  the production classpath. Production SMTP always verifies certificates (optional custom CA, no trust-all switch).
