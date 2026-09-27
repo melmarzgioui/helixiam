@@ -8,7 +8,8 @@
 #     egress port;
 #   - tokenStore=redis requires redis.host again, whatever the session store;
 #   - an unknown store is refused;
-#   - the global email settings are optional; their secrets are mounted as files, never env values.
+#   - the global email settings are optional; their secrets are mounted as files, never env values;
+#   - the email retry, rate-cap and code-lifetime values are passed through when set (0 and false included).
 # Needs only helm. Usage (repo root): e2e/helm-template-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -98,6 +99,24 @@ expect_render_error "cloudflare without account id" "email.cloudflare.accountId 
   --set email.driver=cloudflare --set email.cloudflare.apiTokenKey=cf-token
 expect_render_error "cloudflare without token" "email.cloudflare.apiTokenKey is required" --set redis.host=redis \
   --set email.driver=cloudflare --set email.cloudflare.accountId=acct
+
+# 6. Email retries, rate caps and code lifetimes: nothing by default (checked above); each value when set, 0 and false
+#    included (a cap of 0 switches it off).
+out=$(render --set redis.host=redis --set email.retry.enabled=false --set-string 'email.retry.delays=30s\,2m' \
+  --set email.retry.maxAge=45m --set email.retry.jitter=0.1 --set email.retry.pollInterval=10s \
+  --set email.retry.batchSize=50 --set email.retry.lease=3m --set email.rateLimit.realmPerMinute=0 \
+  --set email.rateLimit.globalPerMinute=900 --set email.codes.resetPasswordTtl=30m --set email.codes.signupTtl=12h)
+expect_contains "email: retry enabled" "$out" 'HELIX_NOTIFICATION_EMAIL_RETRY_ENABLED: "false"'
+expect_contains "email: retry delays" "$out" 'HELIX_NOTIFICATION_EMAIL_RETRY_DELAYS: "30s,2m"'
+expect_contains "email: retry max age" "$out" 'HELIX_NOTIFICATION_EMAIL_RETRY_MAX_AGE: "45m"'
+expect_contains "email: retry jitter" "$out" 'HELIX_NOTIFICATION_EMAIL_RETRY_JITTER: "0.1"'
+expect_contains "email: retry poll interval" "$out" 'HELIX_NOTIFICATION_EMAIL_RETRY_POLL_INTERVAL: "10s"'
+expect_contains "email: retry batch size" "$out" 'HELIX_NOTIFICATION_EMAIL_RETRY_BATCH_SIZE: "50"'
+expect_contains "email: retry lease" "$out" 'HELIX_NOTIFICATION_EMAIL_RETRY_LEASE: "3m"'
+expect_contains "email: realm cap 0 (off)" "$out" 'HELIX_NOTIFICATION_EMAIL_RATE_LIMIT_REALM_PER_MINUTE: "0"'
+expect_contains "email: global cap" "$out" 'HELIX_NOTIFICATION_EMAIL_RATE_LIMIT_GLOBAL_PER_MINUTE: "900"'
+expect_contains "email: reset code ttl" "$out" 'HELIX_NOTIFICATION_RESET_PASSWORD_CODE_TTL: "30m"'
+expect_contains "email: signup code ttl" "$out" 'HELIX_NOTIFICATION_SIGNUP_CODE_TTL: "12h"'
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2

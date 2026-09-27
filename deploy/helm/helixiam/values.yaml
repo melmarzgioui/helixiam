@@ -106,6 +106,23 @@ email:
     accountId: ""
     baseUrl: ""           # empty = https://api.cloudflare.com/client/v4
     apiTokenKey: ""       # key in existingSecret → HELIX_NOTIFICATION_CLOUDFLARE_API_TOKEN_FILE
+  # Retries of transient failures (persisted in the database, shared by all replicas). Empty = server default.
+  retry:
+    enabled: ""           # HELIX_NOTIFICATION_EMAIL_RETRY_ENABLED: true (default) | false
+    delays: ""            # e.g. "30s,2m,10m,30m" (default): the wait before each retry
+    maxAge: ""            # e.g. 1h (default): no retry later than this after the first attempt
+    jitter: ""            # e.g. 0.2 (default): random spread of each delay
+    pollInterval: ""      # e.g. 5s (default)
+    batchSize: ""         # e.g. 20 (default)
+    lease: ""             # e.g. 2m (default): a claimed retry of a dead replica is taken over after this
+  # Send rate caps, counted per replica (0 = off). A realm may set its own sendLimitPerMinute on its provider.
+  rateLimit:
+    realmPerMinute: ""    # default 120
+    globalPerMinute: ""   # default 600
+  # How long the emailed one-time codes work (single-use).
+  codes:
+    resetPasswordTtl: ""  # default 1h
+    signupTtl: ""         # default 24h
 
 # ---------------------------------------------------------------------------
 # File themes (structured theming): theme directories mounted read-only at themes.mountPath, one per theme:

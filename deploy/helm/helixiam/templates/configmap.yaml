@@ -71,4 +71,37 @@ data:
   {{- if .cloudflare.apiTokenKey }}
   HELIX_NOTIFICATION_CLOUDFLARE_API_TOKEN_FILE: "/etc/helixiam/email/cloudflare-api-token"
   {{- end }}
+  {{- if and (not (kindIs "invalid" .retry.enabled)) (ne (toString .retry.enabled) "") }}
+  HELIX_NOTIFICATION_EMAIL_RETRY_ENABLED: {{ .retry.enabled | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .retry.delays)) (ne (toString .retry.delays) "") }}
+  HELIX_NOTIFICATION_EMAIL_RETRY_DELAYS: {{ .retry.delays | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .retry.maxAge)) (ne (toString .retry.maxAge) "") }}
+  HELIX_NOTIFICATION_EMAIL_RETRY_MAX_AGE: {{ .retry.maxAge | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .retry.jitter)) (ne (toString .retry.jitter) "") }}
+  HELIX_NOTIFICATION_EMAIL_RETRY_JITTER: {{ .retry.jitter | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .retry.pollInterval)) (ne (toString .retry.pollInterval) "") }}
+  HELIX_NOTIFICATION_EMAIL_RETRY_POLL_INTERVAL: {{ .retry.pollInterval | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .retry.batchSize)) (ne (toString .retry.batchSize) "") }}
+  HELIX_NOTIFICATION_EMAIL_RETRY_BATCH_SIZE: {{ .retry.batchSize | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .retry.lease)) (ne (toString .retry.lease) "") }}
+  HELIX_NOTIFICATION_EMAIL_RETRY_LEASE: {{ .retry.lease | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .rateLimit.realmPerMinute)) (ne (toString .rateLimit.realmPerMinute) "") }}
+  HELIX_NOTIFICATION_EMAIL_RATE_LIMIT_REALM_PER_MINUTE: {{ .rateLimit.realmPerMinute | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .rateLimit.globalPerMinute)) (ne (toString .rateLimit.globalPerMinute) "") }}
+  HELIX_NOTIFICATION_EMAIL_RATE_LIMIT_GLOBAL_PER_MINUTE: {{ .rateLimit.globalPerMinute | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .codes.resetPasswordTtl)) (ne (toString .codes.resetPasswordTtl) "") }}
+  HELIX_NOTIFICATION_RESET_PASSWORD_CODE_TTL: {{ .codes.resetPasswordTtl | toString | quote }}
+  {{- end }}
+  {{- if and (not (kindIs "invalid" .codes.signupTtl)) (ne (toString .codes.signupTtl) "") }}
+  HELIX_NOTIFICATION_SIGNUP_CODE_TTL: {{ .codes.signupTtl | toString | quote }}
+  {{- end }}
   {{- end }}

@@ -98,6 +98,17 @@ helm upgrade --install helixiam deploy/helm/helixiam ... \
   --set 'networkPolicy.extraEgressPorts[0].port=465'
 ```
 
+
+Retries, send rate caps and code lifetimes (all optional; empty keeps the server default, see `docs/EMAIL.md`):
+
+| Value | Server default | Setting |
+|---|---|---|
+| `email.retry.enabled` | `true` | retry transient failures |
+| `email.retry.delays` | `30s,2m,10m,30m` | the wait before each retry (escape commas with `--set`: `30s\,2m`) |
+| `email.retry.maxAge` / `.jitter` / `.pollInterval` / `.batchSize` / `.lease` | `1h` / `0.2` / `5s` / `20` / `2m` | |
+| `email.rateLimit.realmPerMinute` / `.globalPerMinute` | `120` / `600` | send rate caps per replica; `0` = off |
+| `email.codes.resetPasswordTtl` / `.signupTtl` | `1h` / `24h` | how long the emailed reset and sign-up codes work |
+
 ## File themes
 Set `themes.enabled=true` and point `themes.configMap.name` (with `items` mapping keys to
 `{theme}/theme.json`, `{theme}/fonts.json` and `{theme}/assets/<file>`) or `themes.existingVolume` at your theme

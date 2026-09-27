@@ -263,7 +263,8 @@ a saved or rotated provider applies at once.
 
 Every property can be set as an environment variable: upper-case it and replace `.` and `-` with `_`
 (`helix.notification.email.retry.max-age` → `HELIX_NOTIFICATION_EMAIL_RETRY_MAX_AGE`). With the Helm chart, use the
-`email.*` values, or `config.extraEnv` for the others.
+`email.*` values (including `email.retry.*`, `email.rateLimit.*` and `email.codes.*`), or `config.extraEnv` for the
+others.
 
 **Transport**
 
