@@ -94,6 +94,9 @@ public class AdminRbacService {
                     .orElseThrow(() -> new IllegalArgumentException("Unknown admin permission: " + key)));
         }
         grants.deleteByRealmIdAndRoleId(write.realmId(), write.roleId());
+        // Review rc.3 #5: flush the deletes first — Hibernate flushes inserts before deletes, so re-setting the same
+        // permission (e.g. re-importing a realm's own export) hit the (realm, role, permission) unique key.
+        grants.flush();
         for (final AdminPermission p : requested) {
             final AdminRolePermissionEntity row = new AdminRolePermissionEntity();
             row.setRealmId(write.realmId());

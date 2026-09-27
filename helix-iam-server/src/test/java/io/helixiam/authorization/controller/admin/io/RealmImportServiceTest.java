@@ -169,21 +169,32 @@ class RealmImportServiceTest {
     }
 
     @Test
-    void aFailingWrite_isReportedAsAFailureWithItsReason_notAsSkipped() {
-        // 1.0 item 8: realm creation used to fail silently as "skipped" with HTTP 200.
+    void aFailingRealmWrite_isAFailure_andNothingElseIsImported() {
+        // 1.0 item 8 / review rc.3 #5: realm creation used to fail silently as "skipped" with HTTP 200, and the
+        // other slices were still written.
         org.mockito.Mockito.doThrow(new IllegalStateException("tenant insert failed")).when(realm).save(any());
-        org.mockito.Mockito.doThrow(new IllegalStateException("duplicate client_id")).when(clients).create(any());
 
         final RealmImportResult result = service.importInto("gov", sampleDoc());
 
         assertThat(result.hasFailures()).isTrue();
-        assertThat(result.failed()).extracting(RealmImportResult.Failure::slice)
-                .contains(RealmImportService.SLICE_REALM, RealmImportService.SLICE_CLIENTS);
-        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason)
-                .anySatisfy(reason -> assertThat(reason).contains("tenant insert failed"))
-                .anySatisfy(reason -> assertThat(reason).contains("duplicate client_id"));
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::slice).containsOnly(RealmImportService.SLICE_REALM);
+        assertThat(result.failed().get(0).reason()).contains("tenant insert failed");
         assertThat(result.slices().get(RealmImportService.SLICE_REALM).failed()).isEqualTo(1);
-        assertThat(result.slices().get(RealmImportService.SLICE_REALM).skipped()).isZero();
+        assertThat(result.slices()).doesNotContainKey(RealmImportService.SLICE_CLIENTS);
+        verify(clients, never()).create(any());
+    }
+
+    @Test
+    void aFailingEntry_isReportedWithAPlainReason_withoutDatabaseInternals() {
+        org.mockito.Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException(
+                "could not execute statement [ERROR: duplicate key value violates unique constraint \"x\"]"))
+                .when(clients).create(any());
+
+        final RealmImportResult result = service.importInto("gov", sampleDoc());
+
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::slice).contains(RealmImportService.SLICE_CLIENTS);
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason)
+                .allSatisfy(reason -> assertThat(reason).doesNotContain("could not execute statement").doesNotContain("constraint"));
     }
 
     @Test

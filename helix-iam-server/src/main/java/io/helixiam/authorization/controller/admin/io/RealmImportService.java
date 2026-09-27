@@ -226,6 +226,11 @@ public class RealmImportService {
             return result.build();
         }
         importRealm(realmId, doc, opts, result);
+        if (result.hasFailed(SLICE_REALM)) {
+            // Review rc.3 #5: without its realm nothing else can be imported consistently — stop here.
+            LOG.warn("Helix realm import [{}]: the realm could not be written; nothing else was imported", realmId);
+            return result.build();
+        }
         importRoles(realmId, doc, opts, result);
         importScopes(realmId, doc, opts, result);
         importApplications(realmId, doc, opts, result);
@@ -254,7 +259,21 @@ public class RealmImportService {
     private static void failed(final RealmImportResult.Builder r, final String slice, final String realmId,
                                final RuntimeException ex) {
         LOG.warn("Helix realm import [{}]: {} entry failed: {}", realmId, slice, ex.toString());
-        r.failed(slice, ex.getClass().getSimpleName() + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+        r.failed(slice, reason(ex));
+    }
+
+    /** A failure reason for the caller, in plain words — never database internals (those go to the log). */
+    static String reason(final RuntimeException ex) {
+        if (ex instanceof org.springframework.dao.DataIntegrityViolationException
+                || ex instanceof io.helixiam.common.exception.DuplicateException) {
+            return "A value is already in use or not allowed (for example a duplicate name, or a value that is too long).";
+        }
+        if (ex instanceof org.springframework.dao.DataAccessException) {
+            return "The entry could not be stored.";
+        }
+        final String message = ex.getMessage() == null ? "" : ex.getMessage();
+        return message.isBlank() ? ex.getClass().getSimpleName()
+                : message.length() > 200 ? message.substring(0, 200) + "…" : message;
     }
 
     /**

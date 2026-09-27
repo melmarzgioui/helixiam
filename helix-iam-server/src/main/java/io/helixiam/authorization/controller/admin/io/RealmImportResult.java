@@ -64,6 +64,12 @@ public record RealmImportResult(String realm, Map<String, SliceSummary> slices, 
             slot(slice)[2]++;
         }
 
+        /** Whether any entry of {@code slice} failed so far. */
+        public boolean hasFailed(final String slice) {
+            final int[] c = counts.get(slice);
+            return c != null && c[3] > 0;
+        }
+
         /** Records an entry whose write failed, with the reason. */
         public void failed(final String slice, final String reason) {
             slot(slice)[3]++;
