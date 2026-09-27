@@ -3,7 +3,10 @@
 # Build context is this module directory: docker build -f helix-iam-server/Dockerfile helix-iam-server
 
 ########## Build stage ##########
-FROM maven:3.9-eclipse-temurin-21 AS build
+# Runs on the builder's own architecture (--platform=$BUILDPLATFORM): the jar is architecture-independent,
+# so a multi-arch build (linux/amd64 + linux/arm64) compiles once, natively, and only the runtime stage
+# below is built per target architecture.
+FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
 # Warm the dependency cache first so source-only changes don't re-download the world.
 COPY pom.xml ./

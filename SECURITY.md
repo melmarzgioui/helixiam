@@ -60,15 +60,16 @@ Every push and pull request runs in GitHub Actions (`.github/workflows/`):
   GitHub code scanning.
 - **Trivy** scans the source for vulnerable dependencies (Maven/npm/Go), misconfigurations
   (Dockerfiles, Helm, compose) and secrets, also reported to code scanning; a weekly schedule
-  surfaces newly-disclosed CVEs against `main`.
+  surfaces newly-disclosed CVEs against `master`.
 - **Dependabot** keeps dependencies and pinned action SHAs current (Maven, npm, Go modules,
   GitHub Actions, Docker).
 - All workflow actions are **pinned to a full commit SHA** (the version is in a trailing comment).
 
-Starting with the first tagged release, the release workflow builds the server image, **signs it with
-[cosign](https://github.com/sigstore/cosign) keylessly** (Sigstore OIDC — no long-lived keys),
-generates an **SPDX SBOM**, **attests the SBOM to the image**, and attaches the SBOM to the GitHub
-release. (No release is tagged yet, so no signed image exists on a registry at time of writing.)
+For every tagged release the release workflow builds the server image for **`linux/amd64` and
+`linux/arm64`** (one multi-arch tag on `ghcr.io`), **signs it with
+[cosign](https://github.com/sigstore/cosign) keylessly** (Sigstore OIDC — no long-lived keys; the
+manifest list and each per-architecture image), generates an **SPDX SBOM**, **attests the SBOM to the
+image**, and attaches the SBOM to the GitHub release.
 
 ## Scope
 

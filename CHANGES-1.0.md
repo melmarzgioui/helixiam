@@ -21,6 +21,7 @@ First CodeQL, Trivy and Dependabot results on `master` (the workflows had been l
 - Images and manifests: the console image runs as the non-root `nginx` user with a HEALTHCHECK, on nginx 1.29 and a Node 22 build stage (Node 20 is end of life); the release-check Postgres/Redis manifest runs non-root with a read-only root filesystem.
 - Sandbox RP: rate limiting, session regeneration at login, HttpOnly/SameSite cookies (`Secure` in production or with `COOKIE_SECURE=true`), CSRF tokens on its own forms, session secret from `SESSION_SECRET`. MCP demo: every request's bearer token is verified (RS256, `exp`, `nbf`).
 - CI: all pinned actions updated together (CodeQL action v4, checkout v7, sbom-action 0.24.2). Framework majors (Spring Boot 4, Security 7, Flyway 13, React 19, Vite 8, Storybook 10, Express 5, …) are ignored by Dependabot and listed in ROADMAP.md as planned post-1.0 upgrades.
+- Release images are multi-arch: `linux/amd64` and `linux/arm64` under one tag, signed per architecture (`cosign sign --recursive`). The Java build stage runs natively (`--platform=$BUILDPLATFORM`) and only the runtime layer is built per architecture; CI builds both architectures on every push.
 - Findings not fixed in code, with reasons: `helix-iam-server/CODEQL-TRIAGE.md` (false positives) and `SECURITY-TRIAGE.md`.
 
 ## Review of rc.3 (after `v1.0.0-rc.3`)

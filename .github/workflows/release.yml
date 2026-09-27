@@ -28,13 +28,21 @@ jobs:
         id: img
         run: echo "image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/helix-iam-server" >> "$GITHUB_OUTPUT"
 
+      - name: Set up QEMU (arm64 runtime stage)
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
       - name: Log in to GHCR
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build and push image (capture digest)
+      # One multi-arch image (manifest list) for x86-64 and ARM64 servers under the same tag.
+      - name: Build and push image for linux/amd64 + linux/arm64 (capture digest)
         id: build
         run: |
           docker buildx build --push \
+            --platform linux/amd64,linux/arm64 \
             -t "${{ steps.img.outputs.image }}:${VERSION}" \
             -t "${{ steps.img.outputs.image }}:latest" \
             --metadata-file metadata.json \
@@ -46,7 +54,8 @@ jobs:
         uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
 
       - name: Sign the image (keyless)
-        run: cosign sign --yes "${{ steps.build.outputs.ref }}"
+        # --recursive signs the manifest list and each per-architecture image.
+        run: cosign sign --yes --recursive "${{ steps.build.outputs.ref }}"
 
       - name: Generate SBOM (SPDX)
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
@@ -66,4 +75,4 @@ jobs:
             helix-iam-server.sbom.spdx.json \
             --title "${VERSION}" \
             --generate-notes \
-            --notes "Container image: \`${{ steps.build.outputs.ref }}\` (cosign-signed; SBOM attested and attached)."
+            --notes "Container image: \`${{ steps.build.outputs.ref }}\` (linux/amd64 + linux/arm64; cosign-signed; SBOM attested and attached)."
