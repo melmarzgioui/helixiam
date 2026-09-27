@@ -172,6 +172,8 @@ user (which forced operators to set `MFA_ENABLED=false` globally): use the boots
 | `HELIX_SAML_IDP_ENABLED` | `true` | enable the SAML 2.0 IdP role |
 | `HELIX_SQL_INIT_MODE` | `never` | legacy idempotent `schema.sql` init; set `always` together with `HELIX_MIGRATIONS_ENABLED=false` |
 | `HELIX_MIGRATIONS_ENABLED` | `true` | Flyway (`db/migration/V*`) manages the schema (default everywhere: app, image, Helm) |
+| `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS` | *(empty)* | private hosts outbound calls (email/SMS HTTP drivers, webhooks, SCIM, federation) may reach, e.g. `mailer.mail.svc.cluster.local,sms-gateway.internal:8080`: exact host names or IP literals, optionally with a port. Matched by the configured name, never by the address it resolves to; link-local/cloud-metadata, multicast and wildcard addresses stay blocked. Global, not per realm, because realm admins configure the outbound URLs. |
+| `HELIX_EGRESS_ALLOW_PRIVATE` | `false` | **deprecated**: lets *every* outbound URL reach private and loopback addresses (still honoured; logged as insecure). Use `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`. |
 
 ### Rate limits
 

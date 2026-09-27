@@ -16,6 +16,8 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * Helix IAM M6 (SSRF): the single gate every server-initiated call to an <b>attacker-configurable</b> URL
@@ -31,9 +33,23 @@ import java.net.UnknownHostException;
  *       or multicast.</li>
  * </ul>
  *
- * <p><b>Dev escape hatch:</b> {@code helix.egress.allow-private=true} (bound from {@code HELIX_EGRESS_ALLOW_PRIVATE},
- * default {@code false}) skips the address checks so a developer can point a webhook at {@code localhost}. It is
- * <b>LOCAL DEV ONLY</b>; production keeps the secure default. The scheme check is always enforced.
+ * <p><b>Private-host allowlist (C6):</b> {@code helix.egress.allowed-private-hosts} (env
+ * {@code HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS}) is a comma-separated list of exact host names or IP literals, each
+ * optionally with a port ({@code mailer.mail.svc.cluster.local}, {@code sms-gateway.internal:8080},
+ * {@code [fd00::5]:9000}). A URL whose host matches an entry — by the configured <em>name</em>, case-insensitively,
+ * and on the entry's port when it has one (80/443 by scheme when the URL has none) — may resolve to private,
+ * site-local, unique-local, CGNAT or loopback addresses. Link-local (cloud metadata {@code 169.254.169.254}),
+ * multicast and wildcard addresses stay blocked even then. Every other URL is resolved and checked as before: another
+ * name that resolves to the same private address, or the address itself, is still refused. The list is global, not
+ * per realm, on purpose: realm administrators configure the outbound URLs (email/SMS HTTP drivers, webhooks, SCIM,
+ * federation), so letting them also allowlist private hosts would re-open the SSRF the guard exists to close. Which
+ * internal hosts HelixIAM may reach is an operator decision. An allowlisted host is reachable from every outbound
+ * feature, so list only hosts meant to receive traffic from HelixIAM.
+ *
+ * <p><b>Deprecated escape hatch:</b> {@code helix.egress.allow-private=true} (bound from
+ * {@code HELIX_EGRESS_ALLOW_PRIVATE}, default {@code false}) skips the address checks for every host. It still works
+ * for local development but is deprecated in favour of the allowlist; production keeps the secure default. The scheme
+ * check is always enforced.
  *
  * <p><b>DNS-rebinding / TOCTOU:</b> the guard resolves the host and validates <em>every</em> returned address
  * immediately before the caller connects; the JDK {@code HttpClient} then re-resolves, so a hostile resolver
@@ -52,26 +68,131 @@ public class OutboundUrlGuard {
     }
 
     private final boolean allowPrivate;
+    private final List<AllowedHost> allowedPrivateHosts;
     private final HostResolver resolver;
 
-    /** Production bean: {@code allowPrivate} bound from {@code helix.egress.allow-private} (default false). */
+    /**
+     * Production bean: {@code allowPrivate} bound from {@code helix.egress.allow-private} (default false, deprecated)
+     * and the private-host allowlist from {@code helix.egress.allowed-private-hosts} (default empty).
+     */
     @Autowired
-    public OutboundUrlGuard(@Value("${helix.egress.allow-private:false}") final boolean allowPrivate) {
-        this(allowPrivate, InetAddress::getAllByName);
+    public OutboundUrlGuard(@Value("${helix.egress.allow-private:false}") final boolean allowPrivate,
+                            @Value("${helix.egress.allowed-private-hosts:}") final String allowedPrivateHosts) {
+        this(allowPrivate, parseAllowlist(allowedPrivateHosts), InetAddress::getAllByName);
+        if (allowPrivate) {
+            LOG.warn("helix.egress.allow-private (HELIX_EGRESS_ALLOW_PRIVATE) is deprecated and lets every outbound "
+                    + "URL reach private and loopback addresses; list the internal hosts in "
+                    + "helix.egress.allowed-private-hosts (HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS) instead");
+        }
+        if (!this.allowedPrivateHosts.isEmpty()) {
+            LOG.info("Outbound calls may reach private addresses only for: {}",
+                    LogSafe.sanitize(String.join(", ", parseAllowlist(allowedPrivateHosts))));
+        }
     }
 
     /**
      * Secure default for the few non-bean {@code new}-constructed seams (the FAPI request-object filter wired in
      * {@code SecurityConfig}, and the per-provider upstream-logout client). Reads {@code HELIX_EGRESS_ALLOW_PRIVATE}
-     * (env or system property) so a dev container can still relax it; absent/blank ⇒ block-private (secure).
+     * and {@code HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS} (env or system property) so they follow the same policy;
+     * absent/blank ⇒ block-private (secure).
      */
     public OutboundUrlGuard() {
-        this(allowPrivateFromEnvironment(), InetAddress::getAllByName);
+        this(allowPrivateFromEnvironment(), parseAllowlist(allowlistFromEnvironment()), InetAddress::getAllByName);
+    }
+
+    /** Only the (deprecated) all-or-nothing switch, no allowlist — kept for existing callers. */
+    public OutboundUrlGuard(final boolean allowPrivate) {
+        this(allowPrivate, List.of(), InetAddress::getAllByName);
     }
 
     OutboundUrlGuard(final boolean allowPrivate, final HostResolver resolver) {
+        this(allowPrivate, List.of(), resolver);
+    }
+
+    OutboundUrlGuard(final boolean allowPrivate, final List<String> allowedPrivateHosts, final HostResolver resolver) {
         this.allowPrivate = allowPrivate;
+        this.allowedPrivateHosts = allowedPrivateHosts.stream().map(AllowedHost::parse)
+                .filter(java.util.Objects::nonNull).toList();
         this.resolver = resolver;
+    }
+
+    /** One allowlist entry: a lower-cased host (IPv6 without brackets) and a port, or {@code -1} for any port. */
+    record AllowedHost(String host, int port) {
+
+        /** Parses {@code host}, {@code host:port}, {@code [v6]}, {@code [v6]:port} or a bare IPv6; null when invalid. */
+        static AllowedHost parse(final String raw) {
+            if (raw == null) {
+                return null;
+            }
+            final String entry = raw.trim().toLowerCase(Locale.ROOT);
+            if (entry.isEmpty() || entry.contains("/") || entry.contains("@") || entry.contains(" ")) {
+                return null;
+            }
+            String host = entry;
+            String port = null;
+            if (entry.startsWith("[")) {
+                final int close = entry.indexOf(']');
+                if (close < 0) {
+                    return null;
+                }
+                host = entry.substring(1, close);
+                final String rest = entry.substring(close + 1);
+                if (!rest.isEmpty()) {
+                    if (!rest.startsWith(":")) {
+                        return null;
+                    }
+                    port = rest.substring(1);
+                }
+            } else if (entry.indexOf(':') >= 0 && entry.indexOf(':') == entry.lastIndexOf(':')) {
+                host = entry.substring(0, entry.indexOf(':'));
+                port = entry.substring(entry.indexOf(':') + 1);
+            }
+            if (host.isEmpty()) {
+                return null;
+            }
+            if (port == null) {
+                return new AllowedHost(host, -1);
+            }
+            try {
+                final int p = Integer.parseInt(port);
+                return p > 0 && p <= 65535 ? new AllowedHost(host, p) : null;
+            } catch (final NumberFormatException e) {
+                return null;
+            }
+        }
+
+        boolean matches(final String urlHost, final int urlPort) {
+            return host.equals(urlHost) && (port < 0 || port == urlPort);
+        }
+
+        String display() {
+            final String h = host.indexOf(':') >= 0 ? "[" + host + "]" : host;
+            return port < 0 ? h : h + ":" + port;
+        }
+    }
+
+    /**
+     * The valid entries of a comma-separated {@code helix.egress.allowed-private-hosts} value, normalised
+     * (lower-case; IPv6 bracketed). Invalid entries (a URL, a bad port, …) are dropped with a warning.
+     */
+    public static List<String> parseAllowlist(final String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        final List<String> out = new java.util.ArrayList<>();
+        for (final String raw : csv.split(",")) {
+            if (raw.isBlank()) {
+                continue;
+            }
+            final AllowedHost parsed = AllowedHost.parse(raw);
+            if (parsed == null) {
+                LOG.warn("Ignored invalid helix.egress.allowed-private-hosts entry {} (expected host or host:port)",
+                        LogSafe.sanitize(raw.trim()));
+                continue;
+            }
+            out.add(parsed.display());
+        }
+        return List.copyOf(out);
     }
 
     /** A guard that permits everything with a resolvable host (tests / trusted internal wiring only). */
@@ -124,8 +245,12 @@ public class OutboundUrlGuard {
             host = host.substring(1, host.length() - 1);
         }
         if (allowPrivate) {
-            return; // DEV escape hatch: scheme still enforced above, address checks skipped
+            return; // deprecated escape hatch: scheme still enforced above, address checks skipped
         }
+        final String matchHost = host.toLowerCase(Locale.ROOT);
+        final int port = uri.getPort() >= 0 ? uri.getPort() : scheme.equalsIgnoreCase("https") ? 443 : 80;
+        // C6: an allowlisted NAME (never the address it resolves to) may reach private addresses.
+        final boolean allowlisted = allowedPrivateHosts.stream().anyMatch(a -> a.matches(matchHost, port));
         final InetAddress[] addresses;
         try {
             addresses = resolver.resolve(host);
@@ -136,7 +261,7 @@ public class OutboundUrlGuard {
             throw new SsrfBlockedException("Outbound host resolved to no address: " + host);
         }
         for (final InetAddress address : addresses) {
-            if (isBlocked(address)) {
+            if (allowlisted ? isAlwaysBlocked(address) : isBlocked(address)) {
                 LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)",
                         LogSafe.sanitize(safe(url)),
                         LogSafe.sanitize(address.getHostAddress()));
@@ -155,6 +280,14 @@ public class OutboundUrlGuard {
                 || address.isMulticastAddress()  // 224/4, ff00::/8
                 || isUniqueLocalIpv6(address)    // fc00::/7 (IPv6 ULA — not covered by isSiteLocalAddress)
                 || isReservedIpv4(address);      // 0.0.0.0/8, 100.64.0.0/10 (carrier-grade NAT)
+    }
+
+    /** Blocked even for an allowlisted host: cloud metadata / link-local, multicast, wildcard and 0.0.0.0/8. */
+    private static boolean isAlwaysBlocked(final InetAddress address) {
+        return address.isAnyLocalAddress()
+                || address.isLinkLocalAddress()
+                || address.isMulticastAddress()
+                || address instanceof java.net.Inet4Address && (address.getAddress()[0] & 0xff) == 0;
     }
 
     private static boolean isReservedIpv4(final InetAddress address) {
@@ -226,6 +359,14 @@ public class OutboundUrlGuard {
     private static boolean isUniqueLocalIpv6(final InetAddress address) {
         final byte[] bytes = address.getAddress();
         return bytes.length == 16 && (bytes[0] & 0xFE) == 0xFC;
+    }
+
+    private static String allowlistFromEnvironment() {
+        final String env = System.getenv("HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS");
+        if (env != null && !env.isBlank()) {
+            return env;
+        }
+        return System.getProperty("helix.egress.allowed-private-hosts", "");
     }
 
     private static boolean allowPrivateFromEnvironment() {

@@ -23,6 +23,9 @@ data:
   HELIX_SQL_INIT_MODE: {{ ternary "never" "always" .Values.config.migrationsEnabled | quote }}
   HELIX_ADMIN_USERNAME: {{ .Values.secrets.adminUsername | quote }}
   MFA_ENABLED: {{ .Values.config.mfaEnabled | quote }}
+  {{- with .Values.config.egressAllowedPrivateHosts }}
+  HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS: {{ join "," . | quote }}
+  {{- end }}
   {{- if .Values.secrets.bootstrapClientId }}
   HELIX_BOOTSTRAP_CLIENT_ID: {{ .Values.secrets.bootstrapClientId | quote }}
   HELIX_BOOTSTRAP_CLIENT_SECRET_FILE: "/etc/helixiam/bootstrap/client-secret"

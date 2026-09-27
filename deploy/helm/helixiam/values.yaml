@@ -37,6 +37,11 @@ config:
   # second factor. false = only realms with requireMfa=true (and users who enrolled) are asked for it. It never
   # applies to client_credentials tokens, so provisioning with secrets.bootstrapClientId works with MFA on.
   mfaEnabled: true               # MFA_ENABLED
+  # Private hosts outbound calls may reach (SSRF guard allowlist), e.g. an in-cluster HTTP email/SMS gateway:
+  # [mailer.mail.svc.cluster.local, "sms-gateway.internal:8080"]. Exact host names or IP literals, optionally with
+  # a port; everything else that resolves to a private address stays blocked. Replaces the deprecated
+  # HELIX_EGRESS_ALLOW_PRIVATE=true (all hosts). Also allow the port in networkPolicy.extraEgressPorts.
+  egressAllowedPrivateHosts: []  # HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS
   extraEnv: []                   # list of {name, value} or {name, valueFrom}
 
 database:
