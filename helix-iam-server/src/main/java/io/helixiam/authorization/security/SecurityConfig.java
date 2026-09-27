@@ -72,6 +72,9 @@ public class SecurityConfig {
     // form-action must permit https destinations here.
     private static final String CSP_SAML = CSP_BASE + "; form-action 'self' https:";
 
+    /** The public, realm-scoped theme asset path (after RealmRoutingFilter strips the realm prefix). */
+    static final String THEME_ASSET_PATTERN = "/theme/assets/*";
+
     private final String[] whitelist;
     private final boolean mfaEnabled;
     private final String spBaseUrl;
@@ -252,6 +255,12 @@ public class SecurityConfig {
         // 1.0 item 8: the container's error page must be reachable, or every unhandled 500 (and every 403/404
         // rendered via /error) turns into a 401 from the authentication entry point and hides the real failure.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/error").permitAll());
+        // Structured theming (spec §3): uploaded theme fonts and images are public, read-only and realm-scoped —
+        // sign-in pages and emails load them before anyone is signed in. Only GET/HEAD of exactly
+        // /theme/assets/{file} (flat: RealmRoutingFilter stripped /realms/{realm}); nothing else under /theme.
+        http.authorizeHttpRequests(requests -> requests
+                .requestMatchers(org.springframework.http.HttpMethod.GET, THEME_ASSET_PATTERN).permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.HEAD, THEME_ASSET_PATTERN).permitAll());
         // 1.0 item 6: magic-link sign-in pages (each answers 404 unless the realm enabled magic links).
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/login/magic", "/login/magic/verify").permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
@@ -542,6 +551,13 @@ public class SecurityConfig {
      * the account SPA's safe (GET) calls, where the token is otherwise never accessed and thus never set.
      */
     static final class CsrfCookieFilter extends org.springframework.web.filter.OncePerRequestFilter {
+        private static boolean isThemeAsset(final jakarta.servlet.http.HttpServletRequest request) {
+            final String path = request.getServletPath();
+            return path != null && path.startsWith("/theme/assets/") && path.indexOf('/', "/theme/assets/".length()) < 0
+                    && ("GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod()));
+        }
+
+
         @Override
         protected void doFilterInternal(final jakarta.servlet.http.HttpServletRequest request,
                                         final jakarta.servlet.http.HttpServletResponse response,
@@ -550,7 +566,8 @@ public class SecurityConfig {
             final org.springframework.security.web.csrf.CsrfToken csrfToken =
                     (org.springframework.security.web.csrf.CsrfToken) request.getAttribute(
                             org.springframework.security.web.csrf.CsrfToken.class.getName());
-            if (csrfToken != null) {
+            // Public theme assets are immutable and cacheable by shared caches: never attach a cookie to them.
+            if (csrfToken != null && !isThemeAsset(request)) {
                 csrfToken.getToken(); // materialise → triggers the deferred cookie write
             }
             filterChain.doFilter(request, response);

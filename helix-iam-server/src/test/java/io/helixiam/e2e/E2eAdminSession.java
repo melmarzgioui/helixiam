@@ -67,6 +67,12 @@ public final class E2eAdminSession {
         return http.delete(path, withXsrf(path));
     }
 
+    /** Multipart upload of one file (plus form fields), with the CSRF header. */
+    public E2eHttp.Response upload(final String path, final java.util.Map<String, String> fields, final String filename,
+                                   final String contentType, final byte[] content) {
+        return http.postMultipart(path, fields, "file", filename, contentType, content, withXsrf(path));
+    }
+
     private String[] withXsrf(final String path) {
         if (http.cookieFor("XSRF-TOKEN", path).isEmpty()) {
             // Login rotates the CSRF token, and the cookie is scoped to the request's path; a safe GET on the

@@ -35,6 +35,12 @@ public final class AuditEventMapper {
         final String resource = seg.get(3);
         final String id = seg.size() > 4 ? seg.get(4) : null;
         final String sub = seg.size() > 5 ? seg.get(5) : null;
+        // Structured theming: /theme/assets[/{id}] — uploaded fonts and images (the detail carries their metadata).
+        if ("theme".equals(resource) && "assets".equals(id)) {
+            final String assetType = "POST".equals(method) ? "THEME_ASSET_UPLOAD"
+                    : "DELETE".equals(method) ? "THEME_ASSET_DELETE" : "ADMIN_" + method;
+            return new AdminAudit(realm, assetType, "theme-asset", sub, outcome);
+        }
         final String type = type(method, resource, sub);
         final String resourceType = singular(resource);
         return new AdminAudit(realm, type != null ? type : "ADMIN_" + method, resourceType, id, outcome);

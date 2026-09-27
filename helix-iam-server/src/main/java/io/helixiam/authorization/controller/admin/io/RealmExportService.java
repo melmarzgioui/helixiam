@@ -141,6 +141,14 @@ public class RealmExportService {
         this.themeService = themeService;
     }
 
+    private io.helixiam.authorization.theme.asset.ThemeAssetService themeAssetService;
+
+    /** Structured theming: the metadata of uploaded theme fonts and images is exported (never their bytes). */
+    @Autowired(required = false)
+    public void setThemeAssetService(final io.helixiam.authorization.theme.asset.ThemeAssetService themeAssetService) {
+        this.themeAssetService = themeAssetService;
+    }
+
     /**
      * Reads every configurable slice of the realm and returns the export document. Secrets are emitted as
      * {@code ${ENV_VAR}} placeholders (v2) and the referenced var names are collected into
@@ -240,7 +248,16 @@ public class RealmExportService {
                 required,
                 theme,
                 organizationThemes,
-                themeNotices);
+                themeNotices,
+                themeAssets(realmId));
+    }
+
+    private List<io.helixiam.authorization.theme.asset.ThemeAssetMetadata> themeAssets(final String realmId) {
+        if (themeAssetService == null) {
+            return null;
+        }
+        final List<io.helixiam.authorization.theme.asset.ThemeAssetMetadata> list = themeAssetService.list(realmId);
+        return list.isEmpty() ? null : list;
     }
 
     /**

@@ -134,6 +134,51 @@ public final class E2eHttp {
                 .method(method, HttpRequest.BodyPublishers.ofString(body)));
     }
 
+    /**
+     * POST {@code multipart/form-data}: plain {@code fields} plus one file part {@code fileField} with
+     * {@code filename}, {@code contentType} and {@code content}.
+     */
+    public Response postMultipart(final String pathOrUrl, final Map<String, String> fields, final String fileField,
+                                  final String filename, final String contentType, final byte[] content,
+                                  final String... headers) {
+        final String boundary = "----e2e" + Long.toHexString(System.nanoTime());
+        final java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
+        final java.util.function.Consumer<String> text = s -> body.writeBytes(s.getBytes(StandardCharsets.UTF_8));
+        fields.forEach((k, v) -> {
+            text.accept("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + k + "\"\r\n\r\n");
+            text.accept(v + "\r\n");
+        });
+        text.accept("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + fileField + "\"; filename=\""
+                + filename + "\"\r\nContent-Type: " + contentType + "\r\n\r\n");
+        body.writeBytes(content);
+        text.accept("\r\n--" + boundary + "--\r\n");
+        return send(request(pathOrUrl, headers)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())));
+    }
+
+    /** GET returning the raw body bytes (for binary resources). */
+    public BytesResponse getBytes(final String pathOrUrl, final String... headers) {
+        final HttpRequest request = request(pathOrUrl, headers).GET().build();
+        try {
+            final HttpResponse<byte[]> r = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            history.add(request.method() + " " + request.uri() + " -> " + r.statusCode());
+            return new BytesResponse(r.statusCode(), r.headers(), r.body());
+        } catch (final IOException e) {
+            throw new UncheckedIOException(request.method() + " " + request.uri() + " failed", e);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** A binary response. */
+    public record BytesResponse(int status, HttpHeaders headers, byte[] body) {
+        public Optional<String> header(final String name) {
+            return headers.firstValue(name);
+        }
+    }
+
     /** DELETE. */
     public Response delete(final String pathOrUrl, final String... headers) {
         return send(request(pathOrUrl, headers).DELETE());
