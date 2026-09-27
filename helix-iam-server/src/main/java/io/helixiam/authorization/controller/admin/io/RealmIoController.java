@@ -83,7 +83,8 @@ public class RealmIoController {
             return ResponseEntity.notFound().build();
         }
         final ImportOptions options = new ImportOptions(ImportOptions.conflictOf(onConflict));
-        return respond(archiveService.importArchive(realmId, request.getInputStream(), options));
+        return respond(archiveService.importArchive(realmId, request.getInputStream(), options,
+                io.helixiam.authorization.security.audit.AuditContext.clientIp(request)));
     }
 
     /** A malformed, oversized or inconsistent archive: {@code 400 {message, fieldErrors}}. */

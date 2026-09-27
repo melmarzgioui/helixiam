@@ -9,7 +9,12 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.authorization.security.audit.AuditContext;
+import io.helixiam.authorization.security.audit.AuditEvent;
+import io.helixiam.authorization.security.audit.AuditLog;
+import io.helixiam.authorization.theme.ThemeService;
 import io.helixiam.authorization.theme.ThemeValidationException;
+import io.helixiam.authorization.theme.asset.ThemeAssetInUseException;
 import io.helixiam.authorization.theme.asset.ThemeAssetKind;
 import io.helixiam.authorization.theme.asset.ThemeAssetMetadata;
 import io.helixiam.authorization.theme.asset.ThemeAssetService;
@@ -62,14 +67,19 @@ public class RealmArchiveService {
     private final ThemeAssetService assets;
     private final ObjectMapper json;
     private final TransactionTemplate tx;
+    private final ThemeService themes;
+    private final AuditLog auditLog;
 
     public RealmArchiveService(final RealmExportService exportService, final RealmImportService importService,
-                               final ThemeAssetService assets, final ObjectMapper json, final TransactionTemplate tx) {
+                               final ThemeAssetService assets, final ObjectMapper json, final TransactionTemplate tx,
+                               final ThemeService themes, final AuditLog auditLog) {
         this.exportService = exportService;
         this.importService = importService;
         this.assets = assets;
         this.json = json;
         this.tx = tx;
+        this.themes = themes;
+        this.auditLog = auditLog;
     }
 
     /** One manifest entry. */
@@ -101,13 +111,24 @@ public class RealmArchiveService {
         }
     }
 
+    /** What the asset stage did, so it can be undone (N3) and audited (N4). */
+    private record AssetStage(Map<String, String> ids, List<ThemeAssetMetadata> created, List<Replaced> replaced) {
+    }
+
+    /** A font face replaced under {@code onConflict=overwrite}. */
+    private record Replaced(ThemeAssetMetadata original, byte[] originalBytes, ThemeAssetMetadata replacement) {
+    }
+
     /**
      * Imports an archive into {@code realmId}.
      *
+     * @param sourceIp client address for the per-asset audit events
      * @throws RealmArchiveException     when the archive is malformed or inconsistent (nothing is imported)
      * @throws ThemeValidationException  when the document's theme fails strict parsing (nothing is imported)
      */
-    public RealmImportResult importArchive(final String realmId, final InputStream in, final ImportOptions options) {
+    public RealmImportResult importArchive(final String realmId, final InputStream in, final ImportOptions options,
+                                           final String sourceIp) {
+        final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
         final RealmArchive.Contents contents = RealmArchive.read(in, RealmArchive.Limits.DEFAULT);
         final RealmExportDocument doc = parse(contents.document(), new TypeReference<RealmExportDocument>() { },
                 RealmArchive.DOCUMENT);
@@ -116,45 +137,159 @@ public class RealmArchiveService {
         checkManifest(manifest, contents.assets());
 
         final RealmImportResult.Builder result = new RealmImportResult.Builder(realmId);
-        final Map<String, String> ids;
+        // Review R-I2: the realm slice first — it creates a realm that does not exist yet, and assets need its row.
+        if (!importService.importRealmStage(realmId, doc, opts, result)) {
+            return result.build();
+        }
+        if (!manifest.isEmpty() && !themes.realmExists(realmId)) {
+            throw new RealmArchiveException("The realm does not exist and the archive has no realm settings to create it.");
+        }
+        final AssetStage stage;
         try {
-            ids = tx.execute(s -> uploadAll(realmId, manifest, contents.assets(), result));
-        } catch (final ThemeValidationException e) {
-            final String reason = String.join("; ", e.fieldErrors().entrySet().stream()
-                    .map(en -> en.getKey() + ": " + en.getValue()).toList());
+            stage = tx.execute(s -> uploadAll(realmId, manifest, contents.assets(), opts, result));
+        } catch (final ThemeValidationException | ThemeAssetInUseException e) {
+            final String reason = e instanceof ThemeValidationException tve
+                    ? String.join("; ", tve.fieldErrors().entrySet().stream()
+                            .map(en -> en.getKey() + ": " + en.getValue()).toList())
+                    : e.getMessage();
             result.failed(SLICE_THEME_ASSETS, reason);
-            LOG.warn("Helix realm archive import [{}]: an asset was refused, nothing was imported: {}",
+            LOG.warn("Helix realm archive import [{}]: an asset was refused, no asset and no other slice was imported: {}",
                     LogSafe.sanitize(realmId), LogSafe.sanitize(reason));
             return result.build();
         }
+        final Map<String, String> ids = stage.ids();
         final RealmExportDocument rewritten = doc.withThemes(RealmArchive.rewrite(doc.theme(), realmId, ids),
                 doc.organizationThemes() == null ? null : doc.organizationThemes().stream()
                         .map(o -> o == null ? null : new RealmExportDocument.OrganizationThemeExport(o.organization(),
                                 RealmArchive.rewrite(o.theme(), realmId, ids)))
                         .toList());
-        return importService.importInto(realmId, rewritten, options, result);
+        final RealmImportResult out = importService.importRest(realmId, rewritten, opts, result);
+        final AssetStage kept = out.hasFailures() ? compensate(realmId, stage) : stage;
+        audit(realmId, kept, sourceIp);
+        return out;
     }
 
-    private Map<String, String> uploadAll(final String realmId, final List<ManifestEntry> manifest,
-                                          final Map<String, byte[]> files, final RealmImportResult.Builder result) {
+    /**
+     * Review N3: the document stage failed after the asset stage committed. Undo what this import did to assets
+     * unless a theme stored by this same import now references it: created assets are removed, replaced font faces
+     * are put back. Returns what was kept.
+     */
+    private AssetStage compensate(final String realmId, final AssetStage stage) {
+        final List<ThemeAssetMetadata> keptCreated = new ArrayList<>();
+        for (final ThemeAssetMetadata m : stage.created()) {
+            if (!assets.removeIfUnreferenced(realmId, m.id())) {
+                keptCreated.add(m);
+            }
+        }
+        final List<Replaced> keptReplaced = new ArrayList<>();
+        for (final Replaced r : stage.replaced()) {
+            final boolean referencedByUrl = assets.references(realmId, r.replacement()).stream()
+                    .anyMatch(f -> !f.endsWith("typography.fontSans") && !f.endsWith("typography.fontDisplay"));
+            if (referencedByUrl) {
+                keptReplaced.add(r);
+            } else {
+                assets.restore(r.replacement(), r.original(), r.originalBytes());
+            }
+        }
+        LOG.warn("Helix realm archive import [{}]: the document stage failed; {} new asset(s) removed, {} replaced "
+                        + "font face(s) restored", LogSafe.sanitize(realmId),
+                stage.created().size() - keptCreated.size(), stage.replaced().size() - keptReplaced.size());
+        return new AssetStage(stage.ids(), keptCreated, keptReplaced);
+    }
+
+    /** Review N4: one audit event per asset this import stored (metadata only), besides the import event itself. */
+    private void audit(final String realmId, final AssetStage stage, final String sourceIp) {
+        if (auditLog == null) {
+            return;
+        }
+        for (final Replaced r : stage.replaced()) {
+            emit("THEME_ASSET_DELETE", realmId, r.original(), sourceIp);
+            emit("THEME_ASSET_UPLOAD", realmId, r.replacement(), sourceIp);
+        }
+        for (final ThemeAssetMetadata m : stage.created()) {
+            emit("THEME_ASSET_UPLOAD", realmId, m, sourceIp);
+        }
+    }
+
+    private void emit(final String type, final String realmId, final ThemeAssetMetadata m, final String sourceIp) {
+        final Map<String, String> detail = new LinkedHashMap<>();
+        detail.put("assetId", m.id());
+        detail.put("kind", m.kind().key());
+        detail.put("name", m.name());
+        detail.put("ext", m.ext());
+        detail.put("size", Integer.toString(m.size()));
+        detail.put("sha256", m.sha256());
+        detail.put("source", "import");
+        auditLog.emit(AuditEvent.admin(AuditContext.nowIso(), type, realmId, AuditContext.adminActor(), sourceIp,
+                "theme-asset", m.id(), "SUCCESS", detail));
+    }
+
+    /**
+     * Review N2: {@code onConflict} applies to assets as to the other slices. An asset "exists" when the target realm
+     * has the same font face (family case-insensitively, weight, style) or, for an image, identical content.
+     * <ul>
+     *   <li>{@code overwrite}: an identical asset is reused; a font face with other bytes is replaced (the family keeps
+     *       resolving; refused when custom CSS references the old file);</li>
+     *   <li>{@code skip}: the existing asset is kept and used;</li>
+     *   <li>{@code fail}: as skip, and each existing asset is reported as a conflict {@code themeAssets:font Name 400
+     *       normal} / {@code themeAssets:image name.ext}.</li>
+     * </ul>
+     * New assets are uploaded in every mode.
+     */
+    private AssetStage uploadAll(final String realmId, final List<ManifestEntry> manifest,
+                                 final Map<String, byte[]> files, final ImportOptions opts,
+                                 final RealmImportResult.Builder result) {
         final Map<String, String> ids = new LinkedHashMap<>();
+        final List<ThemeAssetMetadata> created = new ArrayList<>();
+        final List<Replaced> replaced = new ArrayList<>();
         final List<ThemeAssetMetadata> existing = new ArrayList<>(assets.list(realmId));
         for (final ManifestEntry e : manifest) {
             final byte[] bytes = files.get(e.id() + "." + e.ext());
-            final Optional<ThemeAssetMetadata> same = existing.stream().filter(m -> identical(m, e)).findFirst();
-            if (same.isPresent()) {
-                ids.put(e.id(), same.get().id());
-                result.updated(SLICE_THEME_ASSETS);
+            final boolean font = ThemeAssetKind.FONT.key().equals(e.kind());
+            final String weight = font ? (e.weight() == null ? "400" : e.weight()) : null;
+            final String style = font ? (e.style() == null ? "normal" : e.style()) : null;
+            final Optional<ThemeAssetMetadata> match = existing.stream()
+                    .filter(m -> font ? m.kind() == ThemeAssetKind.FONT && m.name().equalsIgnoreCase(e.name())
+                            && m.weight().equals(weight) && m.style().equals(style)
+                            : m.kind() == ThemeAssetKind.IMAGE && identical(m, e))
+                    .findFirst();
+            if (match.isEmpty()) {
+                final ThemeAssetMetadata uploaded = assets.upload(realmId, e.id() + "." + e.ext(), bytes, e.name(),
+                        weight, style);
+                existing.add(uploaded);
+                created.add(uploaded);
+                ids.put(e.id(), uploaded.id());
+                result.created(SLICE_THEME_ASSETS);
                 continue;
             }
-            final boolean font = ThemeAssetKind.FONT.key().equals(e.kind());
-            final ThemeAssetMetadata uploaded = assets.upload(realmId, e.id() + "." + e.ext(), bytes,
-                    e.name(), font ? e.weight() : null, font ? e.style() : null);
-            existing.add(uploaded);
-            ids.put(e.id(), uploaded.id());
-            result.created(SLICE_THEME_ASSETS);
+            final ThemeAssetMetadata current = match.get();
+            switch (opts.onConflict()) {
+                case SKIP -> result.skipped(SLICE_THEME_ASSETS);
+                case FAIL -> {
+                    result.conflict(SLICE_THEME_ASSETS, font ? "font " + current.name() + " " + weight + " " + style
+                            : "image " + current.name() + "." + current.ext());
+                    result.skipped(SLICE_THEME_ASSETS);
+                }
+                default -> {
+                    if (!font || identical(current, e)) {
+                        result.updated(SLICE_THEME_ASSETS);
+                    } else {
+                        final byte[] originalBytes = assets.content(realmId, current.id())
+                                .map(ThemeAssetService.StoredAsset::bytes).orElseThrow();
+                        final ThemeAssetMetadata replacement = assets.replaceFont(realmId, current.id(),
+                                e.id() + "." + e.ext(), bytes, e.name(), weight, style);
+                        existing.remove(current);
+                        existing.add(replacement);
+                        replaced.add(new Replaced(current, originalBytes, replacement));
+                        ids.put(e.id(), replacement.id());
+                        result.updated(SLICE_THEME_ASSETS);
+                        continue;
+                    }
+                }
+            }
+            ids.put(e.id(), current.id());
         }
-        return ids;
+        return new AssetStage(ids, created, replaced);
     }
 
     private static boolean identical(final ThemeAssetMetadata m, final ManifestEntry e) {

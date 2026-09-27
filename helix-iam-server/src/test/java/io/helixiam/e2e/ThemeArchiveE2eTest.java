@@ -177,6 +177,112 @@ class ThemeArchiveE2eTest extends AbstractE2eTest {
         assertThat(master.get("/admin/realms/" + target + "/theme/assets").json()).isEmpty();
     }
 
+    /** A themed source realm (font + SVG logo referenced by the theme) and its archive. */
+    private byte[] themedArchive() {
+        final String assets = "/admin/realms/" + realm + "/theme/assets";
+        admin.upload(assets, Map.of("name", "Public Sans"), "PublicSans.woff2", "font/woff2", AssetFixtures.woff2(2048));
+        final String logoUrl = admin.upload(assets, Map.of(), "logo.svg", "image/svg+xml",
+                SVG.getBytes(StandardCharsets.UTF_8)).json().path("url").asText();
+        assertThat(admin.put("/admin/realms/" + realm + "/theme", Map.of("typography", Map.of("fontSans", "Public Sans"),
+                "assets", Map.of("logoUrl", logoUrl))).status()).isEqualTo(200);
+        final E2eHttp.BytesResponse export = admin.getBytes("/admin/realms/" + realm + "/export?includeAssets=true");
+        assertThat(export.status()).isEqualTo(200);
+        return export.body();
+    }
+
+    @Test
+    void reviewRI2_anArchiveImportsIntoARealmThatDoesNotExistYet() {
+        final byte[] archive = themedArchive();
+        final String fresh = E2eSeed.unique("restore");
+        final E2eAdminSession master = adminSession();
+        final E2eHttp.Response imported = master.postBytes("/admin/realms/" + fresh + "/import", "application/zip", archive);
+        assertThat(imported.status()).as(imported.toString()).isEqualTo(200);
+        assertThat(master.get("/admin/realms/" + fresh + "/theme/assets").json()).hasSize(2);
+        final JsonNode theme = master.get("/admin/realms/" + fresh + "/theme").json();
+        assertThat(theme.path("typography").path("fontSans").asText()).isEqualTo("Public Sans");
+        assertThat(theme.path("assets").path("logoUrl").asText()).startsWith("/realms/" + fresh + "/theme/assets/");
+        assertThat(newBrowser().getBytes(theme.path("assets").path("logoUrl").asText()).status()).isEqualTo(200);
+    }
+
+    @Test
+    void reviewN3_whenTheDocumentStageFails_theAssetsOfThisImportAreRemovedAgain() throws Exception {
+        final Map<String, byte[]> entries = unzip(themedArchive());
+        final ObjectNode doc = (ObjectNode) JSON.readTree(entries.get("realm-export.json"));
+        ((ObjectNode) doc.path("theme").path("assets")).put("brandImageUrl", "/realms/" + realm + "/theme/assets/gone.png");
+        entries.put("realm-export.json", JSON.writeValueAsBytes(doc));
+        final String target = E2eSeed.unique("half");
+        seed().realm(target);
+        final E2eAdminSession master = adminSession();
+        final E2eHttp.Response r = master.postBytes("/admin/realms/" + target + "/import", "application/zip", zip(entries));
+        assertThat(r.status()).as(r.toString()).isEqualTo(422);
+        assertThat(r.body()).contains("brandImageUrl");
+        assertThat(master.get("/admin/realms/" + target + "/theme/assets").json())
+                .as("no orphaned assets count against the limits").isEmpty();
+    }
+
+    @Test
+    void reviewN2_onConflictAppliesToAssets() throws Exception {
+        final byte[] archive = themedArchive();
+        final String target = E2eSeed.unique("conflict");
+        seed().realm(target);
+        final E2eAdminSession master = adminSession();
+        final String targetAssets = "/admin/realms/" + target + "/theme/assets";
+        final byte[] theirs = AssetFixtures.woff2(1024);
+        assertThat(master.upload(targetAssets, Map.of("name", "Public Sans"), "f.woff2", "font/woff2", theirs).status())
+                .isEqualTo(201);
+        final String importPath = "/admin/realms/" + target + "/import";
+
+        // fail: the existing face is kept and reported as a conflict.
+        final E2eHttp.Response fail = master.postBytes(importPath + "?onConflict=fail", "application/zip", archive);
+        assertThat(fail.json().path("conflicts").toString()).contains("themeAssets:font Public Sans 400 normal");
+        assertThat(fontSha(master, targetAssets)).isEqualTo(sha256(theirs));
+
+        // skip: the existing face is kept, silently.
+        final E2eHttp.Response skip = master.postBytes(importPath + "?onConflict=skip", "application/zip", archive);
+        assertThat(skip.json().path("slices").path("themeAssets").path("skipped").asInt()).isGreaterThanOrEqualTo(1);
+        assertThat(skip.json().has("conflicts")).isFalse();
+        assertThat(fontSha(master, targetAssets)).isEqualTo(sha256(theirs));
+
+        // overwrite (the default): the archive's face replaces it; the family still resolves.
+        final E2eHttp.Response overwrite = master.postBytes(importPath, "application/zip", archive);
+        assertThat(overwrite.status()).as(overwrite.toString()).isEqualTo(200);
+        assertThat(fontSha(master, targetAssets)).isEqualTo(sha256(AssetFixtures.woff2(2048)));
+        assertThat(master.get(targetAssets).json().findValuesAsText("kind").stream().filter("font"::equals).count())
+                .isEqualTo(1);
+        assertThat(master.get("/admin/realms/" + target + "/theme").json().path("typography").path("fontSans").asText())
+                .isEqualTo("Public Sans");
+    }
+
+    private static String fontSha(final E2eAdminSession who, final String path) {
+        for (final JsonNode a : who.get(path).json()) {
+            if ("font".equals(a.path("kind").asText())) {
+                return a.path("sha256").asText();
+            }
+        }
+        throw new AssertionError("no font");
+    }
+
+    @Test
+    void reviewN4_eachImportedAssetIsAuditedWithItsMetadata() throws Exception {
+        final byte[] archive = themedArchive();
+        final String target = E2eSeed.unique("audited");
+        seed().realm(target);
+        assertThat(adminSession().postBytes("/admin/realms/" + target + "/import", "application/zip", archive).status())
+                .isEqualTo(200);
+        final org.springframework.jdbc.core.JdbcTemplate jdbc = context.getBean(org.springframework.jdbc.core.JdbcTemplate.class);
+        java.util.List<String> details = java.util.List.of();
+        for (int i = 0; i < 50 && details.size() < 2; i++) {
+            details = jdbc.queryForList("SELECT detail FROM audit_log WHERE realm_id = ? AND type = 'THEME_ASSET_UPLOAD'",
+                    String.class, target);
+            if (details.size() < 2) {
+                Thread.sleep(100);
+            }
+        }
+        assertThat(details).hasSize(2);
+        assertThat(details).allSatisfy(d -> assertThat(d).contains("sha256").contains("assetId").contains("\"source\":\"import\""));
+        assertThat(String.join("", details)).contains("Public Sans").doesNotContain("d09GMg");
+    }
+
     private static String sha256(final byte[] b) throws Exception {
         return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(b));
     }

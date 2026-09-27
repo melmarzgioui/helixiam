@@ -247,13 +247,34 @@ public class RealmImportService {
         if (doc == null) {
             return result.build();
         }
+        if (!importRealmStage(realmId, doc, opts, result)) {
+            return result.build();
+        }
+        return importRest(realmId, doc, opts, result);
+    }
+
+    /**
+     * Stage 1 of an import: the realm slice (which creates the realm when it does not exist yet). False when it
+     * failed, in which case nothing else may be imported. The archive import runs its asset stage between this and
+     * {@link #importRest}, because assets need the realm row.
+     */
+    public boolean importRealmStage(final String realmId, final RealmExportDocument doc, final ImportOptions options,
+                                    final RealmImportResult.Builder result) {
+        final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
         importRealm(realmId, doc, opts, result);
         if (result.hasFailed(SLICE_REALM)) {
             // Review rc.3 #5: without its realm nothing else can be imported consistently — stop here.
             LOG.warn("Helix realm import [{}]: the realm could not be written; nothing else was imported",
                     LogSafe.sanitize(realmId));
-            return result.build();
+            return false;
         }
+        return true;
+    }
+
+    /** Stage 2 of an import: every slice after the realm. */
+    public RealmImportResult importRest(final String realmId, final RealmExportDocument doc, final ImportOptions options,
+                                        final RealmImportResult.Builder result) {
+        final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
         importTheme(realmId, doc, opts, result);
         importRoles(realmId, doc, opts, result);
         importScopes(realmId, doc, opts, result);

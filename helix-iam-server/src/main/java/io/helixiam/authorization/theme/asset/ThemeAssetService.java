@@ -128,6 +128,52 @@ public class ThemeAssetService {
         return found;
     }
 
+    /**
+     * Replaces a font face with new bytes (archive import, {@code onConflict=overwrite}): the old file is deleted and
+     * the new one uploaded under the same rules. The family keeps resolving, so typography references do not block
+     * it; a reference to the old file's URL (custom CSS) does.
+     *
+     * @throws ThemeAssetInUseException when a theme references the old file by URL
+     * @throws ThemeValidationException when the new file is refused
+     */
+    @Transactional
+    public ThemeAssetMetadata replaceFont(final String realmId, final String existingId, final String filename,
+                                          final byte[] bytes, final String name, final String weight,
+                                          final String style) {
+        store.lockRealm(realmId);
+        final ThemeAssetMetadata old = store.find(realmId, existingId)
+                .orElseThrow(() -> new ThemeValidationException(Map.of("file", "The font to replace no longer exists.")));
+        final List<String> byUrl = references(realmId, old).stream()
+                .filter(f -> !f.endsWith("typography.fontSans") && !f.endsWith("typography.fontDisplay")).toList();
+        if (!byUrl.isEmpty()) {
+            throw new ThemeAssetInUseException(byUrl);
+        }
+        store.delete(realmId, existingId);
+        return upload(realmId, filename, bytes, name, weight, style);
+    }
+
+    /**
+     * Compensation for an archive import whose document stage failed: removes an asset this import created, unless
+     * a theme stored meanwhile references it. True when it was removed.
+     */
+    @Transactional
+    public boolean removeIfUnreferenced(final String realmId, final String assetId) {
+        try {
+            return delete(realmId, assetId).isPresent();
+        } catch (final ThemeAssetInUseException e) {
+            return false;
+        }
+    }
+
+    /** Compensation: puts back a font face an archive import replaced (same id, same bytes). */
+    @Transactional
+    public void restore(final ThemeAssetMetadata replacedBy, final ThemeAssetMetadata original, final byte[] bytes) {
+        store.lockRealm(original.realmId());
+        store.delete(replacedBy.realmId(), replacedBy.id());
+        store.save(original, bytes);
+        invalidateAfterCommit(original.realmId());
+    }
+
     /** The theme fields (realm layer, then each organization layer) that would break without this asset. */
     public List<String> references(final String realmId, final ThemeAssetMetadata asset) {
         final boolean lastOfFamily = asset.kind() == ThemeAssetKind.FONT && store.list(realmId).stream()
