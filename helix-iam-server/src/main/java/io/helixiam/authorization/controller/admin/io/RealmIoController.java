@@ -38,11 +38,61 @@ public class RealmIoController {
 
     private final RealmExportService exportService;
     private final RealmImportService importService;
+    private RealmArchiveService archiveService;
 
     @Autowired
     public RealmIoController(final RealmExportService exportService, final RealmImportService importService) {
         this.exportService = exportService;
         this.importService = importService;
+    }
+
+    /** Review I2: the optional archive (document + theme asset bytes). */
+    @Autowired(required = false)
+    public void setArchiveService(final RealmArchiveService archiveService) {
+        this.archiveService = archiveService;
+    }
+
+    /**
+     * Spec §7 "optional archive export": {@code GET /export?includeAssets=true} returns a zip with
+     * {@code realm-export.json}, {@code theme-assets/manifest.json} and {@code theme-assets/{id}.{ext}}.
+     */
+    @GetMapping(value = "/export", params = "includeAssets=true")
+    public ResponseEntity<byte[]> exportArchive(@PathVariable final String realmId) {
+        if (archiveService == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + safeFilename(realmId) + "-realm-export.zip\"")
+                .body(archiveService.export(realmId));
+    }
+
+    /**
+     * Imports an archive made by {@link #exportArchive}: every asset is re-uploaded through the normal upload rules
+     * (sha256 checked against the manifest), asset URLs in the themes are rewritten to the new ids, then the document
+     * is imported as by the JSON endpoint. A malformed or inconsistent archive is a 400 and imports nothing.
+     */
+    @PostMapping(value = "/import", consumes = {"application/zip", "application/x-zip-compressed"})
+    public ResponseEntity<RealmImportResult> importArchive(@PathVariable final String realmId,
+                                                           @RequestParam(name = "onConflict", required = false)
+                                                           final String onConflict,
+                                                           final jakarta.servlet.http.HttpServletRequest request)
+            throws java.io.IOException {
+        if (archiveService == null) {
+            return ResponseEntity.notFound().build();
+        }
+        final ImportOptions options = new ImportOptions(ImportOptions.conflictOf(onConflict));
+        return respond(archiveService.importArchive(realmId, request.getInputStream(), options));
+    }
+
+    /** A malformed, oversized or inconsistent archive: {@code 400 {message, fieldErrors}}. */
+    @org.springframework.web.bind.annotation.ExceptionHandler(RealmArchiveException.class)
+    public ResponseEntity<java.util.Map<String, Object>> badArchive(final RealmArchiveException e) {
+        final java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("message", e.getMessage());
+        body.put("fieldErrors", java.util.Map.of("archive", e.getMessage()));
+        return ResponseEntity.badRequest().body(body);
     }
 
     /** The full, secret-masked realm export as a downloadable JSON document. */

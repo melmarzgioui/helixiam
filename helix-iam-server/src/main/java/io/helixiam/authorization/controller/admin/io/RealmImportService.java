@@ -234,8 +234,16 @@ public class RealmImportService {
     /** Applies every present slice into {@code realmId} honouring {@code options}; returns the summary. */
     public RealmImportResult importInto(final String realmId, final RealmExportDocument doc,
                                         final ImportOptions options) {
+        return importInto(realmId, doc, options, new RealmImportResult.Builder(realmId));
+    }
+
+    /**
+     * As {@link #importInto(String, RealmExportDocument, ImportOptions)}, adding to a result a caller already started
+     * (the archive import records its {@code themeAssets} slice there first).
+     */
+    public RealmImportResult importInto(final String realmId, final RealmExportDocument doc,
+                                        final ImportOptions options, final RealmImportResult.Builder result) {
         final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
-        final RealmImportResult.Builder result = new RealmImportResult.Builder(realmId);
         if (doc == null) {
             return result.build();
         }

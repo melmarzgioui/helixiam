@@ -73,6 +73,16 @@ public final class E2eAdminSession {
         return http.postMultipart(path, fields, "file", filename, contentType, content, withXsrf(path));
     }
 
+    /** POST a raw body (e.g. a zip), with the CSRF header. */
+    public E2eHttp.Response postBytes(final String path, final String contentType, final byte[] body) {
+        return http.postBytes(path, contentType, body, withXsrf(path));
+    }
+
+    /** GET returning raw bytes (e.g. a zip). */
+    public E2eHttp.BytesResponse getBytes(final String path) {
+        return http.getBytes(path, "Accept", "application/zip, application/json");
+    }
+
     private String[] withXsrf(final String path) {
         if (http.cookieFor("XSRF-TOKEN", path).isEmpty()) {
             // Login rotates the CSRF token, and the cookie is scoped to the request's path; a safe GET on the

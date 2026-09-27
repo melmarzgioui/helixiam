@@ -157,6 +157,13 @@ public final class E2eHttp {
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())));
     }
 
+    /** POST a raw body with the given content type. */
+    public Response postBytes(final String pathOrUrl, final String contentType, final byte[] body,
+                              final String... headers) {
+        return send(request(pathOrUrl, headers).header("Content-Type", contentType)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body)));
+    }
+
     /** GET returning the raw body bytes (for binary resources). */
     public BytesResponse getBytes(final String pathOrUrl, final String... headers) {
         return sendBytes("GET", pathOrUrl, headers);

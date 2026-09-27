@@ -175,6 +175,16 @@ public record RealmExportDocument(Integer formatVersion,
                 authorizationServices, agents, requiredEnv, theme, organizationThemes, themeNotices, null);
     }
 
+    /** A copy with other theme layers (the archive import rewrites asset references). */
+    public RealmExportDocument withThemes(final io.helixiam.authorization.theme.Theme newTheme,
+                                          final List<OrganizationThemeExport> newOrganizationThemes) {
+        return new RealmExportDocument(formatVersion, realm, clients, samlClients, roles, clientScopes,
+                identityProviders, flows, organizations, applications, webhooks, scimTargets, workloadIdentity,
+                messagingProviders, messageTemplates, adminRoles, groups, users, clientProtocolMappers, clientRoles,
+                serviceAccountRoles, resourceIndicators, authorizationServices, agents, requiredEnv, newTheme,
+                newOrganizationThemes, themeNotices, themeAssets);
+    }
+
     /** One organization's theme layer in an export, matched by organization name on import. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record OrganizationThemeExport(String organization,
