@@ -34,8 +34,9 @@ public final class InFlightClientResolver {
     }
 
     /**
-     * Item A8: the URL of the pending {@code /oauth2/authorize} request saved in the session (not consumed), to send
-     * the user back into their sign-in after registering or verifying their email. Empty when none is pending.
+     * Item A8: the pending {@code /oauth2/authorize} request saved in the session (not consumed), as a path and query on
+     * this server, to send the user back into their sign-in after registering or verifying their email. Empty when none
+     * is pending.
      */
     public static java.util.Optional<String> pendingAuthorizeUrl(final HttpServletRequest request) {
         if (request == null || request.getSession(false) == null) {
@@ -46,9 +47,15 @@ public final class InFlightClientResolver {
             return java.util.Optional.empty();
         }
         try {
-            final String path = java.net.URI.create(saved.getRedirectUrl()).getPath();
-            return path != null && path.endsWith("/oauth2/authorize") && "GET".equalsIgnoreCase(saved.getMethod())
-                    ? java.util.Optional.of(saved.getRedirectUrl()) : java.util.Optional.empty();
+            final java.net.URI uri = java.net.URI.create(saved.getRedirectUrl());
+            final String path = uri.getRawPath();
+            // CodeQL #255: only the path and query go out, never the saved URL's scheme and host, so the redirect stays
+            // on this server; a path that a browser would read as another host ("//host/...") is refused.
+            if (path == null || !path.startsWith("/") || path.startsWith("//") || !path.endsWith("/oauth2/authorize")
+                    || !"GET".equalsIgnoreCase(saved.getMethod())) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(uri.getRawQuery() == null ? path : path + "?" + uri.getRawQuery());
         } catch (final IllegalArgumentException e) {
             return java.util.Optional.empty();
         }
