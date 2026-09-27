@@ -24,7 +24,8 @@ import java.util.Set;
 /**
  * Validates a messaging provider before it is saved ({@code PUT /admin/realms/{r}/messaging/providers}): a known
  * channel and driver, and for email the from address and each driver's required settings (SMTP host, port range and
- * TLS mode; Cloudflare account id, API token and an {@code https} base URL; HTTP url). Failures are a
+ * TLS mode; Cloudflare account id, API token and an {@code https} base URL; HTTP url; the optional
+ * {@code sendLimitPerMinute} rate cap of any email driver). The realm import applies the same checks. Failures are a
  * {@link ProviderValidationException} (400 {@code {message, fieldErrors}}). Settings that are only safe for local
  * development ({@code tlsMode: NONE}, an {@code http://} Cloudflare base URL) are refused unless the server runs with
  * the {@code dev} profile.
@@ -94,6 +95,9 @@ public class MessagingProviderValidator {
         if (!"LOG".equals(driver)) {
             checkFrom(write.fromAddress(), write.fromName(), errors);
         }
+        // The realm's own send rate cap (emails per minute), instead of helix.notification.email.rate-limit.realm-per-minute.
+        checkInt(config, "sendLimitPerMinute", 1, 1_000_000, "Enter a limit between 1 and 1000000 emails per minute.",
+                errors);
         final boolean hasSecret = (secret != null && !secret.isBlank()) || secretStored;
         switch (driver) {
             case "SMTP" -> checkSmtp(config, errors);

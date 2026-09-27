@@ -25,6 +25,8 @@ import java.util.Map;
 public class RealmEmailOtpSender implements OtpSender {
 
     private static final Logger LOG = LogManager.getLogger(RealmEmailOtpSender.class);
+    /** How long an emailed OTP works ({@code OtpDeliveryAuthenticator}). */
+    static final java.time.Duration OTP_VALID_FOR = java.time.Duration.ofMinutes(5);
 
     private final MessagingService messaging;
     private final UserInfoService userInfo;
@@ -48,13 +50,17 @@ public class RealmEmailOtpSender implements OtpSender {
                 base.put("user", firstNonBlank(profile.get("name"), profile.get("given_name"), email, "there"));
                 // Expose every user claim under user.<claim> ({{user.email}}, {{user.given_name}}, …).
                 final Map<String, String> vars = io.helixiam.authorization.messaging.MessageVariables.withUserClaims(base, profile);
-                if (messaging.sendEmail(realm, email, "otp-email", vars)) {
+                // The code is valid for 5 minutes (OtpDeliveryAuthenticator): never retried after that.
+                if (messaging.sendEmail(realm, email, "otp-email", vars, OTP_VALID_FOR)) {
                     LOG.info("Email OTP sent to user {} via realm {} provider",
                             LogSafe.sanitize(userId), LogSafe.sanitize(realm));
                     return;
                 }
             } catch (final RuntimeException e) {
-                LOG.warn("Email OTP send failed for user {} (logging code as fallback): {}", userId, e.getMessage());
+                // A provider that failed (or the send rate cap) is not the dev fallback: the code is never logged here.
+                LOG.warn("Email OTP send failed for user {}: {}", LogSafe.sanitize(userId),
+                        LogSafe.sanitize(e.getMessage()));
+                return;
             }
         }
         LOG.info("[DEV] Email OTP for user {} (no email provider/address): code = {}", userId, code);

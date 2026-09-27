@@ -142,7 +142,7 @@ public class EmailChangeService {
         }
         sendLink(realmId, userId, address, linkBase);
         if (previous != null && !previous.isBlank()) {
-            send(realmId, userId, previous, MessagingAdminService.EMAIL_CHANGED_NOTICE, Map.of());
+            send(realmId, userId, previous, MessagingAdminService.EMAIL_CHANGED_NOTICE, Map.of(), null);
         }
         return Outcome.CHANGED;
     }
@@ -163,7 +163,8 @@ public class EmailChangeService {
                         + "VALUES (?, ?, ?, ?, ?, ?)", hash(token), realmId, userId, address, new Timestamp(now),
                 new Timestamp(now + TimeUnit.HOURS.toMillis(TTL_HOURS)));
         send(realmId, userId, address, MessagingAdminService.EMAIL_CHANGE_VERIFY,
-                Map.of("link", linkBase + "/account/email/verify?token=" + token, "ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.hours(TTL_HOURS, org.springframework.context.i18n.LocaleContextHolder.getLocale())));
+                Map.of("link", linkBase + "/account/email/verify?token=" + token, "ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.hours(TTL_HOURS, org.springframework.context.i18n.LocaleContextHolder.getLocale())),
+                java.time.Duration.ofHours(TTL_HOURS));
     }
 
     /**
@@ -183,8 +184,10 @@ public class EmailChangeService {
             return Optional.empty();
         }
         final Confirmed confirmed = rows.get(0);
-        final int updated = jdbc.update("UPDATE user_credentials SET email_verified = true WHERE user_id = ? "
-                + "AND lower(email) = lower(?)", confirmed.userId(), confirmed.email());
+        // Verified again: a bounce recorded for this address no longer holds.
+        final int updated = jdbc.update("UPDATE user_credentials SET email_verified = true, email_bounced_at = NULL, "
+                + "email_bounced_address = NULL WHERE user_id = ? AND lower(email) = lower(?)", confirmed.userId(),
+                confirmed.email());
         return updated == 1 ? Optional.of(confirmed) : Optional.empty();
     }
 
@@ -192,15 +195,16 @@ public class EmailChangeService {
     public record Confirmed(String userId, String email) {
     }
 
+    /** Sends {@code template}; {@code validFor} is how long the link in it works (null: it has none). */
     private void send(final String realmId, final String userId, final String to, final String template,
-                      final Map<String, String> extra) {
+                      final Map<String, String> extra, final java.time.Duration validFor) {
         try {
             templates.ensureDefaultTemplate(realmId, template);
             final Map<String, String> profile = profile(userId);
             final Map<String, String> vars = new LinkedHashMap<>(extra);
             vars.put("realm", realmId);
             vars.put("user", firstNonBlank(profile.get("name"), profile.get("given_name"), "there"));
-            if (!messaging.sendEmail(realmId, to, template, MessageVariables.withUserClaims(vars, profile))) {
+            if (!messaging.sendEmail(realmId, to, template, MessageVariables.withUserClaims(vars, profile), validFor)) {
                 LOG.warn("Email {} for user {} NOT sent: realm {} has no email provider configured",
                         template, LogSafe.sanitize(userId), LogSafe.sanitize(realmId));
             }

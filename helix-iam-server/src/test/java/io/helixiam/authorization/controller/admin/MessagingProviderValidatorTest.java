@@ -129,4 +129,14 @@ class MessagingProviderValidatorTest {
                 "no-reply@example.com", "Acme\r\nBcc: x@example.com", Map.of("host", "smtp.example.com"), null), false)))
                 .containsOnlyKeys("fromName");
     }
+
+    @Test
+    void theRealmsSendLimit_isAPositiveNumber_forEveryEmailDriver() {
+        assertThat(errors(() -> prod.validate(email("LOG", Map.of("sendLimitPerMinute", "0"), null), false)))
+                .containsOnlyKeys("config.sendLimitPerMinute");
+        assertThat(errors(() -> prod.validate(email("SMTP", Map.of("host", "smtp.example.com",
+                "sendLimitPerMinute", "lots"), null), false))).containsOnlyKeys("config.sendLimitPerMinute");
+        prod.validate(email("SMTP", Map.of("host", "smtp.example.com", "sendLimitPerMinute", "30"), null), false);
+        prod.validate(email("LOG", Map.of("sendLimitPerMinute", "1000000"), null), false);
+    }
 }

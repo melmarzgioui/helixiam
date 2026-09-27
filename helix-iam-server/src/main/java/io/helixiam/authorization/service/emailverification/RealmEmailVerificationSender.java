@@ -48,7 +48,8 @@ public class RealmEmailVerificationSender implements EmailVerificationSender {
             vars.put("link", message.link());
             vars.put("ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.hours(message.ttlHours(), org.springframework.context.i18n.LocaleContextHolder.getLocale()));
             vars.put("user", message.email());
-            if (messaging.sendEmail(message.realmId(), message.email(), TEMPLATE, vars)) {
+            if (messaging.sendEmail(message.realmId(), message.email(), TEMPLATE, vars,
+                    java.time.Duration.ofHours(message.ttlHours()))) {
                 LOG.info("Verification email sent to user {} in realm {}",
                         LogSafe.sanitize(message.userId()), LogSafe.sanitize(message.realmId()));
                 return true;

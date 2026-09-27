@@ -49,7 +49,13 @@ public record DeliveryResult(Status status, Reason reason, String providerMessag
         /** The provider settings are unusable (missing host, disallowed URL or TLS mode, unknown driver). */
         CONFIGURATION,
         /** No email provider is configured for the realm, nor globally. */
-        NO_PROVIDER
+        NO_PROVIDER,
+        /**
+         * HelixIAM refused to send: the realm's or the server's send rate cap is reached. Nothing was handed to the
+         * provider and the email is not queued for a retry (status {@code TRANSIENT_FAILURE}: a later request can
+         * succeed).
+         */
+        RATE_CAPPED
     }
 
     private static final int MAX_DIAGNOSTIC = 300;

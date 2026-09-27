@@ -23,7 +23,8 @@ import java.util.Map;
  * {@code {from, fromName, to, subject, body, html, contentType, text}} to {@code config.url}. {@code text} is the
  * plain-text part (for an HTML email, its text alternative with every link). The secret is sent as the
  * {@code Authorization} header value (default {@code Bearer }-prefixed; overridable with {@code config.authHeader} /
- * {@code config.authScheme}). The provider drivers (SMTP, CLOUDFLARE) are preferred where they fit.
+ * {@code config.authScheme}). The {@code Idempotency-Key} header carries the message id, the same on every retry of
+ * one email. The provider drivers (SMTP, CLOUDFLARE) are preferred where they fit.
  *
  * <p>Classification: 2xx is accepted; 401/403 (credentials), 408, 429 and 5xx are transient; any other status is a
  * permanent rejection. A URL the egress guard refuses is a configuration failure.
@@ -71,6 +72,8 @@ public class HttpEmailDriver implements EmailTransport {
         }
         final Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
+        // The same for every attempt of one email, so a relay can drop a retry it already delivered.
+        headers.put("Idempotency-Key", message.messageId());
         if (provider.secret() != null && !provider.secret().isBlank()) {
             headers.put(config.getOrDefault("authHeader", "Authorization"),
                     config.getOrDefault("authScheme", "Bearer ") + provider.secret());

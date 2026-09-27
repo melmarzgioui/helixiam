@@ -15,6 +15,7 @@ import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,13 +27,13 @@ import java.util.Optional;
  * <p>It picks the provider (the realm's enabled {@code EMAIL} provider with a known driver, else the global default
  * of {@link GlobalEmailProvider}), re-reading it at every call so a changed or rotated secret applies at once, hands
  * the message to the matching {@link EmailTransport}, and returns the classified {@link DeliveryResult}. It never
- * throws. Every attempt is counted in {@code helix_email_send_total{realm,driver,result}}; a provider that refuses
+ * throws. Every attempt is counted in {@code helix_email_send_total{realm,driver,result}} and timed in
+ * {@code helix_email_send_duration}; a provider that refuses
  * the credentials also raises {@code helix_email_provider_auth_failures_total}, a WARN log line and an
  * {@code EMAIL_PROVIDER_AUTH_FAILED} audit event, because only an operator can fix it.
  *
- * <p>A persisted retry queue wraps this method: store the realm and the {@link EmailMessage} (its
- * {@link EmailMessage#messageId()} is stable across attempts), call {@code deliver} for each attempt, and retry only
- * a {@link DeliveryResult#isRetryable() retryable} result.
+ * <p>{@link EmailOutbox} wraps this method with the send rate caps, the persisted retry queue (the same
+ * {@link EmailMessage#messageId()} for every attempt) and bounce handling; callers go through the outbox.
  */
 public class EmailDelivery {
 
@@ -112,6 +113,7 @@ public class EmailDelivery {
         final EmailTransport transport = transport(provider.driver());
         final String driver = transport == null ? String.valueOf(provider.driver()) : transport.driver();
         DeliveryResult result;
+        final long started = System.nanoTime();
         if (transport == null) {
             result = DeliveryResult.permanent(Reason.CONFIGURATION, "Unknown email driver");
         } else {
@@ -126,6 +128,10 @@ public class EmailDelivery {
             }
         }
         result = withoutSecret(result, provider.secret());
+        if (metrics != null && transport != null) {
+            metrics.recordEmailSendDuration(realm, driver, result.status().name(),
+                    Duration.ofNanos(System.nanoTime() - started));
+        }
         record(realm, driver, message, result);
         return result;
     }

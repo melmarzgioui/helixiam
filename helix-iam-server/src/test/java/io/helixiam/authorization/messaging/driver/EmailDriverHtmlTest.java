@@ -132,6 +132,8 @@ class EmailDriverHtmlTest {
 
         assertThat(driver.deliver(provider, message).status()).isEqualTo(DeliveryResult.Status.ACCEPTED);
         assertThat(sentHeaders.get()).containsEntry("X-Api-Key", "key-1");
+        // The message id, the same on every retry of this email.
+        assertThat(sentHeaders.get()).containsEntry("Idempotency-Key", message.messageId());
         status[0] = 401;
         assertThat(driver.deliver(provider, message).status()).isEqualTo(DeliveryResult.Status.TRANSIENT_FAILURE);
         status[0] = 503;

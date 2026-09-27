@@ -16,6 +16,8 @@ import io.helixiam.authorization.messaging.email.DeliveryResult;
 import io.helixiam.authorization.messaging.email.EmailDelivery;
 import io.helixiam.authorization.messaging.email.EmailDeliveryException;
 import io.helixiam.authorization.messaging.email.EmailMessage;
+import io.helixiam.authorization.messaging.email.EmailOutbox;
+import io.helixiam.authorization.messaging.email.EmailSendOutcome;
 import io.helixiam.authorization.messaging.email.EmailTransport;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
@@ -23,6 +25,8 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,8 +44,8 @@ public class MessagingService {
 
     private final MessagingAdminPublisher publisher;
     private final List<SmsDriver> smsDrivers;
-    private final EmailDelivery emailDelivery;
     private final List<PushDriver> pushDrivers;
+    private EmailOutbox outbox;
     private EmailBrandingSource emailBranding;
 
     @Autowired
@@ -49,8 +53,8 @@ public class MessagingService {
                             final EmailDelivery emailDelivery, final List<PushDriver> pushDrivers) {
         this.publisher = publisher;
         this.smsDrivers = smsDrivers;
-        this.emailDelivery = emailDelivery;
         this.pushDrivers = pushDrivers;
+        this.outbox = EmailOutbox.direct(emailDelivery);
     }
 
     /** Email through {@code emailTransports} for the realm's own providers only (no global default; tests). */
@@ -79,33 +83,62 @@ public class MessagingService {
     }
 
     /**
-     * Render {@code templateKey} and email it to {@code to}; false if the realm has no email provider.
+     * Render {@code templateKey} and email it to {@code to}; false if the realm has no email provider. The email carries
+     * no expiring code or link (see {@link #sendEmail(String, String, String, Map, Duration)}).
      *
-     * @throws EmailDeliveryException when the provider did not take the email (the classified result is attached)
+     * @throws EmailDeliveryException when the provider did not take the email and it is not queued for a retry (the
+     *                                classified result is attached)
      */
     public boolean sendEmail(final String realm, final String to, final String templateKey, final Map<String, String> vars) {
-        final Optional<DeliveryResult> result = sendEmailWithResult(realm, to, templateKey, vars);
-        if (result.isEmpty()) {
+        return sendEmail(realm, to, templateKey, vars, null);
+    }
+
+    /**
+     * Render {@code templateKey} and email it to {@code to} through the realm's email provider, via the
+     * {@link EmailOutbox}: the send rate caps, one synchronous attempt, then retries of a transient failure (never
+     * after the code or link in the email stops working, {@code validFor} from now; null: it carries none).
+     *
+     * @return true when the provider took the email or it is queued for a retry; false when the realm has no enabled
+     *         email provider with a known driver
+     * @throws EmailDeliveryException when the email failed (permanently, or transiently without a retry: rate capped,
+     *                                or the code would expire first); the classified result is attached
+     */
+    public boolean sendEmail(final String realm, final String to, final String templateKey,
+                             final Map<String, String> vars, final Duration validFor) {
+        if (outbox.realmProvider(realm).isEmpty()) {
             return false;
         }
-        if (!result.get().isSuccess()) {
-            throw new EmailDeliveryException(result.get());
+        final Rendered r = render(realm, templateKey, vars);
+        final EmailMessage message = EmailMessage.of(null, to, r.subject(), r.body(), r.html(), r.text())
+                .withExpiresAt(validFor == null ? null : Instant.now().plus(validFor));
+        final EmailSendOutcome outcome = outbox.send(realm, message, EmailOutbox.SendOptions.TRANSACTIONAL);
+        if (!outcome.inFlight()) {
+            throw new EmailDeliveryException(outcome.result());
         }
         return true;
     }
 
     /**
-     * Render {@code templateKey} and email it to {@code to} through the realm's email provider; the classified
-     * result, or empty when the realm has no enabled email provider with a known driver.
+     * Render {@code templateKey} and email it to {@code to} through the realm's email provider, once (the admin test
+     * endpoint): the classified result of that attempt, never queued for a retry; empty when the realm has no enabled
+     * email provider with a known driver. The send rate caps apply.
      */
     public Optional<DeliveryResult> sendEmailWithResult(final String realm, final String to, final String templateKey,
                                                         final Map<String, String> vars) {
-        if (emailDelivery.realmProvider(realm).isEmpty()) {
+        if (outbox.realmProvider(realm).isEmpty()) {
             return Optional.empty();
         }
         final Rendered r = render(realm, templateKey, vars);
         final EmailMessage message = EmailMessage.of(null, to, r.subject(), r.body(), r.html(), r.text());
-        return Optional.of(emailDelivery.deliver(realm, message));
+        return Optional.of(outbox.send(realm, message, EmailOutbox.SendOptions.TEST).result());
+    }
+
+    /** The outbox email goes through (rate caps, retries, bounces); without one, a single synchronous attempt. */
+    @Autowired(required = false)
+    public void setEmailOutbox(final EmailOutbox outbox) {
+        if (outbox != null) {
+            this.outbox = outbox;
+        }
     }
 
     /**

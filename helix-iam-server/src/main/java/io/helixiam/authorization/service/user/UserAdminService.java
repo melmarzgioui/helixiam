@@ -53,6 +53,10 @@ public class UserAdminService {
     @Autowired(required = false)
     private PasswordPolicyEnforcer passwordPolicyEnforcer;
 
+    // Email delivery: a bounced address is cleared when the address changes or an admin marks it verified again.
+    @Autowired(required = false)
+    private io.helixiam.authorization.messaging.email.JdbcBounceRecorder emailBounces;
+
     // Curated default roles: a newly-created realm user auto-receives the realm's default role (the seeded
     // {@code user} role). Field-injected + optional so the existing constructor + its unit tests are untouched.
     @Autowired(required = false)
@@ -156,12 +160,17 @@ public class UserAdminService {
             user.setDisabled(!write.enabled());
             user.setAccountLocked(write.locked());
             final String email = normaliseEmail(write.email());
-            if (!java.util.Objects.equals(email, user.getEmail())) {
+            final boolean wasVerified = user.isEmailVerified();
+            final boolean emailChanged = !java.util.Objects.equals(email, user.getEmail());
+            if (emailChanged) {
                 user.setEmailVerified(false); // review rc.3 #4: a new address is unverified until proven
             }
             user.setEmail(email);
             if (write.emailVerified() != null) {
                 user.setEmailVerified(write.emailVerified() && email != null); // C3: explicit admin choice wins
+            }
+            if (emailChanged || (!wasVerified && user.isEmailVerified())) {
+                clearEmailBounce(user);
             }
             if (write.attributes() != null) {
                 user.getUserAttributes().clear();
@@ -291,6 +300,14 @@ public class UserAdminService {
         }).orElse("");
     }
 
+    /** Forgets a bounced address: the address changed, or it is verified again. */
+    private void clearEmailBounce(final UserCredentials user) {
+        if (emailBounces != null) {
+            emailBounces.clear(user.getUserId());
+        }
+        user.forgetEmailBounce();
+    }
+
     /** A user's realm link FKs to {@code tenant}; a realm may exist only as config, so back-fill it. */
     private void ensureTenant(final String realmId) {
         if (tenantRepository.findById(realmId).isEmpty()) {
@@ -307,7 +324,8 @@ public class UserAdminService {
         final Map<String, String> attributes = user.getUserAttributes() == null ? Map.of() : user.getUserAttributes();
         final Long createdAt = user.getCreationDate() == null ? null : user.getCreationDate().getTime();
         return new UserAdminDto(realmId, user.getUserId(), user.getUsername(), user.getEmail(), !user.isDisabled(),
-                user.isLocked(), user.isMfaEnabled(), roles, attributes, createdAt, user.isEmailVerified());
+                user.isLocked(), user.isMfaEnabled(), roles, attributes, createdAt, user.isEmailVerified(),
+                user.isEmailBounced(), user.getEmailBouncedAt());
     }
 
     /** Email is matched case-insensitively at login, so it is stored lowercase; blank means "none". */

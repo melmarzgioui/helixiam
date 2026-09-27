@@ -9,6 +9,8 @@ import io.helixiam.authorization.messaging.email.CloudflareProperties;
 import io.helixiam.authorization.messaging.email.DeliveryResult;
 import io.helixiam.authorization.messaging.email.EmailDelivery;
 import io.helixiam.authorization.messaging.email.EmailMessage;
+import io.helixiam.authorization.messaging.email.EmailOutbox;
+import io.helixiam.authorization.messaging.email.EmailSendOutcome;
 import io.helixiam.authorization.messaging.email.EmailProperties;
 import io.helixiam.authorization.messaging.email.EmailTransport;
 import io.helixiam.authorization.messaging.email.GlobalEmailProvider;
@@ -24,6 +26,8 @@ import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -53,7 +57,13 @@ public class SmtpNotifier implements Notifier {
     private static final Logger LOG = LogManager.getLogger(NotificationConstant.MODULE_NAME);
     private static final String EMAIL_CHANNEL = "EMAIL";
 
-    private final EmailDelivery emailDelivery;
+    /**
+     * How long a password-reset email is worth sending: the reset code has no server-side expiry, so a reset email
+     * is not retried later than this after it was requested.
+     */
+    static final Duration RESET_EMAIL_VALID_FOR = Duration.ofHours(1);
+
+    private final EmailOutbox outbox;
     private final SmsSender smsSender;
     private final AppSender appSender;
     private final EmailComposer emailComposer;
@@ -79,7 +89,15 @@ public class SmtpNotifier implements Notifier {
      */
     public SmtpNotifier(final EmailDelivery emailDelivery, final SmsSender smsSender, final AppSender appSender,
                         final EmailComposer emailComposer) {
-        this.emailDelivery = emailDelivery;
+        this(EmailOutbox.direct(emailDelivery), smsSender, appSender, emailComposer);
+    }
+
+    /**
+     * @param outbox sends the email: the send rate caps, retries of transient failures and bounce marking
+     */
+    public SmtpNotifier(final EmailOutbox outbox, final SmsSender smsSender, final AppSender appSender,
+                        final EmailComposer emailComposer) {
+        this.outbox = outbox;
         this.smsSender = smsSender;
         this.appSender = appSender;
         this.emailComposer = emailComposer;
@@ -95,15 +113,21 @@ public class SmtpNotifier implements Notifier {
 
         final EmailComposer.ComposedEmail composed = composeEmail(notification);
         try {
+            final Duration validFor = validFor(notification);
             final EmailMessage message = EmailMessage.of(null, to, composed.subject(), composed.body(),
-                    composed.html(), composed.text());
-            final DeliveryResult result = emailDelivery.deliver(RealmContextHolder.get(), message);
+                    composed.html(), composed.text()).withExpiresAt(validFor == null ? null : Instant.now().plus(validFor));
+            final EmailSendOutcome outcome = outbox.send(RealmContextHolder.get(), message,
+                    EmailOutbox.SendOptions.TRANSACTIONAL);
+            final DeliveryResult result = outcome.result();
             if (result.reason() == DeliveryResult.Reason.NO_PROVIDER) {
                 LOG.warn("No email provider configured (realm messaging provider or global "
                         + "helix.notification.email / smtp settings); dropping EMAIL notification (type={})",
                         notification.getType());
             } else if (result.isSuccess()) {
                 LOG.info("Sent EMAIL notification (type={}): {}", notification.getType(), result.status());
+            } else if (outcome.retryScheduled()) {
+                LOG.warn("EMAIL notification (type={}) not delivered yet, a retry is queued: {} {}",
+                        notification.getType(), result.status(), LogSafe.sanitize(result.diagnostic()));
             } else {
                 LOG.warn("Failed to send EMAIL notification (type={}): {} {}", notification.getType(), result.status(),
                         LogSafe.sanitize(result.diagnostic()));
@@ -112,6 +136,25 @@ public class SmtpNotifier implements Notifier {
             LOG.warn("Failed to send EMAIL notification (type={}): {}", notification.getType(),
                     LogSafe.sanitize(e.getClass().getSimpleName()));
         }
+    }
+
+    /**
+     * How long the code or link in this notification works: its {@code ttlMinutes} / {@code ttlHours} data when the
+     * sender gives one (the verification email), one hour for a password reset, else null (none).
+     */
+    static Duration validFor(final NotificationRequest notification) {
+        final java.util.Map<String, String> data = notification.getAdditionalData();
+        try {
+            if (data != null && data.get("ttlMinutes") != null) {
+                return Duration.ofMinutes(Long.parseLong(data.get("ttlMinutes").trim()));
+            }
+            if (data != null && data.get("ttlHours") != null) {
+                return Duration.ofHours(Long.parseLong(data.get("ttlHours").trim()));
+            }
+        } catch (final NumberFormatException e) {
+            // fall through to the type's default
+        }
+        return "USER_RESET_PASSWORD".equals(notification.getType()) ? RESET_EMAIL_VALID_FOR : null;
     }
 
     @Override

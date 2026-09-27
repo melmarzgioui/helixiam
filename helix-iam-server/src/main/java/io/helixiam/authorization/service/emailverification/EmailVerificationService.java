@@ -197,6 +197,10 @@ public class EmailVerificationService {
                     u.setEmailVerified(true);
                     u.setRequiredActions(withoutAction(u.getRequiredActions()));
                     users.save(u);
+                    // Verified again: a bounce recorded for this address no longer holds.
+                    jdbc.update("UPDATE user_credentials SET email_bounced_at = NULL, email_bounced_address = NULL "
+                            + "WHERE user_id = ? AND email_bounced_at IS NOT NULL", userId);
+                    u.forgetEmailBounce();
                     LOG.info("User {} verified their email address in realm {}",
                             LogSafe.sanitize(userId), LogSafe.sanitize(realmId));
                     return userId;

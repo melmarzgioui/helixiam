@@ -40,6 +40,13 @@ public class UserService {
     private final VerifyEmailRepository verifyEmailRepository;
     private final MfaUserRepository mfaUserRepository;
     private final Notifier notifier;
+    private io.helixiam.authorization.messaging.email.JdbcBounceRecorder emailBounces;
+
+    /** Clears a bounced address when the user verifies it again (the signup verification code). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEmailBounces(final io.helixiam.authorization.messaging.email.JdbcBounceRecorder emailBounces) {
+        this.emailBounces = emailBounces;
+    }
     private final PasswordEncoderService passwordEncoderService;
 
     // Auth-hardening (features 3+4): enforce the realm's password policy on the public self-service paths.
@@ -206,6 +213,9 @@ public class UserService {
             verifyEmail.setUserId(notificationCode.getIdentifier());
 
             verifyEmailRepository.save(verifyEmail);
+            if (emailBounces != null) {
+                emailBounces.clear(notificationCode.getIdentifier()); // verified again: a bounce no longer holds
+            }
 
             try {
                 if (registrationNotificationRecipient != null && !registrationNotificationRecipient.isBlank()) {

@@ -7,6 +7,7 @@ package io.helixiam.authorization.messaging.email;
 
 import io.helixiam.authorization.messaging.EmailText;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,10 +29,13 @@ import java.util.UUID;
  *       part is never empty: for an HTML email without one it is derived from the HTML with every link kept
  *       ({@link EmailText#fromHtml}).</li>
  *   <li>{@code headers}: extra headers, limited to {@link #ALLOWED_HEADERS} (none are used today).</li>
+ *   <li>{@code expiresAt}: when the code or link the email carries stops working (null: it carries none). The retry
+ *       queue never sends the email again at or after this instant, so a user never gets a dead link.</li>
  * </ul>
  */
 public record EmailMessage(String messageId, EmailAddress from, List<EmailAddress> to, EmailAddress replyTo,
-                           String subject, String html, String text, Map<String, String> headers) {
+                           String subject, String html, String text, Map<String, String> headers,
+                           Instant expiresAt) {
 
     /** The only extra headers a caller may set (non-transactional mail; none today). */
     public static final Set<String> ALLOWED_HEADERS = Set.of("list-unsubscribe", "list-unsubscribe-post");
@@ -62,6 +66,13 @@ public record EmailMessage(String messageId, EmailAddress from, List<EmailAddres
             });
         }
         headers = Map.copyOf(safe);
+    }
+
+    /** A message that carries no expiring code or link. */
+    public EmailMessage(final String messageId, final EmailAddress from, final List<EmailAddress> to,
+                        final EmailAddress replyTo, final String subject, final String html, final String text,
+                        final Map<String, String> headers) {
+        this(messageId, from, to, replyTo, subject, html, text, headers, null);
     }
 
     /** A new, random message id for a newly composed email. */
@@ -95,6 +106,16 @@ public record EmailMessage(String messageId, EmailAddress from, List<EmailAddres
             return this;
         }
         return new EmailMessage(messageId, EmailAddress.of(fromAddress, fromName), to, replyTo, subject, html, text,
-                headers);
+                headers, expiresAt);
+    }
+
+    /** This message (same id), carrying a code or link that stops working at {@code expiresAt} (null: none). */
+    public EmailMessage withExpiresAt(final Instant expiresAt) {
+        return new EmailMessage(messageId, from, to, replyTo, subject, html, text, headers, expiresAt);
+    }
+
+    /** True when the code or link in this message no longer works at {@code now}. */
+    public boolean isExpiredAt(final Instant now) {
+        return expiresAt != null && !now.isBefore(expiresAt);
     }
 }

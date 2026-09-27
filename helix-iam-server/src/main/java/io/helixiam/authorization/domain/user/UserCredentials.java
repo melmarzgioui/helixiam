@@ -94,6 +94,16 @@ public class UserCredentials implements UserDetails {
     @Column(name = "email_verified")
     private boolean emailVerified;
 
+    // Email delivery: when mail to the user's address last bounced permanently (epoch millis), and which address.
+    // Written only by JdbcBounceRecorder (never by an entity save, so a stale entity cannot undo or resurrect it).
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "email_bounced_at", insertable = false, updatable = false)
+    private Long emailBouncedAt;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "email_bounced_address", insertable = false, updatable = false)
+    private String emailBouncedAddress;
+
     // 1.0 item 6: last accepted TOTP time step; a code for the same or an earlier step is a replay.
     @JsonProperty
     @Column(name = "mfa_last_step")
@@ -294,6 +304,25 @@ public class UserCredentials implements UserDetails {
 
     public boolean isEmailVerified() {
         return emailVerified;
+    }
+
+    /** True when mail to the user's current address bounced permanently (and the address was not verified since). */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isEmailBounced() {
+        return emailBouncedAt != null && email != null && emailBouncedAddress != null
+                && emailBouncedAddress.equalsIgnoreCase(email.trim());
+    }
+
+    /** When the current address bounced (epoch millis), or null. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public Long getEmailBouncedAt() {
+        return isEmailBounced() ? emailBouncedAt : null;
+    }
+
+    /** Forgets the bounce on this loaded entity (after the stored one was cleared). */
+    public void forgetEmailBounce() {
+        this.emailBouncedAt = null;
+        this.emailBouncedAddress = null;
     }
 
     public void setEmailVerified(final boolean emailVerified) {

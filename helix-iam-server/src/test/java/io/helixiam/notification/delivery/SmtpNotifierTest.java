@@ -208,4 +208,17 @@ class SmtpNotifierTest {
             sent.add(new Sent(to, subject, body, html, provider));
         }
     }
+
+    @Test
+    void aNotificationsEmail_isNotRetriedPastItsCodesValidity() {
+        final NotificationRequest reset = new NotificationRequest("USER_RESET_PASSWORD");
+        assertThat(SmtpNotifier.validFor(reset)).isEqualTo(java.time.Duration.ofHours(1));
+        final NotificationRequest verify = new NotificationRequest("VERIFY_EMAIL");
+        verify.getAdditionalData().put("ttlHours", "24");
+        assertThat(SmtpNotifier.validFor(verify)).isEqualTo(java.time.Duration.ofHours(24));
+        final NotificationRequest minutes = new NotificationRequest("VERIFY_EMAIL");
+        minutes.getAdditionalData().put("ttlMinutes", "15");
+        assertThat(SmtpNotifier.validFor(minutes)).isEqualTo(java.time.Duration.ofMinutes(15));
+        assertThat(SmtpNotifier.validFor(new NotificationRequest("NEW_REGISTERED_USER"))).isNull();
+    }
 }

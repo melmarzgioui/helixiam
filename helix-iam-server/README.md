@@ -77,7 +77,9 @@ glance:
   `helix.notification.email.driver` (`smtp`/`cloudflare`/`log`) with `helix.notification.smtp.*` or
   `helix.notification.cloudflare.*`; per-realm providers (`SMTP`, `CLOUDFLARE`, `HTTP`, `LOG`) are configured via
   the admin API/console. Email drivers implement the `EmailTransport` SPI
-  (`io.helixiam.authorization.messaging.email`).
+  (`io.helixiam.authorization.messaging.email`); callers send through `EmailOutbox` (send rate caps
+  `helix.notification.email.rate-limit.*`, persisted retries `helix.notification.email.retry.*` in the
+  `email_retry` table, bounce marking). See [`../docs/EMAIL.md`](../docs/EMAIL.md).
 - **Admin bootstrap**: `HELIX_ADMIN_USERNAME` / `HELIX_ADMIN_PASSWORD`.
 
 See `src/main/java/group/mfnr/authorization/service/realm/RealmAdminBootstrapService.java` for the

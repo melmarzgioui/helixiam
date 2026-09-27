@@ -44,8 +44,9 @@ public class RealmMagicLinkSender implements MagicLinkSender {
             base.put("link", message.link());
             base.put("ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.minutes(message.ttlMinutes(), org.springframework.context.i18n.LocaleContextHolder.getLocale()));
             base.put("user", firstNonBlank(profile.get("name"), profile.get("given_name"), message.email(), "there"));
+            // Never retried after the link expires.
             if (messaging.sendEmail(message.realmId(), message.email(), "magic-link-email",
-                    MessageVariables.withUserClaims(base, profile))) {
+                    MessageVariables.withUserClaims(base, profile), java.time.Duration.ofMinutes(message.ttlMinutes()))) {
                 LOG.info("Magic link emailed to user {} in realm {}",
                         LogSafe.sanitize(message.userId()), LogSafe.sanitize(message.realmId()));
                 return;
