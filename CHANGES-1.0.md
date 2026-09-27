@@ -15,9 +15,11 @@ question. Newest first within each phase.
 - **#2** — `c295bab` A client without its own token lifetime uses the realm's access/refresh token lifetime.
 - **#3** — `e421a80` Per-client sub-resources (mappers, roles, authz, allowed resources, token-exchange policy) accept the internal client id; an unknown client is a 404.
 - **#4** — `7055c8b` Duplicate email → 409 (no DB detail); a changed email is unverified; tokens carry `email_verified`.
-- **#5** — `792537d` Re-importing a realm's own export succeeds; an import stops when the realm cannot be written; invalid realm ids → 400; plain failure reasons. Usernames remain unique across realms (known).
+- **#5** — `792537d` Re-importing a realm's own export succeeds; an import stops when the realm cannot be written; invalid realm ids → 400; plain failure reasons.
 - **#6** — `aaa79c0` With PostgreSQL sessions the Redis health indicator is off, so `/actuator/health` is UP without Redis.
 - **#7 — security** — `e786c6d` At most 5 wrong second-factor codes per sign-in (then the password is needed again); wrong codes count toward the realm lockout; `/mfa` is rate limited per IP.
+- **security** — `757ca11` Usernames and emails are unique per realm (V17 backfills each user's home realm); password sign-in, reset, magic link and federation look users up within the realm, so a user of one realm can no longer sign in at another realm's login page; self-registered users now belong to their realm. V18 adds the missing `notification_code` table (email verification and password reset codes were never stored).
+- **security** — `2bb9d07` SAML metadata import by URL goes through the SSRF guard (https, public addresses only, redirects re-checked, 1 MB cap); the guard also blocks 0.0.0.0/8 and 100.64.0.0/10.
 
 ## 1.0 release blockers (branch `fix/1.0-blockers`, after `v1.0.0-rc.2`)
 
@@ -41,7 +43,6 @@ question. Newest first within each phase.
 - **ops** — `591f7db` Dev profile needs no Redis (PostgreSQL sessions); with Redis sessions, startup fails fast with a clear message if Redis is unreachable; rate limits (per IP, shared-egress caveat) and memory (container limit ≥ 1 GiB) documented.
 - **session** — `8fca429` An unset realm SSO idle timeout (0) no longer invalidates every session immediately (found by the release gate).
 - **release gate** — `14db0d0` `e2e/monthfold/k3d-helm.sh`: Helm defaults on a fresh k3d cluster + scripted Monthfold run + Go jwx validation (38/38 checks, 6/6 tokens).
-- **Known, not fixed here:** usernames are unique across all realms (`user_credentials.username`), so the same username cannot exist in two realms.
 
 ## Decisions (agreed with maintainer)
 - **No-AI scrub scope:** remove AI *as tool/author* only (tooling config, "agent" tester framing);
