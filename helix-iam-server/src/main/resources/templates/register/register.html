@@ -2,7 +2,7 @@
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead(#{register.title}, true)}"></th:block>
-    <script defer src="/js/App.js" type="module"></script>
+    <script defer th:src="@{/js/App.js}" type="module"></script>
 </head>
 <body>
 <div class="helix-auth" th:classappend="${hx.split()} ? '' : 'is-centered'">
@@ -26,6 +26,10 @@
                      th:text="#{register.error.username}">This email address cannot be used.</div>
                 <div class="alert error" role="alert" th:if="${errors.get('invalid.username') != null}"
                      th:text="#{reset.username.error}">Enter the email address of your account.</div>
+                <!--/* At the top of the form, under the title, so it is in view on a phone after the page reloads (the
+                     password fields are far down a long form); the password fields point to it. */-->
+                <div class="alert error" id="password-error" role="alert" th:if="${errors.get('invalid.password') != null}"
+                     th:text="#{register.error.password}">The passwords are empty or do not match.</div>
                 <label for="username" th:text="#{register.username.label}">Email Address (Username)*</label>
                 <input type="text" id="username" name="username" th:field="*{username}" th:classappend="${errors.get('invalid.username') != null ? 'invalid' : 'valid'}" autocomplete="username"
                        th:attr="aria-invalid=${errors.get('invalid.username') != null or errors.get('invalid.signup') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.username') != null or errors.get('invalid.signup') != null} ? 'username-error' : null"/>
@@ -43,8 +47,6 @@
                 </th:block>
 
                 <div class="spacer"></div>
-                <div class="alert error" id="password-error" role="alert" th:if="${errors.get('invalid.password') != null}"
-                     th:text="#{register.error.password}">The passwords are empty or do not match.</div>
                 <label for="password" th:text="#{register.password.label}">Password*</label>
                 <input type="password" id="password" name="password" th:field="*{password}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"
                        th:attr="aria-invalid=${errors.get('invalid.password') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.password') != null} ? 'password-error' : null"/>

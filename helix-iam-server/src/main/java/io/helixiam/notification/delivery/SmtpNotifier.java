@@ -13,6 +13,7 @@ import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.notification.NotificationConstant;
 import io.helixiam.notification.Notifier;
 import io.helixiam.notification.delivery.spi.AppSender;
+import io.helixiam.notification.delivery.spi.EmailComposer;
 import io.helixiam.notification.delivery.spi.SmsSender;
 import io.helixiam.notification.domain.NotificationRequest;
 import io.helixiam.common.log.LogSafe;
@@ -55,14 +56,26 @@ public class SmtpNotifier implements Notifier {
     private final SmsSender smsSender;
     private final AppSender appSender;
     private final SmtpProperties smtpProperties;
+    private final EmailComposer emailComposer;
 
     public SmtpNotifier(final List<EmailDriver> emailDrivers, final MessagingProviderRepository providerRepository,
                         final SmsSender smsSender, final AppSender appSender, final SmtpProperties smtpProperties) {
+        this(emailDrivers, providerRepository, smsSender, appSender, smtpProperties, null);
+    }
+
+    /**
+     * @param emailComposer renders the emails it knows (realm-branded, localised verification and reset emails);
+     *                      null or an empty result falls back to {@link NotificationMessageComposer}'s plain text
+     */
+    public SmtpNotifier(final List<EmailDriver> emailDrivers, final MessagingProviderRepository providerRepository,
+                        final SmsSender smsSender, final AppSender appSender, final SmtpProperties smtpProperties,
+                        final EmailComposer emailComposer) {
         this.emailDrivers = emailDrivers;
         this.providerRepository = providerRepository;
         this.smsSender = smsSender;
         this.appSender = appSender;
         this.smtpProperties = smtpProperties;
+        this.emailComposer = emailComposer;
     }
 
     @Override
@@ -73,7 +86,7 @@ public class SmtpNotifier implements Notifier {
             return;
         }
 
-        final NotificationMessageComposer.ComposedMessage message = NotificationMessageComposer.compose(notification);
+        final EmailComposer.ComposedEmail message = composeEmail(notification);
         try {
             final ResolvedEmail resolved = resolveEmailDriver();
             if (resolved == null) {
@@ -81,7 +94,7 @@ public class SmtpNotifier implements Notifier {
                         + "helix.notification.smtp.host); dropping EMAIL notification (type={})", notification.getType());
                 return;
             }
-            resolved.driver().send(resolved.provider(), to, message.subject(), message.body(), false);
+            resolved.driver().send(resolved.provider(), to, message.subject(), message.body(), message.html());
             LOG.info("Sent EMAIL notification (type={}) via {}", notification.getType(), resolved.provider().driver());
         } catch (final RuntimeException e) {
             LOG.warn("Failed to send EMAIL notification (type={}): {}", notification.getType(), e.getMessage());
@@ -118,6 +131,23 @@ public class SmtpNotifier implements Notifier {
         } catch (final RuntimeException e) {
             LOG.warn("Failed to send APP notification (type={}): {}", notification.getType(), e.getMessage());
         }
+    }
+
+    /** The composer's email for this notification, else the plain-text fallback. */
+    private EmailComposer.ComposedEmail composeEmail(final NotificationRequest notification) {
+        if (emailComposer != null) {
+            try {
+                final java.util.Optional<EmailComposer.ComposedEmail> composed = emailComposer.compose(notification);
+                if (composed.isPresent()) {
+                    return composed.get();
+                }
+            } catch (final RuntimeException e) {
+                LOG.warn("Email composer failed for type={}; sending the plain-text fallback: {}", notification.getType(),
+                        LogSafe.sanitize(e.toString()));
+            }
+        }
+        final NotificationMessageComposer.ComposedMessage plain = NotificationMessageComposer.compose(notification);
+        return new EmailComposer.ComposedEmail(plain.subject(), plain.body(), false);
     }
 
     private record ResolvedEmail(EmailDriver driver, ResolvedProviderDto provider) {

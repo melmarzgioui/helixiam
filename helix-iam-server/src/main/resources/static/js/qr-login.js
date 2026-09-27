@@ -12,6 +12,8 @@
     }
     const sessionId = form.dataset.sessionId || '';
     let token = form.dataset.token || '';
+    // Realm-relative (item A6): the page renders /realms/{realm}/qr/{id}; a bare /qr/… is not served.
+    const pollUrl = form.dataset.pollUrl;
 
     // Render the cross-device deep link the phone scans. (A QR image lib renders this in the app/UX;
     // shown as text here so the flow is functional without bundling a QR renderer.)
@@ -23,7 +25,7 @@
     // instance can answer, so it scales horizontally without held connections or cross-node push.
     async function poll() {
         try {
-            const res = await fetch('/qr/' + encodeURIComponent(sessionId), { headers: { 'Accept': 'application/json' } });
+            const res = await fetch(pollUrl, { headers: { 'Accept': 'application/json' } });
             const data = await res.json();
             if (data.token) { token = data.token; renderLink(); }
             if (data.status === 'CONFIRMED') {

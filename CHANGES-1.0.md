@@ -74,6 +74,34 @@ Open issues found when Monthfold moved its production sign-in to rc.4
   output is unchanged (`<role>_<realm>`), and a requested `scope` may name a role in either form. Agents configured
   with the token form as a workaround (`accountant_monthfold`) must be changed to the plain name (`accountant`).
   `AgentDelegationRolesE2eTest` reproduces it; `docs/role-names-in-tokens.md` has a Delegation section.
+- **A1 — security** — `4379d35` Sign-in returns to the app after the password or two-step code. Every sign-in page sent
+  `form-action 'self'`, and browsers apply it to the whole redirect chain after a form POST, so `POST /mfa/totp` →
+  `/oauth2/authorize` → the app's callback on another origin was blocked. The page CSP now adds, per request, only the
+  origins of the redirect URIs registered for the client of the pending authorization request (or the consent page's
+  `client_id`), and the post-logout origins on the end-session endpoint; unsafe schemes and anything that is not a
+  source expression are dropped. Workarounds that rewrite the CSP at the proxy can be removed.
+- **A6** — `a594bc5` Every link, form, script and poll URL of the sign-in pages is under `/realms/{realm}/` (scripts were
+  linked at `/js/…`, and the QR and push pages polled `/qr/…` and `/push/…`, which 404). A template test fails on any URL
+  outside the realm; a browser test crawls every page reachable from the login page. The stylesheet's fonts stay at the
+  shared `/css/font(s)/` (a relative URL would be cached with the first realm's path by the content-versioning chain).
+- **A7** — `ea17fe1` The registration email has a button to `/realms/{r}/register/verify/{code}` (on `IDP_BASE_URL`,
+  never the request host), the code, and a link to the new code page `/realms/{r}/register/verify`. It is in the language
+  the user registered in and carries the realm (or organization) brand, through the realm's email provider. The reset
+  email links to `/reset/password/{code}`. An unknown or used code shows an error (it used to say "verified").
+- **A8** — `762bc58` After registration or verification the user goes back to the pending sign-in (the login page says
+  the address is verified and is pre-filled); without one, to the realm's new `postRegistrationRedirectUrl`
+  (`GET/PUT /admin/realms/{r}/settings/registration`, Flyway V50), which must be on one of the realm's registered
+  redirect origins; else to the realm's login page. Never to `SP_BASE_URL`.
+- **E3** — `9d5fa0f` `login_hint` on `/oauth2/authorize` pre-fills the email field.
+- **E4** — `86fcc7b` An organization can set `requireMembership` (organization API and realm export/import, Flyway
+  V51). When it is hinted (`organization=`) and the signed-in user is not a member, the client gets
+  `error=access_denied`; the refusal is audited. Relying parties still check the `organizations` claim, since a user can
+  drop the hint.
+- **Theming, emails** — `e78bff3` Verification, reset, magic-link and code emails use the realm or organization theme:
+  logo (an uploaded asset on `IDP_BASE_URL`), light palette, footer text in the user's language and the legal links.
+- Sign-in pages: `55c75cf` after a failed sign-in the username is filled in again (kept in the session, not the URL);
+  `f55fe32` the register password-mismatch alert is under the title, in view on a phone; `a79a563` the maintenance
+  page is a localised card page; `e382287` no key icon on "Save password"; `a5119b9` link buttons keep their text colour.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 

@@ -94,7 +94,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService) throws Exception {
+    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService, final io.helixiam.authorization.service.org.OrganizationMembershipPolicy organizationMembershipPolicy, final io.helixiam.authorization.security.audit.AuditLog auditLog) throws Exception {
         // Helix IAM SSO P4: share OUR SessionRegistry bean with the authorization server BEFORE
         // applyDefaultSecurity (which would otherwise create its own). SAS reads it at token-issuance to
         // stamp the OIDC `sid` (session id hash) into id_tokens — the key that unifies a login's client
@@ -115,6 +115,10 @@ public class SecurityConfig {
                 SecurityContextHolderFilter.class);
         http.addFilterAfter(new io.helixiam.authorization.security.mfa.MfaEnforcementFilter(mfaPolicyService, totpService),
                 SecurityContextHolderFilter.class);
+        // Item E4: a hinted organization that requires membership refuses non-members (access_denied to the client).
+        // Registered after the two-step gate, so it only ever judges a fully signed-in user.
+        http.addFilterAfter(new io.helixiam.authorization.security.realm.OrganizationMembershipFilter(
+                organizationMembershipPolicy, registeredClientRepository, auditLog), SecurityContextHolderFilter.class);
 
         // Helix IAM (#18, RFC 8707): validate the `resource` parameter at /oauth2/authorize + /oauth2/token
         // (absolute URI, no fragment, in the client's allow-list). No-op when no `resource` is present, so the
@@ -400,6 +404,9 @@ public class SecurityConfig {
                             io.helixiam.authorization.security.audit.AuditContext.clientIp(req), "FAILURE",
                             java.util.Map.of("reason", ex.getClass().getSimpleName())));
                     helixMetrics.recordLogin(io.helixiam.authorization.security.realm.RealmContextHolder.get(), "failure");
+                    // The login page shows the username that was typed again (once; kept in the session, not the URL),
+                    // so only the password has to be re-entered.
+                    io.helixiam.authorization.controller.LoginFlash.username(req, req.getParameter("username"));
                     // Context-relative so the redirect stays under the realm's virtual context path
                     // (/realms/{realm}/login); a bare "/login" would be container-root-relative.
                     if(ex instanceof LockedException) {

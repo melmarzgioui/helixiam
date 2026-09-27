@@ -64,6 +64,11 @@ public class UserLocalAdapter implements UserPublisher {
     }
 
     @Override
+    public String verifyEmailFor(final String code) {
+        return userService.verifyEmailFor(code);
+    }
+
+    @Override
     public Boolean enableMfa(final String userId) {
         userService.enableMfa(userId);
         return Boolean.TRUE;

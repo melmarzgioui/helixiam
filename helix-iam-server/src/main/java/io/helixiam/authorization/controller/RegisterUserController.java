@@ -13,6 +13,7 @@ import io.helixiam.authorization.amqp.user.UserPublisher;
 import io.helixiam.authorization.domain.UserRegister;
 import io.helixiam.authorization.security.captcha.CaptchaService;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.authorization.security.flow.InFlightClientResolver;
 import io.helixiam.authorization.security.realm.RealmSettingsResolver;
 import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -40,6 +42,7 @@ public class RegisterUserController {
   private static final Logger log = LoggerFactory.getLogger(RegisterUserController.class);
 
   private static final String VIEW_REGISTER_PAGE = "register/register";
+  private static final String VIEW_VERIFY_PAGE = "register/verify";
 
   // Per-realm self-registration (SDD Task 6): claims that are never rendered as register-form inputs
   // (subject identifier, or collected/derived elsewhere), so the POST harvest+validation skips them.
@@ -64,6 +67,10 @@ public class RegisterUserController {
 
   @Autowired(required = false)
   private BrandingSupport brandingSupport;
+
+  // Item A8: the realm's landing page after registration / verification when no sign-in is pending.
+  @Autowired(required = false)
+  private io.helixiam.authorization.service.registration.RegistrationSettingsService registrationSettings;
 
   public RegisterUserController(final UserPublisher userPublisher, @Value("${user.register.enabled:true}") boolean registerEnabled) {
     this.userPublisher = userPublisher;
@@ -123,12 +130,84 @@ public class RegisterUserController {
   }
 
 
+  /** Item A7: the page to type the verification code for those who cannot click the emailed link. */
+  @GetMapping("/register/verify")
+  public String verifyPage(final Model model) {
+    return verifyView(model, null, false);
+  }
+
+  /** Item A7: the code typed on the code page. */
+  @PostMapping("/register/verify")
+  public String verifyTyped(@RequestParam(name = "code", required = false) final String code, final Model model,
+                            final HttpServletRequest request, final HttpServletResponse response) throws IOException {
+    return verify(code, model, request, response);
+  }
+
+  /** The link in the verification email. */
   @GetMapping("/register/verify/{code}")
-  public void registrationSuccess(@PathVariable("code") final String code, final HttpServletRequest request,
-                                  final HttpServletResponse httpServletResponse) throws IOException {
-    userPublisher.verifyEmail(code);
+  public String registrationSuccess(@PathVariable("code") final String code, final Model model,
+                                    final HttpServletRequest request, final HttpServletResponse response)
+          throws IOException {
+    return verify(code, model, request, response);
+  }
+
+  private String verify(final String code, final Model model, final HttpServletRequest request,
+                        final HttpServletResponse response) throws IOException {
+    final String username = userPublisher.verifyEmailFor(code);
+    if (username == null) {
+      // Unknown, used or mistyped: say so on the code page (it used to redirect to "verified" regardless).
+      response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+      return verifyView(model, code, true);
+    }
+    // Item A8: back into the pending sign-in (the login page says the address is verified and is pre-filled); else
+    // the realm's landing page on the app; else the realm's login page. Never spBaseUrl (the IdP host).
+    LoginFlash.username(request, username);
+    final java.util.Optional<String> pending = InFlightClientResolver.pendingAuthorizeUrl(request);
+    if (pending.isPresent()) {
+      LoginFlash.notice(request, LoginFlash.VERIFIED);
+      response.sendRedirect(pending.get());
+      return null;
+    }
+    final java.util.Optional<String> landing = postRegistrationRedirect();
+    if (landing.isPresent()) {
+      response.sendRedirect(landing.get());
+      return null;
+    }
     // MT-4: context-relative so it stays under the realm path (/realms/{realm}/login).
-    httpServletResponse.sendRedirect(request.getContextPath() + "/login?info=verified");
+    response.sendRedirect(request.getContextPath() + "/login?info=verified");
+    return null;
+  }
+
+  /**
+   * Item A8: where "continue" goes after registering — the pending sign-in, else the realm's
+   * {@code postRegistrationRedirectUrl}, else the realm's login page.
+   */
+  private String continueUrl(final HttpServletRequest request) {
+    return InFlightClientResolver.pendingAuthorizeUrl(request)
+            .or(this::postRegistrationRedirect)
+            .orElse(request.getContextPath() + "/login");
+  }
+
+  private java.util.Optional<String> postRegistrationRedirect() {
+    if (registrationSettings == null) {
+      return java.util.Optional.empty();
+    }
+    try {
+      return registrationSettings.postRegistrationRedirect(RealmContextHolder.get());
+    } catch (final RuntimeException e) {
+      log.warn("postRegistrationRedirectUrl lookup failed for realm '{}': {}", LogSafe.sanitize(RealmContextHolder.get()),
+              LogSafe.sanitize(e.toString()));
+      return java.util.Optional.empty();
+    }
+  }
+
+  private String verifyView(final Model model, final String code, final boolean error) {
+    model.addAttribute("code", code == null ? "" : code.trim());
+    model.addAttribute("error", error ? Boolean.TRUE : null);
+    if (brandingSupport != null) {
+      brandingSupport.apply(model);
+    }
+    return VIEW_VERIFY_PAGE;
   }
 
   @PostMapping(value = "/register")
@@ -200,6 +279,7 @@ public class RegisterUserController {
     }
 
     if (errors.isEmpty()) {
+      model.addAttribute("continueUrl", continueUrl(request));
       return "register/success";
     }
     model.addAttribute(ControllerConstants.USER_REGISTER, userRegister);

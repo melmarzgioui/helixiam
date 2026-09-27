@@ -71,17 +71,17 @@ public class OrganizationAdminController {
     public ResponseEntity<OrgDto> create(@PathVariable final String realmId, @Valid @RequestBody final OrgRequest request) {
         final OrgDto saved = publisher.create(new OrgWriteDto(
                 realmId, null, request.name().trim(), blankToNull(request.displayName()),
-                request.domains(), request.enabled() == null || request.enabled()));
+                request.domains(), request.enabled() == null || request.enabled(), request.requireMembership()));
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
     @PutMapping("/{orgId}")
-    @Operation(summary = "Update an organization", description = "Update name/display/domains/enabled; 404 if absent.")
+    @Operation(summary = "Update an organization", description = "Update name/display/domains/enabled/requireMembership; 404 if absent.")
     public ResponseEntity<OrgDto> update(@PathVariable final String realmId, @PathVariable final String orgId,
                                          @Valid @RequestBody final OrgRequest request) {
         final OrgDto saved = publisher.update(new OrgWriteDto(
                 realmId, orgId, request.name().trim(), blankToNull(request.displayName()),
-                request.domains(), request.enabled() == null || request.enabled()));
+                request.domains(), request.enabled() == null || request.enabled(), request.requireMembership()));
         return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(saved);
     }
 
@@ -133,8 +133,13 @@ public class OrganizationAdminController {
     }
 
     /** Create/update body. {@code domains} and {@code displayName} are optional; {@code enabled} defaults to true. */
+    /**
+     * @param requireMembership item E4: when the organization is hinted on a sign-in ({@code organization=}), only its
+     *                          members may complete it; others go back to the client with {@code access_denied}.
+     *                          Omitted = off on create, unchanged on update.
+     */
     public record OrgRequest(@NotBlank(message = "Organization name is required.") String name,
-                             String displayName, List<String> domains, Boolean enabled) {
+                             String displayName, List<String> domains, Boolean enabled, Boolean requireMembership) {
     }
 
     /**

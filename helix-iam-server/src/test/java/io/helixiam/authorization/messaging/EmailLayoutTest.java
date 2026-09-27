@@ -50,4 +50,29 @@ class EmailLayoutTest {
         assertThat(EmailBranding.helixIam().name()).isEqualTo("HelixIAM");
         assertThat(EmailLayout.wrap(EmailBranding.helixIam(), "s", "<p>x</p>")).contains(">HelixIAM<");
     }
+
+    @Test
+    void theThemePalette_footerText_legalLinks_andLanguage_areUsed() {
+        final EmailBranding theme = new EmailBranding("Monthfold", "https://cdn.example/logo.png", "#1f4d47", "#fefefe",
+                "#f7f8f6", "#ffffff", "#16211f", "#56635f", "#dcdedc", "© Monthfold BV", "https://m.example/privacy",
+                null, "https://m.example/help");
+        final String html = EmailLayout.wrap(theme, "s", BODY, java.util.Locale.forLanguageTag("nl"));
+
+        assertThat(html).contains("<html lang=\"nl\">").contains("background-color:#f7f8f6").contains("color:#16211f")
+                .contains("border:1px solid #dcdedc").contains("bgcolor=\"#1f4d47\"").contains("color:#fefefe")
+                .contains("© Monthfold BV").doesNotContain("Verstuurd door")
+                .contains("href=\"https://m.example/privacy\"").contains("href=\"https://m.example/help\"")
+                .contains(">Hulp<").doesNotContain("Voorwaarden").doesNotContain("#f6f1e9");
+        assertThat(EmailLayout.wrap(EmailBranding.helixIam(), "s", BODY, java.util.Locale.forLanguageTag("nl")))
+                .contains("Verstuurd door HelixIAM.");
+    }
+
+    @Test
+    void unsafeFooterLinksAndColours_fallBack() {
+        final EmailBranding bad = new EmailBranding("M", null, "#1f4d47", "white", "url(x)", null, null, null, null,
+                "<script>x</script>", "javascript:alert(1)", "http://plain.example", null);
+        final String html = EmailLayout.wrap(bad, "s", BODY);
+        assertThat(html).doesNotContain("javascript:").doesNotContain("plain.example").doesNotContain("<script>x")
+                .contains("&lt;script&gt;x&lt;/script&gt;").doesNotContain("url(x)");
+    }
 }

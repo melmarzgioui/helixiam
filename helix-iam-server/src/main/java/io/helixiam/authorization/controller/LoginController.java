@@ -96,7 +96,23 @@ public class LoginController {
         model.addAttribute("captchaSiteKey", captchaEnabled ? captchaService.siteKey(realm) : null);
         addBranding(model, realm);
         model.addAttribute("magicLinkEnabled", magicLinks != null && magicLinks.enabled(realm));
+        // One-time values from the previous step (item A8: the address just verified; after a failed sign-in: the
+        // username that was typed). Kept in the session, never in the URL.
+        model.addAttribute("loginNotice", LoginFlash.takeNotice(request).orElse(null));
+        // Item E3: else the RP's login_hint on the pending authorization request pre-fills the email.
+        model.addAttribute("prefillUsername", LoginFlash.takeUsername(request).or(() -> loginHint(request)).orElse(null));
         return "login";
+    }
+
+    /**
+     * Item E3: the {@code login_hint} of the pending authorization request, when it is a plausible username or email
+     * (at most {@value LoginFlash#MAX_USERNAME} characters, no control characters); it is only ever rendered escaped.
+     */
+    static java.util.Optional<String> loginHint(final HttpServletRequest request) {
+        return io.helixiam.authorization.security.flow.InFlightClientResolver.pendingAuthorizeParameter(request, "login_hint")
+                .map(String::strip)
+                .filter(h -> !h.isEmpty() && h.length() <= LoginFlash.MAX_USERNAME
+                        && h.chars().noneMatch(c -> c < 0x20 || c == 0x7f));
     }
 
     /** B2: per-realm branding (and 1.0 item 7: the organization in context) for the template. */

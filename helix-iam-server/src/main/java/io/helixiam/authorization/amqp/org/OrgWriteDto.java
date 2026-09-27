@@ -12,5 +12,11 @@ import java.util.List;
 /** Helix IAM Organizations: create/update payload for an organization (mirrors the subscriber copy). */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record OrgWriteDto(String realmId, String orgId, String name, String displayName, List<String> domains,
-                          boolean enabled) {
+                          boolean enabled, Boolean requireMembership) {
+
+    /** Without {@code requireMembership} (item E4): unchanged on update, off on create. */
+    public OrgWriteDto(final String realmId, final String orgId, final String name, final String displayName,
+                       final List<String> domains, final boolean enabled) {
+        this(realmId, orgId, name, displayName, domains, enabled, null);
+    }
 }

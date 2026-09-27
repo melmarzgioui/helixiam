@@ -31,6 +31,6 @@
     </main>
 </div>
 <!--/* Security review M3 (CSP): ceremony JS externalised to /js/webauthn-login.js (script-src 'self'). */-->
-<script defer src="/js/webauthn-login.js"></script>
+<script defer th:src="@{/js/webauthn-login.js}"></script>
 </body>
 </html>

@@ -31,6 +31,14 @@ public interface UserPublisher {
 
     Boolean verifyEmail(final String code);
 
+    /**
+     * Item A8: verifies like {@link #verifyEmail} and returns the user's username ({@code ""} if unknown), or null when
+     * the code was not a pending verification code.
+     */
+    default String verifyEmailFor(final String code) {
+        return Boolean.TRUE.equals(verifyEmail(code)) ? "" : null;
+    }
+
     Boolean enableMfa(final String userId);
 
     Set<String> getUserInRoles(final String userId);

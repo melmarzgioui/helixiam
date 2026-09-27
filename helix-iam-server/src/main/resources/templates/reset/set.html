@@ -2,7 +2,7 @@
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead(#{reset.set.title}, false)}"></th:block>
-    <script defer src="/js/App.js" type="module"></script>
+    <script defer th:src="@{/js/App.js}" type="module"></script>
 </head>
 <body>
 <div class="mainWrapper">
@@ -38,7 +38,6 @@
                     <div class="buttonHolder">
                         <button type="button" class="cancel" th:attr="data-href=@{/login}" th:text="#{common.back}">Back</button>
                         <button type="submit">
-                            <i class="login"></i>
                             <span th:text="#{reset.set.submit}">Update</span>
                         </button>
                     </div>
