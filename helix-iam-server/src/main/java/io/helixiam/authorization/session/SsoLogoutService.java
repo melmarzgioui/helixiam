@@ -82,7 +82,8 @@ public class SsoLogoutService {
             final List<String> clientIds = session.clients().stream()
                     .map(SsoSession.ClientInSession::clientId).toList();
             final List<BackchannelLogoutNotifier.Target> targets = targetResolver.backchannelTargets(realm, clientIds);
-            backchannelNotifier.notifyClients(issuerUrl, session.principalName(), session.ssoSessionId(), targets);
+            backchannelNotifier.notifyClients(realm, issuerUrl, session.principalName(), session.ssoSessionId(),
+                    targets);
         } catch (final RuntimeException e) {
             LOG.warn("Back-channel logout fan-out failed for SSO session {} (logout already completed): {}",
                     session.ssoSessionId(), e.getMessage());

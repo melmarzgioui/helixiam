@@ -23,6 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>A4: RP-initiated logout finds the SSO session by the {@code id_token_hint}'s {@code sid} (it used to look
  *       it up by {@code sub}, found nothing and never called any {@code backchannel_logout_uri}), and notifies
  *       every client that took part in that session — and no other session of the same user.</li>
+ *   <li>A5: a session revoked by an admin (an {@code /admin/**} request, outside any realm route) is announced
+ *       with tokens signed by the SESSION's realm key and carrying that realm's issuer — they used to be signed
+ *       with the master realm's key, so every RP validating against its realm JWKS rejected them.</li>
  * </ul>
  *
  * Every {@code logout_token} is validated the way an RP must: signature against the realm JWKS, {@code iss},
@@ -91,6 +94,43 @@ class BackchannelLogoutE2eTest extends AbstractE2eTest {
         assertRefreshRejected(a, "web", web.secret(), aWeb2.refreshToken());
         assertRefreshRejected(a, "portal", portal.secret(), aPortal.refreshToken());
         assertThat(b.refresh("web", web.secret(), bWeb.refreshToken()).accessToken()).isNotBlank();
+    }
+
+    @Test
+    void adminRevoke_sendsLogoutTokensSignedWithTheSessionRealmsKey_andIssuer() {
+        final OidcFlow a = oidc(realm);
+        final OidcFlow.Tokens aWeb = a.authorizationCode("web", web.secret(), web.redirectUri(),
+                user.username(), PASSWORD, "openid profile email");
+        a.authorizationCode("portal", portal.secret(), portal.redirectUri(), user.username(), PASSWORD, "openid profile");
+        final String sidA = sid(a, aWeb.idToken());
+
+        // The master realm's admin revokes the session from the console (an /admin/** request: no realm route).
+        final E2eHttp.Response revoke = adminSession().delete("/admin/realms/" + realm + "/sessions/" + enc(sidA));
+        assertThat(revoke.status()).as(revoke.toString()).isEqualTo(204);
+
+        // A5: the tokens verify against THIS realm's JWKS (not master's) and carry this realm's issuer.
+        assertThat(CapturingBackchannelPoster.tokensFor(webBackchannel)).hasSize(1);
+        assertThat(CapturingBackchannelPoster.tokensFor(portalBackchannel)).hasSize(1);
+        final JWTClaimsSet webToken = assertValidLogoutToken(a,
+                CapturingBackchannelPoster.tokensFor(webBackchannel).get(0), "web", sidA);
+        assertValidLogoutToken(a, CapturingBackchannelPoster.tokensFor(portalBackchannel).get(0), "portal", sidA);
+        assertThat(webToken.getIssuer()).isEqualTo(baseUrl() + "/realms/" + realm);
+        assertThat(webToken.getSubject()).isEqualTo(user.userId());
+        assertRefreshRejected(a, "web", web.secret(), aWeb.refreshToken());
+    }
+
+    @Test
+    void realmAdminRevoke_isSignedWithTheRealmKeyToo() {
+        final OidcFlow a = oidc(realm);
+        final OidcFlow.Tokens aWeb = a.authorizationCode("web", web.secret(), web.redirectUri(),
+                user.username(), PASSWORD, "openid profile email");
+        final String sidA = sid(a, aWeb.idToken());
+
+        final E2eHttp.Response revoke = adminSession(realm).delete("/admin/realms/" + realm + "/sessions/" + enc(sidA));
+        assertThat(revoke.status()).as(revoke.toString()).isEqualTo(204);
+
+        assertThat(CapturingBackchannelPoster.tokensFor(webBackchannel)).hasSize(1);
+        assertValidLogoutToken(a, CapturingBackchannelPoster.tokensFor(webBackchannel).get(0), "web", sidA);
     }
 
     /** Validates a logout_token exactly as OIDC Back-Channel Logout 1.0 §2.6 asks an RP to. */

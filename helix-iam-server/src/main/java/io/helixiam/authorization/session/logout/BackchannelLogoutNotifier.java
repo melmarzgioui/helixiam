@@ -55,8 +55,12 @@ public class BackchannelLogoutNotifier {
         this.poster = poster;
     }
 
-    /** POST a fresh logout_token to every target that has a back-channel URI. */
-    public void notifyClients(final String issuerUrl, final String subject, final String sid, final List<Target> targets) {
+    /**
+     * POST a fresh logout_token to every target that has a back-channel URI, signed with {@code realm}'s key
+     * (the realm of the terminated session) and carrying {@code issuerUrl} (that realm's issuer).
+     */
+    public void notifyClients(final String realm, final String issuerUrl, final String subject, final String sid,
+                              final List<Target> targets) {
         if (targets == null) {
             return;
         }
@@ -65,7 +69,7 @@ public class BackchannelLogoutNotifier {
                 continue;
             }
             try {
-                final String logoutToken = issuer.issue(issuerUrl, target.clientId(), subject, sid);
+                final String logoutToken = issuer.issue(realm, issuerUrl, target.clientId(), subject, sid);
                 poster.post(target.backchannelLogoutUri(), logoutToken);
                 LOG.info("Back-channel logout sent to {} ({})", target.clientId(), target.backchannelLogoutUri());
             } catch (final RuntimeException e) {
