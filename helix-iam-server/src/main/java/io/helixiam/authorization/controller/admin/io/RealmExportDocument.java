@@ -55,6 +55,8 @@ import java.util.List;
  * @param organizations realm organizations (by name)
  * @param theme         the realm's structured theme layer (asset references only, never asset bytes)
  * @param organizationThemes organization theme layers, keyed by organization name
+ * @param themeNotices  read-only notices about the realm theme (e.g. stored custom CSS that is not served because it
+ *                      fails the current rules); ignored on import
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -86,7 +88,8 @@ public record RealmExportDocument(Integer formatVersion,
                                   @com.fasterxml.jackson.databind.annotation.JsonDeserialize(
                                           using = io.helixiam.authorization.theme.StrictThemeDeserializer.class)
                                   io.helixiam.authorization.theme.Theme theme,
-                                  List<OrganizationThemeExport> organizationThemes) {
+                                  List<OrganizationThemeExport> organizationThemes,
+                                  List<String> themeNotices) {
 
     /**
      * The current document format version. v2 added the {@code requiredEnv} manifest, switched secret
@@ -116,7 +119,32 @@ public record RealmExportDocument(Integer formatVersion,
         this(formatVersion, realm, clients, samlClients, roles, clientScopes, identityProviders, flows, organizations,
                 applications, webhooks, scimTargets, workloadIdentity, messagingProviders, messageTemplates, adminRoles,
                 groups, users, clientProtocolMappers, clientRoles, serviceAccountRoles, resourceIndicators,
-                authorizationServices, agents, requiredEnv, null, null);
+                authorizationServices, agents, requiredEnv, null, null, null);
+    }
+
+    /** Back-compat constructor (structured theming, before theme notices). */
+    public RealmExportDocument(final Integer formatVersion, final RealmSettingsDto realm,
+                               final List<ClientDto> clients, final List<SamlRelyingPartyConfig> samlClients,
+                               final List<RoleDto> roles, final List<ScopeDetailDto> clientScopes,
+                               final List<IdentityProviderConfig> identityProviders,
+                               final List<FlowDefinitionDto> flows, final List<OrgDto> organizations,
+                               final List<ApplicationConfig> applications, final List<WebhookSubscriptionDto> webhooks,
+                               final List<ScimTargetDto> scimTargets,
+                               final List<WorkloadIdentityCredentialDto> workloadIdentity,
+                               final List<MessagingProviderWriteDto> messagingProviders,
+                               final List<MessageTemplateDto> messageTemplates, final List<AdminRoleGrantsDto> adminRoles,
+                               final List<GroupDto> groups, final List<UserAdminDto> users,
+                               final List<ProtocolMapperDto> clientProtocolMappers, final List<ClientRoleDto> clientRoles,
+                               final List<ServiceAccountRoleDto> serviceAccountRoles,
+                               final List<AllowedResourcesWrite> resourceIndicators,
+                               final List<ClientAuthorizationDto> authorizationServices,
+                               final List<io.helixiam.authorization.amqp.agent.AgentIdentityDto> agents,
+                               final List<String> requiredEnv, final io.helixiam.authorization.theme.Theme theme,
+                               final List<OrganizationThemeExport> organizationThemes) {
+        this(formatVersion, realm, clients, samlClients, roles, clientScopes, identityProviders, flows, organizations,
+                applications, webhooks, scimTargets, workloadIdentity, messagingProviders, messageTemplates, adminRoles,
+                groups, users, clientProtocolMappers, clientRoles, serviceAccountRoles, resourceIndicators,
+                authorizationServices, agents, requiredEnv, theme, organizationThemes, null);
     }
 
     /** One organization's theme layer in an export, matched by organization name on import. */
@@ -135,6 +163,6 @@ public record RealmExportDocument(Integer formatVersion,
                                final List<FlowDefinitionDto> flows, final List<OrgDto> organizations) {
         this(formatVersion, realm, clients, samlClients, roles, clientScopes, identityProviders, flows,
                 organizations, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 }

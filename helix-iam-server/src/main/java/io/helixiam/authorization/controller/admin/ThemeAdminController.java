@@ -63,7 +63,7 @@ public class ThemeAdminController {
             return ResponseEntity.ok(effectiveView(themes.effectiveTheme(realmId, Optional.empty())));
         }
         final Theme stored = themes.realmTheme(realmId);
-        return ResponseEntity.ok(new ThemeView(stored, themes.notices(stored), null));
+        return ResponseEntity.ok(new ThemeView(stored, themes.notices(realmId, stored), null));
     }
 
     @PutMapping("/theme")
@@ -76,7 +76,7 @@ public class ThemeAdminController {
         }
         final ThemeService.ThemeChange change = themes.saveRealmTheme(realmId, ThemeJson.readStrict(body));
         audit(request, change);
-        return ResponseEntity.ok(new ThemeView(change.theme(), themes.notices(change.theme()), null));
+        return ResponseEntity.ok(new ThemeView(change.theme(), themes.notices(realmId, change.theme()), null));
     }
 
     @GetMapping("/organizations/{orgId}/theme")
@@ -95,7 +95,7 @@ public class ThemeAdminController {
             final EffectiveTheme e = themes.effectiveTheme(realmId, Optional.of(orgId));
             return ResponseEntity.ok(new ThemeView(e.theme().withCustomCss(null), List.of(), e.version()));
         }
-        return ResponseEntity.ok(new ThemeView(stored.get(), themes.notices(stored.get()), null));
+        return ResponseEntity.ok(new ThemeView(stored.get(), themes.notices(realmId, stored.get()), null));
     }
 
     @PutMapping("/organizations/{orgId}/theme")
@@ -110,7 +110,7 @@ public class ThemeAdminController {
         return themes.saveOrganizationTheme(realmId, orgId, ThemeJson.readStrict(body))
                 .map(change -> {
                     audit(request, change);
-                    return ResponseEntity.ok(new ThemeView(change.theme(), themes.notices(change.theme()), null));
+                    return ResponseEntity.ok(new ThemeView(change.theme(), themes.notices(realmId, change.theme()), null));
                 })
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

@@ -222,4 +222,47 @@ class ThemeServiceTest {
         assertThat(service.storedLegacyBranding("firm").customCss()).as("admin/import view of what is stored").isNotNull();
         assertThat(service.effectiveTheme("firm", Optional.empty()).theme().customCss()).isNull();
     }
+
+    private static final String UNSERVABLE = "{\"customCss\":\"/* hidden */ .a{color:red}\"}";
+
+    @Test
+    void aLegacyRoundTripKeepsStoredCssThatIsNotServed() {
+        // Re-review N1: the settings view shows customCss=null for CSS that fails the current rules; sending that
+        // view back (with or without other branding changes) must not silently delete the stored CSS.
+        realmRows.put("firm", new RealmThemeRecord("firm", UNSERVABLE));
+        final LegacyBranding view = service.legacyBranding("firm");
+        assertThat(view.customCss()).isNull();
+        service.applyLegacyBranding("firm", view);
+        assertThat(service.realmTheme("firm").customCss()).isEqualTo("/* hidden */ .a{color:red}");
+        service.applyLegacyBranding("firm", new LegacyBranding(null, "#1f4d47", null, null, null));
+        assertThat(service.realmTheme("firm").colors().primary().light()).isEqualTo("#1f4d47");
+        assertThat(service.realmTheme("firm").customCss()).as("still kept").isEqualTo("/* hidden */ .a{color:red}");
+        // Replacing it with valid CSS through the legacy field works; clearing it is done through PUT /theme.
+        service.applyLegacyBranding("firm", new LegacyBranding(null, "#1f4d47", null, null, ".b{color:blue}"));
+        assertThat(service.realmTheme("firm").customCss()).isEqualTo(".b{color:blue}");
+    }
+
+    @Test
+    void organizationResolutionIsCachedToo() {
+        final OrganizationRepository counting = orgs;
+        for (int n = 0; n < 5; n++) {
+            service.effectiveTheme("firm", Optional.of("org-1"));
+            service.effectiveTheme("firm", Optional.of("nope"));
+        }
+        org.mockito.Mockito.verify(counting, org.mockito.Mockito.times(1)).findById("org-1");
+        org.mockito.Mockito.verify(counting, org.mockito.Mockito.times(1)).findById("nope");
+        // A write to an organization theme still shows up at once (after commit).
+        service.saveOrganizationTheme("firm", "org-1", new Theme(null, null, new ThemeShape(9, null), null, null, null,
+                null, null));
+        assertThat(service.effectiveTheme("firm", Optional.of("org-1")).theme().shape().radius()).isEqualTo(9);
+    }
+
+    @Test
+    void storedCssThatIsNotServed_isFlaggedInTheNotices() {
+        realmRows.put("firm", new RealmThemeRecord("firm", UNSERVABLE));
+        assertThat(service.notices("firm", service.realmTheme("firm")))
+                .anySatisfy(n -> assertThat(n).contains("not served").contains("comment"));
+        service.saveRealmTheme("firm", Theme.EMPTY.withCustomCss(".a{color:red}"));
+        assertThat(service.notices("firm", service.realmTheme("firm"))).containsExactly(CustomCssValidator.NOTICE);
+    }
 }

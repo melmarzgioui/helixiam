@@ -347,6 +347,20 @@ class ThemeAdminE2eTest extends AbstractE2eTest {
         assertThat(admin.get("/admin/realms/" + realm + "/settings").json().path("customCss").isNull()
                 || admin.get("/admin/realms/" + realm + "/settings").json().path("customCss").isMissingNode())
                 .as("the settings view never hands out CSS that fails the current rules").isTrue();
+
+        // Re-review N3: the admin views flag it.
+        assertThat(admin.get(themePath(realm)).json().path("notices").toString()).contains("not served");
+        assertThat(admin.get("/admin/realms/" + realm + "/export").json().path("themeNotices").toString())
+                .contains("not served");
+        // Re-review N1: a legacy full-payload save of that view keeps the stored value (clearing is PUT /theme).
+        final ObjectNode roundTrip = admin.get("/admin/realms/" + realm + "/settings").json().deepCopy();
+        roundTrip.put("welcomeText", "Welcome back");
+        assertThat(admin.put("/admin/realms/" + realm + "/settings", roundTrip).status()).isEqualTo(200);
+        assertThat(admin.get(themePath(realm)).json().path("customCss").asText()).contains("alert(1)");
+        assertThat(admin.get(themePath(realm)).json().path("texts").path("welcomeText").path("default").asText())
+                .isEqualTo("Welcome back");
+        final E2eHttp.Response afterSave = newBrowser().get("/realms/" + realm + "/login", "Accept", "text/html");
+        assertThat(afterSave.body()).doesNotContain("alert(1)");
     }
 
     /** A user of {@link #realm} whose only admin permission is {@code permission}, logged in. */

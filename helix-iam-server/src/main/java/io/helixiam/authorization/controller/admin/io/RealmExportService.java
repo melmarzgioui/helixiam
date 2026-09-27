@@ -196,9 +196,12 @@ public class RealmExportService {
         final List<io.helixiam.authorization.amqp.org.OrgDto> organizations = nonNull(orgPublisher.list(realmId));
         io.helixiam.authorization.theme.Theme theme = null;
         List<RealmExportDocument.OrganizationThemeExport> organizationThemes = null;
+        List<String> themeNotices = null;
         if (themeService != null) {
             final io.helixiam.authorization.theme.Theme stored = themeService.realmTheme(realmId);
             theme = stored.isEmpty() ? null : stored;
+            final List<String> notices = themeService.notices(realmId, stored);
+            themeNotices = notices.isEmpty() ? null : notices;
             final java.util.Map<String, String> names = new java.util.HashMap<>();
             organizations.forEach(o -> names.put(o.orgId(), o.name()));
             final List<RealmExportDocument.OrganizationThemeExport> orgThemes = new ArrayList<>();
@@ -236,7 +239,8 @@ public class RealmExportService {
                 nonNull(agentPublisher.list(realmId)),
                 required,
                 theme,
-                organizationThemes);
+                organizationThemes,
+                themeNotices);
     }
 
     /**

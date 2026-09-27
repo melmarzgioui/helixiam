@@ -71,6 +71,7 @@ public class ThemeService {
     private final Set<String> allowedImageOrigins;
     private final LongSupplier clock = System::currentTimeMillis;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+    private final Map<String, Resolved> orgResolution = new ConcurrentHashMap<>();
     private int maxCacheEntries = 10_000;
 
     @Autowired
@@ -152,7 +153,7 @@ public class ThemeService {
     public EffectiveTheme effectiveTheme(final String realmId, final Optional<String> orgId) {
         // Review I2: a caller-supplied org id (e.g. a public ?org= hint) is resolved to an organization of the realm
         // BEFORE it becomes a cache key; anything else shares the realm's key.
-        final Optional<String> org = orgId.flatMap(id -> organizationInRealm(realmId, id)).map(Organization::getOrgId);
+        final Optional<String> org = orgId.flatMap(id -> resolveOrganization(realmId, id));
         final String key = realmId + "|" + org.orElse("");
         final Cached hit = cache.get(key);
         if (hit != null && clock.getAsLong() - hit.at() < CACHE_TTL_MILLIS) {
@@ -164,6 +165,24 @@ public class ThemeService {
         }
         cache.put(key, new Cached(fresh, clock.getAsLong()));
         return fresh;
+    }
+
+    /**
+     * Re-review N2: the organization id of {@code realmId} that {@code orgId} names, cached (positive and negative,
+     * bounded, 30 s) so the public theme endpoints do not query the database for every request.
+     */
+    private Optional<String> resolveOrganization(final String realmId, final String orgId) {
+        final String key = realmId + "|" + orgId;
+        final Resolved hit = orgResolution.get(key);
+        if (hit != null && clock.getAsLong() - hit.at() < CACHE_TTL_MILLIS) {
+            return hit.orgId();
+        }
+        final Optional<String> resolved = organizationInRealm(realmId, orgId).map(Organization::getOrgId);
+        if (orgResolution.size() >= maxCacheEntries) {
+            orgResolution.clear();
+        }
+        orgResolution.put(key, new Resolved(resolved, clock.getAsLong()));
+        return resolved;
     }
 
     private EffectiveTheme computeEffective(final String realmId, final Optional<String> resolvedOrgId) {
@@ -200,7 +219,24 @@ public class ThemeService {
         return effectiveTheme(realmId, orgId).imageOrigins();
     }
 
-    /** Admin-API notices for a stored layer (spec §4: custom CSS depends on internal markup). */
+    /**
+     * Admin-API notices for a stored layer of {@code realmId}: the custom-CSS caveat (spec §4) and — re-review N3 —
+     * a notice when stored custom CSS fails the current rules and is therefore not served.
+     */
+    public List<String> notices(final String realmId, final Theme theme) {
+        final List<String> out = new ArrayList<>(notices(theme));
+        if (theme != null && theme.customCss() != null) {
+            final List<String> problems = CustomCssValidator.problems(theme.customCss(), realmId, allowedImageOrigins,
+                    catalog.getIfAvailable(() -> ThemeAssetCatalog.NONE));
+            if (!problems.isEmpty()) {
+                out.add("Stored custom CSS is not served because it fails the current rules: " + problems.get(0)
+                        + " Replace or remove it with PUT /admin/realms/" + realmId + "/theme.");
+            }
+        }
+        return out;
+    }
+
+    /** The custom-CSS caveat for a layer that sets custom CSS (spec §4: it depends on internal markup). */
     public List<String> notices(final Theme theme) {
         return theme != null && theme.customCss() != null ? List.of(CustomCssValidator.NOTICE) : List.of();
     }
@@ -299,8 +335,8 @@ public class ThemeService {
      */
     @Transactional
     public void applyLegacyBranding(final String realmId, final LegacyBranding legacy) {
-        final LegacyBranding incoming = legacy == null ? LegacyBranding.NONE : legacy.normalized();
         final Theme stored = realmTheme(realmId);
+        final LegacyBranding incoming = keepUnservedCss(realmId, stored, legacy);
         if (incoming.equals(LegacyBranding.of(stored))) {
             return;
         }
@@ -314,11 +350,27 @@ public class ThemeService {
         storeRealm(realmId, patched);
     }
 
+    /**
+     * Re-review N1: the settings view shows {@code customCss: null} for stored CSS that is not served (it fails the
+     * current rules). A legacy save that sends that {@code null} back is a round trip, not a request to delete the
+     * CSS, so the stored value is kept. Replacing it (with valid CSS) works as before; clearing it is done through
+     * {@code PUT /admin/realms/{r}/theme}.
+     */
+    private LegacyBranding keepUnservedCss(final String realmId, final Theme stored, final LegacyBranding legacy) {
+        final LegacyBranding incoming = legacy == null ? LegacyBranding.NONE : legacy.normalized();
+        final String storedCss = stored.customCss();
+        if (incoming.customCss() == null && storedCss != null && servableCss(realmId, storedCss) == null) {
+            return new LegacyBranding(incoming.logoUrl(), incoming.primaryColor(), incoming.backgroundColor(),
+                    incoming.welcomeText(), storedCss);
+        }
+        return incoming;
+    }
+
     /** Checks a legacy branding change without storing it (same rules as {@link #applyLegacyBranding}). */
     @Transactional(readOnly = true)
     public Map<String, String> validateLegacyBranding(final String realmId, final LegacyBranding legacy) {
-        final LegacyBranding incoming = legacy == null ? LegacyBranding.NONE : legacy.normalized();
         final Theme stored = realmTheme(realmId);
+        final LegacyBranding incoming = keepUnservedCss(realmId, stored, legacy);
         if (incoming.equals(LegacyBranding.of(stored))) {
             return Map.of();
         }
@@ -419,11 +471,13 @@ public class ThemeService {
     /** Drops the cached effective themes of a realm (done after every local write; for base-layer reloads). */
     public void invalidate(final String realmId) {
         cache.keySet().removeIf(k -> k.startsWith(realmId + "|"));
+        orgResolution.keySet().removeIf(k -> k.startsWith(realmId + "|"));
     }
 
     /** Drops every cached effective theme (e.g. after file themes were reloaded). */
     public void invalidateAll() {
         cache.clear();
+        orgResolution.clear();
     }
 
     private static Theme read(final String json, final String owner) {
@@ -449,5 +503,8 @@ public class ThemeService {
     }
 
     private record Cached(EffectiveTheme value, long at) {
+    }
+
+    private record Resolved(Optional<String> orgId, long at) {
     }
 }
