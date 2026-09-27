@@ -121,6 +121,9 @@ services:
       HELIX_ISSUER: http://localhost:8080/realms/master
       HELIX_CLIENT_ID: helix-sandbox
       HELIX_REDIRECT_URI: http://localhost:9090/callback
+      # The image runs with NODE_ENV=production, which makes the session cookie Secure; this local
+      # harness is served over plain http://localhost, so turn that off here.
+      COOKIE_SECURE: "false"
     ports:
       - "9090:9090"
     restart: unless-stopped

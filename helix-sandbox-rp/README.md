@@ -38,6 +38,10 @@ Config is env-overridable (defaults match the provisioned e2e sandbox):
 | `HELIX_POST_LOGOUT` | `http://localhost:9090/` | post-logout redirect |
 | `HELIX_SCOPE` | `openid profile email` | requested scopes |
 | `PORT` | `9090` | |
+| `COOKIE_SECURE` | `true` when `NODE_ENV=production`, else `false` | `Secure` flag on the session cookie (`false` for plain-http local runs) |
+| `TRUST_PROXY` | `false` | `true` behind a TLS-terminating proxy (needed for the `Secure` cookie) |
+| `SESSION_SECRET` | *(random per process)* | session signing secret |
+| `RATE_LIMIT` | `300` | requests per client IP per 15 minutes |
 
 ## How the IdP side was provisioned (e2e `master` realm)
 

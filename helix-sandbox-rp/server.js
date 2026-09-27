@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import crypto from 'node:crypto';
 import express from 'express';
 import session from 'express-session';
+import { rateLimit } from 'express-rate-limit';
 import { Issuer, generators, errors as oidcErrors } from 'openid-client';
 import { decodeJwt, groupClaims } from './lib/jwt.js';
 import { buildSamlSp } from './lib/saml.js';
@@ -25,6 +27,18 @@ const cfg = {
   samlSlo: process.env.HELIX_SAML_SLO || 'http://localhost:9090/saml/slo',
   samlIdpMetadata:
     process.env.HELIX_SAML_IDP_METADATA || 'http://localhost:8083/realms/master/saml/idp/metadata',
+  // Session cookie `Secure` flag: on in production (NODE_ENV=production) unless COOKIE_SECURE=false, or
+  // forced either way with COOKIE_SECURE=true|false. The harness usually runs on plain http://localhost,
+  // where a Secure cookie would never be set, so local runs leave it off.
+  cookieSecure: process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === 'true'
+    : process.env.NODE_ENV === 'production',
+  // Set when a TLS-terminating proxy sits in front, so req.secure (and the Secure cookie) work.
+  trustProxy: process.env.TRUST_PROXY === 'true',
+  // Session signing secret; a random per-process secret when unset (sessions then reset on restart).
+  sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  // Requests per client IP per 15 minutes.
+  rateLimit: Number(process.env.RATE_LIMIT || 300),
 };
 
 // Lazily build the SAML SP from the IdP metadata (so a not-yet-enabled IdP doesn't crash startup).
@@ -61,20 +75,54 @@ async function ensureClient() {
 }
 
 const app = express();
+if (cfg.trustProxy) app.set('trust proxy', 1);
+// Every route starts or completes an authentication, so the whole app is rate-limited per client IP.
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: cfg.rateLimit,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+  }),
+);
 app.use(express.urlencoded({ extended: false })); // SAML ACS/SLO POST bindings are form-encoded
 app.use(
   session({
     name: 'helix_sandbox_rp',
-    secret: 'sandbox-rp-session-secret',
+    secret: cfg.sessionSecret,
     resave: false,
     saveUninitialized: true,
-    cookie: { httpOnly: true, sameSite: 'lax' },
+    // sameSite=lax: the OIDC callback is a top-level GET redirect, so the cookie still comes back on it.
+    cookie: { httpOnly: true, sameSite: 'lax', secure: cfg.cookieSecure },
   }),
 );
+
+// CSRF protection (synchronizer token). Every session gets a random token; any state-changing request
+// must echo it in the `_csrf` form field or the `X-CSRF-Token` header. Exempt are only the SAML binding
+// endpoints: the IdP POSTs to them cross-site from its own origin, so they cannot carry our token; the ACS
+// instead only accepts a SAMLResponse whose signature validates against the IdP metadata.
+const CSRF_EXEMPT = new Set(['/saml/acs', '/saml/slo']);
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+function csrfProtection(req, res, next) {
+  if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(32).toString('base64url');
+  res.locals.csrfToken = req.session.csrfToken;
+  if (SAFE_METHODS.has(req.method) || CSRF_EXEMPT.has(req.path)) return next();
+  const sent = Buffer.from(String((req.body && req.body._csrf) || req.get('x-csrf-token') || ''));
+  const expected = Buffer.from(req.session.csrfToken);
+  if (sent.length === expected.length && crypto.timingSafeEqual(sent, expected)) return next();
+  res.status(403).send(page({ title: 'Forbidden', body: '<div class="banner err">Invalid CSRF token.</div>', idpUp }));
+}
+app.use(csrfProtection);
+
+// Session fixation: issue a fresh session id whenever an authentication starts or completes, so an id
+// planted before login is never the one that ends up holding tokens or a SAML assertion.
+const regenerateSession = (req) =>
+  new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())));
 
 // kick off an authorization request with the given extra params (prompt/max_age)
 async function startAuth(req, res, extra = {}) {
   const c = await ensureClient();
+  await regenerateSession(req);
   const code_verifier = generators.codeVerifier();
   req.session.code_verifier = code_verifier;
   req.session.state = generators.state();
@@ -226,6 +274,7 @@ app.get('/callback', async (req, res, next) => {
       state: req.session.state,
       nonce: req.session.nonce,
     });
+    await regenerateSession(req);
     req.session.tokens = {
       access_token: tokenSet.access_token,
       id_token: tokenSet.id_token,
@@ -357,6 +406,7 @@ app.post('/saml/acs', async (req, res, next) => {
   try {
     const { saml, idp } = await ensureSaml();
     const { profile } = await saml.validatePostResponseAsync(req.body);
+    await regenerateSession(req);
     req.session.saml = {
       nameID: profile.nameID,
       nameIDFormat: profile.nameIDFormat,
