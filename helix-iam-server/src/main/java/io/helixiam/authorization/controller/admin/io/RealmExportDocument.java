@@ -53,6 +53,8 @@ import java.util.List;
  * @param identityProviders federation / identity providers (config-map secrets masked)
  * @param flows         authentication flows (by alias) with their full execution trees
  * @param organizations realm organizations (by name)
+ * @param theme         the realm's structured theme layer (asset references only, never asset bytes)
+ * @param organizationThemes organization theme layers, keyed by organization name
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -80,7 +82,9 @@ public record RealmExportDocument(Integer formatVersion,
                                   List<AllowedResourcesWrite> resourceIndicators,
                                   List<ClientAuthorizationDto> authorizationServices,
                                   List<io.helixiam.authorization.amqp.agent.AgentIdentityDto> agents,
-                                  List<String> requiredEnv) {
+                                  List<String> requiredEnv,
+                                  io.helixiam.authorization.theme.Theme theme,
+                                  List<OrganizationThemeExport> organizationThemes) {
 
     /**
      * The current document format version. v2 added the {@code requiredEnv} manifest, switched secret
@@ -88,6 +92,35 @@ public record RealmExportDocument(Integer formatVersion,
      * slices (applications, webhooks, SCIM targets, workload identity, …); v1 documents still import.
      */
     public static final int CURRENT_FORMAT_VERSION = 2;
+
+    /** Back-compat constructor (every slice before structured theming). */
+    public RealmExportDocument(final Integer formatVersion, final RealmSettingsDto realm,
+                               final List<ClientDto> clients, final List<SamlRelyingPartyConfig> samlClients,
+                               final List<RoleDto> roles, final List<ScopeDetailDto> clientScopes,
+                               final List<IdentityProviderConfig> identityProviders,
+                               final List<FlowDefinitionDto> flows, final List<OrgDto> organizations,
+                               final List<ApplicationConfig> applications, final List<WebhookSubscriptionDto> webhooks,
+                               final List<ScimTargetDto> scimTargets,
+                               final List<WorkloadIdentityCredentialDto> workloadIdentity,
+                               final List<MessagingProviderWriteDto> messagingProviders,
+                               final List<MessageTemplateDto> messageTemplates, final List<AdminRoleGrantsDto> adminRoles,
+                               final List<GroupDto> groups, final List<UserAdminDto> users,
+                               final List<ProtocolMapperDto> clientProtocolMappers, final List<ClientRoleDto> clientRoles,
+                               final List<ServiceAccountRoleDto> serviceAccountRoles,
+                               final List<AllowedResourcesWrite> resourceIndicators,
+                               final List<ClientAuthorizationDto> authorizationServices,
+                               final List<io.helixiam.authorization.amqp.agent.AgentIdentityDto> agents,
+                               final List<String> requiredEnv) {
+        this(formatVersion, realm, clients, samlClients, roles, clientScopes, identityProviders, flows, organizations,
+                applications, webhooks, scimTargets, workloadIdentity, messagingProviders, messageTemplates, adminRoles,
+                groups, users, clientProtocolMappers, clientRoles, serviceAccountRoles, resourceIndicators,
+                authorizationServices, agents, requiredEnv, null, null);
+    }
+
+    /** One organization's theme layer in an export, matched by organization name on import. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record OrganizationThemeExport(String organization, io.helixiam.authorization.theme.Theme theme) {
+    }
 
     /** Back-compat constructor (the original 8 slices) — keeps existing call sites and v1 fixtures valid. */
     public RealmExportDocument(final Integer formatVersion, final RealmSettingsDto realm,
@@ -97,6 +130,6 @@ public record RealmExportDocument(Integer formatVersion,
                                final List<FlowDefinitionDto> flows, final List<OrgDto> organizations) {
         this(formatVersion, realm, clients, samlClients, roles, clientScopes, identityProviders, flows,
                 organizations, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null);
+                null, null, null, null);
     }
 }

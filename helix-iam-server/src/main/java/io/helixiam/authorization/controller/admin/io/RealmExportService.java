@@ -133,6 +133,14 @@ public class RealmExportService {
         this.agentPublisher = agentPublisher;
     }
 
+    private io.helixiam.authorization.theme.ThemeService themeService;
+
+    /** Structured theming: the realm and organization theme layers are exported when the theme service is present. */
+    @Autowired(required = false)
+    public void setThemeService(final io.helixiam.authorization.theme.ThemeService themeService) {
+        this.themeService = themeService;
+    }
+
     /**
      * Reads every configurable slice of the realm and returns the export document. Secrets are emitted as
      * {@code ${ENV_VAR}} placeholders (v2) and the referenced var names are collected into
@@ -185,6 +193,22 @@ public class RealmExportService {
         }
 
         final List<String> required = requiredEnv.isEmpty() ? null : new ArrayList<>(requiredEnv);
+        final List<io.helixiam.authorization.amqp.org.OrgDto> organizations = nonNull(orgPublisher.list(realmId));
+        io.helixiam.authorization.theme.Theme theme = null;
+        List<RealmExportDocument.OrganizationThemeExport> organizationThemes = null;
+        if (themeService != null) {
+            final io.helixiam.authorization.theme.Theme stored = themeService.realmTheme(realmId);
+            theme = stored.isEmpty() ? null : stored;
+            final java.util.Map<String, String> names = new java.util.HashMap<>();
+            organizations.forEach(o -> names.put(o.orgId(), o.name()));
+            final List<RealmExportDocument.OrganizationThemeExport> orgThemes = new ArrayList<>();
+            themeService.organizationThemes(realmId).forEach((orgId, t) -> {
+                if (names.containsKey(orgId)) {
+                    orgThemes.add(new RealmExportDocument.OrganizationThemeExport(names.get(orgId), t));
+                }
+            });
+            organizationThemes = orgThemes.isEmpty() ? null : orgThemes;
+        }
         return new RealmExportDocument(
                 RealmExportDocument.CURRENT_FORMAT_VERSION,
                 realm,
@@ -194,7 +218,7 @@ public class RealmExportService {
                 exportScopes(realmId),
                 idps,
                 exportFlows(realmId),
-                nonNull(orgPublisher.list(realmId)),
+                organizations,
                 nonNull(applicationPublisher.list(realmId)),
                 webhooks,
                 scimTargets,
@@ -210,7 +234,9 @@ public class RealmExportService {
                 resourceIndicators,
                 authorizationServices,
                 nonNull(agentPublisher.list(realmId)),
-                required);
+                required,
+                theme,
+                organizationThemes);
     }
 
     /**
