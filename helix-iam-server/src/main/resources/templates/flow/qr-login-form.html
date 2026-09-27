@@ -1,29 +1,21 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="theme-color" content="#a3d4c4">
-    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>HelixIAM - Login</title>
-    <meta name="robots" content="noindex">
-    <link rel="icon" href="/img/favicon.avif">
+    <th:block th:replace="~{fragments/theme :: hxHead('Sign in with your phone', false)}"></th:block>
 </head>
 <body>
 <div class="mainWrapper">
-    <header>
-        <div class="headerBar"><a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a></div>
-    </header>
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
             <h3>Scan to sign in</h3>
-            <div class="description">Open the HelixIAM app on your enrolled phone and scan this code, or
+            <div class="description">Open the sign-in app on your enrolled phone and scan this code, or
                 approve the prompt. The link refreshes periodically for security.</div>
         </div>
         <div class="container">
             <article>
-                <div th:if="${error}" class="error" style="display:block">QR sign-in failed, please try again.</div>
-                <div id="qrLink" class="description" style="word-break:break-all"></div>
+                <div th:if="${error}" class="hx-alert hx-alert-error" role="alert">QR sign-in failed, please try again.</div>
+                <div id="qrLink" class="description hx-break"></div>
                 <div id="qrStatus" class="description">Waiting for approval…</div>
                 <form id="qrForm" th:action="${flowAction}" method="post"
                       th:data-session-id="${qrSessionId}" th:data-token="${qrToken}">
@@ -32,9 +24,9 @@
             </article>
         </div>
     </main>
-    <footer></footer>
+    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
-<!-- Security review M3 (CSP): polling JS externalised to /js/qr-login.js (script-src 'self'). -->
-<script defer src="/js/qr-login.js?@project.version@"></script>
+<!--/* Security review M3 (CSP): polling JS externalised to /js/qr-login.js (script-src 'self'). */-->
+<script defer src="/js/qr-login.js"></script>
 </body>
 </html>

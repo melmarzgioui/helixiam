@@ -1,0 +1,746 @@
+/* =========================================================================
+   HelixIAM base stylesheet — every user-facing page.
+
+   Colours, fonts, radius and spacing are NOT defined here: they come from
+   the --hx-* custom properties of /realms/{realm}/theme.css, which HelixIAM
+   generates from the realm theme (and the HelixIAM default theme below it).
+   Those --hx-* properties are the documented, versioned theming contract.
+
+   The --hxi-* properties below are internal helpers derived from the
+   contract; they may change between versions.
+
+   Sizes: the root font size is 0.75 x --hx-font-size (12px at the default
+   16), and text sizes are in rem. Spacing is a multiple of --hx-space
+   (4px comfortable, 3px compact).
+   ========================================================================= */
+
+@font-face {
+  font-family: "Work Sans";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/css/fonts/WorkSans.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Roboto Mono";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/css/fonts/RobotoMono.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Material Symbols Outlined";
+  font-style: normal;
+  font-weight: 300;
+  src: url("/css/font/MaterialSymbolsOutlined.woff2") format("woff2");
+}
+
+:root {
+  --hxi-radius-xs: calc(var(--hx-radius) * 0.375);  /* 3px at the default radius */
+  --hxi-radius-sm: calc(var(--hx-radius) * 0.625);  /* 5px */
+  --hxi-radius-md: calc(var(--hx-radius) * 0.75);   /* 6px */
+  --hxi-focus: 0 0 0 2px var(--hx-surface), 0 0 0 4px var(--hx-focus-ring);
+}
+
+html {
+  font-size: calc(var(--hx-font-size) * 0.75);
+}
+
+* {
+  box-sizing: border-box;
+  font-family: var(--hx-font-sans);
+  font-size: 1rem;
+  font-style: normal;
+  text-decoration: none;
+  font-weight: 400;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  font-size-adjust: none;
+  color: var(--hx-ink);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--hx-surface);
+}
+body a {
+  color: var(--hx-primary-strong);
+  font-weight: 600;
+  cursor: pointer;
+}
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: none;
+  box-shadow: var(--hxi-focus);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--hx-font-display);
+  letter-spacing: -0.02em;
+}
+
+.hide {
+  display: none;
+}
+
+/* ---------------------------------------------------------- card shell -- */
+.mainWrapper {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  margin-left: auto;
+  margin-right: auto;
+}
+.mainWrapper > header {
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+.mainWrapper > main {
+  display: flex;
+  flex-grow: 1;
+  flex-shrink: 1;
+  padding: calc(var(--hx-space) * 2.5) calc(var(--hx-space) * 2.5) calc(var(--hx-space) * 7.5);
+  width: 100%;
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 2.5);
+}
+.mainWrapper > main > div.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
+.mainWrapper > main > div.container.center {
+  margin: auto;
+}
+.mainWrapper > main > div.container.title {
+  padding: calc(var(--hx-space) * 2.5) calc(var(--hx-space) * 5);
+}
+@media screen and (max-width: 600px) {
+  .mainWrapper > main > div.container.title {
+    padding: calc(var(--hx-space) * 2.5);
+  }
+}
+.mainWrapper > main > div.container.title div {
+  padding: calc(var(--hx-space) * 2) 0 var(--hx-space) 0;
+  letter-spacing: 1px;
+}
+.mainWrapper > main > div.container article {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hx-border);
+  border-radius: var(--hxi-radius-xs);
+  padding: calc(var(--hx-space) * 2.5) calc(var(--hx-space) * 5);
+  gap: calc(var(--hx-space) * 1.5);
+  background: var(--hx-surface-raised);
+}
+@media screen and (max-width: 600px) {
+  .mainWrapper > main > div.container article {
+    padding: calc(var(--hx-space) * 2.5);
+  }
+}
+.mainWrapper > main > div.container .spacer {
+  flex-grow: 2;
+  flex-shrink: 1;
+  min-height: calc(var(--hx-space) * 6);
+}
+.mainWrapper > main > div.container h4,
+.mainWrapper > main > div.container h3 {
+  font-weight: 600;
+  font-size: 1.1667rem;
+  margin-top: 0;
+  margin-bottom: 0;
+  color: var(--hx-primary-strong);
+  letter-spacing: 2px;
+}
+.mainWrapper > main > div.container h3 > span {
+  font-size: inherit;
+  font-weight: 400;
+  color: var(--hx-ink);
+}
+.mainWrapper > main > div.container div.description {
+  padding: calc(var(--hx-space) * 2) 0 var(--hx-space) 0;
+  letter-spacing: 1px;
+}
+.mainWrapper > main > div.container div.qrCode img {
+  width: 200px;
+  height: 200px;
+}
+.mainWrapper > main > div.container code {
+  background: var(--hx-surface-sunken);
+  font-family: var(--hx-font-mono);
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: var(--hx-ink);
+  padding: calc(var(--hx-space) * 1.5);
+  border: 1px solid var(--hx-border);
+}
+
+/* Page copy under a card title (was inline style="" in several templates). */
+.hx-lead {
+  margin: calc(var(--hx-space) * 1.4) 0 0;
+  color: var(--hx-ink-muted);
+}
+.hx-lead + .hx-lead {
+  margin-top: calc(var(--hx-space) * 2);
+}
+.hx-lead strong {
+  font-weight: 600;
+  color: var(--hx-ink-muted);
+}
+.hx-muted {
+  color: var(--hx-ink-muted);
+}
+.hx-strong {
+  font-weight: 600;
+  margin: var(--hx-space) 0;
+}
+.hx-break {
+  word-break: break-all;
+}
+.hx-alert {
+  display: block;
+  border-radius: var(--hxi-radius-sm);
+  padding: calc(var(--hx-space) * 2) calc(var(--hx-space) * 3);
+  font-weight: 600;
+}
+.hx-alert-error {
+  background: var(--hx-negative-tint);
+  color: var(--hx-negative);
+  border: 1px solid var(--hx-negative);
+}
+.hx-alert-success {
+  background: var(--hx-positive-tint);
+  color: var(--hx-positive);
+  border: 1px solid var(--hx-positive);
+}
+.hx-push-number {
+  font-family: var(--hx-font-display);
+  font-size: 3.3333rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--hx-primary-strong);
+}
+
+.mainWrapper > main div.resetPasswordContainer {
+  margin-top: calc(var(--hx-space) * 4);
+  margin-bottom: calc(var(--hx-space) * 2);
+  display: flex;
+  justify-content: flex-end;
+}
+.mainWrapper > main div.subtext {
+  margin-top: calc(var(--hx-space) * 7.5);
+  margin-bottom: calc(var(--hx-space) * 7.5);
+  justify-content: center;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------- buttons -- */
+.buttonHolder {
+  display: flex;
+  justify-content: space-around;
+  gap: calc(var(--hx-space) * 2);
+  width: 100%;
+}
+.buttonHolder > button,
+.buttonHolder > a.button {
+  width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(var(--hx-space) * 8.5);
+  font-weight: 600;
+  gap: calc(var(--hx-space) * 2.5);
+  text-decoration: none;
+  color: var(--hx-on-primary);
+  background-color: var(--hx-primary);
+  border: 1px solid var(--hx-primary);
+  border-radius: var(--hxi-radius-sm);
+}
+.buttonHolder > button:hover,
+.buttonHolder > a.button:hover {
+  background-color: var(--hx-primary-strong);
+  border-color: var(--hx-primary-strong);
+}
+.buttonHolder > button > i,
+.buttonHolder > button > span {
+  font-weight: 600;
+  color: var(--hx-on-primary);
+}
+.buttonHolder > button > i {
+  font-size: 1.5rem;
+}
+/* Secondary buttons (Cancel / Back): tinted, ink text. */
+.buttonHolder > button.secondary,
+form button.cancel {
+  background-color: var(--hx-primary-tint);
+  border: 1px solid var(--hx-border);
+  color: var(--hx-ink);
+}
+.buttonHolder > button.secondary:hover,
+form button.cancel:hover {
+  background-color: var(--hx-primary-tint);
+  border-color: var(--hx-primary);
+}
+.buttonHolder > button.secondary > span {
+  color: var(--hx-ink);
+}
+
+.actionVerified {
+  display: flex;
+}
+.actionVerified > span {
+  font-weight: 600;
+  white-space: break-spaces;
+  color: var(--hx-positive);
+  letter-spacing: 1px;
+}
+.actionSuccess,
+.actionError {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: calc(var(--hx-space) * 2.5);
+}
+.actionSuccess.actionSuccess {
+  flex-direction: column;
+}
+.actionSuccess > h3 {
+  color: var(--hx-primary-strong);
+  letter-spacing: 2px;
+}
+.actionSuccess > i {
+  font-size: 8.3333rem;
+  color: var(--hx-positive);
+}
+.actionSuccess > span {
+  font-weight: 600;
+  white-space: break-spaces;
+  color: var(--hx-ink);
+}
+.actionSuccess > span.addition {
+  font-weight: 400;
+  margin-top: calc(var(--hx-space) * 4);
+  letter-spacing: 1px;
+}
+.actionError > i {
+  font-size: 1.6667rem;
+  color: var(--hx-negative);
+}
+.actionError > span {
+  font-size: 1.1667rem;
+  white-space: break-spaces;
+  color: var(--hx-negative);
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.actionError > span a {
+  color: var(--hx-negative);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+div.skipButton form {
+  align-items: flex-end;
+}
+div.skipButton button {
+  display: flex;
+  background: none;
+  color: var(--hx-primary-strong);
+  width: auto;
+  padding: 0;
+  font-weight: 600;
+  margin: calc(var(--hx-space) * 2.5);
+  border: 0;
+}
+
+/* -------------------------------------------------------------- header -- */
+header {
+  flex-grow: 0;
+  flex-shrink: 0;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 2px solid var(--hx-border);
+  min-height: calc(var(--hx-space) * 20);
+  align-items: center;
+  gap: calc(var(--hx-space) * 2.5);
+  background-color: var(--hx-surface);
+}
+header * {
+  color: var(--hx-ink);
+}
+header > div.headerBar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 2.5);
+  padding: 0 calc(var(--hx-space) * 7.5);
+  justify-content: space-between;
+}
+@media screen and (max-width: 600px) {
+  header {
+    min-height: 0;
+  }
+  header > div.headerBar {
+    padding: calc(var(--hx-space) * 2.5) calc(var(--hx-space) * 5);
+  }
+}
+header > div.headerBar a.hx-home {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 2.5);
+}
+header > div.headerBar div.logo {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+}
+/* a realm or organization logo: a fixed height, so logos without intrinsic size (e.g. SVG) still render */
+header > div.headerBar div.logo img {
+  display: block;
+  height: 26px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
+}
+.hx-org-name {
+  margin-left: calc(var(--hx-space) * 3);
+  font-weight: 600;
+  color: var(--hx-primary);
+  vertical-align: middle;
+}
+header .hx-org-name {
+  color: var(--hx-primary);
+}
+
+/* The built-in HelixIAM wordmark (shown only when the realm has no logo). */
+.hx-wordmark {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--hx-font-display);
+  font-weight: 800;
+  font-size: 1.6667rem;
+  letter-spacing: -0.02em;
+  color: var(--hx-ink);
+  line-height: 1;
+}
+.hx-wordmark b {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--hx-primary);
+}
+.hx-wordmark .hx-spark {
+  width: 13px;
+  height: 13px;
+  margin-left: 3px;
+  color: var(--hx-primary);
+  flex: 0 0 auto;
+}
+header .hx-wordmark b,
+header .hx-wordmark .hx-spark {
+  color: var(--hx-primary);
+}
+
+/* ------------------------------------------------- language switcher -- */
+.lang {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: calc(var(--hx-space) * 2);
+  font-size: 0.82rem;
+}
+.lang a {
+  font-weight: 600;
+  color: var(--hx-primary-strong);
+}
+.lang a[aria-current="true"] {
+  color: var(--hx-ink);
+}
+.lang span {
+  color: var(--hx-ink-muted);
+}
+
+/* -------------------------------------------------------------- footer -- */
+footer.hx-footer {
+  min-height: calc(var(--hx-space) * 5);
+  background: var(--hx-brand-bg);
+}
+footer.hx-footer.has-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--hx-space) * 2) calc(var(--hx-space) * 5);
+  padding: calc(var(--hx-space) * 3) calc(var(--hx-space) * 5);
+}
+footer.hx-footer * {
+  color: var(--hx-brand-fg);
+}
+footer.hx-footer a {
+  font-weight: 600;
+  color: var(--hx-brand-fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+@media screen and (max-width: 600px) {
+  footer.hx-footer:not(.has-content) {
+    display: none;
+  }
+}
+.hx-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--hx-space) * 2) calc(var(--hx-space) * 4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hx-legal li {
+  margin: 0;
+}
+.hx-footer-text {
+  margin: 0;
+  white-space: pre-line;
+}
+
+/* ---------------------------------------------------------------- forms -- */
+form {
+  width: 100%;
+  flex-grow: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+form .spacer {
+  flex-grow: 2;
+  flex-shrink: 1;
+  min-height: calc(var(--hx-space) * 7.5);
+}
+form label {
+  margin-top: calc(var(--hx-space) * 4);
+  margin-bottom: var(--hx-space);
+  display: block;
+  font-weight: 600;
+}
+form label:first-of-type {
+  margin-top: 0;
+}
+form textarea {
+  resize: none;
+  height: 200px;
+}
+form button {
+  border-radius: var(--hxi-radius-sm);
+  color: var(--hx-on-primary);
+  cursor: pointer;
+  background-color: var(--hx-primary);
+  border: 1px solid var(--hx-primary);
+  padding: calc(var(--hx-space) * 3.25);
+  font-weight: 600;
+}
+form input[type=date],
+form select {
+  color: var(--hx-ink);
+}
+form select:focus,
+form textarea:focus,
+form input:focus {
+  outline: none;
+  border-color: var(--hx-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hx-focus-ring) 45%, transparent);
+}
+form label:has(+ input.invalid, + select.invalid) {
+  color: var(--hx-negative);
+}
+form span.error {
+  display: none;
+}
+form.invalid span.error {
+  display: block;
+  color: var(--hx-negative);
+  padding: var(--hx-space) 0;
+}
+form.invalid label,
+form label.invalid {
+  color: var(--hx-negative);
+}
+form.invalid textarea,
+form.invalid select,
+form.invalid input,
+form textarea.invalid,
+form select.invalid,
+form input.invalid {
+  background-color: var(--hx-negative-tint);
+  border-color: var(--hx-negative);
+}
+
+::placeholder {
+  color: var(--hx-ink-muted);
+  opacity: 1;
+}
+
+input[type=text], input[type=email], input[type=search], input[type=number], input[type=password],
+input[type=date], select, textarea {
+  width: 100%;
+  border: 1px solid var(--hx-border);
+  border-radius: var(--hxi-radius-sm);
+  padding: calc(var(--hx-space) * 1.75) calc(var(--hx-space) * 3.25);
+  display: inline-block;
+  background-color: var(--hx-surface-raised);
+  color: var(--hx-ink);
+}
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+input[type=checkbox] {
+  accent-color: var(--hx-primary);
+}
+
+/* ---------------------------------------------------------------- icons -- */
+i {
+  font-family: "Material Symbols Outlined";
+  font-variation-settings: "FILL" 0;
+  font-weight: 400;
+  font-style: normal;
+  font-size: 2rem;
+  display: flex;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+  justify-content: center;
+  align-items: center;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "liga";
+}
+i.error::after { content: "warning"; }
+i.login::after { content: "key"; }
+i.cancel::after { content: "cancel"; }
+i.info::after { content: "info"; }
+i.done::after { content: "done"; }
+i.email::after { content: "mail"; }
+
+/* ------------------------------------------------- MFA: recovery codes -- */
+.mainWrapper > main > div.container ul.recoveryCodes {
+  list-style: none;
+  margin: calc(var(--hx-space) * 2) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: calc(var(--hx-space) * 2.5) calc(var(--hx-space) * 4);
+}
+.mainWrapper > main > div.container ul.recoveryCodes > li {
+  margin: 0;
+}
+.mainWrapper > main > div.container ul.recoveryCodes code {
+  display: block;
+  text-align: center;
+  padding: calc(var(--hx-space) * 2.5) calc(var(--hx-space) * 3);
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  background: var(--hx-surface);
+  border: 1px solid var(--hx-border);
+  border-radius: var(--hxi-radius-md);
+}
+.mainWrapper > main > div.container div.text + div.text {
+  margin-top: calc(var(--hx-space) * 2);
+  margin-bottom: calc(var(--hx-space) * 3);
+}
+.mainWrapper > main > div.container details.recovery {
+  margin-top: calc(var(--hx-space) * 5);
+  padding-top: calc(var(--hx-space) * 4);
+  border-top: 1px solid var(--hx-border);
+}
+.mainWrapper > main > div.container details.recovery > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--hx-primary);
+  margin-bottom: calc(var(--hx-space) * 3);
+}
+.mainWrapper > main > div.container details.recovery input[type="text"] {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+@media (max-width: 480px) {
+  .mainWrapper > main > div.container ul.recoveryCodes {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------------------- consent -- */
+main .container article.hx-narrow {
+  max-width: 30rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+.consentScopes {
+  list-style: none;
+  margin: calc(var(--hx-space) * 4) 0;
+  padding: 0;
+}
+.consentScopes li {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--hx-space) * 2.4);
+  padding: calc(var(--hx-space) * 2.2) calc(var(--hx-space) * 0.8);
+  border-bottom: 1px solid var(--hx-border);
+}
+.consentScopes li:last-child {
+  border-bottom: 0;
+}
+.consentScopes input {
+  margin-top: calc(var(--hx-space) * 1.2);
+}
+.consentScopes label {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.consentScopes .scopeName {
+  font-weight: 600;
+}
+.consentScopes .scopeDesc {
+  color: var(--hx-ink-muted);
+  font-size: 0.82rem;
+}
+.consentCode {
+  font-family: var(--hx-font-mono);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* ------------------------------------------------------------- CAPTCHA -- */
+/* reCAPTCHA sets these with inline styles, which the CSP (no style-src 'unsafe-inline') refuses. */
+.g-recaptcha textarea.g-recaptcha-response {
+  display: none;
+}
+.g-recaptcha,
+.cf-turnstile {
+  margin-top: calc(var(--hx-space) * 4);
+  min-height: 65px;
+}
+
+/* ----------------------------------------------------- auto-submit page -- */
+.hx-autosubmit {
+  text-align: center;
+}

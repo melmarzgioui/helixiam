@@ -1,19 +1,11 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="theme-color" content="#a3d4c4">
-    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>HelixIAM - Login</title>
-    <meta name="robots" content="noindex">
-    <link rel="icon" href="/img/favicon.avif">
+    <th:block th:replace="~{fragments/theme :: hxHead('Approve on your phone', false)}"></th:block>
 </head>
 <body>
 <div class="mainWrapper">
-    <header>
-        <div class="headerBar"><a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a></div>
-    </header>
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
             <h3>Approve on your phone</h3>
@@ -22,8 +14,8 @@
         </div>
         <div class="container">
             <article>
-                <div th:if="${error}" class="error" style="display:block">Approval failed or was denied, please try again.</div>
-                <div id="pushNumber" class="title" style="font-size:2.5rem;text-align:center" th:text="${pushNumber}">--</div>
+                <div th:if="${error}" class="hx-alert hx-alert-error" role="alert">Approval failed or was denied, please try again.</div>
+                <div id="pushNumber" class="hx-push-number" th:text="${pushNumber}">--</div>
                 <div id="pushStatus" class="description">Waiting for approval…</div>
                 <form id="pushForm" th:action="${flowAction}" method="post" th:data-push-id="${pushId}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
@@ -31,9 +23,9 @@
             </article>
         </div>
     </main>
-    <footer></footer>
+    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
-<!-- Security review M3 (CSP): polling JS externalised to /js/push-login.js (script-src 'self'). -->
-<script defer src="/js/push-login.js?@project.version@"></script>
+<!--/* Security review M3 (CSP): polling JS externalised to /js/push-login.js (script-src 'self'). */-->
+<script defer src="/js/push-login.js"></script>
 </body>
 </html>

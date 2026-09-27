@@ -1,0 +1,391 @@
+/* =========================================================================
+   HelixIAM sign-in and registration — split layout (brand panel + form),
+   or the centered layout (form only) when the theme sets layout=centered.
+   Loaded after helix.css. Like helix.css, it reads every colour, font,
+   radius and spacing value from the --hx-* custom properties of the
+   realm's theme.css. The brand panel inverts the page: --hx-brand-bg
+   ground, --hx-brand-fg text, --hx-brand-accent highlights.
+   ========================================================================= */
+
+body {
+  display: block;
+  background: var(--hx-brand-bg);
+}
+
+/* ---------------------------------------------------------------- shell -- */
+.helix-auth {
+  width: 100%;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+}
+.helix-auth.is-centered {
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--hx-surface);
+}
+@media (max-width: 900px) {
+  .helix-auth { grid-template-columns: 1fr; }
+}
+
+/* ---------------------------------------------------------- brand panel -- */
+.helix-brand {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: calc(var(--hx-space) * 7.5);
+  padding: clamp(calc(var(--hx-space) * 6), 4.5vw, calc(var(--hx-space) * 12));
+  color: var(--hx-brand-fg);
+  background:
+    radial-gradient(130% 90% at 12% 8%, color-mix(in srgb, var(--hx-primary) 35%, transparent), transparent 55%),
+    radial-gradient(90% 70% at 100% 100%, color-mix(in srgb, var(--hx-brand-accent) 12%, transparent), transparent 55%),
+    linear-gradient(158deg, var(--hx-brand-bg) 0%, color-mix(in srgb, var(--hx-brand-bg) 88%, #000) 52%,
+      color-mix(in srgb, var(--hx-brand-bg) 66%, #000) 100%);
+}
+.helix-brand * {
+  color: var(--hx-brand-fg);
+}
+
+/* optional side-panel image (theme assets.brandImageUrl), under a scrim so the copy stays legible */
+.helix-brand .brand-image {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.helix-brand.has-image::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hx-brand-bg) 55%, transparent),
+    color-mix(in srgb, var(--hx-brand-bg) 85%, transparent));
+  pointer-events: none;
+}
+
+/* faint oversized spark, bottom-right, behind the copy (built-in look only) */
+.helix-brand .brand-watermark {
+  position: absolute;
+  z-index: -1;
+  right: -6%;
+  bottom: -14%;
+  width: min(64%, 540px);
+  opacity: 0.04;
+  pointer-events: none;
+}
+.helix-brand .brand-watermark svg { width: 100%; height: auto; display: block; color: var(--hx-brand-accent); }
+
+/* thin helix-strand hairlines sweeping the panel */
+.helix-brand:not(.has-image)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(115deg, transparent 0 49.6%, color-mix(in srgb, var(--hx-brand-accent) 8%, transparent) 49.6% 50%, transparent 50%),
+    linear-gradient(115deg, transparent 0 61.6%, color-mix(in srgb, var(--hx-brand-accent) 5%, transparent) 61.6% 62%, transparent 62%);
+  pointer-events: none;
+}
+
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 1.5);
+  text-decoration: none;
+}
+.brand-lockup .hx-wordmark {
+  font-size: 1.55rem;
+  color: var(--hx-brand-fg);
+}
+.brand-lockup .hx-wordmark b,
+.brand-lockup .hx-wordmark .hx-spark {
+  color: var(--hx-brand-accent);
+}
+.brand-lockup .hx-wordmark .hx-spark {
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-left: calc(var(--hx-space) * 1.5);
+}
+.brand-lockup img.brand-logo-custom { max-height: 40px; width: auto; display: block; }
+
+.brand-mid { max-width: 30rem; }
+.brand-mid h1 {
+  font-family: var(--hx-font-display);
+  font-weight: 800;
+  font-size: clamp(1.9rem, 3vw, 2.7rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--hx-brand-fg);
+  margin: 0 0 calc(var(--hx-space) * 3);
+}
+.brand-mid p {
+  font-size: 1.02rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, var(--hx-brand-fg) 74%, transparent);
+  margin: 0;
+  max-width: 44ch;
+}
+.brand-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--hx-space) * 1.5);
+  margin: calc(var(--hx-space) * 5.7) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.helix-brand .brand-badges li {
+  font-weight: 600;
+  font-size: 0.72rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hx-brand-accent);
+  border: 1px solid color-mix(in srgb, var(--hx-brand-accent) 30%, transparent);
+  border-radius: 999px;
+  padding: calc(var(--hx-space) * 1.26) calc(var(--hx-space) * 2.25);
+}
+
+.brand-bottom {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 1.5);
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.helix-brand .brand-bottom span {
+  font-size: inherit;
+  color: color-mix(in srgb, var(--hx-brand-fg) 74%, transparent);
+}
+.brand-bottom .kd-spark {
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--hx-brand-accent);
+}
+
+/* ----------------------------------------------------------- form panel -- */
+.helix-form {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(calc(var(--hx-space) * 6), 4.5vw, calc(var(--hx-space) * 12));
+  background: var(--hx-surface);
+}
+.helix-form .form-inner { width: 100%; max-width: 400px; }
+
+/* centered layout: the logo sits above the form */
+.helix-form .form-logo {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 2.5);
+  margin-bottom: calc(var(--hx-space) * 8);
+}
+.helix-form .form-logo img { max-height: 40px; width: auto; display: block; }
+.helix-form .form-logo .hx-wordmark { font-size: 1.55rem; }
+.helix-form .form-logo .hx-wordmark .hx-spark { width: 1.3rem; height: 1.3rem; margin-left: calc(var(--hx-space) * 1.5); }
+
+.helix-form .lang {
+  margin-bottom: calc(var(--hx-space) * 6);
+}
+
+.helix-form .form-head { margin-bottom: calc(var(--hx-space) * 5.25); }
+.helix-form .form-head h2 {
+  font-family: var(--hx-font-display);
+  font-weight: 800;
+  font-size: 1.85rem;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--hx-ink);
+  margin: 0 0 calc(var(--hx-space) * 1.2);
+}
+.helix-form .form-head p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--hx-ink-muted);
+  white-space: pre-line;
+}
+
+/* alerts sit full-width above the form */
+.helix-form .alert {
+  border-radius: var(--hx-radius);
+  padding: calc(var(--hx-space) * 2.1) calc(var(--hx-space) * 2.55);
+  margin-bottom: calc(var(--hx-space) * 3.3);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.helix-form .alert.error {
+  background: var(--hx-negative-tint);
+  border: 1px solid color-mix(in srgb, var(--hx-negative) 35%, transparent);
+  color: var(--hx-negative);
+}
+.helix-form .alert.success {
+  background: var(--hx-positive-tint);
+  border: 1px solid color-mix(in srgb, var(--hx-positive) 35%, transparent);
+  color: var(--hx-positive);
+}
+
+/* fields — larger, calmer than the card pages */
+.helix-form form { gap: 0; }
+.helix-form form label {
+  display: block;
+  margin: calc(var(--hx-space) * 3.15) 0 calc(var(--hx-space) * 1.2);
+  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--hx-ink);
+}
+.helix-form form label:first-of-type { margin-top: 0; }
+.helix-form form input[type=text],
+.helix-form form input[type=email],
+.helix-form form input[type=password] {
+  font-size: 1.1667rem;
+  padding: calc(var(--hx-space) * 2.75) calc(var(--hx-space) * 3.25);
+  border-radius: var(--hx-radius);
+}
+.helix-form form input[type=text]:focus,
+.helix-form form input[type=email]:focus,
+.helix-form form input[type=password]:focus {
+  border-color: var(--hx-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hx-primary) 14%, transparent);
+}
+
+.helix-form .resetPasswordContainer {
+  margin: calc(var(--hx-space) * 2.25) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: calc(var(--hx-space) * 1.5) calc(var(--hx-space) * 3);
+}
+.helix-form .resetPasswordContainer > a { font-size: 0.82rem; }
+
+/* primary submit — full width, arrow glyph (no icon-font dependency) */
+.helix-form .buttonHolder { margin-top: calc(var(--hx-space) * 4.8); }
+.helix-form .buttonHolder > button {
+  width: 100%;
+  height: auto;
+  padding: calc(var(--hx-space) * 3) calc(var(--hx-space) * 3.5);
+  gap: calc(var(--hx-space) * 1.5);
+  border-radius: var(--hx-radius);
+  font-size: 1.1667rem;
+  color: var(--hx-on-primary);
+  background-color: var(--hx-primary);
+  border: 1px solid var(--hx-primary);
+  transition: background-color 0.15s ease, transform 0.02s ease, box-shadow 0.15s ease;
+}
+.helix-form .buttonHolder > button:hover {
+  background-color: var(--hx-primary-strong);
+  border-color: var(--hx-primary-strong);
+}
+.helix-form .buttonHolder > button:active { transform: translateY(1px); }
+.helix-form .buttonHolder > button:focus-visible { outline: none; box-shadow: var(--hxi-focus); }
+.helix-form .buttonHolder > button .btn-arrow {
+  width: 16px;
+  height: 16px;
+  stroke: var(--hx-on-primary);
+  flex: 0 0 auto;
+}
+
+.helix-form .subtext {
+  margin: calc(var(--hx-space) * 4.5) 0 0;
+  font-size: 0.88rem;
+  color: var(--hx-ink-muted);
+}
+.helix-form .subtext span,
+.helix-form .subtext a { font-size: 0.88rem; }
+.helix-form .subtext span { color: var(--hx-ink); }
+
+.helix-form .description,
+.helix-form .description span,
+.helix-form .description a { font-size: 0.88rem; }
+
+/* legal links + footer text under the form */
+.helix-form .form-footer {
+  margin-top: calc(var(--hx-space) * 9);
+  padding-top: calc(var(--hx-space) * 4);
+  border-top: 1px solid var(--hx-border);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 2);
+}
+.helix-form .form-footer,
+.helix-form .form-footer * {
+  font-size: 0.8rem;
+  color: var(--hx-ink-muted);
+}
+.helix-form .form-footer a {
+  font-weight: 600;
+  color: var(--hx-primary-strong);
+}
+
+/* federated providers — full-width neutral buttons */
+.helix-form .federationProviders { margin-top: calc(var(--hx-space) * 1.5); }
+.helix-form .federationDivider {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 2.55);
+  margin: calc(var(--hx-space) * 4.8) 0 calc(var(--hx-space) * 3.6);
+  font-size: 0.8rem;
+  color: var(--hx-ink-muted);
+}
+.helix-form .federationDivider span { font-size: inherit; color: var(--hx-ink-muted); }
+.helix-form .federationDivider::before,
+.helix-form .federationDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hx-border);
+}
+.helix-form a.federationProvider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--hx-space) * 1.5);
+  width: 100%;
+  margin-bottom: calc(var(--hx-space) * 1.8);
+  padding: calc(var(--hx-space) * 2.75) calc(var(--hx-space) * 3.5);
+  border: 1px solid var(--hx-border);
+  border-radius: var(--hx-radius);
+  font-size: 1.1667rem;
+  font-weight: 600;
+  color: var(--hx-ink);
+  background: transparent;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.helix-form a.federationProvider:hover {
+  border-color: var(--hx-primary);
+  background: var(--hx-primary-tint);
+}
+/* brand mark on the button (official eID logo or admin-set custom logo) */
+.helix-form a.federationProvider .fed-logo {
+  height: 20px;
+  width: auto;
+  max-width: 88px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+/* per-scheme accent edge: the official scheme colours, not theme colours (they identify the scheme) */
+.helix-form a.federationProvider.idp-digid { border-left: 3px solid #e17000; }
+.helix-form a.federationProvider.idp-eherkenning { border-left: 3px solid #2b3a8c; }
+.helix-form a.federationProvider.idp-eidas { border-left: 3px solid #003399; }
+
+/* ---------------------------------------------------------- responsive -- */
+@media (max-width: 900px) {
+  .helix-brand {
+    padding: calc(var(--hx-space) * 5.25) calc(var(--hx-space) * 4.5);
+    gap: calc(var(--hx-space) * 3.75);
+  }
+  .helix-brand .brand-watermark,
+  .helix-brand::before { display: none; }
+  .brand-mid h1 { font-size: 1.45rem; margin-bottom: calc(var(--hx-space) * 1.5); }
+  .brand-mid p { display: none; }
+  .brand-badges { display: none; }
+  .helix-form { padding: calc(var(--hx-space) * 6) calc(var(--hx-space) * 4.5) calc(var(--hx-space) * 9); }
+  .helix-form .lang { margin-bottom: calc(var(--hx-space) * 4.5); }
+}

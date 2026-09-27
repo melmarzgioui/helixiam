@@ -2,7 +2,8 @@ function backButton() {
     const cancel = document.getElementsByClassName("cancel");
     for(let x = 0; x < cancel.length; x++) {
         cancel[x].onclick = function() {
-            document.location.href = "/login"
+            // The realm's own sign-in page (the template renders it realm-prefixed); /login alone is not served.
+            document.location.href = this.dataset.href || "login"
         }
     }
 
@@ -10,7 +11,7 @@ function backButton() {
     const continueLogin = document.getElementsByClassName("continueLogin");
     for(let x = 0; x < continueLogin.length; x++) {
         continueLogin[x].onclick = function() {
-            document.location.href = "/login"
+            document.location.href = this.dataset.href || "login"
         }
     }
 

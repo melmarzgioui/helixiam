@@ -51,8 +51,12 @@ class RegisterUserControllerTest {
         userPublisher = mock(UserPublisher.class);
         resolver = mock(RealmSettingsResolver.class);
         claimScopePublisher = mock(ClaimScopePublisher.class);
-        brandingSupport = new BrandingSupport();               // real branding, mock resolver inside it
-        ReflectionTestUtils.setField(brandingSupport, "realmSettingsResolver", resolver);
+        brandingSupport = new BrandingSupport();               // real branding, mock theme page resolver inside it
+        final io.helixiam.authorization.theme.render.ThemePageResolver pages =
+                mock(io.helixiam.authorization.theme.render.ThemePageResolver.class);
+        when(pages.current(any())).thenReturn(
+                io.helixiam.authorization.theme.render.ThemePageResolver.defaults("acme", java.util.Locale.ENGLISH));
+        ReflectionTestUtils.setField(brandingSupport, "pages", pages);
 
         final RegisterUserController controller = new RegisterUserController(userPublisher, true);
         ReflectionTestUtils.setField(controller, "realmSettingsResolver", resolver);
@@ -76,7 +80,7 @@ class RegisterUserControllerTest {
         mvc.perform(get("/register"))
                 .andExpect(view().name("register/register"))
                 .andExpect(model().attribute("registerEnabled", true))
-                .andExpect(model().attribute("brandingPrimaryColor", "#123456"))
+                .andExpect(model().attributeExists("hx"))
                 .andExpect(model().attributeExists("registrationClaims"));
     }
 

@@ -111,17 +111,23 @@ class OrganizationBrandingE2eTest extends AbstractE2eTest {
         // Without the hint (a new browser) the realm's own branding is used.
         final E2eHttp.Response plain = newBrowser().followRedirects(newBrowser().get(
                 "/realms/" + realm + "/login", "Accept", "text/html"));
-        assertThat(plain.body()).doesNotContain("Harbor &amp; Pine").doesNotContain(LOGO);
+        assertThat(plain.body()).doesNotContain("Harbor &amp; Pine").doesNotContain(LOGO).doesNotContain("&amp;org=");
     }
 
     private void adminPutMfa() {
         assertThat(admin.put("/admin/realms/" + realm + "/settings/mfa", Map.of("requireMfa", true)).status()).isEqualTo(200);
     }
 
-    private static void assertBranded(final E2eHttp.Response page, final String what) {
+    private void assertBranded(final E2eHttp.Response page, final String what) {
         assertThat(page.body()).as(what + " shows the organization name").contains("Harbor &amp; Pine Accountants");
         assertThat(page.body()).as(what + " shows the organization logo").contains("src=\"" + LOGO + "\"");
-        assertThat(page.body()).as(what + " uses the organization colour").containsIgnoringCase(COLOR);
+        // Structured theming: colours live in the realm's theme.css, which the page links with ?org= while the
+        // organization is in context; the stylesheet then carries the organization's primary colour.
+        final Matcher link = Pattern.compile("href=\"([^\"]*/theme\\.css\\?v=[0-9a-f]+&amp;org=([^\"]+))\"").matcher(page.body());
+        assertThat(link.find()).as(what + " links the organization's theme.css: " + page.body()).isTrue();
+        final E2eHttp.Response css = newBrowser().get(link.group(1).replace("&amp;", "&"));
+        assertThat(css.status()).isEqualTo(200);
+        assertThat(css.body()).as(what + " uses the organization colour").containsIgnoringCase("--hx-primary: " + COLOR + ";");
     }
 
     private String brandingPath(final String orgId) {
