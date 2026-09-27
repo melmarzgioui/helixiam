@@ -40,19 +40,19 @@ public final class EmailLayout {
                               final Locale locale) {
         final EmailBranding b = branding == null ? EmailBranding.helixIam() : branding;
         final Locale l = locale == null ? Locale.ENGLISH : locale;
-        final String name = HtmlUtils.htmlEscape(b.name());
+        final String name = esc(b.name());
         final String nameSpan = "<span style=\"font-family:" + FONT + ";font-size:18px;font-weight:700;color:" + b.ink()
                 + ";\">" + name + "</span>";
         final String header = b.logoUrl() != null
                 ? "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>"
-                    + "<td style=\"padding-right:12px;\"><img src=\"" + HtmlUtils.htmlEscape(b.logoUrl()) + "\" alt=\"\" "
+                    + "<td style=\"padding-right:12px;\"><img src=\"" + esc(b.logoUrl()) + "\" alt=\"\" "
                     + "height=\"36\" style=\"display:block;height:36px;width:auto;max-width:200px;border:0;\"></td>"
                     + "<td>" + nameSpan + "</td></tr></table>"
                 : nameSpan;
-        final String lang = HtmlUtils.htmlEscape(l.getLanguage().isEmpty() ? "en" : l.getLanguage());
+        final String lang = esc(l.getLanguage().isEmpty() ? "en" : l.getLanguage());
         return "<!DOCTYPE html>\n<html lang=\"" + lang + "\"><head><meta charset=\"UTF-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                + "<meta name=\"color-scheme\" content=\"light\"><title>" + HtmlUtils.htmlEscape(subject == null ? "" : subject)
+                + "<meta name=\"color-scheme\" content=\"light\"><title>" + esc(subject == null ? "" : subject)
                 + "</title></head>\n<body style=\"margin:0;padding:0;background-color:" + b.background() + ";\">"
                 + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" bgcolor=\""
                 + b.background() + "\" style=\"background-color:" + b.background() + ";\"><tr><td align=\"center\" "
@@ -74,7 +74,7 @@ public final class EmailLayout {
     private static String footer(final EmailBranding b, final Locale locale) {
         final String line = b.footerText() != null ? b.footerText()
                 : ("nl".equals(locale.getLanguage()) ? "Verstuurd door " : "Sent by ") + b.name() + ".";
-        final StringBuilder out = new StringBuilder(HtmlUtils.htmlEscape(line));
+        final StringBuilder out = new StringBuilder(esc(line));
         final StringBuilder links = new StringBuilder();
         link(links, b.privacyUrl(), "Privacy", b.inkMuted());
         link(links, b.termsUrl(), "nl".equals(locale.getLanguage()) ? "Voorwaarden" : "Terms", b.inkMuted());
@@ -92,7 +92,7 @@ public final class EmailLayout {
         if (!out.isEmpty()) {
             out.append(" &middot; ");
         }
-        out.append("<a href=\"").append(HtmlUtils.htmlEscape(url)).append("\" style=\"color:").append(color)
+        out.append("<a href=\"").append(esc(url)).append("\" style=\"color:").append(color)
                 .append(";text-decoration:underline;\">").append(label).append("</a>");
     }
 
@@ -110,5 +110,10 @@ public final class EmailLayout {
         }
         m.appendTail(out);
         return out.toString();
+    }
+
+    /** HTML-escapes the markup characters only (UTF-8 text such as © stays as it is). */
+    private static String esc(final String value) {
+        return HtmlUtils.htmlEscape(value == null ? "" : value, "UTF-8");
     }
 }

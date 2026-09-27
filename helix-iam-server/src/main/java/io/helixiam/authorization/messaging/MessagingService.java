@@ -140,7 +140,8 @@ public class MessagingService {
         if (template != null && template.html()) {
             // HTML email: escaped values, inside the shared branded layout (organization in context, else realm).
             final EmailBranding branding = emailBranding == null ? EmailBranding.helixIam() : emailBranding.brandingFor(realm);
-            return new Rendered(subject, EmailLayout.wrap(branding, subject, TemplateRenderer.renderHtml(template.body(), v)), true);
+            return new Rendered(subject, EmailLayout.wrap(branding, subject, TemplateRenderer.renderHtml(template.body(), v),
+                    org.springframework.context.i18n.LocaleContextHolder.getLocale()), true);
         }
         final String body = template == null ? v.getOrDefault("code", "") : TemplateRenderer.render(template.body(), v);
         return new Rendered(subject, body, false);

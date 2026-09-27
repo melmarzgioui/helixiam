@@ -109,7 +109,7 @@ public class AccountEmails implements EmailComposer {
     }
 
     private static String esc(final String value) {
-        return HtmlUtils.htmlEscape(value == null ? "" : value);
+        return HtmlUtils.htmlEscape(value == null ? "" : value, "UTF-8");
     }
 
     private static String enc(final String value) {

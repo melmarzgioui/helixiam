@@ -56,7 +56,15 @@ public class ThemePageResolver {
     /** The page model for {@code request} (the current realm and organization, the request's locale). */
     public ThemePage current(final HttpServletRequest request) {
         final String realm = Optional.ofNullable(RealmContextHolder.get()).orElse(FALLBACK_REALM);
-        final Locale locale = LocaleContextHolder.getLocale();
+        return resolve(realm, request, LocaleContextHolder.getLocale()).page();
+    }
+
+    /**
+     * The page model and the effective theme of {@code realm} (with the organization in context of {@code request},
+     * which may be null) in {@code locale} — for pages and for emails (Task 4: emails carry the same logo, colours,
+     * texts and footer). Never throws: on any failure the HelixIAM default is used.
+     */
+    public Resolved resolve(final String realm, final HttpServletRequest request, final Locale locale) {
         try {
             final Optional<String> orgId = OrganizationContext.current(request, realm);
             final Optional<OrganizationBrandingService.Branding> org = orgId.flatMap(id ->
@@ -64,21 +72,30 @@ public class ThemePageResolver {
             final Optional<String> inRealm = org.isPresent() ? orgId : Optional.empty();
             final EffectiveTheme effective = themes.effectiveTheme(realm, inRealm);
             final ThemeStylesheet.Rendered css = stylesheets.forRealm(realm, inRealm);
-            return ThemePages.build(effective, realm, inRealm.orElse(null),
-                    org.map(OrganizationBrandingService.Branding::displayName).orElse(null), displayName(realm),
-                    locale, css.version());
+            final String realmName = displayName(realm);
+            return new Resolved(ThemePages.build(effective, realm, inRealm.orElse(null),
+                    org.map(OrganizationBrandingService.Branding::displayName).orElse(null), realmName,
+                    locale, css.version()), effective, realmName);
         } catch (final RuntimeException e) {
             LOG.warn("Theme for realm {} could not be resolved; the HelixIAM default is used: {}", LogSafe.sanitize(realm),
                     LogSafe.sanitize(e.toString()));
-            return defaults(realm, locale);
+            return new Resolved(defaults(realm, locale), defaultTheme(), null);
         }
+    }
+
+    /**
+     * A resolved theme: the page model, the effective theme (colours), and the realm's display name (or null).
+     */
+    public record Resolved(ThemePage page, EffectiveTheme theme, String realmDisplayName) {
+    }
+
+    private static EffectiveTheme defaultTheme() {
+        return new EffectiveTheme(ThemePalette.resolve(ThemeDefaults.THEME), "default", Set.of(), Set.of());
     }
 
     /** The HelixIAM default page model (no realm theme). */
     public static ThemePage defaults(final String realm, final Locale locale) {
-        final EffectiveTheme effective = new EffectiveTheme(ThemePalette.resolve(ThemeDefaults.THEME), "default",
-                Set.of(), Set.of());
-        return ThemePages.build(effective, realm, null, null, null, locale, "default");
+        return ThemePages.build(defaultTheme(), realm, null, null, null, locale, "default");
     }
 
     private String displayName(final String realm) {
