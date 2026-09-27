@@ -8,7 +8,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3>Scan to sign in</h3>
+            <h1 class="hx-title">Scan to sign in</h1>
             <div class="description">Open the sign-in app on your enrolled phone and scan this code, or
                 approve the prompt. The link refreshes periodically for security.</div>
         </div>
@@ -23,8 +23,8 @@
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 <!--/* Security review M3 (CSP): polling JS externalised to /js/qr-login.js (script-src 'self'). */-->
 <script defer src="/js/qr-login.js"></script>

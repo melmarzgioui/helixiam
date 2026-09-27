@@ -8,7 +8,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3>Passkey</h3>
+            <h1 class="hx-title">Passkey</h1>
             <div class="description">Use your passkey (fingerprint, face, or security key) to continue.</div>
         </div>
         <div class="container">
@@ -21,14 +21,14 @@
                     <input type="hidden" id="clientDataJSON" name="clientDataJSON"/>
                     <input type="hidden" id="signature" name="signature"/>
                     <input type="hidden" id="userHandle" name="userHandle"/>
-                    <span class="error">Passkey verification failed, please try again</span>
+                    <span class="error" role="alert" th:if="${error != null}">Passkey verification failed, please try again</span>
                     <div class="spacer">&nbsp;</div>
                     <div class="buttonHolder"><button type="button" id="webauthnBtn"><span>Use Passkey</span></button></div>
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 <!--/* Security review M3 (CSP): ceremony JS externalised to /js/webauthn-login.js (script-src 'self'). */-->
 <script defer src="/js/webauthn-login.js"></script>

@@ -92,8 +92,10 @@ public class ResetPasswordController {
                     return null;
                 }
             } catch (final IOException | ValidationException responseException) {
-                // swallow
+                // reported below
             }
+            // The code was not accepted (expired or used) or the new password was refused: say so on the page.
+            errors.put("invalid.request", true);
         }
 
         model.addAttribute(ControllerConstants.CHANGE_PASSSWORD, changePassword);

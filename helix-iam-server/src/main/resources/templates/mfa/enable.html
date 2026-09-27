@@ -11,7 +11,7 @@
 
     <main>
         <div class="container title">
-            <h3 th:text="#{mfa.enable.title}">Enable Your Authenticator App</h3>
+            <h1 class="hx-title" th:text="#{mfa.enable.title}">Enable Your Authenticator App</h1>
             <div th:text="#{mfa.enable.description}">Use an authenticator apps to generate one-time passwords as a second factor for verifying your identity.</div>
         </div>
 
@@ -41,8 +41,8 @@
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
 
                 <label for="code" th:text="#{mfa.code.label}">Authentication Code:</label>
-                <input type="number" id="code" name="code" autofocus autocomplete="off"/>
-                <span class="error" th:text="#{mfa.code.error}">Invalid code, please try again</span>
+                <input type="text" inputmode="numeric" id="code" name="code" autofocus autocomplete="one-time-code" th:attr="aria-invalid=${error != null} ? 'true' : null, aria-describedby=${error != null} ? 'code-error' : null"/>
+                <span class="error" id="code-error" role="alert" th:if="${error != null}" th:text="#{mfa.code.error}">Invalid code, please try again</span>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder">
                     <button type="submit">
@@ -61,8 +61,8 @@
                 </form>
             </div>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

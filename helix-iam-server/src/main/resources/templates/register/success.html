@@ -14,14 +14,13 @@
             <article>
                 <div class="actionSuccess" >
                     <i class="done"></i>
-                    <h3 th:text="#{register.success.title}">Account Successfully Created</h3>
+                    <h1 class="hx-title" th:text="#{register.success.title}">Account Successfully Created</h1>
                     <span class="addition" th:text="#{register.success.message}">Check your inbox and give that link a click to make your account official!</span>
                 </div>
                 <div class="spacer">&nbsp;</div>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder">
-                    <button type="button" class="continueLogin">
-                        <i class="login"></i>
+                    <button type="button" class="continueLogin" th:attr="data-href=@{/login}">
                         <span th:text="#{common.login}">Login</span>
                     </button>
                 </div>
@@ -29,8 +28,8 @@
 <!--/*            <div class="spacer">&nbsp;</div>*/-->
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

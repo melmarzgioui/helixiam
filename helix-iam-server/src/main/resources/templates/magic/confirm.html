@@ -11,7 +11,7 @@
 
     <main>
         <div class="container title">
-            <h3 th:text="#{magic.confirm.title}"></h3>
+            <h1 class="hx-title" th:text="#{magic.confirm.title}"></h1>
             <div class="description" th:text="#{magic.confirm.description}"></div>
         </div>
 
@@ -25,8 +25,8 @@
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

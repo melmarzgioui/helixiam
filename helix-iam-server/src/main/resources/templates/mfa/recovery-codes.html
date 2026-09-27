@@ -11,7 +11,7 @@
 
     <main>
         <div class="container title">
-            <h3 th:text="#{mfa.recovery.title}">Save your recovery codes</h3>
+            <h1 class="hx-title" th:text="#{mfa.recovery.title}">Save your recovery codes</h1>
             <div class="description" th:text="#{mfa.recovery.description}">If you lose your authenticator app, each of these codes lets you sign in once. Store them somewhere safe; they are shown only now.</div>
         </div>
 
@@ -26,8 +26,8 @@
                 </div>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

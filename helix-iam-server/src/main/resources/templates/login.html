@@ -26,39 +26,42 @@
 
             <!--/* Auth-hardening (feature 1): generic account-lockout message (deliberately non-specific to avoid
                  user enumeration — it never reveals whether the account exists or the password was right). */-->
-            <div class="alert error" id="loginFailed"
+            <div class="alert error" id="loginFailed" role="alert"
                  th:if="${param.error != null && #strings.toString(param.error).equals('accountLocked')}"
                  th:text="#{login.error.accountLocked}">
                 Your account is temporarily locked due to too many failed sign-in attempts. Please try again later or reset your password.
             </div>
 
             <!--/* Auth-hardening (feature 6): concurrent-session cap reached and the realm denies new logins. */-->
-            <div class="alert error"
+            <div class="alert error" role="alert"
                  th:if="${param.error != null && #strings.toString(param.error).equals('tooManySessions')}"
                  th:text="#{login.error.tooManySessions}">
                 You have too many active sessions. Sign out of another device and try again.
             </div>
-            <div class="alert error"
+            <div class="alert error" role="alert"
                  th:if="${param.error != null && #strings.toString(param.error).equals('mfaLocked')}"
                  th:text="#{login.error.mfaLocked}">
                 You have too many active sessions. Sign out of another device and try again.
             </div>
 
-            <div class="alert success"
+            <!--/* A wrong email or password: one form-level message (never which of the two was wrong). */-->
+            <div class="alert error" id="credentials-error" role="alert" th:if="${param.error != null && ! #strings.toString(param.error).equals('accountLocked') && ! #strings.toString(param.error).equals('tooManySessions') && ! #strings.toString(param.error).equals('mfaLocked')}"
+                 th:text="#{login.error.badCredentials}">Email or password is incorrect.</div>
+
+            <div class="alert success" role="status"
                  th:if="${param.info != null && #strings.toString(param.info).equals('verified')}"
                  th:text="#{login.info.verified}">
                 Your account is all set—welcome aboard!
             </div>
 
-            <form th:action="@{/login}" method="post" role="form" id="loginForm"
-                  th:classappend="${param.error != null && ! #strings.toString(param.error).equals('accountLocked') && ! #strings.toString(param.error).equals('tooManySessions') && ! #strings.toString(param.error).equals('mfaLocked') ? 'invalid' : 'valid'}">
+            <form th:action="@{/login}" method="post" role="form" id="loginForm" th:with="badCredentials=${param.error != null && ! #strings.toString(param.error).equals('accountLocked') && ! #strings.toString(param.error).equals('tooManySessions') && ! #strings.toString(param.error).equals('mfaLocked')}">
                 <label for="username" th:text="#{login.username.label}">Email Address</label>
-                <input type="text" id="username" name="username" autocomplete="username"/>
-                <span class="error" th:text="#{login.username.error}">Provide your email address</span>
+                <input type="text" id="username" name="username" autocomplete="username"
+                       th:attr="aria-invalid=${badCredentials} ? 'true' : null, aria-describedby=${badCredentials} ? 'credentials-error' : null"/>
 
                 <label for="password" th:text="#{login.password.label}">Password</label>
-                <input type="password" id="password" name="password" autocomplete="current-password"/>
-                <span class="error" th:text="#{login.password.error}">Provide your password</span>
+                <input type="password" id="password" name="password" autocomplete="current-password"
+                       th:attr="aria-invalid=${badCredentials} ? 'true' : null, aria-describedby=${badCredentials} ? 'credentials-error' : null"/>
 
                 <!--/* Auth-hardening (feature 5): CAPTCHA widget (renders only when the realm enables it). */-->
                 <div th:replace="~{fragments/captcha :: widget}"></div>

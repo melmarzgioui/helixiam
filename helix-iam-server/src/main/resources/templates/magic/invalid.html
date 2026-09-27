@@ -11,7 +11,7 @@
 
     <main>
         <div class="container title">
-            <h3 th:text="#{magic.invalid.title}"></h3>
+            <h1 class="hx-title" th:text="#{magic.invalid.title}"></h1>
             <div class="description" th:text="#{magic.invalid.description}"></div>
         </div>
 
@@ -24,8 +24,8 @@
                 <div class="text"><a th:href="@{/login}" th:text="#{magic.back}">Back to sign in</a></div>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

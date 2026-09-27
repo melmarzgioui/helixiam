@@ -10,7 +10,7 @@
 
     <main>
         <div class="container title">
-            <h3 th:text="#{reset.set.title}">Password reset</h3>
+            <h1 class="hx-title" th:text="#{reset.set.title}">Password reset</h1>
         </div>
 
 <!--/*        <div th:if="${errors.size() > 0}" class="container no-border">*/-->
@@ -22,14 +22,16 @@
 
         <div class="container">
             <article>
+                <div class="hx-alert hx-alert-error" id="password-error" role="alert" th:if="${errors.get('invalid.password') != null}" th:text="#{register.error.password}">The passwords are empty or do not match.</div>
+                <div class="hx-alert hx-alert-error" role="alert" th:if="${errors.get('invalid.request') != null}" th:text="#{reset.set.error.failed}">The password could not be saved.</div>
                 <form th:action="@{/reset/password/set}" th:object="${changePassword}" method="post" role="form" id="passwordReset"  th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}">
 
                     <label for="password" th:text="#{reset.set.password.label}">Password</label>
-                    <input type="password" id="password" name="newPassword" th:field="*{newPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+                    <input type="password" id="password" name="newPassword" th:field="*{newPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password" th:attr="aria-invalid=${errors.get('invalid.password') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.password') != null} ? 'password-error' : null"/>
                     <input type="hidden" name="code" th:field="*{code}"/>
 
                     <label for="repeatPassword" th:text="#{reset.set.repeatPassword.label}">Repeat Password</label>
-                    <input type="password" id="repeatPassword" name="repeatPassword" th:field="*{repeatPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+                    <input type="password" id="repeatPassword" name="repeatPassword" th:field="*{repeatPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password" th:attr="aria-invalid=${errors.get('invalid.password') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.password') != null} ? 'password-error' : null"/>
 
                     <div class="spacer">&nbsp;</div>
 
@@ -43,8 +45,8 @@
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

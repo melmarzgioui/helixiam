@@ -22,8 +22,13 @@
             </div>
 
             <form th:if="${registerEnabled}" th:action="@{/register}" th:object="${userRegister}" method="post" role="form" id="loginForm">
+                <div class="alert error" id="username-error" role="alert" th:if="${errors.get('invalid.signup') != null}"
+                     th:text="#{register.error.username}">This email address cannot be used.</div>
+                <div class="alert error" role="alert" th:if="${errors.get('invalid.username') != null}"
+                     th:text="#{reset.username.error}">Enter the email address of your account.</div>
                 <label for="username" th:text="#{register.username.label}">Email Address (Username)*</label>
-                <input type="text" id="username" name="username" th:field="*{username}" th:classappend="${errors.get('invalid.username') != null ? 'invalid' : 'valid'}" autocomplete="username"/>
+                <input type="text" id="username" name="username" th:field="*{username}" th:classappend="${errors.get('invalid.username') != null ? 'invalid' : 'valid'}" autocomplete="username"
+                       th:attr="aria-invalid=${errors.get('invalid.username') != null or errors.get('invalid.signup') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.username') != null or errors.get('invalid.signup') != null} ? 'username-error' : null"/>
 
                 <!--/* Claim-driven fields from the realm's catalogue. Verified/subject claims are collected elsewhere and skipped. */-->
                 <th:block th:each="claim : ${registrationClaims}"
@@ -33,15 +38,20 @@
                            th:value="${userRegister.getAttributes().get(claim.key())}"
                            th:placeholder="${claim.placeholder()}"
                            th:required="${claim.mandatory()}"
-                           th:classappend="${errors.get('invalid.claim.' + claim.key()) != null ? 'invalid' : 'valid'}"/>
+                           th:classappend="${errors.get('invalid.claim.' + claim.key()) != null ? 'invalid' : 'valid'}"
+                           th:attr="aria-invalid=${errors.get('invalid.claim.' + claim.key()) != null} ? 'true' : null"/>
                 </th:block>
 
                 <div class="spacer"></div>
+                <div class="alert error" id="password-error" role="alert" th:if="${errors.get('invalid.password') != null}"
+                     th:text="#{register.error.password}">The passwords are empty or do not match.</div>
                 <label for="password" th:text="#{register.password.label}">Password*</label>
-                <input type="password" id="password" name="password" th:field="*{password}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+                <input type="password" id="password" name="password" th:field="*{password}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"
+                       th:attr="aria-invalid=${errors.get('invalid.password') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.password') != null} ? 'password-error' : null"/>
 
                 <label for="repeatPassword" th:text="#{register.repeatPassword.label}">Repeat Password*</label>
-                <input type="password" id="repeatPassword" name="repeatPassword" th:field="*{repeatPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"/>
+                <input type="password" id="repeatPassword" name="repeatPassword" th:field="*{repeatPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password"
+                       th:attr="aria-invalid=${errors.get('invalid.password') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.password') != null} ? 'password-error' : null"/>
 
                 <div class="spacer"></div>
                 <!--/* The theme's terms link; without one, only the built-in (unbranded) look links HelixIAM's own terms. */-->
@@ -50,7 +60,7 @@
                 <div class="description" th:if="${hx.termsUrl == null and !hx.branded}"><span th:text="#{register.terms.prefix}">By creating an account, you accept the</span>
                     <a href="https://helixiam.com/legal/terms/" target="_blank" rel="noopener noreferrer" th:text="#{register.terms.link}">Terms of Service</a>
                     <span th:text="#{register.terms.suffix}">.</span></div>
-                <span class="error" th:if="${errors != null && errors.get('invalid.captcha') != null}" th:text="#{register.captcha.error}">Please complete the CAPTCHA challenge.</span>
+                <span class="error" role="alert" th:if="${errors != null && errors.get('invalid.captcha') != null}" th:text="#{register.captcha.error}">Please complete the CAPTCHA challenge.</span>
                 <div th:replace="~{fragments/captcha :: widget}"></div>
 
                 <div class="buttonHolder">

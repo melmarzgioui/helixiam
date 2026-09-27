@@ -13,14 +13,13 @@
             <article>
                 <div class="actionSuccess" >
                     <i class="done"></i>
-                    <h3 th:text="#{reset.success.title}">Password Reset Requested</h3>
+                    <h1 class="hx-title" th:text="#{reset.success.title}">Password Reset Requested</h1>
                     <span class="addition" th:text="#{reset.success.message}">If your email address is chilling in our system, we'll fire off a password reset link your way!</span>
                 </div>
                 <div class="spacer">&nbsp;</div>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder">
-                    <button type="button" class="continueLogin">
-                        <i class="login"></i>
+                    <button type="button" class="continueLogin" th:attr="data-href=@{/login}">
                         <span th:text="#{common.login}">Login</span>
                     </button>
                 </div>
@@ -28,8 +27,8 @@
 <!--/*            <div class="spacer">&nbsp;</div>*/-->
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

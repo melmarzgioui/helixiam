@@ -70,6 +70,7 @@ public class RequiredActionsController {
         }
         final String action = pending.get(0);
         model.addAttribute("action", action);
+        model.addAttribute("actionLabel", label(action));
         model.addAttribute("remaining", pending.size());
         return UPDATE_PASSWORD.equalsIgnoreCase(action)
                 ? "required-actions/update-password"
@@ -100,6 +101,21 @@ public class RequiredActionsController {
         }
         return completeOne(UPDATE_PASSWORD, request, response);
     }
+
+    /**
+     * The action in words for the page ({@code requiredAction.<CODE>} in the message bundles), never the raw code
+     * unless the code is unknown.
+     */
+    private String label(final String action) {
+        if (messages == null || action == null) {
+            return action;
+        }
+        return messages.getMessage("requiredAction." + action.trim().toUpperCase(java.util.Locale.ROOT), null, action,
+                org.springframework.context.i18n.LocaleContextHolder.getLocale());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.context.MessageSource messages;
 
     @PostMapping("/required-actions/acknowledge")
     public String acknowledge(final HttpServletRequest request, final HttpServletResponse response) throws IOException {

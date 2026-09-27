@@ -218,7 +218,10 @@ class ThemedTemplatesTest {
         m.put("qrToken", "t1");
         m.put("passkeyLoginChallenge", "Y2hhbGxlbmdl");
         m.put("webauthnChallenge", "Y2hhbGxlbmdl");
-        m.put("action", "Accept the updated policy");
+        m.put("action", "VERIFY_EMAIL");
+        m.put("actionLabel", "Verify your email address");
+        m.put("profile", new io.helixiam.authorization.controller.ProfileController.Profile("ada", "ada@example.com",
+                "Ada", null, null));
         m.put("remaining", 1);
         m.put("token", "magic-token");
         m.put("fields", Map.of("SAMLRequest", "PHNhbWw+"));
@@ -226,8 +229,14 @@ class ThemedTemplatesTest {
     }
 
     static String render(final String template, final Map<String, Object> model) throws Exception {
+        return render(template, model, Map.of());
+    }
+
+    static String render(final String template, final Map<String, Object> model, final Map<String, String> params)
+            throws Exception {
         final MockHttpServletRequest request = new MockHttpServletRequest(context.getServletContext(), "GET",
                 CONTEXT + "/" + template);
+        params.forEach(request::addParameter);
         request.setContextPath(CONTEXT);
         request.addPreferredLocale(Locale.ENGLISH);
         request.setAttribute(DispatcherServlet.WEB_APPLICATION_CONTEXT_ATTRIBUTE, context);
@@ -261,10 +270,12 @@ class ThemedTemplatesTest {
                 .contains("href=\"https://monthfold.example/privacy\"").contains("href=\"https://monthfold.example/terms\"")
                 .contains("href=\"https://monthfold.example/support\"");
         assertThat(html).as("title").containsPattern("<title>Monthfold — [^<]+</title>");
+        assertThat(html).as("one page heading (review S1)").containsPattern("<h1[ >]").doesNotContain("<h3");
         if (SPLIT.contains(template)) {
             assertThat(html).contains("Monthly reports your clients will actually read.", "Bookkeeping for small firms.",
                     "Made in Utrecht", "Welcome back to Monthfold.", "Bank-grade", "EU hosted",
                     "src=\"https://cdn.monthfold.example/panel.webp\"", "href=\"" + CONTEXT + "/css/login.css\"");
+            assertThat(html).as("no HelixIAM panel art when branded (review B3)").contains("is-branded");
         }
         for (final String wording : DEFAULT_WORDING) {
             assertThat(html).as("default wording: " + wording).doesNotContain(wording);
@@ -290,6 +301,52 @@ class ThemedTemplatesTest {
         if (SPLIT.contains(template)) {
             assertThat(html).contains("Secure access for every human and machine", "OpenID Connect", "brand-watermark");
         }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("templates")
+    void aBrandedPageWithoutItsOwnFavicon_setsNone_andAnUnthemedPageShowsNoEmptyFooter(final String template)
+            throws Exception {
+        final Theme noFavicon = new Theme(null, null, null,
+                new ThemeAssets("https://cdn.acme.example/logo.svg", null, null, null), null, null, null, null);
+        final String branded = render(template, model(page(noFavicon, null, "Acme")));
+        assertThat(branded).as("review B2").doesNotContain("rel=\"icon\"").doesNotContain("helix-favicon");
+        if (!SPLIT.contains(template)) {
+            assertThat(render(template, model(page(Theme.EMPTY, null, null)))).as("review S9").doesNotContain("<footer");
+        }
+    }
+
+    static Stream<String> errorPages() {
+        return Stream.of("mfa/totp|code-error", "mfa/enable|code-error", "flow/otp-form|code-error",
+                "flow/recovery-code-form|code-error", "reset/set|password-error",
+                "required-actions/update-password|password-error", "register/register|password-error");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("errorPages")
+    void errorsAreAnnounced_andTiedToTheirFields(final String pageAndId) throws Exception {
+        final String template = pageAndId.substring(0, pageAndId.indexOf('|'));
+        final String id = pageAndId.substring(pageAndId.indexOf('|') + 1);
+        final Map<String, Object> m = model(page(Theme.EMPTY, null, null));
+        m.put("error", true);
+        final Map<String, Boolean> errors = new HashMap<>();
+        errors.put("invalid.password", true);
+        m.put("errors", errors);
+        final String html = render(template, m);
+        assertThat(html).containsPattern("id=\"" + id + "\"[^>]*role=\"alert\"|role=\"alert\"[^>]*id=\"" + id + "\"");
+        assertThat(html).containsPattern("aria-invalid=\"true\"[^>]*aria-describedby=\"" + id + "\"");
+        final String clean = render(template, model(page(Theme.EMPTY, null, null)));
+        assertThat(clean).doesNotContain("aria-invalid").doesNotContain("id=\"" + id + "\"");
+    }
+
+    @Test
+    void aWrongPassword_isOneFormLevelAlert() throws Exception {
+        final String html = render("login", model(page(Theme.EMPTY, null, null)), Map.of("error", "error"));
+        assertThat(html).contains("role=\"alert\"").contains("Email or password is incorrect.")
+                .containsPattern("id=\"username\"[^>]*aria-invalid=\"true\"[^>]*aria-describedby=\"credentials-error\"")
+                .doesNotContain("Provide your");
+        final String locked = render("login", model(page(Theme.EMPTY, null, null)), Map.of("error", "accountLocked"));
+        assertThat(locked).doesNotContain("Email or password is incorrect.");
     }
 
     @Test

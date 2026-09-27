@@ -9,7 +9,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3 th:text="#{flow.consent.title}">Terms of Service</h3>
+            <h1 class="hx-title" th:text="#{flow.consent.title}">Terms of Service</h1>
             <div class="description" th:text="#{flow.consent.description}">Please review and accept the terms to continue.</div>
         </div>
         <div class="container">
@@ -17,14 +17,14 @@
             <form th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 <input type="hidden" name="accept" value="true"/>
-                <span class="error" th:text="#{flow.consent.error}">You must accept the terms to continue</span>
+                <span class="error" role="alert" th:if="${error != null}" th:text="#{flow.consent.error}">You must accept the terms to continue</span>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder"><button type="submit"><span th:text="#{flow.consent.submit}">Accept &amp; Continue</span></button></div>
             </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

@@ -36,8 +36,9 @@
     <link th:if="${hx.preview != null}" rel="stylesheet" class="hx-theme" th:href="${hx.preview.cssDataUrl}"
           th:attr="nonce=${hx.preview.nonce}">
     <link th:if="${hx.faviconUrl != null}" rel="icon" th:href="${hx.faviconUrl}">
-    <link th:if="${hx.faviconUrl == null}" rel="icon" type="image/svg+xml" th:href="@{/img/helix-favicon.svg}">
-    <link th:if="${hx.faviconUrl == null}" rel="icon" th:href="@{/img/favicon.avif}" sizes="32x32">
+    <!--/* The HelixIAM icons only on unbranded pages; a branded page without its own favicon sets none (review B2). */-->
+    <link th:if="${hx.faviconUrl == null and !hx.branded}" rel="icon" type="image/svg+xml" th:href="@{/img/helix-favicon.svg}">
+    <link th:if="${hx.faviconUrl == null and !hx.branded}" rel="icon" th:href="@{/img/favicon.avif}" sizes="32x32">
 </th:block>
 </head>
 <body>
@@ -65,7 +66,7 @@
 </nav>
 
 <!--/* Split layout: the brand panel (logo, headline, subhead, badges, byline, optional side image). */-->
-<aside th:fragment="brandPanel" th:if="${hx.split()}" class="helix-brand" th:classappend="${hx.brandImageUrl != null} ? 'has-image'">
+<aside th:fragment="brandPanel" th:if="${hx.split()}" class="helix-brand" th:classappend="${(hx.brandImageUrl != null ? 'has-image ' : '') + (hx.branded ? 'is-branded' : '')}">
     <img th:if="${hx.brandImageUrl != null}" class="brand-image" th:src="${hx.brandImageUrl}" alt="">
     <div th:unless="${hx.branded}" class="brand-watermark" aria-hidden="true">
         <svg viewBox="0 0 125 125"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
@@ -132,8 +133,9 @@
     </div>
 </header>
 
-<!--/* Card pages: the footer bar (footer text and legal links when the theme sets them). */-->
-<footer th:fragment="hxFooter" class="hx-footer" th:classappend="${hx.hasFooter()} ? 'has-content'">
+<!--/* Card pages: footer text and legal links under the content, the same pattern as the split pages'
+     formFooter; nothing at all when the theme sets neither (review S9). */-->
+<footer th:fragment="hxFooter" class="hx-page-footer" th:if="${hx.hasFooter()}">
     <th:block th:replace="~{fragments/theme :: legal}"></th:block>
 </footer>
 

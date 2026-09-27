@@ -27,8 +27,8 @@ class MessageSourceI18nTest {
     @Test
     void resolvesEnglishLoginStrings() {
         assertEquals("Sign in", messages.getMessage("login.title", null, Locale.ENGLISH));
-        assertEquals("Email Address", messages.getMessage("login.username.label", null, Locale.ENGLISH));
-        assertEquals("Forgot Password?", messages.getMessage("login.forgotPassword", null, Locale.ENGLISH));
+        assertEquals("Email address", messages.getMessage("login.username.label", null, Locale.ENGLISH));
+        assertEquals("Forgot password?", messages.getMessage("login.forgotPassword", null, Locale.ENGLISH));
     }
 
     @Test

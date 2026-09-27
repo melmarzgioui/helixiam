@@ -9,7 +9,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3 th:text="#{flow.otp.title}">One-Time Code</h3>
+            <h1 class="hx-title" th:text="#{flow.otp.title}">One-Time Code</h1>
             <div class="description" th:text="#{flow.otp.description}">Enter the verification code from your authenticator app or message.</div>
         </div>
         <div class="container">
@@ -17,15 +17,15 @@
             <form th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 <label for="code" th:text="#{flow.otp.code.label}">Authentication Code:</label>
-                <input type="number" id="code" name="code" autofocus placeholder="XXXXXX" autocomplete="off"/>
-                <span class="error" th:text="#{flow.otp.code.error}">Invalid code, please try again</span>
+                <input type="number" id="code" name="code" autofocus placeholder="XXXXXX" autocomplete="off" th:attr="aria-invalid=${error != null} ? 'true' : null, aria-describedby=${error != null} ? 'code-error' : null"/>
+                <span class="error" id="code-error" role="alert" th:if="${error != null}" th:text="#{flow.otp.code.error}">Invalid code, please try again</span>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder"><button type="submit"><span th:text="#{common.verify}">Verify</span></button></div>
             </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

@@ -8,7 +8,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3>Sign in with a passkey</h3>
+            <h1 class="hx-title">Sign in with a passkey</h1>
             <div class="description">No password needed — pick the passkey saved on this device.</div>
         </div>
         <div class="container">
@@ -24,14 +24,14 @@
                     <input type="hidden" id="clientDataJSON" name="clientDataJSON"/>
                     <input type="hidden" id="signature" name="signature"/>
                     <input type="hidden" id="userHandle" name="userHandle"/>
-                    <span class="error">Passkey not recognised, please try again</span>
+                    <span class="error" role="alert" th:if="${error != null}">Passkey not recognised, please try again</span>
                     <div class="spacer">&nbsp;</div>
                     <div class="buttonHolder"><button type="button" id="passkeyBtn"><span>Use a passkey</span></button></div>
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 <!--/* Security review M3 (CSP): ceremony JS externalised to /js/passkey-login.js (script-src 'self'). */-->
 <script defer src="/js/passkey-login.js"></script>

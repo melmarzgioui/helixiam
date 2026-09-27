@@ -8,7 +8,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3>Register a Passkey</h3>
+            <h1 class="hx-title">Register a Passkey</h1>
             <div class="description">Create a passkey for faster, phishing-resistant sign-in.</div>
         </div>
         <div class="container">
@@ -25,8 +25,8 @@
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 <!--/* Security review M3 (CSP): ceremony JS externalised to /js/webauthn-register.js (script-src 'self'). */-->
 <script defer src="/js/webauthn-register.js"></script>

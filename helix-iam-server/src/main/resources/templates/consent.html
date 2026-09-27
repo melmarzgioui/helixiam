@@ -10,7 +10,7 @@
 
     <main>
         <div class="container title">
-            <h3>Authorise <span th:text="${clientName}">the app</span></h3>
+            <h1 class="hx-title" th:text="'Authorise ' + ${clientName}">Authorise the app</h1>
             <p class="hx-lead">
                 <strong th:text="${clientName}">the app</strong> wants to access your account. Review the permissions and approve if you're happy.
             </p>
@@ -20,7 +20,7 @@
         </div>
 
         <div class="container">
-            <article class="hx-narrow">
+            <article>
                 <form th:action="@{${requestURI}}" method="post" role="form">
                     <input type="hidden" name="client_id" th:value="${clientId}"/>
                     <input type="hidden" name="state" th:value="${state}"/>
@@ -46,8 +46,8 @@
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

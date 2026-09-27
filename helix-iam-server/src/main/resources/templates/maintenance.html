@@ -11,7 +11,7 @@
 
     <main>
 <!--/*        <div class="container title">*/-->
-<!--/*            <h3>Maintenance</h3>*/-->
+<!--/*            <h1 class="hx-title">Maintenance</h1>*/-->
 <!--/*        </div>*/-->
 
 
@@ -20,14 +20,13 @@
             <article>
                 <div class="actionSuccess" >
 <!--/*                    <i class="done"></i>*/-->
-                    <h3>Scheduled maintenance</h3>
+                    <h1 class="hx-title">Scheduled maintenance</h1>
                     <span class="addition">We’re currently performing scheduled maintenance to improve your experience.<br/><br/>We apologize for the inconvenience and appreciate your patience.<br/>Try again later!</span>
                 </div>
                 <div class="spacer">&nbsp;</div>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder">
                     <button type="button" class="continueLogin" th:attr="data-href=@{/login}">
-                        <i class="login"></i>
                         <span>Retry</span>
                     </button>
                 </div>
@@ -47,8 +46,8 @@
 <!--/*                <span>Your account is all set—welcome aboard!</span>*/-->
 <!--/*            </div>*/-->
 <!--/*        </div>*/-->
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>

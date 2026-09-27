@@ -8,7 +8,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3>Approve on your phone</h3>
+            <h1 class="hx-title">Approve on your phone</h1>
             <div class="description">We sent a notification to your enrolled device. Tap the number below
                 to approve.</div>
         </div>
@@ -22,8 +22,8 @@
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 <!--/* Security review M3 (CSP): polling JS externalised to /js/push-login.js (script-src 'self'). */-->
 <script defer src="/js/push-login.js"></script>

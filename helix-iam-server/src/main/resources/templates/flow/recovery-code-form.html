@@ -9,7 +9,7 @@
     <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3 th:text="#{flow.recovery.title}">Recovery Code</h3>
+            <h1 class="hx-title" th:text="#{flow.recovery.title}">Recovery Code</h1>
             <div class="description" th:text="#{flow.recovery.description}">Enter one of the single-use backup codes you saved when you set up MFA.</div>
         </div>
         <div class="container">
@@ -17,15 +17,15 @@
             <form th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 <label for="code" th:text="#{flow.recovery.code.label}">Recovery Code:</label>
-                <input type="text" id="code" name="code" autofocus placeholder="XXXX-XXXX" autocomplete="off"/>
-                <span class="error" th:text="#{flow.recovery.code.error}">Invalid or already-used code, please try again</span>
+                <input type="text" id="code" name="code" autofocus placeholder="XXXX-XXXX" autocomplete="off" th:attr="aria-invalid=${error != null} ? 'true' : null, aria-describedby=${error != null} ? 'code-error' : null"/>
+                <span class="error" id="code-error" role="alert" th:if="${error != null}" th:text="#{flow.recovery.code.error}">Invalid or already-used code, please try again</span>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder"><button type="submit"><span th:text="#{common.verify}">Verify</span></button></div>
             </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
 </div>
 </body>
 </html>
