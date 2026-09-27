@@ -109,25 +109,49 @@ class ThemedTemplatesTest {
         views.setCharacterEncoding("UTF-8");
     }
 
-    /** Every template under {@code templates/} except the fragments — discovered, never listed by hand. */
+    /** Fewer templates than this means discovery is broken (review M7), not that templates were removed. */
+    static final int MIN_TEMPLATES = 29;
+
+    /**
+     * Every template under {@code templates/} except the fragments — discovered, never listed by hand. Review M7: every
+     * copy on the classpath is considered, none may come from test resources (which would shadow the main ones), and
+     * finding fewer than {@link #MIN_TEMPLATES} fails the run.
+     */
     static Stream<String> templates() throws IOException {
-        final Resource root = new PathMatchingResourcePatternResolver().getResource("classpath:/templates/");
-        final String base = root.getURL().toString();
-        final List<String> out = new ArrayList<>();
-        for (final Resource r : new PathMatchingResourcePatternResolver().getResources("classpath*:/templates/**/*.html")) {
+        return discover(new PathMatchingResourcePatternResolver().getResources("classpath*:/templates/**/*.html")).stream();
+    }
+
+    static List<String> discover(final Resource[] resources) throws IOException {
+        final java.util.TreeSet<String> out = new java.util.TreeSet<>();
+        for (final Resource r : resources) {
             final String url = r.getURL().toString();
-            final String name = url.substring(url.indexOf("/templates/") + "/templates/".length(), url.length() - ".html".length());
-            if (!name.startsWith("fragments/") && url.startsWith(base)) {
+            assertThat(url).as("a template from test resources would shadow the real one").doesNotContain("/test-classes/");
+            final int at = url.lastIndexOf("/templates/");
+            final String name = url.substring(at + "/templates/".length(), url.length() - ".html".length());
+            if (!name.startsWith("fragments/")) {
                 out.add(name);
             }
         }
-        assertThat(out).as("templates discovered from the classpath").hasSizeGreaterThanOrEqualTo(29)
+        assertThat(out).as("templates discovered from the classpath").hasSizeGreaterThanOrEqualTo(MIN_TEMPLATES)
                 .contains("login", "register/register", "register/success", "mfa/enable", "mfa/totp",
                         "mfa/recovery-codes", "mfa/webauthn-register", "reset/password", "reset/set", "reset/success",
                         "consent", "activate", "required-actions/acknowledge", "required-actions/update-password",
                         "magic/request", "magic/sent", "magic/confirm", "magic/invalid", "flow/otp-form",
                         "flow/saml-post", "maintenance", "me/profile");
-        return out.stream().sorted();
+        return List.copyOf(out);
+    }
+
+    @Test
+    void discovery_failsOnTooFewTemplates_orTestResourceCopies() throws Exception {
+        final Resource[] real = new PathMatchingResourcePatternResolver().getResources("classpath*:/templates/**/*.html");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> discover(java.util.Arrays.copyOf(real, 5)))
+                .isInstanceOf(AssertionError.class).hasMessageContaining("templates discovered");
+        final Resource shadow = new org.springframework.core.io.UrlResource(
+                "file:/tmp/project/target/test-classes/templates/login.html");
+        final Resource[] withShadow = java.util.Arrays.copyOf(real, real.length + 1);
+        withShadow[real.length] = shadow;
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> discover(withShadow))
+                .isInstanceOf(AssertionError.class).hasMessageContaining("test resources");
     }
 
     // ------------------------------------------------------------------------------------------------ fixtures

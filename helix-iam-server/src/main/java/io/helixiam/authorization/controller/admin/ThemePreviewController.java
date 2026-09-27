@@ -82,9 +82,13 @@ public class ThemePreviewController {
     private final ThemeStylesheet stylesheets;
     private final ITemplateEngine templates;
     private final ObjectProvider<RealmSettingsResolver> settings;
+    private final String publicBaseUrl;
 
     public ThemePreviewController(final ThemeService themes, final ThemeStylesheet stylesheets,
-                                  final ITemplateEngine templates, final ObjectProvider<RealmSettingsResolver> settings) {
+                                  final ITemplateEngine templates, final ObjectProvider<RealmSettingsResolver> settings,
+                                  @org.springframework.beans.factory.annotation.Value("${idp.base.url:}")
+                                  final String publicBaseUrl) {
+        this.publicBaseUrl = publicBaseUrl;
         this.themes = themes;
         this.stylesheets = stylesheets;
         this.templates = templates;
@@ -99,8 +103,9 @@ public class ThemePreviewController {
             return ResponseEntity.notFound().build();
         }
         final EffectiveTheme effective = themes.previewTheme(realmId, ThemeJson.readStrict(body));
-        final String origin = ServletUriComponentsBuilder.fromRequestUri(request).replacePath(null).replaceQuery(null)
-                .build().toUriString();
+        // Review M6: the configured public origin (idp.base.url), not the Host header, when it is set.
+        final String origin = origin(publicBaseUrl, ServletUriComponentsBuilder.fromRequestUri(request)
+                .replacePath(null).replaceQuery(null).build().toUriString());
         final ThemeStylesheet.Rendered css = stylesheets.render(effective.theme(),
                 stylesheets.fonts(realmId, effective.theme()));
         // Root-relative url()s (the realm's own fonts and images) must name the server: a data: stylesheet has no path.
@@ -139,6 +144,23 @@ public class ThemePreviewController {
         new TreeSet<>(effective.imageOrigins()).forEach(o -> img.append(' ').append(o));
         return "default-src 'none'; base-uri " + origin + "; style-src " + origin + " 'nonce-" + nonce + "'; "
                 + "img-src " + img + "; font-src " + origin + "; script-src 'none'; form-action 'none'";
+    }
+
+    /** The origin of {@code configured} when it is an absolute http(s) URL, else {@code requestOrigin}. */
+    static String origin(final String configured, final String requestOrigin) {
+        if (configured != null && !configured.isBlank()) {
+            try {
+                final java.net.URI uri = new java.net.URI(configured.strip());
+                if (("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
+                        && uri.getHost() != null) {
+                    return uri.getScheme().toLowerCase(Locale.ROOT) + "://" + uri.getHost().toLowerCase(Locale.ROOT)
+                            + (uri.getPort() > 0 ? ":" + uri.getPort() : "");
+                }
+            } catch (final java.net.URISyntaxException ignored) {
+                // fall through to the request origin
+            }
+        }
+        return requestOrigin;
     }
 
     private static String nonce() {
