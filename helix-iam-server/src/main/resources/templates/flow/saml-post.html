@@ -7,7 +7,7 @@
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead('Redirecting…', false)}"></th:block>
-    <script defer src="/js/saml-post.js"></script>
+    <script defer th:src="@{/js/saml-post.js}"></script>
 </head>
 <body>
 <div class="mainWrapper">

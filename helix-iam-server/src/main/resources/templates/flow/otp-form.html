@@ -2,7 +2,7 @@
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead(#{flow.otp.title}, false)}"></th:block>
-    <script defer src="/js/App.js" type="module"></script>
+    <script defer th:src="@{/js/App.js}" type="module"></script>
 </head>
 <body>
 <div class="mainWrapper">

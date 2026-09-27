@@ -17,7 +17,8 @@
                 <div th:if="${error}" class="hx-alert hx-alert-error" role="alert">Approval failed or was denied, please try again.</div>
                 <div id="pushNumber" class="hx-push-number" th:text="${pushNumber}">--</div>
                 <div id="pushStatus" class="description">Waiting for approval…</div>
-                <form id="pushForm" th:action="${flowAction}" method="post" th:data-push-id="${pushId}">
+                <form id="pushForm" th:action="${flowAction}" method="post" th:data-push-id="${pushId}"
+                      th:data-poll-url="@{/push/{id}(id=${pushId})}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 </form>
             </article>
@@ -26,6 +27,6 @@
     </main>
 </div>
 <!--/* Security review M3 (CSP): polling JS externalised to /js/push-login.js (script-src 'self'). */-->
-<script defer src="/js/push-login.js"></script>
+<script defer th:src="@{/js/push-login.js}"></script>
 </body>
 </html>

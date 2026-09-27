@@ -18,7 +18,8 @@
                 <div id="qrLink" class="description hx-break"></div>
                 <div id="qrStatus" class="description">Waiting for approval…</div>
                 <form id="qrForm" th:action="${flowAction}" method="post"
-                      th:data-session-id="${qrSessionId}" th:data-token="${qrToken}">
+                      th:data-session-id="${qrSessionId}" th:data-token="${qrToken}"
+                      th:data-poll-url="@{/qr/{id}(id=${qrSessionId})}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 </form>
             </article>
@@ -27,6 +28,6 @@
     </main>
 </div>
 <!--/* Security review M3 (CSP): polling JS externalised to /js/qr-login.js (script-src 'self'). */-->
-<script defer src="/js/qr-login.js"></script>
+<script defer th:src="@{/js/qr-login.js}"></script>
 </body>
 </html>

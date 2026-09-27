@@ -10,12 +10,16 @@
     if (!form) {
         return;
     }
-    const pushId = form.dataset.pushId || '';
+    // Realm-relative (item A6): the page renders /realms/{realm}/push/{id}; a bare /push/… is not served.
+    const pollUrl = form.dataset.pollUrl;
+    if (!pollUrl) {
+        return;
+    }
 
     // Short-poll the shared store (NOT SSE) — stateless and node-agnostic, so it scales horizontally.
     async function poll() {
         try {
-            const res = await fetch('/push/' + encodeURIComponent(pushId), { headers: { 'Accept': 'application/json' } });
+            const res = await fetch(pollUrl, { headers: { 'Accept': 'application/json' } });
             const data = await res.json();
             if (data.status === 'APPROVED') {
                 document.getElementById('pushStatus').textContent = 'Approved — signing you in…';

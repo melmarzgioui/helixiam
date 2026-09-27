@@ -2,7 +2,7 @@
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead(#{login.title}, true)}"></th:block>
-    <script th:if="${hx.preview == null}" defer src="/js/App.js" type="module"></script>
+    <script th:if="${hx.preview == null}" defer th:src="@{/js/App.js}" type="module"></script>
 </head>
 <body>
 <div class="helix-auth" th:classappend="${hx.split()} ? '' : 'is-centered'">
