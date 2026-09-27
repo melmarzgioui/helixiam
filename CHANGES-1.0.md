@@ -101,6 +101,37 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's
   surfaces when needed, and a derived dark `inkMuted` now also reaches 4.5:1 on the dark raised surface.
 
+- **Email delivery, stage 1** — `62cd77a` Email goes through a transport SPI (`EmailTransport`, package
+  `io.helixiam.authorization.messaging.email`) with one entry point, `EmailDelivery.deliver(realm, message)`: the
+  realm's provider, else the global default, and a classified `DeliveryResult` (`ACCEPTED`, `QUEUED`,
+  `PERMANENT_FAILURE`, `TRANSIENT_FAILURE`, a reason, the provider's message id and a diagnostic that never holds a
+  secret or the body). Each email has a message id that stays the same across attempts (the SMTP `Message-ID`) and
+  always a plain-text part with its links; the Cloudflare driver sends both parts. The old `EmailDriver` interface
+  still works for a custom driver (deprecated).
+  - **SMTP** — new `tlsMode`: `STARTTLS_REQUIRED` (default), `STARTTLS_OPTIONAL`, `IMPLICIT` (SMTPS, port 465 by
+    default) and `NONE`, which is refused unless the server runs with the `dev` profile. The boolean `starttls` is
+    deprecated: `true` means `STARTTLS_REQUIRED` (before, STARTTLS was used only when offered, so a server without it
+    now fails instead of receiving the email in plain text) and `false` means `STARTTLS_OPTIONAL`. Certificates and
+    the host name are always verified; `caBundle` adds CA certificates for a private relay. Also `connectTimeoutMs`,
+    `readTimeoutMs` and `ehloName`. An SMTP 5xx reply is a permanent failure (on a recipient, a bounce); a 4xx reply,
+    a connection, timeout or TLS error is transient.
+  - **Cloudflare Email Service** — driver `CLOUDFLARE` (`accountId`, the API token as `secret`, optional `baseUrl`,
+    https outside the dev profile, timeouts and `caBundle`) over HTTPS, through the egress guard, with the spec's
+    classification. A refused token (401/403) counts in `helix_email_provider_auth_failures_total{realm,driver}`,
+    logs a WARN ("ACTION NEEDED") and emits an `EMAIL_PROVIDER_AUTH_FAILED` audit event. Every attempt counts in
+    `helix_email_send_total{realm,driver,result}`.
+  - **Admin API** — `PUT /admin/realms/{realm}/messaging/providers` validates before saving (400
+    `{message, fieldErrors}`): a known channel and driver (email: `SMTP`, `CLOUDFLARE`, `HTTP`, `LOG`), the from
+    address, and each driver's required settings. A credential typed into `config` (`password`, `apiToken`) is
+    moved to the encrypted, write-only `secret`. `POST …/messaging/providers/EMAIL/test` now answers with `result`,
+    `reason`, `diagnostic` and `providerMessageId` next to `sent` and `message`.
+  - **Global default** — `helix.notification.email.driver` (`smtp`, `cloudflare`, `log`) and `.from-address` /
+    `.from-name`; `helix.notification.cloudflare.*` (`account-id`, `api-token`, `api-token-file`, `base-url`, timeouts,
+    `ca-bundle-file`); for SMTP also `password-file`, `tls-mode`, timeouts, `ehlo-name` and `ca-bundle-file`. Secret
+    files are read at every send, and realm providers are read at every send, so a rotated secret needs no restart.
+  - **Helm** — `8cc0116` optional `email.*` values; the credentials are keys of the existing Secret, mounted as files.
+  - Retries, bounce marking, the per-realm send rate cap, the remaining metrics and `docs/EMAIL.md` follow in stage 2.
+
 ## Next release (after `v1.0.0-rc.4`)
 
 Open issues found when Monthfold moved its production sign-in to rc.4
