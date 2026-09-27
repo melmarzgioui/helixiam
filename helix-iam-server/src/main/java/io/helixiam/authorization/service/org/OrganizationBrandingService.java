@@ -48,9 +48,11 @@ public class OrganizationBrandingService {
     }
 
     /**
-     * Replaces the three branding values (null clears one) and keeps the rest of the organization theme. Empty when
-     * the organization is not in the realm; {@link io.helixiam.authorization.theme.ThemeValidationException} (keys
-     * {@code logoUrl}/{@code primaryColor}) when a value breaks the theme rules.
+     * Updates the branding values it is given and keeps everything else of the organization theme (the Task 3 review
+     * bug: a {@code null} used to wipe the theme's primary colour). Like the legacy realm-settings fields (Task 1 N1),
+     * {@code null} means "unchanged"; an empty string clears the value. Empty when the organization is not in the
+     * realm; {@link io.helixiam.authorization.theme.ThemeValidationException} (keys {@code logoUrl}/{@code primaryColor})
+     * when a value breaks the theme rules.
      */
     @Transactional
     public Optional<Branding> replace(final String realmId, final String orgId, final Branding branding) {
@@ -58,16 +60,25 @@ public class OrganizationBrandingService {
         if (org.isEmpty()) {
             return Optional.empty();
         }
-        final String logo = blankToNull(branding.logoUrl());
-        final String primary = blankToNull(branding.primaryColor());
         final Optional<ThemeService.ThemeChange> change = themes.patchOrganizationTheme(realmId, org.get().getOrgId(),
-                t -> withBranding(t, logo, primary), ERROR_KEYS);
+                t -> {
+                    final LegacyBranding current = LegacyBranding.of(t);
+                    return withBranding(t, given(branding.logoUrl(), current.logoUrl()),
+                            given(branding.primaryColor(), current.primaryColor()));
+                }, ERROR_KEYS);
         if (change.isEmpty()) {
             return Optional.empty();
         }
         final Organization o = org.get();
-        o.setDisplayName(blankToNull(branding.displayName()));
+        if (branding.displayName() != null) {
+            o.setDisplayName(blankToNull(branding.displayName()));
+        }
         return Optional.of(toBranding(organizations.save(o), change.get().theme()));
+    }
+
+    /** The new value: unchanged for null, cleared for blank, else trimmed. */
+    private static String given(final String value, final String current) {
+        return value == null ? current : blankToNull(value);
     }
 
     /** The theme with the logo and the primary colour replaced (an unchanged colour keeps its dark value). */
