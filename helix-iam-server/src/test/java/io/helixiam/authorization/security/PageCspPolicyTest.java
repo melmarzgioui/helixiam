@@ -190,4 +190,21 @@ class PageCspPolicyTest {
         assertThat(policy.withFrames(pageRequest("/connect/logout", new MockHttpSession()), List.of()))
                 .contains("frame-src 'none'; ");
     }
+
+    @Test
+    void theMasterRealmsSignInPages_mayPostOnToTheAdminConsole_otherRealmsAndPagesNot() {
+        final PageCspPolicy policy = policyWith(client());
+        policy.setAdminConsoleUrl("https://console.example.com:8443/app/");
+        RealmContextHolder.set("master");
+        for (final String page : List.of("/login", "/mfa/totp", "/mfa/enable", "/flow", "/required-actions")) {
+            assertThat(policy.policy(pageRequest(page, new MockHttpSession()), false)).as(page)
+                    .endsWith("form-action 'self' https://console.example.com:8443");
+        }
+        assertThat(policy.policy(pageRequest("/account", new MockHttpSession()), false)).endsWith("form-action 'self'");
+        RealmContextHolder.set("monthfold");
+        assertThat(policy.policy(pageRequest("/login", new MockHttpSession()), false)).endsWith("form-action 'self'");
+        RealmContextHolder.set("master");
+        policy.setAdminConsoleUrl("javascript:alert(1)");
+        assertThat(policy.policy(pageRequest("/login", new MockHttpSession()), false)).endsWith("form-action 'self'");
+    }
 }

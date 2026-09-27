@@ -83,6 +83,29 @@ public class PageCspPolicy {
         this.clients = clients;
     }
 
+    /** The master realm's sign-in pages' {@code form-action} source for {@code sp.base.url}, or null. */
+    private String adminConsoleSource;
+
+    /**
+     * The admin console ({@code sp.base.url}): a direct sign-in to the master realm (no application waiting) ends
+     * there, so the master realm's sign-in pages may post on to its origin. Operator configuration, so trusted; an
+     * unusable value adds nothing.
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setAdminConsoleUrl(@org.springframework.beans.factory.annotation.Value("${sp.base.url:}") final String url) {
+        final String source = formActionSource(url);
+        this.adminConsoleSource = source != null && (source.startsWith("https://") || source.startsWith("http://"))
+                ? source : null;
+    }
+
+    /** The master realm's sign-in steps (password, two-step code and enrolment, flow, required actions). */
+    private static boolean masterSignInPage(final HttpServletRequest request) {
+        final String path = request == null || request.getServletPath() == null ? "" : request.getServletPath();
+        return "master".equals(RealmContextHolder.get()) && (path.equals("/login") || path.startsWith("/login/")
+                || path.startsWith("/mfa/") || path.equals("/flow") || path.startsWith("/flow/")
+                || path.equals("/required-actions") || path.startsWith("/required-actions/"));
+    }
+
     /** The policy for a page request; {@code saml} relaxes {@code form-action} for the POST-binding pages. */
     public String policy(final HttpServletRequest request, final boolean saml) {
         final String realm = RealmContextHolder.get();
@@ -90,6 +113,9 @@ public class PageCspPolicy {
             return build(Set.of(), null, saml);
         }
         final Set<String> formTargets = formActionOrigins(request);
+        if (adminConsoleSource != null && masterSignInPage(request)) {
+            formTargets.add(adminConsoleSource);
+        }
         try {
             final Set<String> images = new TreeSet<>();
             final ThemeService service = themes.getIfAvailable();

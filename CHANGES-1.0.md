@@ -87,6 +87,15 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   button. An RP-initiated logout without a `post_logout_redirect_uri` now ends on the realm's themed "You're signed
   out" page (`/realms/{realm}/signed-out`) instead of the plain-text 404 at the server root.
 
+- **Direct sign-in** — Signing in at `/realms/{realm}/login` itself, with no application waiting, no longer gets
+  stuck on the login page. It ended with a redirect to `sp.base.url` (the admin console, another origin), which the
+  sign-in pages' CSP `form-action 'self'` blocked, so the browser stayed on the form (with or without the two-step
+  code; after TOTP enrolment the user was sent to the admin console). A user of a realm other than master now lands on
+  the realm's account console (`/realms/{realm}/account`), after the password, the code, enrolment, the flow engine,
+  a magic link or a federated sign-in. In master, the operator still lands on the admin console, and the master
+  realm's sign-in pages (login, two-step, flow, required actions) now allow `sp.base.url`'s origin in `form-action`.
+  The admin console's OIDC sign-in (`helix-console`) is unchanged.
+
 - **Item 7a** — The theme validator checks muted text: `inkMuted` on `surface` and on `surfaceRaised`, light and
   dark, at least 4.5:1 (`contrast.inkMutedOnSurface.*`, `contrast.inkMutedOnSurfaceRaised.*`, same message format).
   So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's

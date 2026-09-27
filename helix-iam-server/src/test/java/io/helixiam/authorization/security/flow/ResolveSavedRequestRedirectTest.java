@@ -73,4 +73,28 @@ class ResolveSavedRequestRedirectTest {
 
         verify(res).sendRedirect(SAVED);
     }
+
+    @Test
+    void withoutASavedRequest_aRealmsUserGoesToTheRealmsAccountConsole_andMasterToTheFallback() {
+        final org.springframework.mock.web.MockHttpServletRequest request =
+                new org.springframework.mock.web.MockHttpServletRequest("POST", "/realms/monthfold/login");
+        request.setScheme("https");
+        request.setServerName("auth.monthfold.com");
+        request.setServerPort(443);
+        request.setContextPath("/realms/monthfold");
+        request.setQueryString("error");
+        when(cache.getRequest(request, res)).thenReturn(null);
+        io.helixiam.authorization.security.realm.RealmContextHolder.set("monthfold");
+        try {
+            assertEquals("https://auth.monthfold.com/realms/monthfold/account",
+                    resolver.resumeUrlOrDefault(request, res, FALLBACK));
+            assertEquals("redirect:https://auth.monthfold.com/realms/monthfold/account",
+                    resolver.redirectView(request, res, FALLBACK));
+            io.helixiam.authorization.security.realm.RealmContextHolder.set("master");
+            request.setContextPath("/realms/master");
+            assertEquals(FALLBACK, resolver.resumeUrlOrDefault(request, res, FALLBACK));
+        } finally {
+            io.helixiam.authorization.security.realm.RealmContextHolder.clear();
+        }
+    }
 }
