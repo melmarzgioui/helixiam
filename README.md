@@ -146,11 +146,16 @@ Everything is environment-driven. The essentials (sourced from
 | `helix.notification.smtp.connect-timeout` / `.read-timeout` / `.ehlo-name` / `.ca-bundle-file` | SMTP timeouts, EHLO name, and extra trusted CA certificates (PEM) for a private relay |
 | `helix.notification.cloudflare.account-id` / `.api-token` / `.api-token-file` | Cloudflare Email Service (HTTPS); the token needs Account → Email Sending → Edit, and the sender's domain must be onboarded |
 | `helix.notification.cloudflare.base-url` / `.connect-timeout` / `.read-timeout` / `.ca-bundle-file` | optional; the base URL must be `https` outside the dev profile |
+| `helix.notification.email.retry.*` | retries of transient failures: `enabled` (`true`), `delays` (`30s,2m,10m,30m`), `max-age` (`1h`), `jitter` (`0.2`), `poll-interval` (`5s`), `batch-size` (`20`), `lease` (`2m`); persisted, never after the emailed code expires |
+| `helix.notification.email.rate-limit.realm-per-minute` / `.global-per-minute` | send rate caps (`120` / `600`, `0` = off); a realm can set its own `sendLimitPerMinute` on its email provider |
 
 Secrets given as files (`password-file`, `api-token-file`) are read at every send, so a rotated secret needs no
 restart. Per-realm email/SMS/push providers (email: `SMTP`, `CLOUDFLARE`, `HTTP`, `LOG`; SMS: Twilio/HTTP; push:
 FCM/APNs) are configured from the admin console/API (`PUT /admin/realms/{realm}/messaging/providers`) and take
 priority over the global default above.
+
+See **[docs/EMAIL.md](docs/EMAIL.md)** for choosing a transport (SMTP, SMTPS, Cloudflare Email Service, a custom HTTP
+relay), SPF/DKIM/DMARC, retries, bounces, the send rate cap, metrics and troubleshooting by result code.
 
 **Bootstrap admin**
 

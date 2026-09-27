@@ -131,6 +131,40 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
     files are read at every send, and realm providers are read at every send, so a rotated secret needs no restart.
   - **Helm** — `8cc0116` optional `email.*` values; the credentials are keys of the existing Secret, mounted as files.
   - Retries, bounce marking, the per-realm send rate cap, the remaining metrics and `docs/EMAIL.md` follow in stage 2.
+- **Email delivery, stage 2** — `1e3b2c4` Callers send through `EmailOutbox`, around `EmailDelivery`. See
+  `docs/EMAIL.md`.
+  - **Retries** — The first attempt stays synchronous (the flow and the admin test endpoint get the real result). A
+    `TRANSIENT_FAILURE` is stored in a new table `email_retry` (Flyway `V72`, and `schema.sql`) and sent again after
+    30 s, 2 min, 10 min and 30 min (±20 % jitter), never later than 1 hour after the first attempt, with the same
+    message id; a restart or another replica picks it up. The rendered message (recipient, subject, both parts) is
+    stored encrypted with `DB_ENCRYPTION` and the row is deleted when the email is finished. Every replica polls;
+    rows are claimed with `SELECT … FOR UPDATE SKIP LOCKED` and a lease, so two replicas never send the same retry.
+    Settings `helix.notification.email.retry.*` (`enabled`, `delays`, `max-age`, `jitter`, `poll-interval`,
+    `batch-size`, `lease`). A permanent failure, `NO_PROVIDER`, the admin test email and a rate-capped email are never
+    retried.
+  - **No dead links** — `EmailMessage` has an `expiresAt`: the one-time code (5 minutes), the magic link, the
+    verification and email-change links (their lifetimes) and the password-reset email (1 hour) are never retried at
+    or after it. `MessagingService.sendEmail(…, Duration validFor)` sets it.
+  - **Bounces** — A permanent bounce marks the address on the realm's users who have it (`user_credentials`
+    `email_bounced_at`, `email_bounced_address`; `V72`); the admin user API shows `emailBounced` and `emailBouncedAt`
+    (epoch millis). The mark goes when the address changes and is cleared when it is verified again (verification or
+    email-change link, signup code, an admin setting `emailVerified` to `true`). Counted in
+    `helix_email_bounces_total{realm}` and audited (`EMAIL_BOUNCED`).
+  - **Send rate cap** — per realm (`helix.notification.email.rate-limit.realm-per-minute`, default 120, or the realm
+    provider's `config.sendLimitPerMinute`) and per server (`…global-per-minute`, default 600), per replica. An email
+    over a cap is refused with `TRANSIENT_FAILURE / RATE_CAPPED` (new reason), not queued, counted in
+    `helix_email_rate_capped_total{realm,scope}` and audited (`EMAIL_SEND_RATE_CAPPED`, once per realm and minute).
+  - **Observability** — new `helix_email_send_duration_seconds{realm,driver,result}` (histogram),
+    `helix_email_retry_total{realm,outcome}` and the gauge `helix_email_retry_queued`; audit event `EMAIL_SEND_FAILED`
+    (permanent failures, retries given up or expired). No audit event or log line holds the body, subject, a code, a
+    link or a secret.
+  - **Idempotency** — the HTTP driver sends the message id as `Idempotency-Key`; SMTP already sends it as
+    `Message-ID`. Cloudflare takes no idempotency key: delivery through it is at least once (documented).
+  - **Realm import** validates messaging providers like the admin API: an invalid provider is not saved and the import
+    result reports it with the same field messages; a credential typed into `config` is moved to the secret.
+  - **Docs** — new `docs/EMAIL.md`: choosing a transport and hosting port blocks, SPF/DKIM/DMARC alignment, Cloudflare
+    Email Service setup, SMTPS versus STARTTLS (and the STARTTLS-required behaviour change), every setting and the
+    per-realm API with `curl` examples, retries, bounces, the rate cap, metrics, and troubleshooting by result code.
 
 ## Next release (after `v1.0.0-rc.4`)
 
