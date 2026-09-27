@@ -31,7 +31,11 @@ config:
   prometheusAnonymous: false     # HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS (scrape via NetworkPolicy)
   cookieSecure: true             # HELIX_COOKIE_SECURE (behind TLS ingress)
   migrationsEnabled: true        # HELIX_MIGRATIONS_ENABLED — Flyway owns the schema in production
+  # Where browser (HTTP) sessions live: redis (needs redis.host) or queue (PostgreSQL, no Redis).
   sessionStore: redis            # HELIX_SESSION_STORE
+  # Where OAuth2 authorizations (codes, tokens) and SSO sessions live: queue (PostgreSQL, the default) or redis
+  # (the high-throughput tier; needs redis.host).
+  tokenStore: queue              # HELIX_TOKEN_STORE
   samlIdpEnabled: true           # HELIX_SAML_IDP_ENABLED
   # Global switch for interactive TOTP (MFA_ENABLED). true = every password sign-in of every realm goes through the
   # second factor. false = only realms with requireMfa=true (and users who enrolled) are asked for it. It never
@@ -50,8 +54,12 @@ database:
   name: helixiam
   readHost: ""            # optional read-replica host; defaults to database.host
 
+# Redis is used only by sessionStore=redis and tokenStore=redis. It is required when either is redis; with
+# sessionStore=queue and tokenStore=queue leave host empty and run without Redis. Nothing else uses Redis: rate
+# limits, the SAML assertion replay cache and the QR / push / transaction-signing / device-enrolment stores are kept
+# in each replica's memory whatever the stores are.
 redis:
-  host: ""                # REQUIRED, e.g. redis-master.redis.svc
+  host: ""                # e.g. redis-master.redis.svc; required when sessionStore or tokenStore is redis
   port: 6379
 
 # ---------------------------------------------------------------------------
@@ -166,7 +174,8 @@ networkPolicy:
   allowSameNamespaceIngress: true
   # Namespace where Prometheus runs, allowed to scrape /actuator/prometheus on the HTTP port.
   prometheusNamespaceSelector: {}    # e.g. { matchLabels: { kubernetes.io/metadata.name: monitoring } }
-  # Egress is restricted to DNS + database + redis + TLS (JWKS/webhooks/SMTP over 443). Set false to allow all.
+  # Egress is restricted to DNS + database + redis (when used) + TLS (JWKS/webhooks/SMTP over 443). Set false to
+  # allow all.
   restrictEgress: true
   extraEgressPorts:                  # e.g. SMTP
     - port: 587

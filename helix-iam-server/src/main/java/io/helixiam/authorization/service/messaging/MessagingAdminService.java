@@ -12,6 +12,7 @@ import io.helixiam.authorization.domain.messaging.MessagingProvider;
 import io.helixiam.authorization.domain.messaging.admin.MessageTemplateDto;
 import io.helixiam.authorization.domain.messaging.admin.MessagingProviderDto;
 import io.helixiam.authorization.domain.messaging.admin.MessagingProviderWriteDto;
+import io.helixiam.authorization.messaging.DefaultMessageTemplates;
 import io.helixiam.authorization.repository.messaging.MessageTemplateRepository;
 import io.helixiam.authorization.repository.messaging.MessagingProviderRepository;
 import org.springframework.stereotype.Service;
@@ -120,54 +121,19 @@ public class MessagingAdminService {
         return toDto(templates.save(entity));
     }
 
-    /** The starter template set every realm gets — editable afterwards. SMS/push are plain text; the email
-     *  templates default to HTML so they render as branded messages (toggleable per template). */
+    /** The starter template set every realm gets ({@link DefaultMessageTemplates#english()}), editable afterwards. */
     private List<MessageTemplate> defaultTemplates(final String realmId) {
         final List<MessageTemplate> list = new ArrayList<>();
-        list.add(template(realmId, "otp-sms", "SMS", null,
-                "{{realm}} verification code: {{code}} (valid {{ttl}}).", false));
-        list.add(template(realmId, "otp-email", "EMAIL", "Your {{realm}} verification code",
-                "<p>Hi {{user}},</p>\n<p>Your verification code is:</p>\n"
-                        + "<p style=\"font-size:28px;font-weight:700;letter-spacing:6px;margin:8px 0 16px;\">{{code}}</p>\n"
-                        + "<p>It expires in {{ttl}}.</p>\n<p style=\"color:#7a7468;font-size:13px\">"
-                        + "If you didn't request this, you can safely ignore this email.</p>", true));
-        list.add(template(realmId, "magic-link-email", "EMAIL", "Sign in to {{realm}}",
-                "<p>Hi {{user}},</p>\n<p>Use the button below to sign in to {{realm}}.</p>\n"
-                        + "<p><a href=\"{{link}}\" data-button>Sign in</a></p>\n"
-                        + "<p style=\"color:#7a7468;font-size:13px\">If the button doesn't work, copy this link into your browser:<br>"
-                        + "<a href=\"{{link}}\" style=\"color:#7a7468;word-break:break-all\">{{link}}</a></p>\n"
-                        + "<p style=\"color:#7a7468;font-size:13px\">This link works once and expires in {{ttl}}. "
-                        + "If you didn't request it, you can safely ignore this email.</p>", true));
-        list.add(template(realmId, "verify-email", "EMAIL", "Verify your email address for {{realm}}",
-                "<p>Hi,</p>\n<p>Please confirm that {{user}} is your email address.</p>\n"
-                        + "<p><a href=\"{{link}}\" data-button>Verify email address</a></p>\n"
-                        + "<p style=\"color:#7a7468;font-size:13px\">If the button doesn't work, copy this link into your browser:<br>"
-                        + "<a href=\"{{link}}\" style=\"color:#7a7468;word-break:break-all\">{{link}}</a></p>\n"
-                        + "<p style=\"color:#7a7468;font-size:13px\">This link works once and expires in {{ttl}}. "
-                        + "If you didn't expect this email, you can safely ignore it.</p>", true));
-        list.add(template(realmId, "push-approval", "PUSH", "Approve your sign-in",
-                "Tap to approve signing in to {{realm}}. Match this number: {{number}}.", false));
-        // B1: account console email change.
-        list.add(template(realmId, EMAIL_CHANGE_VERIFY, "EMAIL", "Confirm your new email address",
-                "<p>Hi {{user}},</p>\n<p>You changed the email address of your {{realm}} account to this address. "
-                        + "Confirm it with the button below.</p>\n"
-                        + "<p><a href=\"{{link}}\" data-button>Confirm email address</a></p>\n"
-                        + "<p style=\"color:#7a7468;font-size:13px\">If the button doesn't work, copy this link into your browser:<br>"
-                        + "<a href=\"{{link}}\" style=\"color:#7a7468;word-break:break-all\">{{link}}</a></p>\n"
-                        + "<p style=\"color:#7a7468;font-size:13px\">The link works once and expires in {{ttl}}. "
-                        + "If you didn't change your email address, you can ignore this email.</p>", true));
-        list.add(template(realmId, EMAIL_CHANGED_NOTICE, "EMAIL", "Your email address was changed",
-                "<p>Hi {{user}},</p>\n<p>The email address of your {{realm}} account was just changed, and this "
-                        + "address will no longer receive its messages.</p>\n"
-                        + "<p style=\"color:#7a7468;font-size:13px\">If you didn't do this, sign in and change your "
-                        + "password, or contact the service's support.</p>", true));
+        for (final DefaultMessageTemplates.Template t : DefaultMessageTemplates.english()) {
+            list.add(template(realmId, t.key(), t.channel(), t.subject(), t.body(), t.html()));
+        }
         return list;
     }
 
     /** B1: the confirmation link sent to a changed email address ({@code {{link}}}, {@code {{ttl}}}). */
-    public static final String EMAIL_CHANGE_VERIFY = "email-change-verify";
+    public static final String EMAIL_CHANGE_VERIFY = DefaultMessageTemplates.EMAIL_CHANGE_VERIFY;
     /** B1: the notice sent to the previous address when the email address changes. */
-    public static final String EMAIL_CHANGED_NOTICE = "email-changed-notice";
+    public static final String EMAIL_CHANGED_NOTICE = DefaultMessageTemplates.EMAIL_CHANGED_NOTICE;
 
     /**
      * B1: makes sure the realm has the default template {@code key} (a realm whose templates were seeded before the

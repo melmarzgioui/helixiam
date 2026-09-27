@@ -41,6 +41,44 @@ CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven
   every row against the session store. Only the user's own sessions can be signed out; any other `sid` gets "That
   session is already signed out." A browser test with four browsers covers it on Redis and on the queue store.
 
+Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthfold-open-issues.md`):
+
+- **Item 3** — Every email has a plain-text part with its link and, for registration and reset, its code. The HTML
+  emails were sent as HTML only, so a provider or app that shows the text part showed "Open this email in an email
+  app that shows HTML". SMTP now sends `multipart/alternative`, and the HTTP email driver adds a `text` field to its
+  payload. The account emails (registration, reset, and the global-SMTP verification link) build their text part in
+  the user's language; realm templates derive it from the HTML (`Label: URL` for links). The unedited default
+  templates (code, magic link, verify email, email change) are sent in Dutch to Dutch users, with the expiry
+  (`{{ttl}}`) in Dutch too.
+
+- **Item 4** — Emails name the realm by its display name. `{{realm}}` in the realm's message templates (and in SMS
+  and push) was the realm id, so the verify-email subject read "for monthfold". It is now the organization in
+  context, else the realm's display name, else the id; `{{realmId}}` keeps the id. The registration and reset emails
+  no longer say "HelixIAM" for a realm without a display name; they use its id.
+
+- **Item 5** — The Helm chart runs without Redis. `redis.host` is required only when `config.sessionStore` or the new
+  `config.tokenStore` (`HELIX_TOKEN_STORE`, default `queue`) is `redis`; otherwise the chart sets no `REDIS_HOST`
+  and the NetworkPolicy opens no Redis port, and an unknown store name fails the render. `HELIX_TOKEN_STORE` is now
+  mapped to `helix.iam.token-store` (the env var alone bound to nothing, so `HELIX_TOKEN_STORE=redis` had no effect
+  while the health check assumed Redis was in use). The chart README lists what uses Redis (only those two stores)
+  and what stays per replica (rate limits, SAML replay cache, QR / push / transaction-signing state).
+  `e2e/helm-template-check.sh` checks the renders; `STORE=queue e2e/image-boot-smoke.sh` and
+  `NO_REDIS=1 e2e/monthfold/k3d-helm.sh` boot without any Redis (k3d: readiness UP, 38/38 checks, 6/6 tokens).
+
+- **Item 6** — Error pages of the sign-in endpoints are themed. An unknown `client_id`, an unregistered
+  `redirect_uri`, an authorization request without `client_id` or a bare `GET /connect/logout` showed Spring's plain
+  "Whitelabel" page; any 4xx of a realm endpoint that a browser (an `Accept` with `text/html`) receives is now the
+  realm's themed `protocol-error` page, in the user's language, with a message from a fixed set, the standard OAuth
+  error code and a logged reference; nothing from the request is shown. API clients keep the JSON body. The OIDC
+  front-channel logout page is themed as well and lost its inline style and script; its `frame-src` now allows the
+  clients' front-channel logout origins, which the pages' `frame-src 'none'` used to block, so the iframes never
+  loaded.
+
+- **Item 7a** — The theme validator checks muted text: `inkMuted` on `surface` and on `surfaceRaised`, light and
+  dark, at least 4.5:1 (`contrast.inkMutedOnSurface.*`, `contrast.inkMutedOnSurfaceRaised.*`, same message format).
+  So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's
+  surfaces when needed, and a derived dark `inkMuted` now also reaches 4.5:1 on the dark raised surface.
+
 ## Next release (after `v1.0.0-rc.4`)
 
 Open issues found when Monthfold moved its production sign-in to rc.4

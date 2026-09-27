@@ -9,13 +9,16 @@ data:
   DB_RO_HOST: {{ default .Values.database.host .Values.database.readHost | quote }}
   DB_PORT: {{ .Values.database.port | quote }}
   DB_NAME: {{ .Values.database.name | quote }}
+  {{- if .Values.redis.host }}
   REDIS_HOST: {{ .Values.redis.host | quote }}
   REDIS_PORT: {{ .Values.redis.port | quote }}
+  {{- end }}
   IDP_BASE_URL: {{ .Values.config.idpBaseUrl | quote }}
   SP_BASE_URL: {{ .Values.config.spBaseUrl | quote }}
   HELIX_SAML_IDP_ENTITY_ID: {{ default (printf "%s/realms/master" .Values.config.idpBaseUrl) .Values.config.samlIdpEntityId | quote }}
   HELIX_SAML_IDP_ENABLED: {{ .Values.config.samlIdpEnabled | quote }}
-  HELIX_SESSION_STORE: {{ .Values.config.sessionStore | quote }}
+  HELIX_SESSION_STORE: {{ .Values.config.sessionStore | default "redis" | quote }}
+  HELIX_TOKEN_STORE: {{ .Values.config.tokenStore | default "queue" | quote }}
   USER_REGISTRATION_ENABLED: {{ .Values.config.registrationEnabled | quote }}
   HELIX_ACTUATOR_PROMETHEUS_ANONYMOUS: {{ .Values.config.prometheusAnonymous | quote }}
   HELIX_COOKIE_SECURE: {{ .Values.config.cookieSecure | quote }}

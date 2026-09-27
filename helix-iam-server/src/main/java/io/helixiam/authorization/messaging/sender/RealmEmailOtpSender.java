@@ -44,7 +44,7 @@ public class RealmEmailOtpSender implements OtpSender {
                 final Map<String, String> base = new LinkedHashMap<>();
                 base.put("realm", realm);
                 base.put("code", code);
-                base.put("ttl", "5 minutes");
+                base.put("ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.minutes(5, org.springframework.context.i18n.LocaleContextHolder.getLocale()));
                 base.put("user", firstNonBlank(profile.get("name"), profile.get("given_name"), email, "there"));
                 // Expose every user claim under user.<claim> ({{user.email}}, {{user.given_name}}, …).
                 final Map<String, String> vars = io.helixiam.authorization.messaging.MessageVariables.withUserClaims(base, profile);

@@ -32,8 +32,9 @@ import java.util.regex.Pattern;
  *   <li>Custom CSS: realm layer only, {@link CustomCssValidator}; {@code url()} may use only the operator
  *       allowlist and the realm's own uploaded assets — never origins the theme itself introduces.</li>
  *   <li>Contrast: on the effective theme ({@code below} + candidate, dark values derived), WCAG AA 4.5:1 for
- *       {@code contrast.inkOnSurface.*} (ink on surface) and {@code contrast.textOnPrimary.*} (surfaceRaised text
- *       on primary), light and dark — but only for pairs whose colours the candidate layer sets, so a layer that does
+ *       {@code contrast.inkOnSurface.*} (ink on surface), {@code contrast.textOnPrimary.*} (surfaceRaised text
+ *       on primary), {@code contrast.inkMutedOnSurface.*} and {@code contrast.inkMutedOnSurfaceRaised.*} (muted
+ *       text on surface and on surfaceRaised), light and dark — but only for pairs whose colours the candidate layer sets, so a layer that does
  *       not touch colours is never blamed for the layers below it.</li>
  * </ul>
  */
@@ -308,6 +309,10 @@ public class ThemeValidator {
                                  final Map<String, String> errors) {
         pair(candidate, effective, "inkOnSurface", "Ink on surface", "ink", "surface", errors);
         pair(candidate, effective, "textOnPrimary", "Text on primary", "surfaceRaised", "primary", errors);
+        // Item 7a: secondary text (hints, captions, footers) on the page ground and on cards and fields.
+        pair(candidate, effective, "inkMutedOnSurface", "Muted text on surface", "inkMuted", "surface", errors);
+        pair(candidate, effective, "inkMutedOnSurfaceRaised", "Muted text on raised surface", "inkMuted", "surfaceRaised",
+                errors);
         // Task 3 review M1: the split layout's brand panel (BrandPanel): its dark-scheme text on its dark ground.
         if (touches(candidate, "ink", "surface", "surfaceSunken", "primary")) {
             final BrandPanel.Colors dark = BrandPanel.dark(effective);

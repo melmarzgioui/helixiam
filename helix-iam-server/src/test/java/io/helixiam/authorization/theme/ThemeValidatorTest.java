@@ -66,6 +66,56 @@ class ThemeValidatorTest {
     }
 
     @Test
+    void lowContrastMutedInk_isRejected_onTheSurfaceAndTheRaisedSurface_namingThePair() {
+        // #9a9a9a: 2.6:1 on the default cream surface, 2.8:1 on white.
+        final Map<String, String> errors = realm(colors(only("inkMuted", c("#9a9a9a", null))));
+        assertThat(errors).containsOnlyKeys("contrast.inkMutedOnSurface.light", "contrast.inkMutedOnSurfaceRaised.light");
+        assertThat(errors.get("contrast.inkMutedOnSurface.light")).isEqualTo("Muted text on surface (light): inkMuted "
+                + "#9a9a9a on surface #f6f1e9 has a contrast of 2.5:1; WCAG AA needs at least 4.5:1.");
+        assertThat(errors.get("contrast.inkMutedOnSurfaceRaised.light")).startsWith("Muted text on raised surface (light): "
+                + "inkMuted #9a9a9a on surfaceRaised #ffffff has a contrast of ").endsWith("; WCAG AA needs at least 4.5:1.");
+    }
+
+    @Test
+    void mutedInkThatPassesOnTheSurface_butNotOnARaisedSurface_isRejected() {
+        final ThemeColors cs = ThemeColors.from(r -> switch (r) {
+            case "surface" -> c("#ffffff", "#000000");
+            case "surfaceRaised" -> c("#d6d6d6", "#262626");
+            case "ink" -> c("#111111", "#f5f5f5");
+            case "inkMuted" -> c("#666666", "#a0a0a0");
+            case "primary" -> c("#1f4d47", "#7fb8ac");
+            default -> null;
+        });
+        assertThat(realm(colors(cs))).containsOnlyKeys("contrast.inkMutedOnSurfaceRaised.light");
+    }
+
+    @Test
+    void anExplicitDarkMutedInkWithLowContrast_isRejected() {
+        final Map<String, String> errors = realm(colors(only("inkMuted", c("#5f6b64", "#3a4540"))));
+        assertThat(errors).containsOnlyKeys("contrast.inkMutedOnSurface.dark", "contrast.inkMutedOnSurfaceRaised.dark");
+    }
+
+    @Test
+    void theDefaultMutedInk_andDerivedOnes_pass() {
+        assertThat(realm(ThemeDefaults.THEME)).isEmpty();
+        // A muted ink the theme sets itself is never adjusted: #6b7280 is 4.2:1 on the default cream surface.
+        assertThat(realm(colors(only("inkMuted", c("#6b7280", null))))).containsOnlyKeys("contrast.inkMutedOnSurface.light");
+        // A light muted ink only: its dark value is derived to pass on both dark surfaces.
+        for (final String muted : List.of("#56635f", "#5b4636", "#4b5563", "#555555")) {
+            assertThat(realm(colors(only("inkMuted", c(muted, null))))).as(muted).isEmpty();
+        }
+        // Own surfaces that the default muted ink does not reach 4.5:1 on: the palette adjusts the default.
+        for (final String surface : List.of("#d9d4c7", "#c9d6d3", "#bdbdbd")) {
+            final ThemeColors cs = ThemeColors.from(r -> switch (r) {
+                case "surface" -> c(surface, null);
+                case "ink" -> c("#111111", null);
+                default -> null;
+            });
+            assertThat(realm(colors(cs))).as(surface).isEmpty();
+        }
+    }
+
+    @Test
     void anExplicitDarkValueWithLowContrast_isRejected() {
         final ThemeColors cs = ThemeColors.from(r -> switch (r) {
             case "ink" -> c("#16211f", "#333333");

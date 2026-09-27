@@ -163,7 +163,7 @@ public class EmailChangeService {
                         + "VALUES (?, ?, ?, ?, ?, ?)", hash(token), realmId, userId, address, new Timestamp(now),
                 new Timestamp(now + TimeUnit.HOURS.toMillis(TTL_HOURS)));
         send(realmId, userId, address, MessagingAdminService.EMAIL_CHANGE_VERIFY,
-                Map.of("link", linkBase + "/account/email/verify?token=" + token, "ttl", TTL_HOURS + " hours"));
+                Map.of("link", linkBase + "/account/email/verify?token=" + token, "ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.hours(TTL_HOURS, org.springframework.context.i18n.LocaleContextHolder.getLocale())));
     }
 
     /**

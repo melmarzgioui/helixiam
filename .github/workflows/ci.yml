@@ -141,3 +141,11 @@ jobs:
       # PostgreSQL + Redis (containers on a private Docker network), waits for /actuator/health/readiness = UP.
       - name: Build and boot the image
         run: e2e/image-boot-smoke.sh
+
+      # The chart with config.sessionStore=queue and no redis.host: the same image, no Redis container at all.
+      - name: Boot the image without Redis (queue session and token stores)
+        run: SKIP_BUILD=1 STORE=queue e2e/image-boot-smoke.sh
+
+      # helm template: Redis required only for the Redis stores, no Redis env or egress without them.
+      - name: Helm chart renders
+        run: e2e/helm-template-check.sh

@@ -81,7 +81,8 @@ class MessagingServiceTest {
                 Map.of("user", "Ada", "code", "123456"));
 
         assertThat(sent).isTrue();
-        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Code for Ada"), eq("Your code: 123456"), eq(false));
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Code for Ada"), eq("Your code: 123456"), eq(false),
+                eq("Your code: 123456"));
     }
 
     @Test
@@ -99,7 +100,7 @@ class MessagingServiceTest {
         // HTML templates are sent inside the shared branded layout (HelixIAM when no branding source is set).
         org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Hi"),
                 org.mockito.ArgumentMatchers.argThat(b -> b.startsWith("<!DOCTYPE html>") && b.contains("<b>123456</b>")
-                        && b.contains(">HelixIAM<")), eq(true));
+                        && b.contains(">HelixIAM<")), eq(true), eq("123456\n\n-- \nSent by HelixIAM."));
     }
 
     @Test
@@ -117,8 +118,131 @@ class MessagingServiceTest {
                 Map.of("realm", "mf", "user", "<b>Ada</b>", "link", "https://idp.example/v?t=1"))).isTrue();
 
         final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
-        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Sign in to mf"), body.capture(), eq(true));
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Sign in to Harbor & Pine"), body.capture(), eq(true), any());
         assertThat(body.getValue()).startsWith("<!DOCTYPE html>").contains("https://cdn.example/logo.png")
                 .contains("bgcolor=\"#B4532A\"").contains("&lt;b&gt;Ada&lt;/b&gt;").doesNotContain("<b>Ada</b>");
+    }
+
+    private EmailDriver htmlDriverFor(final String realm, final MessageTemplateDto template) {
+        final var driver = mock(EmailDriver.class);
+        when(driver.driver()).thenReturn("SMTP");
+        when(publisher.enabledProviders(any())).thenReturn(List.of(
+                new ResolvedProviderDto("EMAIL", "SMTP", "no-reply@h.test", "Helix", Map.of("host", "smtp"), "pw")));
+        when(publisher.listTemplates(realm)).thenReturn(List.of(template));
+        return driver;
+    }
+
+    @Test
+    void htmlEmail_hasAPlainTextPart_withTheLink_andTheFooter() {
+        final EmailDriver driver = htmlDriverFor("mf", new MessageTemplateDto("t", "mf", "verify-email", "EMAIL",
+                "Verify", "<p>Hi {{user}}</p><p><a href=\"{{link}}\" data-button>Verify email address</a></p>", true, true));
+        final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+        service.setEmailBranding(realm -> new EmailBranding("Monthfold", null, "#1f4d47"));
+
+        service.sendEmail("mf", "ada@h.test", "verify-email",
+                Map.of("user", "<b>Ada</b>", "link", "https://idp.example/realms/mf/verify-email?token=t&x=1"));
+
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Verify"), any(), eq(true), eq("""
+                Hi <b>Ada</b>
+
+                Verify email address: https://idp.example/realms/mf/verify-email?token=t&x=1
+
+                --\s
+                Sent by Monthfold."""));
+    }
+
+    @Test
+    void theUneditedDefaultTemplates_areSentInDutch_toADutchUser() {
+        for (final DefaultMessageTemplates.Template t : DefaultMessageTemplates.english()) {
+            if (!"EMAIL".equals(t.channel())) {
+                continue;
+            }
+            org.mockito.Mockito.reset(publisher);
+            final EmailDriver driver = htmlDriverFor("mf", new MessageTemplateDto("t", "mf", t.key(), "EMAIL", t.subject(),
+                    t.body(), true, true));
+            final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+            org.springframework.context.i18n.LocaleContextHolder.setLocale(java.util.Locale.forLanguageTag("nl-NL"));
+            try {
+                service.sendEmail("mf", "ada@h.test", t.key(), Map.of("realm", "Monthfold", "user", "Ada", "code", "123456",
+                        "link", "https://idp.example/l?t=1", "ttl", "15 minuten"));
+            } finally {
+                org.springframework.context.i18n.LocaleContextHolder.resetLocaleContext();
+            }
+            final org.mockito.ArgumentCaptor<String> subject = org.mockito.ArgumentCaptor.forClass(String.class);
+            final org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
+            org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), subject.capture(), any(), eq(true), text.capture());
+            final DefaultMessageTemplates.Template nl = DefaultMessageTemplates.dutch(t.key()).orElseThrow();
+            assertThat(subject.getValue()).as(t.key()).isEqualTo(TemplateRenderer.render(nl.subject(),
+                    Map.of("realm", "Monthfold")));
+            assertThat(text.getValue()).as(t.key()).contains("Verstuurd door").doesNotContain("Hi Ada")
+                    .doesNotContain("expires").doesNotContain("<");
+            if (t.body().contains("{{link}}")) {
+                assertThat(text.getValue()).as(t.key()).contains("https://idp.example/l?t=1");
+            }
+            if (t.body().contains("{{code}}")) {
+                assertThat(text.getValue()).as(t.key()).contains("123456");
+            }
+        }
+    }
+
+    @Test
+    void anEditedTemplate_isSentAsWritten_inAnyLanguage() {
+        final EmailDriver driver = htmlDriverFor("mf", new MessageTemplateDto("t", "mf", "otp-email", "EMAIL",
+                "Code", "<p>Code {{code}}</p>", true, true));
+        final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+        org.springframework.context.i18n.LocaleContextHolder.setLocale(java.util.Locale.forLanguageTag("nl"));
+        try {
+            service.sendEmail("mf", "ada@h.test", "otp-email", Map.of("code", "9"));
+        } finally {
+            org.springframework.context.i18n.LocaleContextHolder.resetLocaleContext();
+        }
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Code"), any(), eq(true),
+                eq("Code 9\n\n-- \nVerstuurd door HelixIAM."));
+    }
+
+    @Test
+    void theRealmVariable_isTheRealmsDisplayName_notItsId() {
+        final EmailDriver driver = htmlDriverFor("monthfold", new MessageTemplateDto("t", "monthfold", "verify-email",
+                "EMAIL", "Verify your email address for {{realm}}", "<p>Your {{realm}} account ({{realmId}})</p>", true, true));
+        final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+        service.setEmailBranding(realm -> new EmailBranding("Monthfold", null, "#1f4d47"));
+
+        service.sendEmail("monthfold", "ada@h.test", "verify-email", Map.of("realm", "monthfold"));
+
+        final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Verify your email address for Monthfold"),
+                body.capture(), eq(true), org.mockito.ArgumentMatchers.startsWith("Your Monthfold account (monthfold)"));
+        assertThat(body.getValue()).contains("Your Monthfold account (monthfold)");
+    }
+
+    @Test
+    void withoutADisplayName_theRealmVariableIsTheId_andAValueTheCallerChoseIsKept() {
+        final EmailDriver driver = htmlDriverFor("monthfold", new MessageTemplateDto("t", "monthfold", "otp-email",
+                "EMAIL", "Your {{realm}} code", "<p>{{code}}</p>", true, true));
+        final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+        service.setEmailBranding(realm -> EmailBranding.helixIam());
+
+        service.sendEmail("monthfold", "ada@h.test", "otp-email", Map.of("realm", "monthfold", "code", "1"));
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Your monthfold code"), any(), eq(true), any());
+
+        service.setEmailBranding(realm -> new EmailBranding("Monthfold", null, "#1f4d47"));
+        service.sendEmail("monthfold", "bob@h.test", "otp-email", Map.of("realm", "Monthfold Test", "code", "1"));
+        org.mockito.Mockito.verify(driver).send(any(), eq("bob@h.test"), eq("Your Monthfold Test code"), any(), eq(true),
+                any());
+    }
+
+    @Test
+    void anSms_namesTheRealmByItsDisplayName() {
+        final CapturingSms driver = new CapturingSms();
+        final MessagingService service = new MessagingService(publisher, List.of(driver), List.of(), List.of());
+        service.setEmailBranding(realm -> new EmailBranding("Monthfold", null, "#1f4d47"));
+        when(publisher.enabledProviders(any(ResolveRequest.class))).thenReturn(List.of(
+                new ResolvedProviderDto("SMS", "HTTP", "+15550100", "Helix", Map.of("url", "https://gw/send"), "tok")));
+        when(publisher.listTemplates("monthfold")).thenReturn(List.of(
+                new MessageTemplateDto("t1", "monthfold", "otp-sms", "SMS", null, "{{realm}} code {{code}}", true, false)));
+
+        service.sendSms("monthfold", "+15551234567", "otp-sms", Map.of("realm", "monthfold", "code", "987654"));
+
+        assertThat(driver.message).isEqualTo("Monthfold code 987654");
     }
 }

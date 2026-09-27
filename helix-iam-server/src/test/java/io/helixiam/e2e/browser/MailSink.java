@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 
 /**
  * A fake HTTP email API (the "HTTP" email driver's target, as Monthfold runs it). One per JVM, like the IdP: the
- * reference realm's EMAIL provider posts {@code {from, fromName, to, subject, body, html, contentType}} JSON to
+ * reference realm's EMAIL provider posts {@code {from, fromName, to, subject, body, html, contentType, text}} JSON to
  * {@link #url()}, and tests read what was "sent" with {@link #await}.
  *
  * <p>Magic-link emails never reach it: the e2e context swaps the magic-link sender for
@@ -101,7 +101,7 @@ public final class MailSink {
             final JsonNode m = JSON.readTree(new String(in.readAllBytes(), StandardCharsets.UTF_8));
             received.add(new CapturedEmail(m.path("from").asText(null), m.path("to").asText(null),
                     m.path("subject").asText(""), m.path("body").asText(""), m.path("html").asBoolean(false),
-                    exchange.getRequestHeaders().getFirst("Authorization"), Instant.now()));
+                    m.path("text").asText(null), exchange.getRequestHeaders().getFirst("Authorization"), Instant.now()));
             exchange.sendResponseHeaders(202, -1);
         }
     }
@@ -116,7 +116,7 @@ public final class MailSink {
     }
 
     /** One message the IdP handed to the HTTP email API. */
-    public record CapturedEmail(String from, String to, String subject, String body, boolean html,
+    public record CapturedEmail(String from, String to, String subject, String body, boolean html, String text,
                                 String authorization, Instant at) {
 
         /** Every http(s) URL in the body ({@code &amp;} decoded), in order. */

@@ -1,7 +1,9 @@
 {{- include "helixiam.require" (dict "name" "config.idpBaseUrl" "val" .Values.config.idpBaseUrl) -}}
 {{- include "helixiam.require" (dict "name" "config.spBaseUrl" "val" .Values.config.spBaseUrl) -}}
 {{- include "helixiam.require" (dict "name" "database.host" "val" .Values.database.host) -}}
-{{- include "helixiam.require" (dict "name" "redis.host" "val" .Values.redis.host) -}}
+{{- if and (include "helixiam.redisRequired" .) (not .Values.redis.host) }}
+{{- fail "helixiam: redis.host is required when config.sessionStore or config.tokenStore is redis (set both to queue to run without Redis)" -}}
+{{- end }}
 {{- include "helixiam.require" (dict "name" "secrets.existingSecret" "val" .Values.secrets.existingSecret) -}}
 {{- if .Values.themes.enabled }}
 {{- include "helixiam.require" (dict "name" "themes.configMap.name or themes.existingVolume" "val" (or .Values.themes.configMap.name .Values.themes.existingVolume)) -}}

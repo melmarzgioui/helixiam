@@ -94,7 +94,8 @@ public class SmtpNotifier implements Notifier {
                         + "helix.notification.smtp.host); dropping EMAIL notification (type={})", notification.getType());
                 return;
             }
-            resolved.driver().send(resolved.provider(), to, message.subject(), message.body(), message.html());
+            resolved.driver().send(resolved.provider(), to, message.subject(), message.body(), message.html(),
+                    message.text());
             LOG.info("Sent EMAIL notification (type={}) via {}", notification.getType(), resolved.provider().driver());
         } catch (final RuntimeException e) {
             LOG.warn("Failed to send EMAIL notification (type={}): {}", notification.getType(), e.getMessage());

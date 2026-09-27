@@ -36,12 +36,14 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # PostgreSQL + Redis
+    # PostgreSQL (+ Redis when used)
     - ports:
         - port: {{ .Values.database.port }}
           protocol: TCP
+        {{- if include "helixiam.redisUsed" . }}
         - port: {{ .Values.redis.port }}
           protocol: TCP
+        {{- end }}
     # TLS egress (federation JWKS, webhooks, outbound HTTPS)
     - ports:
         - port: 443

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/*
+  Item 6: the themed page of an OAuth / OIDC error that cannot go back to the application (ProtocolErrorPageFilter).
+  The message comes from a fixed set (errorKind), never from the request; errorCode is a standard OAuth error code
+  or empty; errorReference is the id logged with the error.
+*/-->
+<head>
+    <th:block th:replace="~{fragments/theme :: hxHead(#{protocolError.title}, false)}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <h1 class="hx-title" th:text="#{protocolError.title}">Something went wrong</h1>
+            <div class="description" th:text="#{'protocolError.' + ${errorKind}}">The request could not be completed.</div>
+        </div>
+
+        <div class="container">
+            <article>
+                <p class="description" th:text="#{protocolError.hint}">Go back to the application and try again.</p>
+                <p class="hx-muted" th:if="${!#strings.isEmpty(errorCode)}" th:text="#{protocolError.code(${errorCode})}">
+                    Error code: invalid_request</p>
+                <p class="hx-muted" th:text="#{protocolError.reference(${errorReference})}">Reference: 0000</p>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>
