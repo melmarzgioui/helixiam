@@ -515,3 +515,8 @@
   .hx-conncard > .hx-rowcard__actions { flex-basis: 100%; justify-content: flex-end; }
   .hx-conncard .hx-conn__name { overflow-wrap: anywhere; }
 }
+/* Toasts on a page with a sticky save bar appear top-right, under the top bar, so they never cover the Save button
+   or the test result near the bottom of the page. */
+.hx-toasthost--savebar { bottom: auto; top: 80px; z-index: 50; } /* under dialogs (z 60) */
+/* "No email address" in a user row: an empty state, not data, so the UI font rather than the mono alias font. */
+.hx-conn__alias--empty { font-family: var(--font); color: var(--fg-faint); }
