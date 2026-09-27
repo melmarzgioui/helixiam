@@ -117,4 +117,22 @@ class ThemePagesTest {
         assertThat(ok.brandImageUrl()).isEqualTo("https://cdn.acme.example/hero.webp");
         assertThat(ok.termsUrl()).isEqualTo("https://acme.example/terms");
     }
+
+    @Test
+    void aBrandedPage_hidesThePanelTextsItDidNotSet_anUnbrandedPageKeepsTheBuiltInOnes() {
+        final Theme coloursOnly = Theme.EMPTY.withColors(io.helixiam.authorization.theme.ThemeColors.from(r ->
+                r.equals("primary") ? new io.helixiam.authorization.theme.ThemeColor("#1f4d47", null) : null));
+        final Theme t = ThemePalette.resolve(ThemeMerger.merge(List.of(ThemeDefaults.THEME, coloursOnly)));
+        final ThemePage branded = ThemePages.build(new EffectiveTheme(t, "v", Set.of(), Set.of(), true), "acme", null,
+                null, "Acme", Locale.ENGLISH, "v");
+        assertThat(branded.brandHeadline()).isEmpty();
+        assertThat(branded.brandSubhead()).isEmpty();
+        assertThat(branded.brandByline()).isEmpty();
+        assertThat(branded.badges()).isEmpty();
+        assertThat(branded.welcomeText()).as("no built-in welcome text exists").isNull();
+
+        final ThemePage plain = page(Theme.EMPTY, Locale.ENGLISH, null, null);
+        assertThat(plain.brandHeadline()).as("built-in message").isNull();
+        assertThat(plain.badges()).as("built-in badges").isNull();
+    }
 }

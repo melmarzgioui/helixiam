@@ -352,6 +352,22 @@ class ThemedTemplatesTest {
         assertThat(html).as("the realm's own name").contains("Acme Accounting");
     }
 
+    /**
+     * A branded split page never falls back to HelixIAM's brand-panel copy: panel texts the customer did not set are
+     * hidden (headline, subhead, byline, badges). The HelixIAM copy stays only for the unbranded look.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("templates")
+    void aColoursOnlyTheme_showsNoHelixIamBrandPanelCopy(final String template) throws Exception {
+        final Theme coloursOnly = new Theme(new ThemeColors(new ThemeColor("#1f4d47", null), null, null, null, null,
+                null, null, null, null, null, null, null, null, null), null, null, null, null, null, null, null);
+        final String html = render(template, model(page(coloursOnly, null, "Acme Accounting")));
+        for (final String helix : List.of("Secure access for every human and machine", "One identity platform",
+                "Self-hosted identity", "OpenID Connect", "SAML 2.0", "SCIM", "Passkeys", "brand-badges")) {
+            assertThat(html).as(template + ": " + helix).doesNotContain(helix);
+        }
+    }
+
     static Stream<String> errorPages() {
         return Stream.of("mfa/totp|code-error", "mfa/enable|code-error", "flow/otp-form|code-error",
                 "flow/recovery-code-form|code-error", "reset/set|password-error",

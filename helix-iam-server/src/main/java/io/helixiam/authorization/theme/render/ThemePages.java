@@ -63,10 +63,21 @@ public final class ThemePages {
                 logo, branded ? image.apply(a.logoDarkUrl()) : null, image.apply(a.faviconUrl()),
                 image.apply(a.brandImageUrl()),
                 hex(surfaceLight), hex(surfaceDark),
-                text(x.brandHeadline(), locale), text(x.brandSubhead(), locale), text(x.brandByline(), locale),
-                text(x.welcomeText(), locale), text(x.footerText(), locale), list(x.brandBadges(), locale),
+                panel(text(x.brandHeadline(), locale), branded), panel(text(x.brandSubhead(), locale), branded),
+                panel(text(x.brandByline(), locale), branded),
+                text(x.welcomeText(), locale), text(x.footerText(), locale),
+                branded && list(x.brandBadges(), locale) == null ? List.of() : list(x.brandBadges(), locale),
                 link(l.privacyUrl()), link(l.termsUrl()), link(l.supportUrl()),
                 locales(t.layout(), locale));
+    }
+
+    /**
+     * A brand-panel text of a branded page: the customer's own, or hidden ({@code ""}) — never HelixIAM's built-in
+     * copy, which only the unbranded look falls back to ({@code null}). No name is put in as a headline: the panel
+     * already shows the logo or the realm/organization name, and repeating it reads poorly.
+     */
+    private static String panel(final String text, final boolean branded) {
+        return text == null && branded ? "" : text;
     }
 
     /** An https URL, or the realm's own uploaded image; anything else is dropped. */
