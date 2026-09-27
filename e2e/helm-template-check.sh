@@ -7,7 +7,8 @@
 #   - sessionStore=queue with the default token store renders WITHOUT redis.host, with no Redis env and no Redis
 #     egress port;
 #   - tokenStore=redis requires redis.host again, whatever the session store;
-#   - an unknown store is refused.
+#   - an unknown store is refused;
+#   - the global email settings are optional; their secrets are mounted as files, never env values.
 # Needs only helm. Usage (repo root): e2e/helm-template-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -76,6 +77,27 @@ expect_contains "redis tokens: REDIS_HOST" "$out" 'REDIS_HOST: "redis"'
 expect_render_error "unknown session store" "config.sessionStore must be redis or queue" --set config.sessionStore=jdbc
 expect_render_error "unknown token store" "config.tokenStore must be queue or redis" --set config.tokenStore=memory \
   --set redis.host=redis
+
+# 5. Global email: nothing by default; Cloudflare / SMTPS settings with secrets mounted as files.
+out=$(render --set redis.host=redis)
+expect_absent "email: nothing by default" "$out" "HELIX_NOTIFICATION_"
+expect_absent "email: no secret volume by default" "$out" "email-secrets"
+out=$(render --set redis.host=redis --set email.driver=cloudflare --set email.fromAddress=no-reply@example.test \
+  --set email.cloudflare.accountId=acct --set email.cloudflare.apiTokenKey=cf-token \
+  --set email.smtp.host=smtp.example.test --set email.smtp.tlsMode=IMPLICIT --set-string email.smtp.port=465 \
+  --set email.smtp.passwordKey=smtp-password)
+expect_contains "email: driver" "$out" 'HELIX_NOTIFICATION_EMAIL_DRIVER: "cloudflare"'
+expect_contains "email: account id" "$out" 'HELIX_NOTIFICATION_CLOUDFLARE_ACCOUNT_ID: "acct"'
+expect_contains "email: token file" "$out" 'HELIX_NOTIFICATION_CLOUDFLARE_API_TOKEN_FILE: "/etc/helixiam/email/cloudflare-api-token"'
+expect_contains "email: smtp tls mode" "$out" 'HELIX_NOTIFICATION_SMTP_TLS_MODE: "IMPLICIT"'
+expect_contains "email: smtp password file" "$out" 'HELIX_NOTIFICATION_SMTP_PASSWORD_FILE: "/etc/helixiam/email/smtp-password"'
+expect_contains "email: token mounted" "$out" "path: cloudflare-api-token"
+expect_contains "email: password mounted" "$out" "path: smtp-password"
+expect_absent "email: no token env value" "$out" "HELIX_NOTIFICATION_CLOUDFLARE_API_TOKEN:"
+expect_render_error "cloudflare without account id" "email.cloudflare.accountId is required" --set redis.host=redis \
+  --set email.driver=cloudflare --set email.cloudflare.apiTokenKey=cf-token
+expect_render_error "cloudflare without token" "email.cloudflare.apiTokenKey is required" --set redis.host=redis \
+  --set email.driver=cloudflare --set email.cloudflare.accountId=acct
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2

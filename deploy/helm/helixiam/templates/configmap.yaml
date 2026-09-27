@@ -37,3 +37,38 @@ data:
   HELIX_THEME_DIRECTORY: {{ .Values.themes.mountPath | quote }}
   HELIX_THEME_RELOAD_INTERVAL_SECONDS: {{ .Values.themes.reloadIntervalSeconds | quote }}
   {{- end }}
+  {{- with .Values.email }}
+  {{- if .driver }}
+  HELIX_NOTIFICATION_EMAIL_DRIVER: {{ .driver | quote }}
+  {{- end }}
+  {{- if .fromAddress }}
+  HELIX_NOTIFICATION_EMAIL_FROM_ADDRESS: {{ .fromAddress | quote }}
+  {{- end }}
+  {{- if .fromName }}
+  HELIX_NOTIFICATION_EMAIL_FROM_NAME: {{ .fromName | quote }}
+  {{- end }}
+  {{- if .smtp.host }}
+  HELIX_NOTIFICATION_SMTP_HOST: {{ .smtp.host | quote }}
+  {{- end }}
+  {{- if .smtp.port }}
+  HELIX_NOTIFICATION_SMTP_PORT: {{ .smtp.port | quote }}
+  {{- end }}
+  {{- if .smtp.username }}
+  HELIX_NOTIFICATION_SMTP_USERNAME: {{ .smtp.username | quote }}
+  {{- end }}
+  {{- if .smtp.tlsMode }}
+  HELIX_NOTIFICATION_SMTP_TLS_MODE: {{ .smtp.tlsMode | quote }}
+  {{- end }}
+  {{- if .smtp.passwordKey }}
+  HELIX_NOTIFICATION_SMTP_PASSWORD_FILE: "/etc/helixiam/email/smtp-password"
+  {{- end }}
+  {{- if .cloudflare.accountId }}
+  HELIX_NOTIFICATION_CLOUDFLARE_ACCOUNT_ID: {{ .cloudflare.accountId | quote }}
+  {{- end }}
+  {{- if .cloudflare.baseUrl }}
+  HELIX_NOTIFICATION_CLOUDFLARE_BASE_URL: {{ .cloudflare.baseUrl | quote }}
+  {{- end }}
+  {{- if .cloudflare.apiTokenKey }}
+  HELIX_NOTIFICATION_CLOUDFLARE_API_TOKEN_FILE: "/etc/helixiam/email/cloudflare-api-token"
+  {{- end }}
+  {{- end }}

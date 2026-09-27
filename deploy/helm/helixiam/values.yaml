@@ -85,6 +85,29 @@ secrets:
   bootstrapClientSecretKey: bootstrap-client-secret   # key in existingSecret → HELIX_BOOTSTRAP_CLIENT_SECRET_FILE
 
 # ---------------------------------------------------------------------------
+# Global email default: used when a realm has no email provider of its own (realms configure theirs with
+# PUT /admin/realms/{realm}/messaging/providers). All optional; empty values keep the server defaults.
+# Secrets are keys in secrets.existingSecret, mounted as files under /etc/helixiam/email and read at every send, so
+# rotating the Secret needs no restart.
+# ---------------------------------------------------------------------------
+email:
+  driver: ""              # HELIX_NOTIFICATION_EMAIL_DRIVER: smtp | cloudflare | log (empty = smtp)
+  fromAddress: ""         # e.g. no-reply@example.com
+  fromName: ""
+  smtp:
+    host: ""              # e.g. smtp.example.com; empty = no global SMTP
+    port: ""              # empty = 587, or 465 with tlsMode IMPLICIT (add the port to networkPolicy.extraEgressPorts)
+    username: ""
+    tlsMode: ""           # STARTTLS_REQUIRED (default) | STARTTLS_OPTIONAL | IMPLICIT
+    passwordKey: ""       # key in existingSecret → HELIX_NOTIFICATION_SMTP_PASSWORD_FILE
+  # Cloudflare Email Service over HTTPS (port 443, allowed by the default egress policy). The token needs
+  # Account → Email Sending → Edit, and the sender's domain must be onboarded in Cloudflare Email Service.
+  cloudflare:
+    accountId: ""
+    baseUrl: ""           # empty = https://api.cloudflare.com/client/v4
+    apiTokenKey: ""       # key in existingSecret → HELIX_NOTIFICATION_CLOUDFLARE_API_TOKEN_FILE
+
+# ---------------------------------------------------------------------------
 # File themes (structured theming): theme directories mounted read-only at themes.mountPath, one per theme:
 #   {name}/theme.json   same schema as PUT /admin/realms/{realm}/theme; assets referenced as "assets/<file>"
 #   {name}/fonts.json   optional: [{"file": "Brand.woff2", "family": "Brand Sans", "weight": "400", "style": "normal"}]
@@ -177,7 +200,7 @@ networkPolicy:
   # Egress is restricted to DNS + database + redis (when used) + TLS (JWKS/webhooks/SMTP over 443). Set false to
   # allow all.
   restrictEgress: true
-  extraEgressPorts:                  # e.g. SMTP
+  extraEgressPorts:                  # e.g. SMTP submission (587); add 465 for implicit TLS (SMTPS)
     - port: 587
       protocol: TCP
 
