@@ -4,9 +4,9 @@ name: Security scan
 # misconfigurations (Dockerfiles, Helm, compose). Results upload to GitHub code scanning as SARIF.
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
   schedule:
     - cron: "27 4 * * 1" # Mondays 04:27 UTC — surface newly-disclosed CVEs against the default branch
 

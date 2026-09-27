@@ -3,9 +3,9 @@ name: CodeQL
 # Static security analysis (GitHub code scanning). Java for the server, JS/TS for the console + SDK.
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
   schedule:
     - cron: "27 3 * * 1" # Mondays 03:27 UTC — catch newly-published queries against the default branch
 
