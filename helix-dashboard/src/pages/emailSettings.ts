@@ -8,8 +8,8 @@
 // MessagingProviderValidator. Pure functions only, unit-tested in emailSettings.test.ts. Messages are i18n
 // keys; the page resolves them with t().
 //
-// Extension point: realm-level email policy (stage 2: a per-realm send rate cap) belongs in its own form model
-// and validator next to these, not in EmailForm, which is one provider row (channel EMAIL + one driver).
+// The realm's send rate cap is stored on the email provider (config.sendLimitPerMinute), so it is part of EmailForm
+// and is carried over when the realm switches to another driver.
 
 import type { MessagingProvider, MessagingProviderWrite, TestResult } from "../api/messaging";
 
@@ -25,12 +25,18 @@ export const EMAIL_DEFAULTS = {
   CLOUDFLARE: { connectTimeoutMs: "5000", readTimeoutMs: "15000", baseUrl: "https://api.cloudflare.com/client/v4" },
 } as const;
 
+/** Config keys every email driver takes: the realm's send rate cap (emails per minute, per server replica). */
+export const SHARED_CONFIG_KEYS = ["sendLimitPerMinute"];
+
+/** Mirrors the server: 1 to 1000000; empty means the server default. */
+export const SEND_LIMIT_RANGE = { min: 1, max: 1_000_000 } as const;
+
 /** The `config` keys each driver's form edits. Other stored keys are kept as they are on save. */
 export const DRIVER_CONFIG_KEYS: Record<EmailDriver, string[]> = {
-  SMTP: ["host", "port", "tlsMode", "username", "connectTimeoutMs", "readTimeoutMs", "ehloName", "caBundle"],
-  CLOUDFLARE: ["accountId", "baseUrl", "connectTimeoutMs", "readTimeoutMs", "caBundle"],
-  HTTP: ["url", "authHeader", "authScheme"],
-  LOG: [],
+  SMTP: ["host", "port", "tlsMode", "username", "connectTimeoutMs", "readTimeoutMs", "ehloName", "caBundle", ...SHARED_CONFIG_KEYS],
+  CLOUDFLARE: ["accountId", "baseUrl", "connectTimeoutMs", "readTimeoutMs", "caBundle", ...SHARED_CONFIG_KEYS],
+  HTTP: ["url", "authHeader", "authScheme", ...SHARED_CONFIG_KEYS],
+  LOG: [...SHARED_CONFIG_KEYS],
 };
 
 /** Deprecated config keys: read once to derive tlsMode, never shown and never sent back. */
@@ -79,6 +85,13 @@ export function defaultPort(mode: TlsMode): number {
   return mode === "IMPLICIT" ? 465 : 587;
 }
 
+/** What a new provider row takes over from the one the realm used before. */
+export interface Carry {
+  fromAddress: string;
+  fromName: string;
+  sendLimitPerMinute?: string;
+}
+
 /**
  * The form for one EMAIL provider row, or a new one (carrying the from address/name across drivers). A new row is
  * on by default, except when another provider is already on (pass defaultEnabled=false), so browsing drivers never
@@ -87,13 +100,14 @@ export function defaultPort(mode: TlsMode): number {
 export function formFromProvider(
   driver: EmailDriver,
   existing?: MessagingProvider,
-  carry?: { fromAddress: string; fromName: string },
+  carry?: Carry,
   defaultEnabled = true,
 ): EmailForm {
   const config: Record<string, string> = {};
   for (const [k, v] of Object.entries(existing?.config ?? {})) {
     if (!DEPRECATED_KEYS.includes(k) && v != null) config[k] = String(v);
   }
+  if (!existing && carry?.sendLimitPerMinute) config.sendLimitPerMinute = carry.sendLimitPerMinute;
   let portTouched = false;
   if (driver === "SMTP") {
     const mode = resolveTlsMode(existing?.config ?? {});
@@ -219,13 +233,19 @@ function validateSmtp(config: Record<string, string>, errors: FieldErrors) {
   validateCaBundle(config, errors);
 }
 
+/** The send rate cap: empty (server default) or a whole number in SEND_LIMIT_RANGE. */
+export function validateSendLimit(raw: string | undefined): string | null {
+  return intInRange(raw, SEND_LIMIT_RANGE.min, SEND_LIMIT_RANGE.max) === false ? "email.err.sendLimit" : null;
+}
+
 function validateCloudflare(form: EmailForm, errors: FieldErrors) {
   const config = form.config;
   const account = (config.accountId ?? "").trim();
   if (!account) errors["config.accountId"] = "email.err.accountIdRequired";
   else if (!ACCOUNT_ID.test(account)) errors["config.accountId"] = "email.err.accountIdInvalid";
+  // The server needs the token only to enable the provider, so a draft can be saved switched off without one.
   const hasSecret = form.secret.stored || form.secret.value.trim() !== "";
-  if (!hasSecret) errors.secret = "email.err.tokenRequired";
+  if (!hasSecret && form.enabled) errors.secret = "email.err.tokenRequired";
   checkUrl(config.baseUrl, "config.baseUrl", true, false, errors);
   checkInt(config, "connectTimeoutMs", 100, 300_000, "email.err.timeout", errors);
   checkInt(config, "readTimeoutMs", 100, 300_000, "email.err.timeout", errors);
@@ -251,6 +271,8 @@ export function validateEmailForm(form: EmailForm): FieldErrors {
     case "HTTP": checkUrl(form.config.url, "config.url", false, true, errors); break;
     default: break;
   }
+  const limit = validateSendLimit(form.config.sendLimitPerMinute);
+  if (limit) errors["config.sendLimitPerMinute"] = limit;
   if (!errors.secret) validateSecret(form, errors);
   return errors;
 }
@@ -263,7 +285,7 @@ export function validateTestRecipient(to: string): string | null {
 
 /** Split a 400's fieldErrors into those shown on this driver's fields and the rest (shown in a banner). */
 export function splitServerErrors(driver: EmailDriver, fieldErrors: Record<string, string>): { fields: Record<string, string>; other: string[] } {
-  const known = new Set(["fromAddress", "fromName", "secret", ...DRIVER_CONFIG_KEYS[driver].map((k) => `config.${k}`)]);
+  const known = new Set(["fromAddress", "fromName", "secret", "clearSecret", ...DRIVER_CONFIG_KEYS[driver].map((k) => `config.${k}`)]);
   const fields: Record<string, string> = {};
   const other: string[] = [];
   for (const [k, v] of Object.entries(fieldErrors)) {
@@ -280,9 +302,39 @@ export function initialEmailDriver(providers: MessagingProvider[]): EmailDriver 
   return pick ? (pick.driver as EmailDriver) : "SMTP";
 }
 
-/** Enabled EMAIL providers other than `driver`. The server uses only one, so more than one is a mistake. */
-export function otherEnabledEmailDrivers(providers: MessagingProvider[], driver: string): string[] {
-  return providers.filter((p) => p.channel === "EMAIL" && p.enabled && p.driver !== driver).map((p) => p.driver);
+/** The realm's active (enabled) email provider; the server keeps at most one. */
+export function activeEmailProvider(providers: MessagingProvider[]): MessagingProvider | undefined {
+  return providers.find((p) => p.channel === "EMAIL" && p.enabled);
+}
+
+/**
+ * Saving `form` switched on makes it the realm's sender, and the server turns the current one off. Returns the driver
+ * that will be turned off (to confirm with the user), or null when nothing else is on or this one already is.
+ */
+export function switchesFrom(providers: MessagingProvider[], form: EmailForm): string | null {
+  if (!form.enabled) return null;
+  const active = activeEmailProvider(providers);
+  return active && active.driver !== form.driver ? active.driver : null;
+}
+
+/**
+ * Whether the stored secret of a saved provider can be removed. Returns null when it can, or an i18n key explaining
+ * why not: nothing is stored, or the provider is an enabled Cloudflare one (the server needs its token to stay on).
+ */
+export function clearSecretBlocked(existing: MessagingProvider | undefined): string | null {
+  if (!existing || !existing.secretSet) return "email.secret.remove.nothing";
+  if (existing.driver === "CLOUDFLARE" && existing.enabled) return "email.secret.remove.blockedCloudflare";
+  return null;
+}
+
+/**
+ * The PUT body that removes a saved provider's secret. It is built from the SAVED provider, never the draft, so the
+ * user's unsaved edits are not saved along with it.
+ */
+export function clearSecretWrite(existing: MessagingProvider): MessagingProviderWrite {
+  const driver = isEmailDriver(existing.driver) ? existing.driver : "SMTP";
+  const { secret: _keep, ...saved } = toWrite(formFromProvider(driver, existing));
+  return { ...saved, driver: existing.driver, clearSecret: true };
 }
 
 export type TestTone = "success" | "info" | "warning" | "danger";
@@ -305,7 +357,7 @@ const STATUS_TONE: Record<string, TestTone> = {
   TRANSIENT_FAILURE: "warning",
 };
 
-const REASONS = ["RECIPIENT_BOUNCED", "MESSAGE_REJECTED", "AUTHENTICATION", "RATE_LIMITED", "PROVIDER_ERROR", "NETWORK", "CONFIGURATION", "NO_PROVIDER"];
+const REASONS = ["RECIPIENT_BOUNCED", "MESSAGE_REJECTED", "AUTHENTICATION", "RATE_LIMITED", "PROVIDER_ERROR", "NETWORK", "CONFIGURATION", "NO_PROVIDER", "RATE_CAPPED"];
 
 function guidanceFor(driver: EmailDriver, reason: string | undefined, diagnostic: string | undefined): string | undefined {
   const authLike = reason === "AUTHENTICATION" || /\b(401|403)\b/.test(diagnostic ?? "");
@@ -317,9 +369,10 @@ function guidanceFor(driver: EmailDriver, reason: string | undefined, diagnostic
   switch (reason) {
     case "NETWORK": return driver === "SMTP" ? "email.test.guide.smtpNetwork" : "email.test.guide.network";
     case "RATE_LIMITED": return "email.test.guide.rateLimited";
+    case "RATE_CAPPED": return "email.test.guide.rateCapped";
     case "RECIPIENT_BOUNCED": return "email.test.guide.bounced";
     case "MESSAGE_REJECTED": return driver === "CLOUDFLARE" ? "email.test.guide.cloudflareRejected" : "email.test.guide.rejected";
-    case "CONFIGURATION": return "email.test.guide.configuration";
+    case "CONFIGURATION": return driver === "CLOUDFLARE" ? "email.test.guide.cloudflareConfiguration" : "email.test.guide.configuration";
     case "PROVIDER_ERROR": return "email.test.guide.providerError";
     case "NO_PROVIDER": return "email.test.guide.noProvider";
     default: return undefined;
@@ -334,7 +387,7 @@ export function describeTestResult(r: TestResult, driver: EmailDriver): TestResu
       tone: r.sent ? "success" : "danger",
       title: r.sent ? "email.test.sent" : "email.test.notSent",
       message: r.message,
-      guidance: !r.sent && /no enabled/i.test(r.message) ? "email.test.guide.noProvider" : undefined,
+      guidance: !r.sent && /^No (enabled )?\w+ provider/i.test(r.message) ? "email.test.guide.noProvider" : undefined,
     };
   }
   const reason = r.reason && REASONS.includes(r.reason) ? r.reason : undefined;
