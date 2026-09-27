@@ -31,7 +31,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.Map;
 
@@ -51,6 +50,8 @@ import java.util.Map;
 @Controller
 public class MagicLinkController {
 
+    private static final org.apache.logging.log4j.Logger LOG = org.apache.logging.log4j.LogManager.getLogger(MagicLinkController.class);
+
     private final MagicLinkService magicLinks;
     private final FederatedSessionEstablisher sessions;
     private final MfaPolicyService mfaPolicy;
@@ -59,13 +60,15 @@ public class MagicLinkController {
     private final AuditLog auditLog;
     private final BrandingSupport branding;
     private final String spBaseUrl;
+    private final String idpBaseUrl;
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final AuthTimeStamper authTimeStamper = new AuthTimeStamper();
 
     public MagicLinkController(final MagicLinkService magicLinks, final FederatedSessionEstablisher sessions,
                                final MfaPolicyService mfaPolicy, final TotpService totp,
                                final SessionPolicyApplier sessionPolicy, final AuditLog auditLog,
-                               final BrandingSupport branding, @Value("${sp.base.url}") final String spBaseUrl) {
+                               final BrandingSupport branding, @Value("${sp.base.url}") final String spBaseUrl,
+                               @Value("${idp.base.url:}") final String idpBaseUrl) {
         this.magicLinks = magicLinks;
         this.sessions = sessions;
         this.mfaPolicy = mfaPolicy;
@@ -74,6 +77,7 @@ public class MagicLinkController {
         this.auditLog = auditLog;
         this.branding = branding;
         this.spBaseUrl = spBaseUrl;
+        this.idpBaseUrl = idpBaseUrl == null ? "" : idpBaseUrl.trim().replaceAll("/+$", "");
     }
 
     @GetMapping("/login/magic")
@@ -88,8 +92,13 @@ public class MagicLinkController {
                           final Model model) {
         requireEnabled();
         final String realm = RealmContextHolder.get();
-        magicLinks.request(realm, email, AuditContext.clientIp(request),
-                ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString());
+        // Security: the link's host comes from configuration (idp.base.url), never from the request — a forged
+        // Host / X-Forwarded-Host would otherwise send the victim a valid token on the attacker's domain.
+        if (idpBaseUrl.isEmpty()) {
+            LOG.error("Magic link not sent: idp.base.url (IDP_BASE_URL) is not configured");
+        } else {
+            magicLinks.request(realm, email, AuditContext.clientIp(request), idpBaseUrl + "/realms/" + realm);
+        }
         branding.apply(model);
         return "magic/sent";
     }

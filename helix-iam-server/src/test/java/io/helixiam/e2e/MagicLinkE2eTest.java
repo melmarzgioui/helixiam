@@ -98,6 +98,24 @@ class MagicLinkE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void theEmailedLinkNeverTakesItsHostFromTheRequest() {
+        // Security: an attacker requesting a link for a victim with a forged host must not get the victim's
+        // email to point at the attacker's domain (the token would leak there). Links use idp.base.url.
+        enable();
+        final E2eSeed.SeededUser victim = seed().user(realm, E2eSeed.unique("victim"), "Unused-Passw0rd!-" + realm);
+        final E2eHttp http = newBrowser();
+        final E2eHttp.Response page = http.get("/realms/" + realm + "/login/magic", "Accept", "text/html");
+        final Map<String, String> fields = new LinkedHashMap<>(E2eHttp.hiddenInputs(E2eHttp.form(page.body(), "name=\"email\"").orElseThrow()));
+        fields.put("email", victim.dto().email());
+        http.postForm(E2eHttp.formAction(page.body(), "name=\"email\"").orElseThrow(), fields,
+                "X-Forwarded-Host", "attacker.example", "X-Forwarded-Proto", "https", "Forwarded", "host=attacker.example;proto=https");
+        final List<String> links = CapturingMagicLinkSender.linksFor(victim.dto().email());
+        assertThat(links).hasSize(1);
+        assertThat(links.get(0)).startsWith(baseUrl() + "/realms/" + realm + "/login/magic/verify?token=")
+                .doesNotContain("attacker.example");
+    }
+
+    @Test
     void requestsAreRateLimitedPerEmail() {
         enable();
         final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("maya"), "Unused-Passw0rd!-" + realm);
