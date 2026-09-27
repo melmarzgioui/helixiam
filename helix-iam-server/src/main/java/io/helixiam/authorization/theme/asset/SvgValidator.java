@@ -44,13 +44,17 @@ import java.util.regex.Pattern;
  *       {@code <feImage>}, {@code <iframe>}, SVG Tiny {@code <handler>}, XInclude, any XHTML element, editor
  *       elements (the only foreign-namespace content allowed is RDF/Dublin Core/Creative Commons/XMP inside
  *       {@code <metadata>});</li>
- *   <li>any {@code on*} attribute, in any namespace and any case; {@code xml:base};</li>
+ *   <li>any {@code on*} attribute, in any namespace and any case; {@code xml:base}; attributes that hold a URL in
+ *       other vocabularies ({@code ping}, {@code formaction}, {@code action}, {@code srcset}, {@code background},
+ *       {@code lowsrc}, {@code dynsrc}, {@code poster}, {@code codebase}, {@code cite}, {@code xlink:role},
+ *       {@code xlink:arcrole}, …);</li>
  *   <li>an {@code href}/{@code xlink:href}/{@code src} that is not a same-document {@code #fragment} (so
  *       {@code <use>} never references another document);</li>
  *   <li>a {@code javascript:}, {@code vbscript:} or {@code data:} URI anywhere in an attribute (after character
  *       references are decoded and whitespace is removed);</li>
  *   <li>a {@code url()} to anything but {@code #fragment}, in presentation attributes, {@code style} attributes and
- *       {@code <style>} elements; {@code @import}, CSS escapes, {@code expression(}, {@code -moz-binding},
+ *       {@code <style>} elements, checked on the raw CSS; CSS comments, {@code @import}, CSS escapes,
+ *       {@code expression(}, {@code -moz-binding},
  *       {@code behavior:} and the other URL-fetching CSS functions ({@code image-set(}, {@code image(},
  *       {@code cross-fade(}, {@code src(});</li>
  *   <li>{@code <animate>}/{@code <set>} (and the other animation elements) targeting {@code href} or an event
@@ -93,12 +97,20 @@ public final class SvgValidator {
     private static final Pattern DECLARED_ENCODING =
             Pattern.compile("^<\\?xml[^>]*?\\bencoding\\s*=\\s*[\"']([^\"']*)[\"']");
     private static final Pattern DOCTYPE = Pattern.compile("<!DOCTYPE", Pattern.CASE_INSENSITIVE);
-    private static final Pattern CSS_COMMENT = Pattern.compile("/\\*.*?(\\*/|$)", Pattern.DOTALL);
     private static final Pattern URL_START = Pattern.compile("url\\s*\\(", Pattern.CASE_INSENSITIVE);
     private static final Pattern CSS_FORBIDDEN = Pattern.compile(
             "@import|expression\\s*\\(|-moz-binding|behavior\\s*:|(?:-webkit-)?image-set\\s*\\(|\\bimage\\s*\\("
                     + "|(?:-webkit-)?cross-fade\\s*\\(|\\bsrc\\s*\\(",
             Pattern.CASE_INSENSITIVE);
+    /**
+     * Review M2: attributes that hold a URL in some vocabulary (HTML, XLink) and have no legitimate use in an image;
+     * refused wherever they appear, whatever their value.
+     */
+    private static final Set<String> URL_ATTRIBUTES = Set.of("ping", "formaction", "action", "srcset", "background",
+            "lowsrc", "dynsrc", "poster", "codebase", "cite", "arcrole", "role", "data", "archive", "longdesc",
+            "usemap", "manifest", "icon", "profile", "classid");
+    private static final String XLINK_NS = "http://www.w3.org/1999/xlink";
+
     private static final String[] DANGEROUS_SCHEMES = {"javascript:", "vbscript:", "data:"};
 
     private SvgValidator() {
@@ -240,6 +252,10 @@ public final class SvgValidator {
         if (XML_NS.equals(ans) && "base".equals(lower) || "xml:base".equalsIgnoreCase(attr.getName())) {
             return Optional.of("Attribute xml:base is not allowed in an SVG (it redirects references).");
         }
+        if (URL_ATTRIBUTES.contains(lower) && (!lower.equals("role") || XLINK_NS.equals(ans))) {
+            // ARIA's plain role="img" stays allowed; xlink:role / xlink:arcrole hold URIs.
+            return Optional.of("Attribute " + qname + " holds a URL and is not allowed in an SVG.");
+        }
         if (lower.equals("href") || lower.equals("src")) {
             if (!FRAGMENT.matcher(value.trim()).matches()) {
                 if ("use".equals(elementLower)) {
@@ -278,21 +294,23 @@ public final class SvgValidator {
         if (css.indexOf('\\') >= 0) {
             return Optional.of("CSS escapes (\\) are not allowed in " + where + " of an SVG.");
         }
-        final String stripped = CSS_COMMENT.matcher(css).replaceAll("");
-        for (final String candidate : new String[] {css, stripped}) {
-            final Matcher forbidden = CSS_FORBIDDEN.matcher(candidate);
-            if (forbidden.find()) {
-                return Optional.of("CSS " + safe(forbidden.group().replaceAll("\\s+", "")) + " is not allowed in "
-                        + where + " of an SVG.");
-            }
-            final String compact = compact(candidate);
-            for (final String scheme : DANGEROUS_SCHEMES) {
-                if (compact.contains(scheme)) {
-                    return Optional.of("CSS in " + where + " contains a javascript:, vbscript: or data: URI.");
-                }
+        // Review I1: no comments at all. Stripping them is not string-aware ("/*" inside a CSS string would hide a
+        // url()), so every check below runs on the raw CSS, and comments are refused like in custom CSS.
+        if (css.contains("/*")) {
+            return Optional.of("CSS comments (/*) are not allowed in " + where + " of an SVG.");
+        }
+        final Matcher forbidden = CSS_FORBIDDEN.matcher(css);
+        if (forbidden.find()) {
+            return Optional.of("CSS " + safe(forbidden.group().replaceAll("\\s+", "")) + " is not allowed in "
+                    + where + " of an SVG.");
+        }
+        final String compact = compact(css);
+        for (final String scheme : DANGEROUS_SCHEMES) {
+            if (compact.contains(scheme)) {
+                return Optional.of("CSS in " + where + " contains a javascript:, vbscript: or data: URI.");
             }
         }
-        return urls(stripped, where);
+        return urls(css, where);
     }
 
     /** Every {@code url(...)} must be {@code url(#fragment)}. */

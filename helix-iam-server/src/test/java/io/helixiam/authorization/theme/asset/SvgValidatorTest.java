@@ -77,7 +77,26 @@ class SvgValidatorTest {
                 arguments("style element @import", svg("<style>@import url(https://evil.example/x.css);</style>"),
                         "@import"),
                 arguments("style element @import hidden by a comment", svg("<style>@im/**/port 'x.css';</style>"),
-                        "@import"),
+                        "comment"),
+                arguments("review I1: a comment opener inside a CSS string hides url() in <style>",
+                        svg("<style>a{content:\"/*\"} rect{fill:url(https://evil.example/a)} b{content:\"*/\"}</style>"),
+                        "comment"),
+                arguments("review I1: the same in a style attribute",
+                        svg("<rect style='a:\"/*\"; fill:url(https://evil.example/a); b:\"*/\"'/>"), "comment"),
+                arguments("plain CSS comment in <style>", svg("<style>/* brand */ rect{fill:red}</style>"), "comment"),
+                arguments("review M2: ping on a link", svg("<a href=\"#x\" ping=\"https://evil.example/p\"><rect/></a>"),
+                        "ping"),
+                arguments("formaction", svg("<g formaction=\"https://evil.example/\"/>"), "formaction"),
+                arguments("action", svg("<g action=\"https://evil.example/\"/>"), "action"),
+                arguments("srcset", svg("<g srcset=\"https://evil.example/a.png 1x\"/>"), "srcset"),
+                arguments("background", svg("<g background=\"https://evil.example/a.png\"/>"), "background"),
+                arguments("lowsrc", svg("<g lowsrc=\"https://evil.example/a.png\"/>"), "lowsrc"),
+                arguments("dynsrc", svg("<g dynsrc=\"https://evil.example/a.avi\"/>"), "dynsrc"),
+                arguments("poster", svg("<g poster=\"https://evil.example/a.png\"/>"), "poster"),
+                arguments("codebase", svg("<g codebase=\"https://evil.example/\"/>"), "codebase"),
+                arguments("cite", svg("<g cite=\"https://evil.example/\"/>"), "cite"),
+                arguments("xlink:arcrole", svg("<a xlink:href=\"#x\" xlink:arcrole=\"https://evil.example/r\"><rect/></a>"),
+                        "arcrole"),
                 arguments("style element url() to another origin",
                         svg("<style>rect{fill:url(\"https://evil.example/a\")}</style>"), "url("),
                 arguments("style element @font-face from another origin",
@@ -146,7 +165,7 @@ class SvgValidatorTest {
 
     static Stream<Arguments> benign() {
         return Stream.of(
-                arguments("plain logo", "<svg " + NS + " width=\"24\" height=\"24\" viewBox=\"0 0 24 24\">"
+                arguments("plain logo", "<svg " + NS + " width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" role=\"img\" aria-label=\"Monthfold\">"
                         + "<path d=\"M0 0h24v24H0z\" fill=\"#1f4d47\"/></svg>"),
                 arguments("XML declaration, BOM and comments",
                         "﻿<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<!-- Generator: Figma -->\n"
@@ -160,7 +179,7 @@ class SvgValidatorTest {
                                 + "<g clip-path=\"url(#c)\"><rect fill=\"url(#paint0_linear_1_2)\" style=\"fill: url( '#paint0_linear_1_2' )\"/>"
                                 + "<use href=\"#p\"/><use xlink:href=\"#p\" x=\"2\"/></g>")),
                 arguments("style element with fragment urls and CDATA", svg(
-                        "<style><![CDATA[ .a { fill: url(#g); stroke: #1f4d47 } /* brand */ @media (prefers-color-scheme: dark)"
+                        "<style><![CDATA[ .a { fill: url(#g); stroke: #1f4d47 } @media (prefers-color-scheme: dark)"
                                 + " { .a { fill: #7fb8ac } } ]]></style><rect class=\"a\"/>")),
                 arguments("filters and text", svg(
                         "<filter id=\"s\"><feGaussianBlur stdDeviation=\"1\"/><feOffset dx=\"1\"/><feMerge><feMergeNode/>"
