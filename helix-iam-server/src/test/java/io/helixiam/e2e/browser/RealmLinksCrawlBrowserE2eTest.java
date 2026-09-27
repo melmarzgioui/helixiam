@@ -24,7 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Item A6 in a real browser: starting at the relying party, every IdP page a user can reach (login, and by GET from it
  * register, password reset, the language switcher, …; then the two-step enrolment and recovery-code pages after a
  * sign-in) is crawled. Every link, form, script, stylesheet and image the page carries, and every request the
- * browser makes to the IdP, must stay under {@code /realms/{realm}/}, and every crawled page must load (no 4xx/5xx).
+ * browser makes to the IdP (except the stylesheet's shared fonts), must stay under {@code /realms/{realm}/}, and every
+ * crawled page must load (no 4xx/5xx).
  * The template-level check of every template is {@code RealmRelativeLinksTest}.
  */
 class RealmLinksCrawlBrowserE2eTest extends AbstractBrowserE2eTest {
@@ -90,7 +91,9 @@ class RealmLinksCrawlBrowserE2eTest extends AbstractBrowserE2eTest {
 
         assertThat(offenders).as("IdP links outside " + realmPrefix).isEmpty();
         final String idp = baseUrl() + "/";
-        assertThat(requests.stream().filter(r -> r.startsWith(idp) && !r.startsWith(realmPrefix)).toList())
+        // The one exception: the stylesheet's fonts, from the realm-agnostic /css/font(s)/ (see RealmRelativeLinksTest).
+        assertThat(requests.stream().filter(r -> r.startsWith(idp) && !r.startsWith(realmPrefix))
+                .filter(r -> !r.startsWith(idp + "css/fonts/") && !r.startsWith(idp + "css/font/")).toList())
                 .as("browser requests to the IdP outside the realm").isEmpty();
         assertThat(failed).as("failed requests (pages, scripts, stylesheets, fonts, images)").isEmpty();
     }

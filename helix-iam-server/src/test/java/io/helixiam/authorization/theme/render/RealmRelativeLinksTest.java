@@ -89,20 +89,27 @@ class RealmRelativeLinksTest {
         assertThat(offenders).as("root-relative URLs in static scripts").isEmpty();
     }
 
-    /** Fonts and images in the static stylesheets resolve against the stylesheet (under the realm), never the root. */
+    /**
+     * The static stylesheet's fonts are the one exception: they stay at the realm-agnostic {@code /css/font(s)/…}
+     * (served for every realm by the router's static bypass). A relative {@code url()} would be rewritten by Spring's
+     * content-versioning {@code CssLinkResourceTransformer} into an absolute path under the realm of the FIRST request,
+     * then cached for every realm (a font of realm A referenced from realm B's pages).
+     */
     @Test
-    void noStaticStylesheet_referencesARootRelativeUrl() throws IOException {
-        final Pattern rootRelative = Pattern.compile("url\\(\\s*['\"]?/");
+    void theStaticStylesheet_referencesOnlyTheSharedFontDirectories() throws IOException {
+        final Pattern url = Pattern.compile("url\\(\\s*['\"]?([^'\")]+)");
         final List<String> offenders = new ArrayList<>();
         for (final Resource css : new PathMatchingResourcePatternResolver().getResources("classpath*:/static/css/**/*.css")) {
             try (InputStream in = css.getInputStream()) {
-                final Matcher m = rootRelative.matcher(new String(in.readAllBytes(), StandardCharsets.UTF_8));
+                final Matcher m = url.matcher(new String(in.readAllBytes(), StandardCharsets.UTF_8));
                 while (m.find()) {
-                    offenders.add(css.getFilename() + ": " + m.group());
+                    if (!m.group(1).matches("/css/fonts?/[A-Za-z0-9._-]+")) {
+                        offenders.add(css.getFilename() + ": " + m.group(1));
+                    }
                 }
             }
         }
-        assertThat(offenders).as("root-relative url() in static stylesheets").isEmpty();
+        assertThat(offenders).as("url() outside the shared font directories").isEmpty();
     }
 
     private static Map<String, Object> withAction(final Map<String, Object> model, final String template) {

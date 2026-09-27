@@ -30,9 +30,10 @@ Open issues found when Monthfold moved its production sign-in to rc.4
   origins of the redirect URIs registered for the client of the pending authorization request (or the consent page's
   `client_id`), and the post-logout origins on the end-session endpoint; unsafe schemes and anything that is not a
   source expression are dropped. Workarounds that rewrite the CSP at the proxy can be removed.
-- **A6** — `a594bc5` Every link, script, stylesheet font and poll URL of the sign-in pages is under `/realms/{realm}/`
-  (scripts were linked at `/js/…`, fonts at `/css/fonts/…`, the QR and push pages polled `/qr/…` and `/push/…`). A
-  template test fails on any URL outside the realm; a browser test crawls every page reachable from the login page.
+- **A6** — `a594bc5` Every link, form, script and poll URL of the sign-in pages is under `/realms/{realm}/` (scripts were
+  linked at `/js/…`, and the QR and push pages polled `/qr/…` and `/push/…`, which 404). A template test fails on any URL
+  outside the realm; a browser test crawls every page reachable from the login page. The stylesheet's fonts stay at the
+  shared `/css/font(s)/` (a relative URL would be cached with the first realm's path by the content-versioning chain).
 - **A7** — `ea17fe1` The registration email has a button to `/realms/{r}/register/verify/{code}` (on `IDP_BASE_URL`,
   never the request host), the code, and a link to the new code page `/realms/{r}/register/verify`. It is in the language
   the user registered in and carries the realm (or organization) brand, through the realm's email provider. The reset
