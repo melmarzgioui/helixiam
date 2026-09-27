@@ -26,6 +26,9 @@ public class BrandingSupport {
     @Autowired(required = false)
     private io.helixiam.authorization.service.org.OrganizationBrandingService organizationBranding;
 
+    @Autowired(required = false)
+    private io.helixiam.authorization.theme.ThemeService themeService;
+
     /**
      * Populates {@code branding*} attributes for the current realm, overridden by the organization in context
      * (if any); best-effort, never throws.
@@ -43,7 +46,11 @@ public class BrandingSupport {
             model.addAttribute("brandingPrimaryColor", blankToNull(s.primaryColor()));
             model.addAttribute("brandingBackgroundColor", blankToNull(s.backgroundColor()));
             model.addAttribute("brandingWelcomeText", blankToNull(s.welcomeText()));
-            model.addAttribute("brandingCustomCss", blankToNull(s.customCss()));
+            // Review C1: only custom CSS that passes the CURRENT validator is ever rendered — taken from the effective
+            // theme (re-checked on every resolve), never the raw stored or realm-settings value.
+            model.addAttribute("brandingCustomCss", themeService == null ? null
+                    : blankToNull(themeService.effectiveTheme(RealmContextHolder.get(), java.util.Optional.empty())
+                            .theme().customCss()));
         } catch (final RuntimeException ignored) {
             // Branding must never block sign-in.
         }

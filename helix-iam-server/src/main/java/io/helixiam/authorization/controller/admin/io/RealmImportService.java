@@ -342,7 +342,7 @@ public class RealmImportService {
         final io.helixiam.authorization.theme.LegacyBranding keep = themeService == null
                 ? new io.helixiam.authorization.theme.LegacyBranding(in.logoUrl(), in.primaryColor(), in.backgroundColor(),
                         in.welcomeText(), in.customCss())
-                : themeService.legacyBranding(realmId);
+                : themeService.storedLegacyBranding(realmId);
         try {
             // Force the target realm id from the path; never carry the source realm's CAPTCHA secret.
             final RealmSettingsDto retargeted = new RealmSettingsDto(realmId, in.displayName(), in.issuer(),
@@ -381,7 +381,7 @@ public class RealmImportService {
         final io.helixiam.authorization.theme.LegacyBranding legacy = theme != null || legacySource == null ? null
                 : new io.helixiam.authorization.theme.LegacyBranding(legacySource.logoUrl(), legacySource.primaryColor(),
                         legacySource.backgroundColor(), legacySource.welcomeText(), legacySource.customCss()).normalized();
-        if (theme == null && (legacy == null || legacy.equals(themeService.legacyBranding(realmId)))) {
+        if (theme == null && (legacy == null || legacy.equals(themeService.storedLegacyBranding(realmId)))) {
             return;
         }
         final boolean exists = !themeService.realmTheme(realmId).isEmpty();

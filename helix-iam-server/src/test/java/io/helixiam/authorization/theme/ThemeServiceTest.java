@@ -170,4 +170,56 @@ class ThemeServiceTest {
         assertThat(service.notices(Theme.EMPTY.withCustomCss(".a{}"))).containsExactly(CustomCssValidator.NOTICE);
         assertThat(service.notices(Theme.EMPTY)).isEqualTo(List.of());
     }
+
+    @Test
+    void unknownOrganizationIds_neverBecomeCacheKeys_andTheCacheIsBounded() {
+        for (int n = 0; n < 50; n++) {
+            assertThat(service.effectiveTheme("firm", Optional.of("random-" + n)).theme())
+                    .isEqualTo(service.effectiveTheme("firm", Optional.empty()).theme());
+        }
+        service.effectiveTheme("firm", Optional.of("org-x")); // another realm's organization
+        assertThat(service.cacheSize()).as("all fall back to the realm key").isEqualTo(1);
+
+        service.maxCacheEntries(3);
+        for (int n = 0; n < 10; n++) {
+            service.effectiveTheme("realm-" + n, Optional.empty());
+        }
+        assertThat(service.cacheSize()).isLessThanOrEqualTo(3);
+    }
+
+    @Test
+    void cacheInvalidation_waitsForTheCommit() {
+        service.effectiveTheme("firm", Optional.empty());
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.saveRealmTheme("firm", new Theme(null, null, new ThemeShape(3, null), null, null, null, null, null));
+            assertThat(service.cacheSize()).as("not before the commit").isEqualTo(1);
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+            assertThat(service.cacheSize()).isZero();
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+        assertThat(service.effectiveTheme("firm", Optional.empty()).theme().shape().radius()).isEqualTo(3);
+    }
+
+    @Test
+    void theEffectiveTheme_separatesImgSrcOriginsFromTheCssUrlAllowlist() {
+        service.saveRealmTheme("firm", Theme.EMPTY.withAssets(new ThemeAssets("https://cdn.firm.example/l.svg", null, null,
+                null)));
+        final EffectiveTheme e = service.effectiveTheme("firm", Optional.empty());
+        assertThat(e.imageOrigins()).containsExactlyInAnyOrder("https://img.monthfold.example", "https://cdn.firm.example");
+        assertThat(e.cssUrlOrigins()).containsExactly("https://img.monthfold.example");
+    }
+
+    @Test
+    void storedCssThatFailsTheCurrentRules_isNeverHandedToTheLegacyView() {
+        // Review C1 (a): accepted by the old validator, stored before the fix.
+        realmRows.put("firm", new RealmThemeRecord("firm",
+                "{\"customCss\":\"/* </style><script>alert(1)</script> */\",\"assets\":{\"logoUrl\":\"https://a.example/l.svg\"}}"));
+        assertThat(service.legacyBranding("firm").customCss()).isNull();
+        assertThat(service.legacyBranding("firm").logoUrl()).isEqualTo("https://a.example/l.svg");
+        assertThat(service.storedLegacyBranding("firm").customCss()).as("admin/import view of what is stored").isNotNull();
+        assertThat(service.effectiveTheme("firm", Optional.empty()).theme().customCss()).isNull();
+    }
 }

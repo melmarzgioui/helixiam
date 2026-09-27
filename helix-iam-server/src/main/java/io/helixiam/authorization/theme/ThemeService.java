@@ -38,8 +38,10 @@ import java.util.function.LongSupplier;
  * <ul>
  *   <li>{@link #effectiveTheme(String, Optional)} — merged organization → realm → base layers → default, dark
  *       values derived, stored custom CSS re-validated (dropped with a warning when it no longer validates), plus a
- *       stable {@link EffectiveTheme#version()} for ETags and the realm's allowed image origins. Cached for 30 s
- *       per realm/organization and invalidated on local writes.</li>
+ *       stable {@link EffectiveTheme#version()} for ETags, the realm's {@code img-src} origins and the (operator-only)
+ *       custom-CSS url() allowlist. The organization id is resolved to an organization of the realm before it is
+ *       used as a cache key (unknown ids share the realm's entry); the cache is bounded, entries live 30 s and are
+ *       invalidated after the commit of a local write.</li>
  *   <li>{@link #realmTheme}/{@link #organizationTheme} — the stored layers as saved (for the admin API/export).</li>
  *   <li>{@link #saveRealmTheme}/{@link #saveOrganizationTheme} — validate ({@link ThemeValidator}), normalise
  *       and store; throw {@link ThemeValidationException} with field errors.</li>
@@ -69,6 +71,7 @@ public class ThemeService {
     private final Set<String> allowedImageOrigins;
     private final LongSupplier clock = System::currentTimeMillis;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+    private int maxCacheEntries = 10_000;
 
     @Autowired
     public ThemeService(final RealmThemeRepository realmThemes,
@@ -147,32 +150,49 @@ public class ThemeService {
      * layers → HelixIAM default, merged field by field, dark values derived.
      */
     public EffectiveTheme effectiveTheme(final String realmId, final Optional<String> orgId) {
-        final String key = realmId + "|" + orgId.orElse("");
+        // Review I2: a caller-supplied org id (e.g. a public ?org= hint) is resolved to an organization of the realm
+        // BEFORE it becomes a cache key; anything else shares the realm's key.
+        final Optional<String> org = orgId.flatMap(id -> organizationInRealm(realmId, id)).map(Organization::getOrgId);
+        final String key = realmId + "|" + org.orElse("");
         final Cached hit = cache.get(key);
         if (hit != null && clock.getAsLong() - hit.at() < CACHE_TTL_MILLIS) {
             return hit.value();
         }
-        final EffectiveTheme fresh = computeEffective(realmId, orgId);
+        final EffectiveTheme fresh = computeEffective(realmId, org);
+        if (cache.size() >= maxCacheEntries) {
+            cache.clear(); // bounded: a burst of distinct realms/orgs can never grow the heap without limit
+        }
         cache.put(key, new Cached(fresh, clock.getAsLong()));
         return fresh;
     }
 
-    private EffectiveTheme computeEffective(final String realmId, final Optional<String> orgId) {
+    private EffectiveTheme computeEffective(final String realmId, final Optional<String> resolvedOrgId) {
         final List<Theme> layers = new ArrayList<>(belowRealm(realmId));
         layers.add(realmTheme(realmId));
-        orgId.flatMap(id -> organizationInRealm(realmId, id)).ifPresent(o -> layers.add(storedOrganizationTheme(o.getOrgId())));
+        resolvedOrgId.ifPresent(id -> layers.add(storedOrganizationTheme(id)));
         Theme merged = DarkPalette.resolve(ThemeMerger.merge(layers));
+        merged = merged.withCustomCss(servableCss(realmId, merged.customCss()));
         final ThemeValidator validator = validator();
-        if (merged.customCss() != null) {
-            final Optional<String> problem = CustomCssValidator.validate(merged.customCss(), realmId,
-                    validator.imageOrigins(merged));
-            if (problem.isPresent()) {
-                LOG.warn("Realm {}: stored custom CSS no longer validates and is not served: {}",
-                        LogSafe.sanitize(realmId), LogSafe.sanitize(problem.get()));
-                merged = merged.withCustomCss(null);
-            }
+        return new EffectiveTheme(merged, ThemeJson.hash(merged), validator.imageOrigins(merged),
+                validator.cssUrlOrigins());
+    }
+
+    /**
+     * {@code css} when it passes the CURRENT custom-CSS rules (operator allowlist, uploaded assets), else null with a
+     * warning (spec §4: stored CSS that no longer validates is logged and skipped).
+     */
+    private String servableCss(final String realmId, final String css) {
+        if (css == null) {
+            return null;
         }
-        return new EffectiveTheme(merged, ThemeJson.hash(merged), validator.imageOrigins(merged));
+        final List<String> problems = CustomCssValidator.problems(css, realmId, allowedImageOrigins,
+                catalog.getIfAvailable(() -> ThemeAssetCatalog.NONE));
+        if (problems.isEmpty()) {
+            return css;
+        }
+        LOG.warn("Realm {}: stored custom CSS no longer validates and is not served: {}",
+                LogSafe.sanitize(realmId), LogSafe.sanitize(problems.get(0)));
+        return null;
     }
 
     /** The https origins images may load from for this realm (and organization), for the per-realm CSP. */
@@ -239,9 +259,20 @@ public class ThemeService {
         return Optional.of(storeOrganization(realmId, org.get().getOrgId(), patched));
     }
 
-    /** The deprecated realm-settings branding fields, read from the realm's layer. */
+    /**
+     * The deprecated realm-settings branding fields, read from the realm's layer, for serving: {@code customCss} is
+     * present only when it passes the current rules (review C1: nothing unvalidated reaches a page).
+     */
     @Transactional(readOnly = true)
     public LegacyBranding legacyBranding(final String realmId) {
+        final LegacyBranding stored = storedLegacyBranding(realmId);
+        return new LegacyBranding(stored.logoUrl(), stored.primaryColor(), stored.backgroundColor(),
+                stored.welcomeText(), servableCss(realmId, stored.customCss()));
+    }
+
+    /** The legacy fields exactly as stored (used to leave them untouched, e.g. by import). */
+    @Transactional(readOnly = true)
+    public LegacyBranding storedLegacyBranding(final String realmId) {
         return LegacyBranding.of(realmTheme(realmId));
     }
 
@@ -305,7 +336,7 @@ public class ThemeService {
         final RealmThemeRecord record = row.orElseGet(() -> new RealmThemeRecord(realmId, json));
         record.setThemeJson(json);
         realmThemes.save(record);
-        invalidate(realmId);
+        invalidateAfterCommit(realmId);
         return new ThemeChange(candidate, ThemeDiff.changedFields(before, candidate));
     }
 
@@ -316,7 +347,7 @@ public class ThemeService {
         final OrganizationThemeRecord record = row.orElseGet(() -> new OrganizationThemeRecord(orgId, realmId, json));
         record.setThemeJson(json);
         organizationThemes.save(record);
-        invalidate(realmId);
+        invalidateAfterCommit(realmId);
         return new ThemeChange(candidate, ThemeDiff.changedFields(before, candidate));
     }
 
@@ -357,7 +388,35 @@ public class ThemeService {
         return new ThemeValidator(catalog.getIfAvailable(() -> ThemeAssetCatalog.NONE), allowedImageOrigins);
     }
 
-    /** Drops the cached effective themes of a realm (done on every local write; for base-layer reloads). */
+    /**
+     * Review M2: drop the realm's cached effective themes only once the write is committed — invalidating inside
+     * the transaction would let a concurrent read re-cache the pre-commit theme for the whole TTL.
+     */
+    private void invalidateAfterCommit(final String realmId) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            invalidate(realmId);
+                        }
+                    });
+        } else {
+            invalidate(realmId);
+        }
+    }
+
+    /** Test seam: the number of cached effective themes. */
+    int cacheSize() {
+        return cache.size();
+    }
+
+    /** Test seam: the cache bound. */
+    void maxCacheEntries(final int max) {
+        this.maxCacheEntries = max;
+    }
+
+    /** Drops the cached effective themes of a realm (done after every local write; for base-layer reloads). */
     public void invalidate(final String realmId) {
         cache.keySet().removeIf(k -> k.startsWith(realmId + "|"));
     }
