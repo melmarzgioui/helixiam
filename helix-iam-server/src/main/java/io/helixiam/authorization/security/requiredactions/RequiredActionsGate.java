@@ -44,9 +44,13 @@ public class RequiredActionsGate {
     private final EmailVerificationService emailVerification;
     private final HttpSessionSecurityContextRepository contextRepository = new HttpSessionSecurityContextRepository();
 
-    public RequiredActionsGate(final UserAdminPublisher userPublisher, final EmailVerificationService emailVerification) {
+    private final String idpBaseUrl;
+
+    public RequiredActionsGate(final UserAdminPublisher userPublisher, final EmailVerificationService emailVerification,
+                               @org.springframework.beans.factory.annotation.Value("${idp.base.url:}") final String idpBaseUrl) {
         this.userPublisher = userPublisher;
         this.emailVerification = emailVerification;
+        this.idpBaseUrl = idpBaseUrl == null ? "" : idpBaseUrl.trim().replaceAll("/+$", "");
     }
 
     /**
@@ -62,7 +66,8 @@ public class RequiredActionsGate {
         try {
             stored = userPublisher.getRequiredActions(user.getUserId());
         } catch (final RuntimeException e) {
-            LOG.debug("Required-actions lookup failed for {}, continuing login: {}", user.getUserId(), e.getMessage());
+            LOG.debug("Required-actions lookup failed for {}, continuing login: {}", LogSafe.sanitize(user.getUserId()),
+                    LogSafe.sanitize(e.getMessage()));
             return false;
         }
         // C3: VERIFY_EMAIL is enforced, not acknowledged — it is pending exactly while the address is unverified and
@@ -84,8 +89,30 @@ public class RequiredActionsGate {
         SecurityContextHolder.getContext().setAuthentication(new MfaAuthentication(authentication));
         contextRepository.saveContext(SecurityContextHolder.getContext(), request, response);
         LOG.info("User {} held for required actions [{}]", LogSafe.sanitize(user.getUserId()), LogSafe.sanitize(pending));
+        if (EmailVerificationService.hasAction(pending)) {
+            sendVerificationLink(RealmContextHolder.get(), user.getUserId());
+        }
         response.sendRedirect(request.getContextPath() + "/required-actions");
         return true;
+    }
+
+    /**
+     * C3: emails the verification link as the user is held, here in the sign-in {@code POST} (CSRF-protected), so
+     * that {@code GET /required-actions} only shows the page (CodeQL #258). "Send again" is its own {@code POST}.
+     */
+    private void sendVerificationLink(final String realm, final String userId) {
+        if (idpBaseUrl.isEmpty()) {
+            // Security: the link's host comes from configuration, never from the request (Host header injection).
+            LOG.error("Verification email not sent: idp.base.url (IDP_BASE_URL) is not configured");
+            return;
+        }
+        try {
+            emailVerification.send(realm, userId, idpBaseUrl + "/realms/" + realm);
+        } catch (final RuntimeException e) {
+            // The page offers "send again"; a failed send must not fail the sign-in step.
+            LOG.warn("Verification email for user {} not sent: {}", LogSafe.sanitize(userId),
+                    LogSafe.sanitize(e.getClass().getSimpleName()));
+        }
     }
 
     /** The stored actions with {@code VERIFY_EMAIL} first when {@code verify} is set, and without it otherwise. */

@@ -268,8 +268,11 @@ public class SecurityConfig {
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/login/magic", "/login/magic/verify").permitAll());
         // C3: the emailed verification link (a confirmation page, then a single-use POST) works without a session.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/verify-email").permitAll());
-        // B1: the link that confirms a changed email address works in any browser (it carries a single-use token).
+        // B1: the link that confirms a changed email address works in any browser (it carries a single-use token): a
+        // confirmation page (GET), then the single-use POST (CSRF-protected like every form).
         http.authorizeHttpRequests(requests -> requests.requestMatchers(org.springframework.http.HttpMethod.GET,
+                "/account/email/verify").permitAll());
+        http.authorizeHttpRequests(requests -> requests.requestMatchers(org.springframework.http.HttpMethod.POST,
                 "/account/email/verify").permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
         // (confirm) and the mid-login browser (SSE/poll); they are secured by the device signature

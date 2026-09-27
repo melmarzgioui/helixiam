@@ -366,11 +366,17 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         final String link = mail.link("/account/email/verify?token=").orElseThrow();
         assertThat(link).startsWith(baseUrl() + realm.path() + "/account/email/verify?token=");
 
-        // The link works in any browser, once.
+        // The link works in any browser, once. Opening it only asks (a mail scanner that prefetches it confirms
+        // nothing); the button confirms (CodeQL #259: no state change on GET).
         final com.microsoft.playwright.Page phone = otherBrowser();
         phone.navigate(link);
+        assertThat(phone.locator("#email-confirm-title").innerText()).isEqualTo("Confirm your new email address");
+        page().navigate(accountUrl(realm, null));
+        assertThat(page().locator("#email-unverified").isVisible()).as("opening the link verifies nothing").isTrue();
+        submitOn(phone, phone.locator("#email-confirm"));
         assertThat(phone.locator("#notice-title").innerText()).isEqualTo("Email address confirmed");
         phone.navigate(link);
+        submitOn(phone, phone.locator("#email-confirm"));
         assertThat(phone.locator("#notice-title").innerText()).isEqualTo("This link can't be used");
 
         page().navigate(accountUrl(realm, null));
@@ -561,5 +567,11 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
     /** The path of the current page. */
     String path() {
         return URI.create(page().url()).getPath();
+    }
+
+    /** Clicks {@code target} on another tab and waits for the navigation it starts. */
+    private static void submitOn(final com.microsoft.playwright.Page tab, final com.microsoft.playwright.Locator target) {
+        tab.waitForNavigation(target::click);
+        tab.waitForLoadState(com.microsoft.playwright.options.LoadState.LOAD);
     }
 }

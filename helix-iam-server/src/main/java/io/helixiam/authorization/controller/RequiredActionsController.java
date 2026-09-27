@@ -40,8 +40,6 @@ import java.util.List;
 public class RequiredActionsController {
 
     public static final String UPDATE_PASSWORD = "UPDATE_PASSWORD";
-    /** C3: set once the verification link was sent automatically for this pending sign-in. */
-    static final String VERIFY_EMAIL_SENT_ATTR = "HELIX_VERIFY_EMAIL_SENT";
 
     private static final Logger LOG = LogManager.getLogger(RequiredActionsController.class);
 
@@ -86,12 +84,8 @@ public class RequiredActionsController {
         model.addAttribute("actionLabel", label(action));
         model.addAttribute("remaining", pending.size());
         if (EmailVerificationService.VERIFY_EMAIL.equalsIgnoreCase(action)) {
-            // C3: send the link once when the user first lands here; "send again" is an explicit, rate-limited POST.
-            final HttpSession session = request.getSession();
-            if (session.getAttribute(VERIFY_EMAIL_SENT_ATTR) == null) {
-                session.setAttribute(VERIFY_EMAIL_SENT_ATTR, Boolean.TRUE);
-                sendVerification(request);
-            }
+            // C3: a GET only shows the page (CodeQL #258). The link was emailed by RequiredActionsGate in the sign-in
+            // POST; "send again" is an explicit, rate-limited POST.
             return verifyEmailPage(request, model);
         }
         return UPDATE_PASSWORD.equalsIgnoreCase(action)
@@ -224,7 +218,6 @@ public class RequiredActionsController {
             session.removeAttribute(RequiredActionsGate.PENDING_AUTH_ATTR);
             session.removeAttribute(RequiredActionsGate.PENDING_ACTIONS_ATTR);
             session.removeAttribute(RequiredActionsGate.PENDING_REALM_ATTR);
-            session.removeAttribute(VERIFY_EMAIL_SENT_ATTR);
         }
         if (original == null) {
             response.sendRedirect(request.getContextPath() + "/login");
