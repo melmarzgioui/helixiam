@@ -1,0 +1,5 @@
+# C4: Spring Boot 3 loads EnvironmentPostProcessors from spring.factories only. The former
+# META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports was never read, so the post-processor
+# below never ran and /actuator/health reported DOWN without Redis.
+org.springframework.boot.env.EnvironmentPostProcessor=\
+io.helixiam.authorization.session.QueueSessionEnvironmentPostProcessor
