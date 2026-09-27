@@ -96,6 +96,29 @@ class MessagingServiceTest {
 
         service.sendEmail("master", "ada@h.test", "otp-email", Map.of("code", "123456"));
 
-        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Hi"), eq("<b>123456</b>"), eq(true));
+        // HTML templates are sent inside the shared branded layout (HelixIAM when no branding source is set).
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Hi"),
+                org.mockito.ArgumentMatchers.argThat(b -> b.startsWith("<!DOCTYPE html>") && b.contains("<b>123456</b>")
+                        && b.contains(">HelixIAM<")), eq(true));
+    }
+
+    @Test
+    void htmlEmail_isWrappedInTheBrandedLayout_withEscapedValues() {
+        final var driver = mock(EmailDriver.class);
+        when(driver.driver()).thenReturn("SMTP");
+        final MessagingService service = new MessagingService(publisher, List.of(), List.of(driver), List.of());
+        service.setEmailBranding(realm -> new EmailBranding("Harbor & Pine", "https://cdn.example/logo.png", "#B4532A"));
+        when(publisher.enabledProviders(any())).thenReturn(List.of(
+                new ResolvedProviderDto("EMAIL", "SMTP", "no-reply@h.test", "Helix", Map.of("host", "smtp"), "pw")));
+        when(publisher.listTemplates("mf")).thenReturn(List.of(new MessageTemplateDto("t", "mf", "magic-link-email", "EMAIL",
+                "Sign in to {{realm}}", "<p>Hi {{user}}</p><p><a href=\"{{link}}\" data-button>Sign in</a></p>", true, true)));
+
+        assertThat(service.sendEmail("mf", "ada@h.test", "magic-link-email",
+                Map.of("realm", "mf", "user", "<b>Ada</b>", "link", "https://idp.example/v?t=1"))).isTrue();
+
+        final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(driver).send(any(), eq("ada@h.test"), eq("Sign in to mf"), body.capture(), eq(true));
+        assertThat(body.getValue()).startsWith("<!DOCTYPE html>").contains("https://cdn.example/logo.png")
+                .contains("bgcolor=\"#B4532A\"").contains("&lt;b&gt;Ada&lt;/b&gt;").doesNotContain("<b>Ada</b>");
     }
 }

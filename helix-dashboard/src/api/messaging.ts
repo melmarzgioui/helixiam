@@ -51,7 +51,7 @@ export interface MessagingApi {
   testProvider(realmId: string, channel: string, to: string): Promise<TestResult>;
   listTemplates(realmId: string): Promise<MessageTemplate[]>;
   saveTemplate(realmId: string, body: MessageTemplate): Promise<MessageTemplate>;
-  previewTemplate(realmId: string, subject: string | null, templateBody: string): Promise<RenderedPreview>;
+  previewTemplate(realmId: string, subject: string | null, templateBody: string, html?: boolean): Promise<RenderedPreview>;
 }
 
 /** HTTP-backed client for the N2 messaging admin REST API. */
@@ -75,7 +75,7 @@ export function createMessagingHttpClient(baseUrl = ""): MessagingApi {
       send(`${root(realmId)}/providers/${encodeURIComponent(channel)}/test`, "POST", { to }),
     listTemplates: (realmId) => fetch(`${root(realmId)}/templates`).then(json),
     saveTemplate: (realmId, body) => send(`${root(realmId)}/templates`, "PUT", body),
-    previewTemplate: (realmId, subject, templateBody) =>
-      send(`${root(realmId)}/templates/preview`, "POST", { subject, body: templateBody }),
+    previewTemplate: (realmId, subject, templateBody, html) =>
+      send(`${root(realmId)}/templates/preview`, "POST", { subject, body: templateBody, html: html ?? false }),
   };
 }

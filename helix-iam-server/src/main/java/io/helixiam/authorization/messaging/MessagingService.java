@@ -34,6 +34,7 @@ public class MessagingService {
     private final List<SmsDriver> smsDrivers;
     private final List<EmailDriver> emailDrivers;
     private final List<PushDriver> pushDrivers;
+    private EmailBrandingSource emailBranding;
 
     public MessagingService(final MessagingAdminPublisher publisher, final List<SmsDriver> smsDrivers,
                             final List<EmailDriver> emailDrivers, final List<PushDriver> pushDrivers) {
@@ -131,8 +132,19 @@ public class MessagingService {
         final Map<String, String> v = vars == null ? Map.of() : vars;
         final MessageTemplateDto template = template(realm, templateKey);
         final String subject = template == null ? "" : TemplateRenderer.render(template.subject(), v);
+        if (template != null && template.html()) {
+            // HTML email: escaped values, inside the shared branded layout (organization in context, else realm).
+            final EmailBranding branding = emailBranding == null ? EmailBranding.helixIam() : emailBranding.brandingFor(realm);
+            return new Rendered(subject, EmailLayout.wrap(branding, subject, TemplateRenderer.renderHtml(template.body(), v)), true);
+        }
         final String body = template == null ? v.getOrDefault("code", "") : TemplateRenderer.render(template.body(), v);
-        return new Rendered(subject, body, template != null && template.html());
+        return new Rendered(subject, body, false);
+    }
+
+    /** The brand HTML emails are sent under; without one, HelixIAM's. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEmailBranding(final EmailBrandingSource emailBranding) {
+        this.emailBranding = emailBranding;
     }
 
     private MessageTemplateDto template(final String realm, final String key) {

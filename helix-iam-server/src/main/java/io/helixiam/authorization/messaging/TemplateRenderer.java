@@ -38,6 +38,17 @@ public final class TemplateRenderer {
         return out.toString();
     }
 
+    /**
+     * As {@link #render} for an HTML template: every substituted value is HTML-escaped, so a user-controlled value
+     * (a name, a claim) cannot inject markup or links into the email. The template's own markup is kept.
+     */
+    public static String renderHtml(final String template, final Map<String, String> variables) {
+        final Map<String, String> escaped = new java.util.HashMap<>();
+        (variables == null ? Map.<String, String>of() : variables).forEach((k, v) ->
+                escaped.put(k, v == null ? "" : org.springframework.web.util.HtmlUtils.htmlEscape(v)));
+        return render(template, escaped);
+    }
+
     /** Sample values for the console live preview, covering the common placeholders. */
     public static Map<String, String> sampleVariables(final String realm) {
         final Map<String, String> sample = new LinkedHashMap<>();

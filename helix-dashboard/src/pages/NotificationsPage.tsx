@@ -233,9 +233,9 @@ function TemplatesEditor({ api, realmId, templates, onSaved, onError }: {
 
   React.useEffect(() => { setSubject(selected?.subject ?? ""); setBody(selected?.body ?? ""); setHtml(selected?.html ?? false); }, [selectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => {
-    const timer = setTimeout(() => { api.previewTemplate(realmId, subject, body).then(setPreview).catch(() => undefined); }, 250);
+    const timer = setTimeout(() => { api.previewTemplate(realmId, subject, body, selected?.channel === "EMAIL" && html).then(setPreview).catch(() => undefined); }, 250);
     return () => clearTimeout(timer);
-  }, [subject, body, api, realmId]);
+  }, [subject, body, html, api, realmId, selected?.channel]);
 
   if (!selected) return <Section><span className="hx-muted">{t("notifications.templates.empty")}</span></Section>;
   const isEmail = selected.channel === "EMAIL";

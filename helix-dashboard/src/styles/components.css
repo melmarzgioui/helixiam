@@ -292,7 +292,7 @@ textarea.hx-input { min-height: 96px; resize: vertical; line-height: 1.5; }
 /* Bottom-gap utility (content passed above another region). */
 .hx-mb-4 { margin-bottom: var(--sp-4); }
 .hx-scheme-th { border-left: 3px solid var(--tone); }
-.hx-email-preview { width: 100%; min-height: 200px; border: 1px solid var(--border); border-radius: var(--r-sm); background: #fff; }
+.hx-email-preview { width: 100%; min-height: 560px; border: 1px solid var(--border); border-radius: var(--r-sm); background: #fff; }
 
 /* Wide matrix table (RBAC permission grid): sticky first column, centered toggle cells, nowrap headers. */
 .hx-col-sticky { position: sticky; left: 0; background: var(--surface); z-index: 1; }

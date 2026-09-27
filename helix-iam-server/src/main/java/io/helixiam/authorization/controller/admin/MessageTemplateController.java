@@ -32,6 +32,9 @@ public class MessageTemplateController {
 
     private final MessagingAdminPublisher publisher;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private io.helixiam.authorization.messaging.EmailBrandingSource emailBranding;
+
     public MessageTemplateController(final MessagingAdminPublisher publisher) {
         this.publisher = publisher;
     }
@@ -52,13 +55,20 @@ public class MessageTemplateController {
     public Rendered preview(@PathVariable final String realmId, @RequestBody final PreviewRequest request) {
         final Map<String, String> vars = request.variables() == null || request.variables().isEmpty()
                 ? TemplateRenderer.sampleVariables(realmId) : request.variables();
-        return new Rendered(TemplateRenderer.render(request.subject(), vars),
-                TemplateRenderer.render(request.body(), vars));
+        final String subject = TemplateRenderer.render(request.subject(), vars);
+        if (Boolean.TRUE.equals(request.html())) {
+            // Exactly what is sent: escaped values inside the realm's branded email layout.
+            final io.helixiam.authorization.messaging.EmailBranding branding = emailBranding == null
+                    ? io.helixiam.authorization.messaging.EmailBranding.helixIam() : emailBranding.brandingFor(realmId);
+            return new Rendered(subject, io.helixiam.authorization.messaging.EmailLayout.wrap(branding, subject,
+                    TemplateRenderer.renderHtml(request.body(), vars)));
+        }
+        return new Rendered(subject, TemplateRenderer.render(request.body(), vars));
     }
 
     /** Preview request: the unsaved subject/body + optional variable overrides. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record PreviewRequest(String subject, String body, Map<String, String> variables) {
+    public record PreviewRequest(String subject, String body, Map<String, String> variables, Boolean html) {
     }
 
     /** Preview result: the rendered subject + body. */

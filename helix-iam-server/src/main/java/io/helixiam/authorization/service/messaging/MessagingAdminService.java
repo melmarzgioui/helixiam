@@ -115,13 +115,17 @@ public class MessagingAdminService {
         list.add(template(realmId, "otp-sms", "SMS", null,
                 "{{realm}} verification code: {{code}} (valid {{ttl}}).", false));
         list.add(template(realmId, "otp-email", "EMAIL", "Your {{realm}} verification code",
-                "<p>Hi {{user}},</p>\n<p>Your verification code is <strong>{{code}}</strong>. "
-                        + "It expires in {{ttl}}.</p>\n<p style=\"color:#888;font-size:13px\">"
+                "<p>Hi {{user}},</p>\n<p>Your verification code is:</p>\n"
+                        + "<p style=\"font-size:28px;font-weight:700;letter-spacing:6px;margin:8px 0 16px;\">{{code}}</p>\n"
+                        + "<p>It expires in {{ttl}}.</p>\n<p style=\"color:#7a7468;font-size:13px\">"
                         + "If you didn't request this, you can safely ignore this email.</p>", true));
         list.add(template(realmId, "magic-link-email", "EMAIL", "Sign in to {{realm}}",
-                "<p>Hi {{user}},</p>\n<p><a href=\"{{link}}\">Sign in to {{realm}}</a>.</p>\n"
-                        + "<p style=\"color:#888;font-size:13px\">This link works once and expires in {{ttl}}. "
-                        + "If you didn't request it, you can ignore this email.</p>", true));
+                "<p>Hi {{user}},</p>\n<p>Use the button below to sign in to {{realm}}.</p>\n"
+                        + "<p><a href=\"{{link}}\" data-button>Sign in</a></p>\n"
+                        + "<p style=\"color:#7a7468;font-size:13px\">If the button doesn't work, copy this link into your browser:<br>"
+                        + "<a href=\"{{link}}\" style=\"color:#7a7468;word-break:break-all\">{{link}}</a></p>\n"
+                        + "<p style=\"color:#7a7468;font-size:13px\">This link works once and expires in {{ttl}}. "
+                        + "If you didn't request it, you can safely ignore this email.</p>", true));
         list.add(template(realmId, "push-approval", "PUSH", "Approve your sign-in",
                 "Tap to approve signing in to {{realm}}. Match this number: {{number}}.", false));
         return list;
