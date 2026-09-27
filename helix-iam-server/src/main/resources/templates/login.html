@@ -51,7 +51,7 @@
             <div class="alert success" role="status"
                  th:if="${param.info != null && #strings.toString(param.info).equals('verified')}"
                  th:text="#{login.info.verified}">
-                Your account is all set—welcome aboard!
+                Your email address is verified. Sign in to continue.
             </div>
 
             <form th:action="@{/login}" method="post" role="form" id="loginForm" th:with="badCredentials=${param.error != null && ! #strings.toString(param.error).equals('accountLocked') && ! #strings.toString(param.error).equals('tooManySessions') && ! #strings.toString(param.error).equals('mfaLocked')}">

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/theme :: hxHead(#{register.verify.title}, false)}"></th:block>
+    <script defer th:src="@{/js/App.js}" type="module"></script>
+</head>
+<body>
+<div class="mainWrapper">
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <h1 class="hx-title" th:text="#{register.verify.title}">Confirm your email address</h1>
+            <div class="description" th:text="#{register.verify.description}">Enter the code from the email we sent you.</div>
+        </div>
+
+        <div class="container">
+            <article>
+            <!--/* Item A7: for those who cannot click the emailed link. The link itself is /register/verify/{code}. */-->
+            <form th:action="@{/register/verify}" method="post" id="verifyForm" th:classappend="${error != null ? 'invalid' : 'valid'}">
+                <label for="code" th:text="#{register.verify.code.label}">Verification code</label>
+                <input type="text" id="code" name="code" autofocus autocomplete="one-time-code" spellcheck="false"
+                       autocapitalize="off" th:value="${code}"
+                       th:attr="aria-invalid=${error != null} ? 'true' : null, aria-describedby=${error != null} ? 'code-error' : null"/>
+                <span class="error" id="code-error" role="alert" th:if="${error != null}" th:text="#{register.verify.error}">This code is not valid or was already used.</span>
+
+                <div class="spacer">&nbsp;</div>
+                <div class="buttonHolder">
+                    <button type="submit"><span th:text="#{register.verify.submit}">Confirm</span></button>
+                </div>
+            </form>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

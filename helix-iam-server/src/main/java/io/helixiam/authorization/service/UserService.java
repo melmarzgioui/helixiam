@@ -182,9 +182,16 @@ public class UserService {
 
     /**
      * Verifies email using signup code and sends internal registration notification.
+     *
+     * @return whether {@code code} was a pending verification code (item A7: the code page says when it is not)
      */
     public boolean verifyEmail(final String code) {
-        notificationCodeRepository.findByCodeAndType(code, "USER_SIGNUP").ifPresent(notificationCode -> {
+        if (code == null || code.isBlank()) {
+            return false;
+        }
+        final java.util.Optional<io.helixiam.notification.domain.NotificationCode> pending =
+                notificationCodeRepository.findByCodeAndType(code.trim(), "USER_SIGNUP");
+        pending.ifPresent(notificationCode -> {
             final VerifyEmail verifyEmail = new VerifyEmail();
             verifyEmail.setUserId(notificationCode.getIdentifier());
 
@@ -207,7 +214,7 @@ public class UserService {
             notificationCodeRepository.delete(notificationCode);
         });
 
-        return true;
+        return pending.isPresent();
     }
 
     /**

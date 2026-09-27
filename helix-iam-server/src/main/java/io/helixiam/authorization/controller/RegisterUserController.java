@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -40,6 +41,7 @@ public class RegisterUserController {
   private static final Logger log = LoggerFactory.getLogger(RegisterUserController.class);
 
   private static final String VIEW_REGISTER_PAGE = "register/register";
+  private static final String VIEW_VERIFY_PAGE = "register/verify";
 
   // Per-realm self-registration (SDD Task 6): claims that are never rendered as register-form inputs
   // (subject identifier, or collected/derived elsewhere), so the POST harvest+validation skips them.
@@ -123,12 +125,46 @@ public class RegisterUserController {
   }
 
 
+  /** Item A7: the page to type the verification code for those who cannot click the emailed link. */
+  @GetMapping("/register/verify")
+  public String verifyPage(final Model model) {
+    return verifyView(model, null, false);
+  }
+
+  /** Item A7: the code typed on the code page. */
+  @PostMapping("/register/verify")
+  public String verifyTyped(@RequestParam(name = "code", required = false) final String code, final Model model,
+                            final HttpServletRequest request, final HttpServletResponse response) throws IOException {
+    return verify(code, model, request, response);
+  }
+
+  /** The link in the verification email. */
   @GetMapping("/register/verify/{code}")
-  public void registrationSuccess(@PathVariable("code") final String code, final HttpServletRequest request,
-                                  final HttpServletResponse httpServletResponse) throws IOException {
-    userPublisher.verifyEmail(code);
+  public String registrationSuccess(@PathVariable("code") final String code, final Model model,
+                                    final HttpServletRequest request, final HttpServletResponse response)
+          throws IOException {
+    return verify(code, model, request, response);
+  }
+
+  private String verify(final String code, final Model model, final HttpServletRequest request,
+                        final HttpServletResponse response) throws IOException {
+    if (!Boolean.TRUE.equals(userPublisher.verifyEmail(code))) {
+      // Unknown, used or mistyped: say so on the code page (it used to redirect to "verified" regardless).
+      response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+      return verifyView(model, code, true);
+    }
     // MT-4: context-relative so it stays under the realm path (/realms/{realm}/login).
-    httpServletResponse.sendRedirect(request.getContextPath() + "/login?info=verified");
+    response.sendRedirect(request.getContextPath() + "/login?info=verified");
+    return null;
+  }
+
+  private String verifyView(final Model model, final String code, final boolean error) {
+    model.addAttribute("code", code == null ? "" : code.trim());
+    model.addAttribute("error", error ? Boolean.TRUE : null);
+    if (brandingSupport != null) {
+      brandingSupport.apply(model);
+    }
+    return VIEW_VERIFY_PAGE;
   }
 
   @PostMapping(value = "/register")
