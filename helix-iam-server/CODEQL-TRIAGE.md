@@ -118,3 +118,56 @@ depends on a setting or a custom guard.
 | #97 | sensitive-log | `OutboundUrlGuard` logs and echoes only `scheme://host[:port]` | `OutboundUrlGuardTest.blockedUrl_neverLogsOrEchoesCredentialsPathOrQuery` |
 | #243, #244 | user-controlled-bypass | The flagged flow is fail-closed, but review found a real cross-realm escalation: role `admin_x` in realm `y` produced the authority `admin_x_y`, the same string as "admin of realm `x_y`". Role names starting with `admin_` are now reserved. | `AdminRoleNameCollisionE2eTest`, `RoleAdminServiceTest.create_rejectsAReservedAdminPrefixedName_soItCannotPoseAsAnotherRealmsAdmin` |
 | (from #242 review) | ssrf | WIF issuer-discovery GET now passes `OutboundUrlGuard` | `WorkloadIdentityDiscoveryEgressTest` |
+
+## rc.5 scan
+
+Alerts from the scan of `v1.0.0-rc.5` (19). Line numbers are those in the scanned commit (`b21afba`). Fixed alerts are
+listed in the table at the end of this section; the false positives are explained first.
+
+### False positives
+
+#### #256: `java/unvalidated-url-redirection`: `authorization/security/mfa/MfaEnforcementFilter.java:194`
+The target is a redirect URI registered for the client: `sendInteractionRequired` looks the client up with
+`RegisteredClientRepository.findByClientId`, which is realm-scoped (`RealmScopedKey.pack(RealmContextHolder.get(), …)`),
+and uses the request's `redirect_uri` only when `client.getRedirectUris().contains(requested)` (exact match), else the
+client's only registered URI, else nothing is sent (the user gets the second step instead). Only `error`,
+`error_description` and `state` are added, through `UriComponentsBuilder.queryParam(...).encode()`, so they cannot
+change the host or path. This is the `prompt=none` error response OpenID Connect requires.
+
+#### #257: `java/unvalidated-url-redirection`: `authorization/security/realm/OrganizationMembershipFilter.java:105`
+Same validation as #256: `registeredRedirectUri` returns the requested `redirect_uri` only when it is exactly one of the
+(realm-scoped) client's registered redirect URIs, or the client's only one; an unknown client or an unregistered URI
+returns `null` and the filter passes the request on to the authorization endpoint, which rejects it. The redirect then
+carries only `error=access_denied`, a fixed description and the encoded `state`.
+
+#### #265–#270: `java/user-controlled-bypass`: `authorization/controller/admin/io/RealmImportService.java:644`, `:646`, `:648`, `:684`, `:810`, `:847`
+The "sensitive methods" on these lines are record accessors whose names match CodeQL's authentication-name heuristic:
+`c.authFlowAlias()`, `c.loginTheme()`, `c.tokenEndpointAuthMethod()` (clients), `sp.defaultAuthnContextClassRef()`
+(SAML), `app.authFlowAlias()` (applications) and `a.authMethod()` (agents). They read a field of the imported document
+to copy it into the write DTO; none of them checks anything. The user-controlled conditions that can skip them
+(`c == null || isBlank(key)`, `blocked(existing, …)` for the `onConflict` policy, and `existing.containsKey(key)` for
+create vs update) only decide whether that document row is skipped, created or updated. The import itself is an admin
+write: `/admin/realms/{realmId}/import` needs `manage-realm` for that realm (`AdminRoutePermissions` default), and every
+row is written into the path's `realmId`, never a realm named in the document. Skipping a row skips no check.
+
+#### #271: `java/user-controlled-bypass`: `authorization/security/PageCspPolicy.java:137`
+The "sensitive method" is `pendingAuthorizationClientId(request)`, a session lookup of the saved authorize request's
+`client_id`, flagged for the word "Authorization" in its name. It only feeds the page's CSP `form-action` list, and
+the condition that skips it (`clientId == null && !logout`) means an explicit `client_id` on `/oauth2/authorize`,
+`/oauth2/consent` or `/connect/logout` is used instead. Either way the only origins added are those of redirect URIs
+registered for that realm-scoped client (post-logout URIs on logout), each filtered by `formActionSource` (http(s)
+origin or a private-use scheme; no wildcards, quotes, separators or script-capable schemes). These are exactly the
+places the authorization server will redirect to for that client. An unknown client or any error leaves `'self'` only.
+No security check depends on this value.
+
+### Fixed
+
+| Alert(s) | Rule | Fix | Test |
+|---|---|---|---|
+| #258 | csrf-unprotected-request-type | `GET /required-actions` only shows the page. The verification email is sent by `RequiredActionsGate` inside the sign-in `POST`; "send again" stays a `POST` | `RequiredActionsVerifyEmailTest`, `EmailVerificationE2eTest` |
+| #259 | csrf-unprotected-request-type | `GET /account/email/verify` shows a confirmation page (`account/email-confirm`); its button `POST`s the token with the CSRF token, and only the `POST` confirms the address (same pattern as C3 `/verify-email`) | `AccountConsoleBrowserE2eTest.anEmailChange_isUnverifiedUntilTheLinkSentToTheNewAddressIsOpened` |
+| #253 | polynomial-redos | `EmailLayout` finds `data-button` links with a one-pass scanner instead of `(.*?)</a>` | `EmailLayoutTest.manyUnclosedButtonLinks_areHandledInLinearTime`, `…buttons_areFoundCaseInsensitively_acrossLines_andOtherLinksAreLeftAlone` |
+| #254 | polynomial-redos | `EmailChangeService.normalise` checks the address in one pass (`isPlausible`), no regex. The input was already capped at 254 characters before the regex ran, so this was defence in depth | `EmailChangeServiceNormaliseTest` |
+| #260 | sensitive-log | an unreadable `HELIX_BOOTSTRAP_CLIENT_SECRET_FILE` is reported without its path | `BootstrapServiceAccountServiceTest.anUnreadableSecretFile_isReported_withoutLoggingItsPath` |
+| #261–#264 | log-injection | `FederatedLoginCompleter` and `QueueSpringSessionStore` wrap the user id / principal name and exception messages in `LogSafe.sanitize` | (`LogSafeTest`) |
+| #255 | unvalidated-url-redirection | Hardening. The target was the authorize request saved in the user's own session, so it was always this server. `InFlightClientResolver.pendingAuthorizeUrl` now returns only its path and query, never its scheme and host, and refuses a path starting with `//` | `InFlightClientResolverTest.pendingAuthorizeUrl_*` |

@@ -3,6 +3,26 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.5`)
+
+CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven false positives are explained in
+`helix-iam-server/CODEQL-TRIAGE.md` ("rc.5 scan").
+
+- **security** — `79b5bf4` No state change on a `GET` (CodeQL #258, #259). Opening `/required-actions` sent the
+  verification email; the email is now sent in the sign-in `POST` that holds the user, and "send again" stays a
+  `POST`. Opening the link that confirms a changed email address (`/account/email/verify`) confirmed it at once, so a
+  mail scanner that prefetches links confirmed it without the user. The link now opens
+  a confirmation page, and its button confirms (a `POST` with the CSRF token), like the C3 `/verify-email` link.
+- **security** — `d98a5e2` Linear-time checks (CodeQL #253, #254). Turning `data-button` links into buttons in HTML
+  emails was quadratic in the body length on many unclosed links (a template or a user value could slow down every
+  email); it is now a one-pass scan. The plausibility check on a new email address no longer uses a backtracking regex.
+- **security** — `d01b9f4` Logs (CodeQL #260–#264). An unreadable `HELIX_BOOTSTRAP_CLIENT_SECRET_FILE` is reported
+  without its path; the federated-login and session-store logs pass the user id, principal name and exception
+  messages through `LogSafe.sanitize`.
+- **security** — `22a2942` After registering or verifying an address, the user is sent back to the pending sign-in by
+  path only, never by the saved request's scheme and host, and a path that starts with `//` is refused (CodeQL #255,
+  hardening: the saved request always came from the user's own session on this server).
+
 ## Next release (after `v1.0.0-rc.4`)
 
 Open issues found when Monthfold moved its production sign-in to rc.4
