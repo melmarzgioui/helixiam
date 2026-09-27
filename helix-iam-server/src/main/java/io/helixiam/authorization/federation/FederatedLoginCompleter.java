@@ -23,6 +23,7 @@ import io.helixiam.authorization.security.realm.RealmContextHolder;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
@@ -98,18 +99,18 @@ public class FederatedLoginCompleter {
                 sessionEstablisher.persist(fullAuthentication, request, response);
                 authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
-                LOG.info("Federated login completed for user {} (no step-up required)", userId);
+                LOG.info("Federated login completed for user {} (no step-up required)", LogSafe.sanitize(userId));
                 // SSO P1: resume the originating /oauth2/authorize (if any), else the SP base URL.
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }
             case CHALLENGE -> {
                 // Hold the user pending the post-broker factor; /flow promotes this to a full session.
                 sessionEstablisher.persist(new MfaAuthentication(fullAuthentication), request, response);
-                LOG.info("Federated login for user {} requires step-up — routing to the flow engine", userId);
+                LOG.info("Federated login for user {} requires step-up — routing to the flow engine", LogSafe.sanitize(userId));
                 yield "redirect:/flow";
             }
             case FAILED -> {
-                LOG.warn("Federated login post-broker flow failed for user {}", userId);
+                LOG.warn("Federated login post-broker flow failed for user {}", LogSafe.sanitize(userId));
                 yield LOGIN_ERROR;
             }
         };
@@ -130,7 +131,7 @@ public class FederatedLoginCompleter {
             }
         } catch (final RuntimeException e) {
             LOG.warn("Could not load the persisted login flow for federation, using the in-code fallback: {}",
-                    e.getMessage());
+                    LogSafe.sanitize(e.getMessage()));
         }
         return BrowserFlows.fallbackDefinition(user.isMfaEnabled());
     }

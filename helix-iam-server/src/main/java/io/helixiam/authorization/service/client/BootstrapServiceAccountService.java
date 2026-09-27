@@ -111,7 +111,8 @@ public class BootstrapServiceAccountService {
             try {
                 return Files.readString(Path.of(secretFile), StandardCharsets.UTF_8).strip();
             } catch (final IOException e) {
-                LOG.error("Could not read HELIX_BOOTSTRAP_CLIENT_SECRET_FILE {}: {}", LogSafe.sanitize(secretFile),
+                // Nothing from the secret setting is logged, not even the file's path (CodeQL #260).
+                LOG.error("Could not read the file named by HELIX_BOOTSTRAP_CLIENT_SECRET_FILE: {}",
                         LogSafe.sanitize(e.getClass().getSimpleName()));
                 return null;
             }

@@ -68,6 +68,17 @@ class BootstrapServiceAccountServiceTest {
         assertThat(service("prov", GOOD + "  ", "").resolveSecret()).isEqualTo(GOOD);
     }
 
+    @Test
+    void anUnreadableSecretFile_isReported_withoutLoggingItsPath(@TempDir final Path dir) {
+        // CodeQL #260 (java/sensitive-log): nothing derived from the secret setting is logged, not even the file path.
+        final String path = dir.resolve("s3cr3t-location").toString();
+        try (io.helixiam.testsupport.LogCapture logs = io.helixiam.testsupport.LogCapture.of(BootstrapServiceAccountService.class)) {
+            assertThat(service("prov", GOOD, path).resolveSecret()).isNull();
+            assertThat(logs.text()).contains("HELIX_BOOTSTRAP_CLIENT_SECRET_FILE").doesNotContain("s3cr3t-location")
+                    .doesNotContain(GOOD);
+        }
+    }
+
     private BootstrapServiceAccountService service(final String id, final String secret, final String file) {
         return new BootstrapServiceAccountService(clients, roles, id, secret, file);
     }
