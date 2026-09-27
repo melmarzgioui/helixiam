@@ -27,7 +27,9 @@ public class QueueSessionEnvironmentPostProcessor implements EnvironmentPostProc
                 environment.getProperty("helix.iam.session-store", "jdbc"));
         if ("queue".equalsIgnoreCase(store)) {
             environment.getPropertySources().addFirst(new MapPropertySource("helix-queue-session",
-                    Map.of("spring.session.store-type", "none", "helix.iam.session-store", "queue")));
+                    Map.of("spring.session.store-type", "none", "helix.iam.session-store", "queue",
+                            // Redis is not used for sessions, so it must not make /actuator/health report DOWN.
+                            "management.health.redis.enabled", "false")));
         }
     }
 }
