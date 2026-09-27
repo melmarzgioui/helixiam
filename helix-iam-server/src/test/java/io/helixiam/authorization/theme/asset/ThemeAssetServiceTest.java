@@ -101,6 +101,17 @@ class ThemeAssetServiceTest {
     }
 
     @Test
+    void reviewM3_aFamilyHasOneSpelling_caseInsensitively() {
+        font("a", "Public Sans", "400");
+        assertThatThrownBy(() -> font("a", "public sans", "700")).isInstanceOf(ThemeValidationException.class)
+                .satisfies(e -> assertThat(((ThemeValidationException) e).fieldErrors().get("name"))
+                        .contains("Public Sans"));
+        assertThatThrownBy(() -> font("a", "PUBLIC SANS", "400")).isInstanceOf(ThemeValidationException.class);
+        assertThat(font("a", "Public Sans", "700")).as("the same spelling adds a face").isNotNull();
+        assertThat(font("b", "public sans", "400")).as("other realms are independent").isNotNull();
+    }
+
+    @Test
     void assetsAreRealmScoped() {
         final ThemeAssetMetadata m = image("a");
         assertThat(service.find("b", m.id())).isEmpty();

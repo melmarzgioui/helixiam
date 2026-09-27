@@ -992,5 +992,7 @@ CREATE TABLE IF NOT EXISTS theme_asset (
     CONSTRAINT theme_asset_size_chk CHECK (size_bytes > 0 AND size_bytes <= 524288)
 );
 CREATE INDEX IF NOT EXISTS theme_asset_realm_idx ON theme_asset (realm_id, kind);
-CREATE UNIQUE INDEX IF NOT EXISTS theme_asset_font_face_uq ON theme_asset (realm_id, name, font_weight, font_style)
-    WHERE kind = 'font';
+-- Same as Flyway V22: font faces are unique case-insensitively (CSS family names are).
+DROP INDEX IF EXISTS theme_asset_font_face_uq;
+CREATE UNIQUE INDEX IF NOT EXISTS theme_asset_font_face_ci_uq
+    ON theme_asset (realm_id, lower(name), font_weight, font_style) WHERE kind = 'font';

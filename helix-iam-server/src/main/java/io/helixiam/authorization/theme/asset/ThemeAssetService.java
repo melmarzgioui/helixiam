@@ -67,6 +67,18 @@ public class ThemeAssetService {
             throw new ThemeValidationException(Map.of("file", "This realm already has " + max
                     + (a.kind() == ThemeAssetKind.FONT ? " fonts" : " images") + ", the maximum; delete one first."));
         }
+        if (a.kind() == ThemeAssetKind.FONT) {
+            // Review M3: CSS family names match case-insensitively, so a family has exactly one spelling per realm
+            // (theme references stay exact: they must use that spelling).
+            store.list(realmId).stream()
+                    .filter(m -> m.kind() == ThemeAssetKind.FONT && m.name().equalsIgnoreCase(a.name())
+                            && !m.name().equals(a.name()))
+                    .findFirst()
+                    .ifPresent(m -> {
+                        throw new ThemeValidationException(Map.of("name", "This realm already has the font family "
+                                + m.name() + "; use exactly that spelling to add a face to it."));
+                    });
+        }
         if (a.kind() == ThemeAssetKind.FONT && store.list(realmId).stream().anyMatch(m -> m.kind() == ThemeAssetKind.FONT
                 && m.name().equals(a.name()) && m.weight().equals(a.weight()) && m.style().equals(a.style()))) {
             throw new ThemeValidationException(Map.of("name", "This realm already has a font " + a.name()

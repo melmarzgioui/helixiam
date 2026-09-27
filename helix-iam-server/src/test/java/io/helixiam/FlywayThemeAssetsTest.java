@@ -79,6 +79,9 @@ class FlywayThemeAssetsTest {
         assertThatThrownBy(() -> store.save(new ThemeAssetMetadata("f-2", "a", ThemeAssetKind.FONT, "Public Sans",
                 "woff2", "font/woff2", 1, "ef".repeat(32), "400", "normal", now), new byte[] {1}))
                 .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> store.save(new ThemeAssetMetadata("f-3", "a", ThemeAssetKind.FONT, "PUBLIC SANS",
+                "woff2", "font/woff2", 1, "ef".repeat(32), "400", "normal", now), new byte[] {1}))
+                .as("review M3: a face is unique case-insensitively").isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("INSERT INTO theme_asset (asset_id, realm_id, kind, name, extension, "
                 + "content_type, size_bytes, sha256, content) VALUES ('x','a','script','x','js','text/javascript',1,"
                 + "'00',decode('00','hex'))")).isInstanceOf(DataIntegrityViolationException.class);
