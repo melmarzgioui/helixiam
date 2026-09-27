@@ -125,4 +125,60 @@ class ThemePaletteTest {
             assertThat(light.foreground()).isEqualTo(t.surface().light());
         }
     }
+
+    // ---- Brand leaks: a theme that sets primary but not primaryStrong/primaryTint gets them from its own primary.
+
+    private static Theme monthfoldWithoutStrongOrTint() {
+        final ThemeColors m = ThemeFixtures.monthfold().colors();
+        return Theme.EMPTY.withColors(ThemeColors.from(r -> switch (r) {
+            case "primaryStrong", "primaryTint" -> null;
+            default -> m.role(r);
+        }));
+    }
+
+    @Test
+    void primaryStrongAndTint_areDerivedFromTheThemesPrimary_noHelixHex() {
+        final ThemeColors t = resolve(monthfoldWithoutStrongOrTint()).colors();
+        final ThemeColor helixStrong = ThemeDefaults.THEME.colors().primaryStrong();
+        final ThemeColor helixTint = ThemeDefaults.THEME.colors().primaryTint();
+        final String css = ThemeCssRenderer.render(resolve(monthfoldWithoutStrongOrTint()), List.of());
+        for (final String hex : List.of(helixStrong.light(), helixStrong.dark(), helixTint.light(), helixTint.dark())) {
+            assertThat(css).as(hex).doesNotContain(hex);
+        }
+        // Hover/pressed: darker than primary in light mode, lighter in dark mode, text on it still AA.
+        assertThat(ThemeColorMath.luminance(t.primaryStrong().light())).isLessThan(ThemeColorMath.luminance("#1f4d47"));
+        assertThat(ThemeColorMath.luminance(t.primaryStrong().dark())).isGreaterThan(ThemeColorMath.luminance("#7fb8ac"));
+        assertThat(ThemeColorMath.contrast(t.surfaceRaised().light(), t.primaryStrong().light())).isGreaterThanOrEqualTo(4.5);
+        assertThat(ThemeColorMath.contrast(t.surfaceRaised().dark(), t.primaryStrong().dark())).isGreaterThanOrEqualTo(4.5);
+        // As links and titles it sits on the surface: AA there too.
+        assertThat(ThemeColorMath.contrast(t.primaryStrong().light(), t.surface().light())).isGreaterThanOrEqualTo(4.5);
+        assertThat(ThemeColorMath.contrast(t.primaryStrong().dark(), t.surface().dark())).isGreaterThanOrEqualTo(4.5);
+        assertThat(t.primaryTint().light()).isEqualTo(ThemeColorMath.mix("#1f4d47", "#ffffff", 0.12));
+    }
+
+    @Test
+    void semanticDefaults_stayRedAndGreen_butAreAdjustedToAaOnTheThemesSurface() {
+        // A mid-grey surface the HelixIAM red and green do not reach 4.5:1 on.
+        final Theme grey = Theme.EMPTY.withColors(ThemeColors.from(r -> switch (r) {
+            case "surface" -> c("#bdbdbd", "#3a3a3a");
+            case "ink" -> c("#111111", "#ffffff");
+            default -> null;
+        }));
+        final ThemeColors d = ThemeDefaults.THEME.colors();
+        assertThat(ThemeColorMath.contrast(d.negative().light(), "#bdbdbd")).isLessThan(4.5);
+        final ThemeColors t = resolve(grey).colors();
+        for (final String role : List.of("negative", "positive")) {
+            final ThemeColor col = t.role(role);
+            assertThat(ThemeColorMath.contrast(col.light(), "#bdbdbd")).as(role + " light").isGreaterThanOrEqualTo(4.5);
+            assertThat(ThemeColorMath.contrast(col.dark(), "#3a3a3a")).as(role + " dark").isGreaterThanOrEqualTo(4.5);
+            // Same hue family as the default (red stays red, green stays green).
+            assertThat(Math.abs(ThemeColorMath.toHsl(col.light())[0] - ThemeColorMath.toHsl(d.role(role).light())[0]))
+                    .as(role + " hue, degrees").isLessThan(2.0);
+        }
+        // Where the defaults already pass, they are kept exactly.
+        final ThemeColors m = resolve(Theme.EMPTY.withColors(ThemeColors.from(r -> r.equals("primary")
+                ? c("#1f4d47", null) : null))).colors();
+        assertThat(m.negative()).isEqualTo(d.negative());
+        assertThat(m.positive()).isEqualTo(d.positive());
+    }
 }

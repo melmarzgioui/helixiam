@@ -19,6 +19,10 @@ import java.util.Set;
  * <ul>
  *   <li>{@code border} = 12 % ink in surface (light), 16 % in dark;</li>
  *   <li>{@code focusRing} = {@code primary} (≥ 3:1 on the surfaces for any valid theme);</li>
+ *   <li>{@code primaryStrong} = primary 18 % darker (light) / 20 % lighter (dark), nudged to AA for the text on it
+ *       and as a link on the surface;</li>
+ *   <li>{@code negative}/{@code positive} keep HelixIAM's red and green, lightness nudged to AA on the theme's
+ *       surfaces when needed;</li>
  *   <li>{@code primaryTint}/{@code negativeTint}/{@code positiveTint} = 12 % of the colour in surfaceRaised
  *       (18 % in dark);</li>
  *   <li>{@code surfaceSunken} = 4 % ink in surface (light), surface darkened by 30 % (dark).</li>
@@ -27,8 +31,11 @@ import java.util.Set;
 public final class ThemePalette {
 
     /** Roles derived from the theme's own colours when it leaves them unset. */
-    public static final Set<String> DERIVED = Set.of("border", "focusRing", "primaryTint", "negativeTint",
-            "positiveTint", "surfaceSunken");
+    public static final Set<String> DERIVED = Set.of("border", "focusRing", "primaryStrong", "primaryTint",
+            "negativeTint", "positiveTint", "surfaceSunken");
+
+    /** Semantic roles that keep HelixIAM's red/green but are nudged to AA on the theme's surfaces when needed. */
+    static final Set<String> SEMANTIC = Set.of("negative", "positive");
 
     private ThemePalette() {
     }
@@ -40,10 +47,17 @@ public final class ThemePalette {
         if (!ownPalette(c)) {
             return resolved;
         }
-        final Map<String, ThemeColor> out = new LinkedHashMap<>();
+        // Semantic colours first (the tints are derived from them), then the supporting roles.
+        final Map<String, ThemeColor> semantic = new LinkedHashMap<>();
         for (final String role : ThemeColors.ROLES) {
             final ThemeColor current = c.role(role);
-            out.put(role, DERIVED.contains(role) && isDefault(role, current) ? derive(role, c) : current);
+            semantic.put(role, SEMANTIC.contains(role) && isDefault(role, current) ? readable(current, c) : current);
+        }
+        final ThemeColors base = ThemeColors.from(semantic::get);
+        final Map<String, ThemeColor> out = new LinkedHashMap<>();
+        for (final String role : ThemeColors.ROLES) {
+            final ThemeColor current = base.role(role);
+            out.put(role, DERIVED.contains(role) && isDefault(role, c.role(role)) ? derive(role, base) : current);
         }
         return resolved.withColors(ThemeColors.from(out::get));
     }
@@ -67,6 +81,7 @@ public final class ThemePalette {
             case "border" -> new ThemeColor(mix(c.ink().light(), c.surface().light(), 0.12),
                     mix(c.ink().dark(), c.surface().dark(), 0.16));
             case "focusRing" -> c.primary();
+            case "primaryStrong" -> strong(c);
             case "primaryTint" -> tint(c.primary(), c.surfaceRaised());
             case "negativeTint" -> tint(c.negative(), c.surfaceRaised());
             case "positiveTint" -> tint(c.positive(), c.surfaceRaised());
@@ -74,6 +89,29 @@ public final class ThemePalette {
                     mix("#000000", c.surface().dark(), 0.30));
             default -> throw new IllegalArgumentException(role);
         };
+    }
+
+    /**
+     * Hover/pressed and links: the theme's primary 18 % darker in light mode and 20 % lighter in dark mode, nudged
+     * until the text on it (surfaceRaised) and the surface it sits on as a link both reach AA.
+     */
+    private static ThemeColor strong(final ThemeColors c) {
+        String light = mix("#000000", c.primary().light(), 0.18);
+        light = ThemeColorMath.ensureContrast(light, c.surfaceRaised().light(), ThemeColorMath.AA_TEXT);
+        light = ThemeColorMath.ensureContrast(light, c.surface().light(), ThemeColorMath.AA_TEXT);
+        String dark = mix("#ffffff", c.primary().dark(), 0.20);
+        dark = ThemeColorMath.ensureContrast(dark, c.surfaceRaised().dark(), ThemeColorMath.AA_TEXT);
+        dark = ThemeColorMath.ensureContrast(dark, c.surface().dark(), ThemeColorMath.AA_TEXT);
+        return new ThemeColor(light, dark);
+    }
+
+    /** The HelixIAM red/green, its lightness nudged until it is AA on the theme's surface and raised surface. */
+    private static ThemeColor readable(final ThemeColor color, final ThemeColors c) {
+        String light = ThemeColorMath.ensureContrast(color.light(), c.surface().light(), ThemeColorMath.AA_TEXT);
+        light = ThemeColorMath.ensureContrast(light, c.surfaceRaised().light(), ThemeColorMath.AA_TEXT);
+        String dark = ThemeColorMath.ensureContrast(color.dark(), c.surface().dark(), ThemeColorMath.AA_TEXT);
+        dark = ThemeColorMath.ensureContrast(dark, c.surfaceRaised().dark(), ThemeColorMath.AA_TEXT);
+        return new ThemeColor(light, dark);
     }
 
     private static ThemeColor tint(final ThemeColor color, final ThemeColor raised) {
