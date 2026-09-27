@@ -47,7 +47,7 @@ class OrganizationAdminControllerTest {
         when(publisher.create(any())).thenReturn(saved);
 
         final ResponseEntity<OrgDto> response = controller.create("gov",
-                new OrgRequest("  acme  ", "Acme Inc", List.of("acme.com"), null));
+                new OrgRequest("  acme  ", "Acme Inc", List.of("acme.com"), null, null));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         final ArgumentCaptor<OrgWriteDto> captor = ArgumentCaptor.forClass(OrgWriteDto.class);
@@ -62,7 +62,7 @@ class OrganizationAdminControllerTest {
         when(publisher.update(any())).thenReturn(null);
 
         final ResponseEntity<OrgDto> response = controller.update("gov", "missing",
-                new OrgRequest("acme", null, List.of(), false));
+                new OrgRequest("acme", null, List.of(), false, null));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }

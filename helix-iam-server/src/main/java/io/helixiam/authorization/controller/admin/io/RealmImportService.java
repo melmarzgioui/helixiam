@@ -723,11 +723,11 @@ public class RealmImportService {
                 final OrgDto current = existing.get(org.name());
                 if (current == null) {
                     orgPublisher.create(new OrgWriteDto(realmId, null, org.name(), org.displayName(),
-                            org.domains(), org.enabled()));
+                            org.domains(), org.enabled(), org.requireMembership()));
                     r.created(SLICE_ORGS);
                 } else {
                     orgPublisher.update(new OrgWriteDto(realmId, current.orgId(), org.name(), org.displayName(),
-                            org.domains(), org.enabled()));
+                            org.domains(), org.enabled(), org.requireMembership()));
                     r.updated(SLICE_ORGS);
                 }
             } catch (final RuntimeException ex) {

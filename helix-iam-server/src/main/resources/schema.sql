@@ -999,3 +999,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS theme_asset_font_face_ci_uq
 -- Same as Flyway V50 (item A8): the realm's landing page after registration / email verification when no sign-in is
 -- pending; must be on one of the realm's registered redirect origins. NULL = the realm's login page.
 ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS post_registration_redirect_url character varying(2048);
+-- Same as Flyway V51 (item E4): a hinted organization may require membership (off by default).
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS require_membership boolean DEFAULT false NOT NULL;

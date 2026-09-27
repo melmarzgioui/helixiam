@@ -85,9 +85,11 @@ public class OrganizationAdminService {
         if (organizations.existsByTenantIdAndName(write.realmId(), write.name().trim())) {
             throw new IllegalArgumentException("An organization named '" + write.name().trim() + "' already exists.");
         }
-        final Organization saved = organizations.save(new Organization(
+        final Organization created = new Organization(
                 write.realmId(), write.name().trim(), blankToNull(write.displayName()),
-                joinDomains(write.domains()), write.enabled()));
+                joinDomains(write.domains()), write.enabled());
+        created.setRequireMembership(Boolean.TRUE.equals(write.requireMembership()));
+        final Organization saved = organizations.save(created);
         LOG.debug("Created organization {} in realm {}", saved.getName(), write.realmId());
         return toDto(saved);
     }
@@ -114,6 +116,9 @@ public class OrganizationAdminService {
         org.setDisplayName(blankToNull(write.displayName()));
         org.setDomains(joinDomains(write.domains()));
         org.setEnabled(write.enabled());
+        if (write.requireMembership() != null) {
+            org.setRequireMembership(write.requireMembership());
+        }
         return toDto(organizations.save(org));
     }
 
@@ -204,7 +209,8 @@ public class OrganizationAdminService {
 
     private OrgDto toDto(final Organization o) {
         return new OrgDto(o.getTenantId(), o.getOrgId(), o.getName(), o.getDisplayName(),
-                splitDomains(o.getDomains()), o.isEnabled(), members.countByOrgId(o.getOrgId()), null);
+                splitDomains(o.getDomains()), o.isEnabled(), members.countByOrgId(o.getOrgId()), null,
+                o.isRequireMembership());
     }
 
     /** An org's realm link FKs to {@code tenant}; a realm may exist only as config, so back-fill it. */

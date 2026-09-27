@@ -42,6 +42,10 @@ public class Organization {
     @Column(name = "enabled")
     private boolean enabled = true;
 
+    /** Item E4: when hinted on a sign-in, only members may complete it (else access_denied to the client). */
+    @Column(name = "require_membership")
+    private boolean requireMembership = false;
+
     /**
      * 1.0 item 7 (legacy column): since structured theming (Flyway V20) the logo and primary colour live on the
      * organization theme ({@code organization_theme}): Flyway V20 / the backfill move them there and set these columns
@@ -113,6 +117,14 @@ public class Organization {
 
     public void setEnabled(final boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isRequireMembership() {
+        return requireMembership;
+    }
+
+    public void setRequireMembership(final boolean requireMembership) {
+        this.requireMembership = requireMembership;
     }
 
     public String getLogoUrl() {
