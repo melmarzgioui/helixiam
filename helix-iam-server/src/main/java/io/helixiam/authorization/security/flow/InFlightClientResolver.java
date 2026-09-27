@@ -54,6 +54,18 @@ public final class InFlightClientResolver {
         }
     }
 
+    /**
+     * The single value of {@code name} on the pending {@code /oauth2/authorize} request saved in the session (not
+     * consumed), e.g. {@code login_hint} (item E3). Empty when none is pending or the parameter is absent / repeated.
+     */
+    public static java.util.Optional<String> pendingAuthorizeParameter(final HttpServletRequest request, final String name) {
+        if (pendingAuthorizeUrl(request).isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        final String[] values = REQUEST_CACHE.getRequest(request, null).getParameterValues(name);
+        return values != null && values.length == 1 ? java.util.Optional.ofNullable(values[0]) : java.util.Optional.empty();
+    }
+
     /** Extracts {@code client_id} from a saved request (package-visible for testing). */
     static String clientIdOf(final SavedRequest saved) {
         if (saved == null) {
