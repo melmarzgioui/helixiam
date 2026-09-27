@@ -33,14 +33,23 @@
              net.shibboleth:shib-support:9.1.4 (the *:shared package repackaging), bumps Apache Santuario
              xmlsec 2.3.x -> 3.0.5, and cryptacular 1.2.5 -> 1.2.6. All are pinned via dependencyManagement so
              no 4.3.2 / java-support:8 / xmlsec:2.3.4 leaks back onto the tree transitively (from
-             spring-security-saml2-service-provider:6.5.10, which is compiled against OpenSAML 4 but is
+             spring-security-saml2-service-provider:6.5.x, which is compiled against OpenSAML 4 but is
              classpath-compatible with 5 and — verified — is NOT used by any HelixIAM code; OpenSAML is used
-             directly). BouncyCastle stays uniformly at 1.81 (direct deps below, nearest-wins) so cryptacular's
+             directly). BouncyCastle stays uniformly at ${bouncycastle.version} (direct deps below, nearest-wins) so cryptacular's
              transitive bcprov:1.76 cannot reintroduce the split-version OperatorHelper NoClassDefFoundError. -->
         <opensaml.version>5.1.4</opensaml.version>
         <shibboleth.shared.version>9.1.4</shibboleth.shared.version>
         <xmlsec.version>3.0.5</xmlsec.version>
         <cryptacular.version>1.2.6</cryptacular.version>
+        <!-- Security scan (Trivy), patch-level only, no framework major bump for 1.0:
+             - spring-security 6.5.10 -> 6.5.11 (Boot-managed): CVE-2026-40988, CVE-2026-41003, CVE-2026-41694
+               in spring-security-saml2-service-provider. The whole Security BOM moves so modules stay aligned.
+             - pgjdbc 42.7.10 -> 42.7.12 (Boot-managed): CVE-2026-42198, CVE-2026-54291.
+             - BouncyCastle 1.81 -> 1.85 (direct deps below): CVE-2025-14813, CVE-2026-0636, CVE-2026-5588,
+               CVE-2026-8763, CVE-2026-13506. -->
+        <spring-security.version>6.5.11</spring-security.version>
+        <postgresql.version>42.7.12</postgresql.version>
+        <bouncycastle.version>1.85</bouncycastle.version>
     </properties>
 
     <!-- Transitive-dependency version overrides (security review). Boot's parent does not manage guava,
@@ -200,7 +209,7 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-saml2-service-provider</artifactId>
-            <version>6.5.10</version>
+            <version>${spring-security.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>net.shibboleth.utilities</groupId>
@@ -253,20 +262,20 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.81</version>
+            <version>${bouncycastle.version}</version>
         </dependency>
-        <!-- Pin bcpkix/bcutil to match bcprov 1.81 — OpenSAML (via cryptacular) drags in 1.72,
+        <!-- Pin bcpkix/bcutil to match bcprov — OpenSAML (via cryptacular) drags in 1.72,
              and the split versions collide (NoClassDefFoundError OperatorHelper) once both the
              SAML stack and the passkey/MFA stack share one classpath (strip-RabbitMQ merge). -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-            <version>1.81</version>
+            <version>${bouncycastle.version}</version>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcutil-jdk18on</artifactId>
-            <version>1.81</version>
+            <version>${bouncycastle.version}</version>
         </dependency>
         <dependency>
             <groupId>com.j256.two-factor-auth</groupId>
