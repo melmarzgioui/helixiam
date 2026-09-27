@@ -271,7 +271,8 @@ h1, h2, h3, h4 {
   border-color: var(--hx-primary-strong);
 }
 .buttonHolder > button > i,
-.buttonHolder > button > span {
+.buttonHolder > button > span,
+.buttonHolder > a.button > span {
   font-weight: 600;
   color: var(--hx-on-primary);
 }
