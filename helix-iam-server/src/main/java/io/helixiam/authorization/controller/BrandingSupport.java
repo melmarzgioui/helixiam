@@ -23,7 +23,13 @@ public class BrandingSupport {
     @Autowired(required = false)
     private RealmSettingsResolver realmSettingsResolver;
 
-    /** Populates {@code branding*} attributes for the current realm; best-effort, never throws. */
+    @Autowired(required = false)
+    private io.helixiam.authorization.service.org.OrganizationBrandingService organizationBranding;
+
+    /**
+     * Populates {@code branding*} attributes for the current realm, overridden by the organization in context
+     * (if any); best-effort, never throws.
+     */
     public void apply(final Model model) {
         if (realmSettingsResolver == null) {
             return;
@@ -38,6 +44,35 @@ public class BrandingSupport {
             model.addAttribute("brandingBackgroundColor", blankToNull(s.backgroundColor()));
             model.addAttribute("brandingWelcomeText", blankToNull(s.welcomeText()));
             model.addAttribute("brandingCustomCss", blankToNull(s.customCss()));
+        } catch (final RuntimeException ignored) {
+            // Branding must never block sign-in.
+        }
+        applyOrganization(model);
+    }
+
+    /**
+     * 1.0 item 7: when an organization is in context for this sign-in ({@code organization} authorize hint), its
+     * name, logo and colour take precedence over the realm's.
+     */
+    private void applyOrganization(final Model model) {
+        if (organizationBranding == null
+                || !(org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
+                        instanceof org.springframework.web.context.request.ServletRequestAttributes attrs)) {
+            return;
+        }
+        try {
+            final String realm = RealmContextHolder.get();
+            io.helixiam.authorization.security.realm.OrganizationContext.current(attrs.getRequest(), realm)
+                    .flatMap(orgId -> organizationBranding.get(realm, orgId))
+                    .ifPresent(b -> {
+                        model.addAttribute("brandingOrgName", b.displayName());
+                        if (b.logoUrl() != null) {
+                            model.addAttribute("brandingLogo", b.logoUrl());
+                        }
+                        if (b.primaryColor() != null) {
+                            model.addAttribute("brandingPrimaryColor", b.primaryColor());
+                        }
+                    });
         } catch (final RuntimeException ignored) {
             // Branding must never block sign-in.
         }

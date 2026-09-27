@@ -104,7 +104,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService) throws Exception {
+    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService) throws Exception {
         // Helix IAM SSO P4: share OUR SessionRegistry bean with the authorization server BEFORE
         // applyDefaultSecurity (which would otherwise create its own). SAS reads it at token-issuance to
         // stamp the OIDC `sid` (session id hash) into id_tokens — the key that unifies a login's client
@@ -120,6 +120,9 @@ public class SecurityConfig {
                 SecurityContextHolderFilter.class);
         // 1.0 item 6: no authorization code / device approval until the second factor was passed in this sign-in
         // when the realm requires it (or the user enrolled TOTP). Registered after the prompt filter.
+        // 1.0 item 7: an `organization` hint on /oauth2/authorize brands the rest of the sign-in.
+        http.addFilterAfter(new io.helixiam.authorization.security.realm.OrganizationContext(organizationBrandingService),
+                SecurityContextHolderFilter.class);
         http.addFilterAfter(new io.helixiam.authorization.security.mfa.MfaEnforcementFilter(mfaPolicyService, totpService),
                 SecurityContextHolderFilter.class);
 

@@ -49,6 +49,8 @@ public class MfaAuthController {
     private final MfaRecoveryPublisher recoveryCodes;
     private final String spBaseUrl;
     private final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier;
+    @Autowired(required = false)
+    private io.helixiam.authorization.controller.BrandingSupport brandingSupport;
     // SSO P1: after the second factor promotes the session, resume the originating /oauth2/authorize.
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
@@ -86,6 +88,7 @@ public class MfaAuthController {
         model.addAttribute("otpAuthUrl", otpAuthUrl);
         model.addAttribute("secret", secret);
         model.addAttribute("skipEnable", policy.maySkip(realm, user.getCreationDate()));
+        brand(model);
         return "mfa/enable";
     }
 
@@ -113,12 +116,21 @@ public class MfaAuthController {
         final String next = complete(user, request, response).substring(REDIRECT_PREFIX.length());
         model.addAttribute("recoveryCodes", codes);
         model.addAttribute("continueUrl", next);
+        brand(model);
         return "mfa/recovery-codes";
     }
 
     @GetMapping(path = "/mfa/totp")
-    public String requestTotp() {
+    public String requestTotp(final Model model) {
+        brand(model);
         return "mfa/totp";
+    }
+
+    /** Realm branding, overridden by the organization in context (1.0 item 7). */
+    private void brand(final Model model) {
+        if (brandingSupport != null) {
+            brandingSupport.apply(model);
+        }
     }
 
     @PostMapping(path = "/mfa/totp")
@@ -126,7 +138,7 @@ public class MfaAuthController {
                               final HttpServletRequest request, final HttpServletResponse response) {
         if (!totp.verify(user.getUsername(), code)) {
             model.addAttribute("error", "true");
-            return requestTotp();
+            return requestTotp(model);
         }
         return complete(user, request, response);
     }
@@ -136,7 +148,7 @@ public class MfaAuthController {
                                       final Model model, final HttpServletRequest request, final HttpServletResponse response) {
         if (!Boolean.TRUE.equals(recoveryCodes.verifyAndConsume(new RecoveryCodeVerification(user.getUsername(), recoveryCode)))) {
             model.addAttribute("recoveryError", "true");
-            return requestTotp();
+            return requestTotp(model);
         }
         return complete(user, request, response);
     }

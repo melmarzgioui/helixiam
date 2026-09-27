@@ -38,7 +38,7 @@
 
     <header>
         <div class="headerBar">
-            <a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a>
+            <a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div><span class="hx-org-name" th:if="${brandingOrgName != null}" th:text="${brandingOrgName}">Organization</span></a>
         </div>
     </header>
 

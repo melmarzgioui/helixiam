@@ -42,6 +42,14 @@ public class Organization {
     @Column(name = "enabled")
     private boolean enabled = true;
 
+    /** 1.0 item 7: https URL of the organization's logo (login, consent and MFA pages). */
+    @Column(name = "logo_url")
+    private String logoUrl;
+
+    /** 1.0 item 7: primary colour as #RRGGBB. */
+    @Column(name = "primary_color")
+    private String primaryColor;
+
     public Organization() {
     }
 
@@ -101,5 +109,21 @@ public class Organization {
 
     public void setEnabled(final boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public String getLogoUrl() {
+        return logoUrl;
+    }
+
+    public void setLogoUrl(final String logoUrl) {
+        this.logoUrl = logoUrl;
+    }
+
+    public String getPrimaryColor() {
+        return primaryColor;
+    }
+
+    public void setPrimaryColor(final String primaryColor) {
+        this.primaryColor = primaryColor;
     }
 }

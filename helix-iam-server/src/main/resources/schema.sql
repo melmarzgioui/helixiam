@@ -700,6 +700,9 @@ CREATE TABLE IF NOT EXISTS organization (
     FOREIGN KEY(tenant_id) REFERENCES tenant(tenant_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS organization_tenant_idx ON organization (tenant_id);
+-- 1.0 item 7 (branding): per-organization logo + primary colour (same as Flyway V14).
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS logo_url character varying(2048) DEFAULT NULL;
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS primary_color character varying(7) DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS organization_member (
     id            character varying(255) NOT NULL PRIMARY KEY,

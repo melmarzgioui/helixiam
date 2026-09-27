@@ -43,6 +43,9 @@ public class LoginController {
     @Autowired(required = false)
     private RealmSettingsResolver realmSettingsResolver;
 
+    @Autowired(required = false)
+    private BrandingSupport brandingSupport;
+
     // Federation: source of the in-flight flow so an "Identity Provider Redirector" step can skip/augment
     // local login (field-injected so existing tests that build the controller directly still work).
     @Autowired(required = false)
@@ -92,20 +95,10 @@ public class LoginController {
         return "login";
     }
 
-    /** B2: expose per-realm branding to the template (null/blank → template falls back to the built-in theme). */
+    /** B2: per-realm branding (and 1.0 item 7: the organization in context) for the template. */
     private void addBranding(final Model model, final String realm) {
-        if (realmSettingsResolver == null) {
-            return;
-        }
-        try {
-            final RealmSettingsDto s = realmSettingsResolver.get(realm);
-            model.addAttribute("brandingLogo", blankToNull(s.logoUrl()));
-            model.addAttribute("brandingPrimaryColor", blankToNull(s.primaryColor()));
-            model.addAttribute("brandingBackgroundColor", blankToNull(s.backgroundColor()));
-            model.addAttribute("brandingWelcomeText", blankToNull(s.welcomeText()));
-            model.addAttribute("brandingCustomCss", blankToNull(s.customCss()));
-        } catch (final RuntimeException e) {
-            // Branding is best-effort: never block login because settings could not be loaded.
+        if (brandingSupport != null) {
+            brandingSupport.apply(model);
         }
     }
 

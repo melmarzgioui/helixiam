@@ -14,6 +14,11 @@
     <link rel="icon" href="/img/favicon.avif" sizes="32x32">
     <link rel="icon" href="/img/favicon.avif" sizes="192x192">
     <link rel="icon" href="/img/favicon.avif">
+    <!-- 1.0 item 7: the organization's (else the realm's) primary colour; validated #RRGGBB, never raw CSS. -->
+    <style th:if="${brandingPrimaryColor != null}" th:inline="text">
+        .buttonHolder > button, .buttonHolder > a.button { background-color: [[${brandingPrimaryColor}]] !important; border-color: [[${brandingPrimaryColor}]] !important; }
+        .mainWrapper > main > div.container.title h3, details.recovery > summary { color: [[${brandingPrimaryColor}]] !important; }
+    </style>
 </head>
 <body>
 <div class="mainWrapper">
@@ -21,7 +26,7 @@
     <header>
         <div class="headerBar">
             <a>
-                <div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div>
+                <div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div><span class="hx-org-name" th:if="${brandingOrgName != null}" th:text="${brandingOrgName}">Organization</span>
             </a>
         </div>
     </header>

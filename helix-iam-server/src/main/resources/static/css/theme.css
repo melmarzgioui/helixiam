@@ -659,3 +659,11 @@ main .title h3 {
     width: 100%;
   }
 }
+
+/* 1.0 item 7: the organization a sign-in is for, next to its logo. */
+.logo .hx-org-name {
+  margin-left: 12px;
+  font-weight: 600;
+  color: var(--color-button-green);
+  vertical-align: middle;
+}
