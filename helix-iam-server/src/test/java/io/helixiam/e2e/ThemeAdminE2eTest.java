@@ -265,4 +265,109 @@ class ThemeAdminE2eTest extends AbstractE2eTest {
         }
         assertThat(request.path("displayName").path("deprecated").asBoolean()).isFalse();
     }
+
+    @Test
+    void unknownFields_areRefusedByPath_onPutAndOnImport_andNothingIsCleared() {
+        assertThat(admin.put(themePath(realm), monthfold()).status()).isEqualTo(200);
+        final E2eHttp.Response typo = admin.put(themePath(realm), Map.of("colors", Map.of("primry", Map.of("light", "#000000"))));
+        assertThat(typo.status()).as(typo.toString()).isEqualTo(400);
+        assertThat(typo.json().path("fieldErrors").path("colors.primry").asText()).isEqualTo("Unknown field.");
+        final E2eHttp.Response nested = admin.put(themePath(realm), Map.of("assets", Map.of("logoURL", "https://x.example/l.svg")));
+        assertThat(nested.json().path("fieldErrors").has("assets.logoURL")).as(nested.toString()).isTrue();
+        assertThat(admin.get(themePath(realm)).json().path("assets").path("logoUrl").asText())
+                .as("the typo did not clear the logo").isEqualTo("https://cdn.monthfold.example/logo.svg");
+
+        // A GET body (with its read-only notices) still round-trips into a PUT.
+        final Map<String, Object> withCss = new java.util.HashMap<>(monthfold());
+        withCss.put("customCss", ".a { color: #16211f }");
+        final JsonNode got = admin.put(themePath(realm), withCss).json();
+        assertThat(got.has("notices")).isTrue();
+        assertThat(admin.put(themePath(realm), got).status()).isEqualTo(200);
+
+        final ObjectNode doc = JSON.createObjectNode();
+        doc.put("formatVersion", 2);
+        doc.set("theme", JSON.valueToTree(Map.of("colors", Map.of("primry", Map.of("light", "#000000")))));
+        final E2eHttp.Response imported = adminSession().post("/admin/realms/" + realm + "/import", doc);
+        assertThat(imported.status()).as(imported.toString()).isEqualTo(400);
+        assertThat(imported.json().path("fieldErrors").has("theme.colors.primry")).as(imported.toString()).isTrue();
+    }
+
+    @Test
+    void scopedAdmins_onlyReachTheThemeTheirPermissionCovers() {
+        final E2eAdminSession orgOnly = scopedAdmin("manage-organizations");
+        final E2eAdminSession realmOnly = scopedAdmin("manage-realm");
+        final String orgId = admin.post("/admin/realms/" + realm + "/organizations", Map.of("name", E2eSeed.unique("org")))
+                .json().path("orgId").asText();
+        final String orgTheme = "/admin/realms/" + realm + "/organizations/" + orgId + "/theme";
+
+        assertThat(orgOnly.get(themePath(realm)).status()).as("realm theme read").isEqualTo(403);
+        assertThat(orgOnly.put(themePath(realm), Map.of("shape", Map.of("radius", 2))).status()).as("realm theme write")
+                .isEqualTo(403);
+        assertThat(orgOnly.put(orgTheme, Map.of("shape", Map.of("radius", 2))).status()).isEqualTo(200);
+
+        assertThat(realmOnly.get(orgTheme).status()).as("org theme read").isEqualTo(403);
+        assertThat(realmOnly.put(orgTheme, Map.of("shape", Map.of("radius", 4))).status()).as("org theme write")
+                .isEqualTo(403);
+        assertThat(realmOnly.put(themePath(realm), Map.of("shape", Map.of("radius", 4))).status()).isEqualTo(200);
+    }
+
+    @Test
+    void theOrganizationsEffectiveView_omitsTheRealmsCustomCss() {
+        final Map<String, Object> withCss = new java.util.HashMap<>(monthfold());
+        withCss.put("customCss", ".helix-form h1 { letter-spacing: 0 }");
+        assertThat(admin.put(themePath(realm), withCss).status()).isEqualTo(200);
+        final String orgId = admin.post("/admin/realms/" + realm + "/organizations", Map.of("name", E2eSeed.unique("org")))
+                .json().path("orgId").asText();
+        final JsonNode effective = admin.get("/admin/realms/" + realm + "/organizations/" + orgId + "/theme?effective=true").json();
+        assertThat(effective.has("customCss")).isFalse();
+        assertThat(effective.path("shape").path("radius").asInt()).isEqualTo(6);
+        assertThat(admin.get(themePath(realm) + "?effective=true").json().path("customCss").asText()).isNotBlank();
+    }
+
+    @Test
+    void reviewPayloadA_isRefused_andNeverRenderedEvenWhenAlreadyStored() {
+        final String payload = "/* </style><script>alert(1)</script> */";
+        final E2eHttp.Response refused = admin.put(themePath(realm), Map.of("customCss", payload));
+        assertThat(refused.status()).isEqualTo(400);
+        final JsonNode settings = admin.get("/admin/realms/" + realm + "/settings").json();
+        final ObjectNode legacy = settings.deepCopy();
+        legacy.put("customCss", payload);
+        assertThat(admin.put("/admin/realms/" + realm + "/settings", legacy).status()).isEqualTo(400);
+
+        // Stored before the fix (e.g. by the old validator): it must still never reach a page.
+        final org.springframework.jdbc.core.JdbcTemplate jdbc = context.getBean(org.springframework.jdbc.core.JdbcTemplate.class);
+        context.getBean(org.springframework.transaction.support.TransactionTemplate.class).executeWithoutResult(tx ->
+                jdbc.update("INSERT INTO realm_theme (realm_id, theme_json) VALUES (?, ?) ON CONFLICT (realm_id) DO UPDATE "
+                        + "SET theme_json = EXCLUDED.theme_json", realm,
+                        "{\"customCss\":\"/* </style><script>alert(1)</script> */\"}"));
+        context.getBean(io.helixiam.authorization.theme.ThemeService.class).invalidate(realm);
+        final E2eHttp.Response login = newBrowser().get("/realms/" + realm + "/login", "Accept", "text/html");
+        assertThat(login.status()).isEqualTo(200);
+        assertThat(login.body()).doesNotContain("alert(1)").doesNotContain("<script>alert");
+        assertThat(admin.get("/admin/realms/" + realm + "/settings").json().path("customCss").isNull()
+                || admin.get("/admin/realms/" + realm + "/settings").json().path("customCss").isMissingNode())
+                .as("the settings view never hands out CSS that fails the current rules").isTrue();
+    }
+
+    /** A user of {@link #realm} whose only admin permission is {@code permission}, logged in. */
+    private E2eAdminSession scopedAdmin(final String permission) {
+        final String roleName = E2eSeed.unique("theme-" + permission);
+        final E2eHttp.Response role = admin.post("/admin/realms/" + realm + "/roles", Map.of("name", roleName));
+        assertThat(role.status()).as(role.toString()).isEqualTo(201);
+        String roleId = role.json().path("roleId").asText();
+        if (roleId.isBlank()) {
+            for (final JsonNode r : admin.get("/admin/realms/" + realm + "/roles").json()) {
+                if (roleName.equals(r.path("name").asText())) {
+                    roleId = r.path("roleId").asText();
+                }
+            }
+        }
+        final E2eHttp.Response grant = admin.put("/admin/realms/" + realm + "/admin-roles/" + roleId,
+                Map.of("permissions", List.of(permission)));
+        assertThat(grant.status()).as(grant.toString()).isEqualTo(200);
+        final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("scoped"), "Sc0ped-Admin-Passw0rd!");
+        assertThat(admin.post("/admin/realms/" + realm + "/users/" + user.userId() + "/roles", Map.of("roleId", roleId))
+                .status()).isEqualTo(204);
+        return E2eAdminSession.login(newBrowser(), realm, user.username(), user.password());
+    }
 }

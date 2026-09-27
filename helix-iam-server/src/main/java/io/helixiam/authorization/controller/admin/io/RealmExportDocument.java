@@ -83,6 +83,8 @@ public record RealmExportDocument(Integer formatVersion,
                                   List<ClientAuthorizationDto> authorizationServices,
                                   List<io.helixiam.authorization.amqp.agent.AgentIdentityDto> agents,
                                   List<String> requiredEnv,
+                                  @com.fasterxml.jackson.databind.annotation.JsonDeserialize(
+                                          using = io.helixiam.authorization.theme.StrictThemeDeserializer.class)
                                   io.helixiam.authorization.theme.Theme theme,
                                   List<OrganizationThemeExport> organizationThemes) {
 
@@ -119,7 +121,10 @@ public record RealmExportDocument(Integer formatVersion,
 
     /** One organization's theme layer in an export, matched by organization name on import. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record OrganizationThemeExport(String organization, io.helixiam.authorization.theme.Theme theme) {
+    public record OrganizationThemeExport(String organization,
+                                          @com.fasterxml.jackson.databind.annotation.JsonDeserialize(
+                                                  using = io.helixiam.authorization.theme.StrictThemeDeserializer.class)
+                                          io.helixiam.authorization.theme.Theme theme) {
     }
 
     /** Back-compat constructor (the original 8 slices) — keeps existing call sites and v1 fixtures valid. */

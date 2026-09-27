@@ -62,7 +62,8 @@ public class LegacyBrandingBackfill implements ApplicationRunner {
             }
         } catch (final RuntimeException e) {
             // Never block startup: the legacy columns stay and are retried on the next start.
-            LOG.warn("Legacy branding backfill failed; will retry on next start: {}", e.getMessage());
+            LOG.warn("Legacy branding backfill failed; will retry on next start: {}",
+                    io.helixiam.common.log.LogSafe.sanitize(e.getMessage()));
         }
     }
 }

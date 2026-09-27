@@ -10,7 +10,9 @@ import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import io.helixiam.authorization.security.audit.AuditContext;
 import io.helixiam.authorization.theme.EffectiveTheme;
 import io.helixiam.authorization.theme.Theme;
+import io.helixiam.authorization.theme.ThemeJson;
 import io.helixiam.authorization.theme.ThemeService;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,7 +33,9 @@ import java.util.Optional;
  * Structured theming admin API (spec §7). The realm theme needs {@code manage-realm}; an organization theme needs
  * {@code manage-organizations} ({@code AdminRoutePermissions}). {@code PUT} replaces the stored layer and answers
  * {@code 400 {message, fieldErrors}} when it is not valid (field keys are JSON paths such as
- * {@code colors.primary.light} or {@code contrast.inkOnSurface.dark}). {@code GET} returns the stored layer, or with
+ * {@code colors.primary.light} or {@code contrast.inkOnSurface.dark}); input is parsed strictly, so an unknown field
+ * ({@code colors.primry}) is a 400 too, never silently dropped. The organization's {@code ?effective=true} view
+ * omits the realm's custom CSS. {@code GET} returns the stored layer, or with
  * {@code ?effective=true} the merged result (organization → realm → default, dark values derived) plus its
  * {@code version}. Organizations are looked up inside the path realm only (another realm's organization is a 404).
  * Changes are audited with the names of the fields changed.
@@ -65,12 +69,12 @@ public class ThemeAdminController {
     @PutMapping("/theme")
     @Operation(summary = "Replace the realm's theme layer (validated)")
     public ResponseEntity<ThemeView> putRealmTheme(@PathVariable final String realmId,
-                                                   @RequestBody final Theme theme,
+                                                   @RequestBody final JsonNode body,
                                                    final HttpServletRequest request) {
         if (!themes.realmExists(realmId)) {
             return ResponseEntity.notFound().build();
         }
-        final ThemeService.ThemeChange change = themes.saveRealmTheme(realmId, theme);
+        final ThemeService.ThemeChange change = themes.saveRealmTheme(realmId, ThemeJson.readStrict(body));
         audit(request, change);
         return ResponseEntity.ok(new ThemeView(change.theme(), themes.notices(change.theme()), null));
     }
@@ -86,7 +90,10 @@ public class ThemeAdminController {
             return ResponseEntity.notFound().build();
         }
         if (effective) {
-            return ResponseEntity.ok(effectiveView(themes.effectiveTheme(realmId, Optional.of(orgId))));
+            // Review M1: holders of manage-organizations only must not read realm configuration beyond what the
+            // pages show; the realm's custom CSS is omitted from the organization's effective view.
+            final EffectiveTheme e = themes.effectiveTheme(realmId, Optional.of(orgId));
+            return ResponseEntity.ok(new ThemeView(e.theme().withCustomCss(null), List.of(), e.version()));
         }
         return ResponseEntity.ok(new ThemeView(stored.get(), themes.notices(stored.get()), null));
     }
@@ -95,9 +102,12 @@ public class ThemeAdminController {
     @Operation(summary = "Replace an organization's theme layer (validated; no custom CSS)")
     public ResponseEntity<ThemeView> putOrganizationTheme(@PathVariable final String realmId,
                                                           @PathVariable final String orgId,
-                                                          @RequestBody final Theme theme,
+                                                          @RequestBody final JsonNode body,
                                                           final HttpServletRequest request) {
-        return themes.saveOrganizationTheme(realmId, orgId, theme)
+        if (themes.organizationTheme(realmId, orgId).isEmpty()) {
+            return ResponseEntity.notFound().build(); // 404 before any validation detail about the body
+        }
+        return themes.saveOrganizationTheme(realmId, orgId, ThemeJson.readStrict(body))
                 .map(change -> {
                     audit(request, change);
                     return ResponseEntity.ok(new ThemeView(change.theme(), themes.notices(change.theme()), null));

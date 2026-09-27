@@ -44,7 +44,8 @@ public class Organization {
 
     /**
      * 1.0 item 7 (legacy column): since structured theming (Flyway V20) the logo and primary colour live on the
-     * organization theme ({@code organization_theme}); these two columns are emptied and no longer read or written.
+     * organization theme ({@code organization_theme}): Flyway V20 / the backfill move them there and set these columns
+     * to NULL. They stay in the schema but are no longer read or written; a rollback to 1.0 finds them empty.
      */
     @Column(name = "logo_url")
     private String logoUrl;

@@ -219,8 +219,9 @@ public class RealmConfig {
     @JsonProperty
     private String riskHighAction = "deny";
 
-    // B2: legacy per-realm branding columns. Since structured theming (Flyway V19/V20) these values live on the realm
-    // theme (realm_theme) and these columns are emptied and no longer read or written; kept for rollback safety.
+    // B2: legacy per-realm branding columns. Since structured theming the values live on the realm theme
+    // (realm_theme): Flyway V20 / LegacyBrandingBackfill MOVE them there and set these columns to NULL. The columns
+    // stay in the schema but are no longer read or written; a rollback to 1.0 finds them empty (no branding).
     @Column(name = "logo_url")
     @JsonProperty
     private String logoUrl;

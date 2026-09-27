@@ -78,7 +78,9 @@ public class AdminValidationAdvice {
                 }
             }
             if (!path.isEmpty()) {
-                return body("Request body is malformed at " + path + ".", Map.of(path.toString(), "Invalid value."));
+                final boolean unknown = jme instanceof com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+                return body((unknown ? "Unknown field " : "Request body is malformed at ") + path + ".",
+                        Map.of(path.toString(), unknown ? "Unknown field." : "Invalid value."));
             }
         }
         return body("Request body is missing or malformed.", Map.of());

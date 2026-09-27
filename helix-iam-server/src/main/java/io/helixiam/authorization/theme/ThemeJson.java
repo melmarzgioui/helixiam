@@ -33,7 +33,54 @@ public final class ThemeJson {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .build();
 
+    /** Admin-API input: unknown fields are errors (a typo must never silently clear a field under PUT-replace). */
+    private static final ObjectMapper STRICT = JsonMapper.builder()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
+            .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true)
+            .build();
+
     private ThemeJson() {
+    }
+
+    /**
+     * Parses admin-API or import input strictly. Unknown fields and values of the wrong type are reported as
+     * {@link ThemeValidationException} keyed by their JSON path ({@code colors.primry}: "Unknown field.").
+     */
+    public static Theme readStrict(final JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return Theme.EMPTY;
+        }
+        if (!node.isObject()) {
+            throw new ThemeValidationException(java.util.Map.of("theme", "A theme must be a JSON object."));
+        }
+        try {
+            final Theme t = STRICT.treeToValue(node, Theme.class);
+            return t == null ? Theme.EMPTY : t;
+        } catch (final com.fasterxml.jackson.databind.JsonMappingException e) {
+            throw new ThemeValidationException(java.util.Map.of(path(e),
+                    e instanceof com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException
+                            ? "Unknown field." : "Invalid value."));
+        } catch (final JsonProcessingException | IllegalArgumentException e) {
+            throw new ThemeValidationException(java.util.Map.of("theme", "Invalid value."));
+        }
+    }
+
+    /** The strict mapper, for {@link StrictThemeDeserializer}. */
+    static ObjectMapper strictMapper() {
+        return STRICT;
+    }
+
+    /** {@code a.b[0].c} from a mapping exception's reference path. */
+    public static String path(final com.fasterxml.jackson.databind.JsonMappingException e) {
+        final StringBuilder out = new StringBuilder();
+        for (final com.fasterxml.jackson.databind.JsonMappingException.Reference ref : e.getPath()) {
+            if (ref.getFieldName() != null) {
+                out.append(out.isEmpty() ? "" : ".").append(ref.getFieldName());
+            } else if (ref.getIndex() >= 0) {
+                out.append('[').append(ref.getIndex()).append(']');
+            }
+        }
+        return out.isEmpty() ? "theme" : out.toString();
     }
 
     /** Canonical JSON for a theme ({@code {}} for null). */

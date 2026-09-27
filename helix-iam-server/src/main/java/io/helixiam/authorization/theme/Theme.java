@@ -20,7 +20,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * the layers field by field and {@link ThemeService#effectiveTheme} returns the fully resolved result.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonIgnoreProperties(value = {"notices"}, ignoreUnknown = true)
+// "notices"/"version" are read-only response fields, accepted (and ignored) so a GET body round-trips into a PUT.
+// Every other unknown field is an error on admin input (ThemeJson.readStrict).
+@JsonIgnoreProperties(value = {"notices", "version"})
 public record Theme(ThemeColors colors, ThemeTypography typography, ThemeShape shape, ThemeAssets assets,
                     ThemeLayout layout, ThemeTexts texts, ThemeLinks links, String customCss) {
 
