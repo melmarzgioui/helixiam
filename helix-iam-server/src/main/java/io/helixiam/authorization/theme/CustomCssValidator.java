@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,19 +48,27 @@ public final class CustomCssValidator {
 
     private static final Pattern ASSET_PATH =
             Pattern.compile("/realms/([A-Za-z0-9._-]+)/theme/assets/([A-Za-z0-9_-]{1,64})\\.([a-z0-9]{2,5})");
+    /**
+     * Every pattern is matched against the RAW input with {@link Pattern#CASE_INSENSITIVE} and without
+     * {@code UNICODE_CASE}: ASCII-only case folding, exactly like CSS keywords, independent of the default locale,
+     * and — crucially — without changing string length. Never match on a lower-cased copy and index the raw string
+     * with the result (re-review R1: U+0130 lower-cases to two chars and shifted the url() parser).
+     */
+    private static final int ASCII_CI = Pattern.CASE_INSENSITIVE;
+
     /** {@code url(} with optional whitespace; the name may not continue an identifier. */
-    private static final Pattern URL_START = Pattern.compile("(?<![a-z0-9_-])url\\s*\\(");
+    private static final Pattern URL_START = Pattern.compile("(?<![a-z0-9_-])url\\s*\\(", ASCII_CI);
     private static final Pattern FETCH_FUNCTION = Pattern.compile(
-            "(?<![a-z0-9_-])(-webkit-image-set|image-set|image|-webkit-cross-fade|cross-fade|src)\\s*\\(");
+            "(?<![a-z0-9_-])(-webkit-image-set|image-set|image|-webkit-cross-fade|cross-fade|src)\\s*\\(", ASCII_CI);
 
     private static final List<Forbidden> FORBIDDEN = List.of(
-            new Forbidden(Pattern.compile("@import"), "@import"),
-            new Forbidden(Pattern.compile("@charset"), "@charset"),
-            new Forbidden(Pattern.compile("@namespace"), "@namespace"),
-            new Forbidden(Pattern.compile("expression\\s*\\("), "expression("),
-            new Forbidden(Pattern.compile("behavior\\s*:"), "behavior:"),
-            new Forbidden(Pattern.compile("-moz-binding"), "-moz-binding"),
-            new Forbidden(Pattern.compile("javascript\\s*:"), "javascript:"));
+            new Forbidden(Pattern.compile("@import", ASCII_CI), "@import"),
+            new Forbidden(Pattern.compile("@charset", ASCII_CI), "@charset"),
+            new Forbidden(Pattern.compile("@namespace", ASCII_CI), "@namespace"),
+            new Forbidden(Pattern.compile("expression\\s*\\(", ASCII_CI), "expression("),
+            new Forbidden(Pattern.compile("behavior\\s*:", ASCII_CI), "behavior:"),
+            new Forbidden(Pattern.compile("-moz-binding", ASCII_CI), "-moz-binding"),
+            new Forbidden(Pattern.compile("javascript\\s*:", ASCII_CI), "javascript:"));
 
     private CustomCssValidator() {
     }
@@ -105,21 +112,21 @@ public final class CustomCssValidator {
         if (css.chars().anyMatch(CustomCssValidator::forbiddenControl)) {
             out.add("Custom CSS must not contain a control character.");
         }
-        final String lower = css.toLowerCase(Locale.ROOT);
         for (final Forbidden f : FORBIDDEN) {
-            if (f.pattern().matcher(lower).find()) {
+            if (f.pattern().matcher(css).find()) {
                 out.add("Custom CSS must not contain " + f.name() + ".");
             }
         }
-        final Matcher fetch = FETCH_FUNCTION.matcher(lower);
+        final Matcher fetch = FETCH_FUNCTION.matcher(css);
         while (fetch.find()) {
-            final String name = fetch.group(1).startsWith("-webkit-") ? fetch.group(1).substring(8) : fetch.group(1);
+            final String matched = asciiLower(fetch.group(1)); // for the message only, never for indexing
+            final String name = matched.startsWith("-webkit-") ? matched.substring(8) : matched;
             final String message = "Custom CSS must not contain " + name + "( — use url() with an allowed target.";
             if (!out.contains(message)) {
                 out.add(message);
             }
         }
-        final Matcher url = URL_START.matcher(lower);
+        final Matcher url = URL_START.matcher(css); // the match offsets index the same (raw) string
         while (url.find()) {
             final String problem = checkUrl(css, url.end(), realmId, operatorImageOrigins, catalog);
             if (problem != null) {
@@ -173,6 +180,17 @@ public final class CustomCssValidator {
         }
         final String origin = ThemeUrls.httpsOrigin(target);
         return origin != null && origins != null && origins.contains(origin);
+    }
+
+    /** Lower-cases A–Z only (length-preserving, locale-independent). */
+    private static String asciiLower(final String s) {
+        final char[] out = s.toCharArray();
+        for (int i = 0; i < out.length; i++) {
+            if (out[i] >= 'A' && out[i] <= 'Z') {
+                out[i] = (char) (out[i] + ('a' - 'A'));
+            }
+        }
+        return new String(out);
     }
 
     private static boolean forbiddenControl(final int ch) {
