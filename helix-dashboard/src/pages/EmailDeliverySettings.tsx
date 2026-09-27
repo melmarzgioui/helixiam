@@ -11,6 +11,7 @@ import { Button } from "../components/Button";
 import { FormField, Input, Textarea } from "../components/FormField";
 import { RadioCard } from "../components/Choice";
 import { Switch } from "../components/Switch";
+import { ConfirmDialog, Modal } from "../components/Modal";
 import { MessagingApi, MessagingApiError, MessagingProvider } from "../api/messaging";
 import { useT } from "../i18n/LocaleContext";
 import {
@@ -27,7 +28,12 @@ import {
   formFromProvider,
   initialEmailDriver,
   isDirty,
-  otherEnabledEmailDrivers,
+  activeEmailProvider,
+  clearSecretBlocked,
+  clearSecretWrite,
+  switchesFrom,
+  Carry,
+  SEND_LIMIT_RANGE,
   resolveTlsMode,
   setPort,
   setTlsMode,
@@ -41,8 +47,8 @@ export interface EmailDeliverySettingsProps {
   api: MessagingApi;
   realmId: string;
   providers: MessagingProvider[];
-  /** Reload the provider list after a change (without unmounting this form). */
-  onChanged: () => Promise<void>;
+  /** Reload the provider list after a change (without unmounting this form); resolves to the fresh list. */
+  onChanged: () => Promise<MessagingProvider[]>;
   onSaved: () => void;
 }
 
@@ -53,10 +59,9 @@ const findEmail = (providers: MessagingProvider[], driver: EmailDriver) =>
 
 /**
  * Email tab of Notifications: choose how this realm sends email (SMTP, Cloudflare Email Service, an HTTP relay or
- * the dev log), configure it with write-only secrets, and send a classified test email.
- *
- * Extension point: realm-wide email policy (stage 2: a per-realm send rate cap) goes in its own Section after the
- * provider sections, with its own model and validator in emailSettings.ts.
+ * the dev log), configure it with write-only secrets and the realm's send rate cap, and send a classified test email
+ * through any saved provider. The server keeps one enabled email provider per realm: saving one switched on makes it
+ * the realm's sender and turns the previous one off, which the page confirms first.
  */
 export function EmailDeliverySettings({ api, realmId, providers, onChanged, onSaved }: EmailDeliverySettingsProps) {
   const { t } = useT();
@@ -67,14 +72,20 @@ export function EmailDeliverySettings({ api, realmId, providers, onChanged, onSa
   const [serverErrors, setServerErrors] = React.useState<Record<string, string>>({});
   const [bannerErrors, setBannerErrors] = React.useState<string[]>([]);
   const [saving, setSaving] = React.useState(false);
-  const [turningOff, setTurningOff] = React.useState<string | null>(null);
+  const [confirmSwitch, setConfirmSwitch] = React.useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
 
   const existing = findEmail(providers, driver);
   const anyEnabled = providers.some((p) => p.channel === "EMAIL" && p.enabled);
   const baseline = baselines[driver] ?? formFromProvider(driver, existing, carryFrom(drafts, providers), !anyEnabled);
   const form = drafts[driver] ?? baseline;
   const dirty = !existing || isDirty(form, baseline);
-  const others = otherEnabledEmailDrivers(providers, driver);
+  const active = activeEmailProvider(providers);
+  const switching = switchesFrom(providers, form);
+  const turningEmailOff = !!existing?.enabled && !form.enabled;
+  const removeBlocked = clearSecretBlocked(existing);
+  const driverName = (d: string) => t(`email.driver.${d}.title`);
 
   const update = (next: EmailForm) => {
     setDrafts((d) => ({ ...d, [driver]: next }));
@@ -97,19 +108,43 @@ export function EmailDeliverySettings({ api, realmId, providers, onChanged, onSa
 
   const fieldError = (key: string) => errors[key] ? t(errors[key]) : serverErrors[key];
 
-  const save = async () => {
+  /** After a save the server may have switched other providers off: bring their drafts in line with the fresh list. */
+  const syncOthers = (fresh: MessagingProvider[]) => {
+    const sync = (all: Drafts): Drafts => {
+      const next: Drafts = { ...all };
+      for (const d of EMAIL_DRIVERS) {
+        const f = next[d];
+        const p = findEmail(fresh, d);
+        if (d !== driver && f && p) next[d] = { ...f, enabled: p.enabled };
+      }
+      return next;
+    };
+    setDrafts(sync);
+    setBaselines(sync);
+  };
+
+  const save = () => {
     const found = validateEmailForm(form);
     setErrors(found);
     setServerErrors({});
     setBannerErrors([]);
     if (Object.keys(found).length) return;
+    if (switching) {
+      setConfirmSwitch(switching);
+      return;
+    }
+    void persist();
+  };
+
+  const persist = async () => {
+    setConfirmSwitch(null);
     setSaving(true);
     try {
       const saved = await api.saveProvider(realmId, toWrite(form));
       const fresh = formFromProvider(driver, saved);
       setBaselines((b) => ({ ...b, [driver]: fresh }));
       setDrafts((d) => ({ ...d, [driver]: fresh }));
-      await onChanged();
+      syncOthers(await onChanged());
       onSaved();
     } catch (e) {
       if (e instanceof MessagingApiError && Object.keys(e.fieldErrors).length) {
@@ -131,18 +166,33 @@ export function EmailDeliverySettings({ api, realmId, providers, onChanged, onSa
     setBannerErrors([]);
   };
 
-  const turnOff = async (other: string) => {
-    const p = providers.find((x) => x.channel === "EMAIL" && x.driver === other);
-    if (!p) return;
-    setTurningOff(other);
+  /** Remove the stored secret of the saved provider (not the draft: unsaved edits stay unsaved). */
+  const removeSecret = async () => {
+    setConfirmRemove(false);
+    if (!existing || removeBlocked) return;
+    setRemoving(true);
+    setBannerErrors([]);
     try {
-      await api.saveProvider(realmId, { channel: "EMAIL", driver: other, enabled: false, fromAddress: p.fromAddress, fromName: p.fromName, config: p.config, secret: null });
+      await api.saveProvider(realmId, clearSecretWrite(existing));
+      const cleared = (f: EmailForm | undefined) => f && { ...f, secret: { stored: false, replacing: false, value: "" } };
+      setBaselines((b) => ({ ...b, [driver]: cleared(b[driver] ?? baseline) }));
+      setDrafts((d) => ({ ...d, [driver]: cleared(d[driver] ?? form) }));
       await onChanged();
+      onSaved();
     } catch (e) {
-      setBannerErrors([t("email.others.turnOffFailed", { driver: t(`email.driver.${other}.title`) }) + " " + String((e as Error).message ?? e)]);
+      const fields = e instanceof MessagingApiError ? Object.values(e.fieldErrors) : [];
+      setBannerErrors(fields.length ? fields : [String((e as Error).message ?? e)]);
     } finally {
-      setTurningOff(null);
+      setRemoving(false);
     }
+  };
+  // The secret's name inside a sentence ("Remove the stored password?").
+  const secretLabel = t(driver === "CLOUDFLARE" ? "email.secret.noun.apiToken" : driver === "SMTP" ? "email.secret.noun.password" : "email.secret.noun.relayKey");
+
+  const sectionProps: DriverSectionProps = {
+    form, update, setConfig, fieldError, removing,
+    onRemoveSecret: () => setConfirmRemove(true),
+    removeBlocked,
   };
 
   const hasErrors = Object.keys(errors).length > 0 || Object.keys(serverErrors).length > 0 || bannerErrors.length > 0;
@@ -169,29 +219,21 @@ export function EmailDeliverySettings({ api, realmId, providers, onChanged, onSa
           </div>
         </FormField>
 
-        {others.length > 0 && (
-          <Alert tone={form.enabled ? "warning" : "info"} title={form.enabled ? t("email.others.title") : t("email.others.activeTitle")}>
-            {form.enabled ? t("email.others.bodyEnabled", { drivers: others.map((o) => t(`email.driver.${o}.title`)).join(", ") })
-              : t("email.others.bodyDisabled", { drivers: others.map((o) => t(`email.driver.${o}.title`)).join(", ") })}
-            {form.enabled && (
-              <div className="hx-inlineactions">
-                {others.map((o) => (
-                  <Button key={o} variant="ghost" onClick={() => turnOff(o)} disabled={turningOff !== null}>
-                    {t("email.others.turnOff", { driver: t(`email.driver.${o}.title`) })}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </Alert>
-        )}
-
         <div className="hx-switchrow">
           <div className="hx-switchrow__text">
-            <span className="hx-switchrow__title" id="email-enabled-label">{t("email.enabled.label", { driver: t(`email.driver.${driver}.title`) })}</span>
+            <span className="hx-switchrow__title" id="email-enabled-label">{t("email.enabled.label", { driver: driverName(driver) })}</span>
             <span className="hx-help">{t("email.enabled.hint")}</span>
           </div>
           <Switch checked={form.enabled} onChange={(on) => update({ ...form, enabled: on })} ariaLabelledby="email-enabled-label" />
         </div>
+        {switching && (
+          <Alert tone="info" title={t("email.switch.title", { driver: driverName(driver) })}>
+            {t("email.switch.body", { driver: driverName(driver), current: driverName(switching) })}
+          </Alert>
+        )}
+        {turningEmailOff && (
+          <Alert tone="warning" title={t("email.off.title", { driver: driverName(driver) })}>{t("email.off.body", { driver: driverName(driver) })}</Alert>
+        )}
       </Section>
 
       <Section title={t("email.sender.title")} description={driver === "LOG" ? t("email.sender.descriptionLog") : t("email.sender.description")}>
@@ -205,14 +247,25 @@ export function EmailDeliverySettings({ api, realmId, providers, onChanged, onSa
         </div>
       </Section>
 
-      {driver === "SMTP" && <SmtpSection form={form} update={update} setConfig={setConfig} fieldError={fieldError} />}
-      {driver === "CLOUDFLARE" && <CloudflareSection form={form} update={update} setConfig={setConfig} fieldError={fieldError} />}
-      {driver === "HTTP" && <HttpSection form={form} update={update} setConfig={setConfig} fieldError={fieldError} />}
+      {driver === "SMTP" && <SmtpSection {...sectionProps} />}
+      {driver === "CLOUDFLARE" && <CloudflareSection {...sectionProps} />}
+      {driver === "HTTP" && <HttpSection {...sectionProps} />}
       {driver === "LOG" && (
         <Section title={t("email.log.title")}>
           <Alert tone="warning" title={t("email.log.alertTitle")}>{t("email.log.alertBody")}</Alert>
         </Section>
       )}
+
+      <Section title={t("email.limit.title")} description={t("email.limit.description")}>
+        <div className="hx-fieldgrid">
+          <FormField label={t("email.field.sendLimit")} error={fieldError("config.sendLimitPerMinute")}
+            hint={t("email.field.sendLimit.hint", { min: SEND_LIMIT_RANGE.min, max: SEND_LIMIT_RANGE.max })}>
+            <Input inputMode="numeric" value={form.config.sendLimitPerMinute ?? ""} onChange={(e) => setConfig("sendLimitPerMinute", e.target.value)}
+              placeholder={t("email.field.sendLimit.placeholder")} aria-invalid={!!fieldError("config.sendLimitPerMinute")} />
+          </FormField>
+          <div className="hx-field hx-help hx-limitnote">{t("email.limit.note")}</div>
+        </div>
+      </Section>
 
       {hasErrors && (
         <Alert tone="danger" title={t("email.save.errorTitle")}>
@@ -227,17 +280,31 @@ export function EmailDeliverySettings({ api, realmId, providers, onChanged, onSa
         </div>
       </div>
 
-      <TestEmail api={api} realmId={realmId} driver={driver} existing={existing} dirty={isDirty(form, baseline)} otherEnabled={others.length > 0} />
+      {/* Keyed by the saved provider: a result from before the last save no longer describes these settings. */}
+      <TestEmail key={`${driver}:${existing ? JSON.stringify(existing) : "new"}`} api={api} realmId={realmId} driver={driver} existing={existing} dirty={isDirty(form, baseline)} />
+
+      <Modal open={confirmSwitch !== null} title={t("email.switch.confirmTitle", { driver: driverName(driver) })} onClose={() => setConfirmSwitch(null)} width={480}
+        footer={<>
+          <Button variant="ghost" onClick={() => setConfirmSwitch(null)}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={() => void persist()}>{t("email.switch.confirm", { driver: driverName(driver) })}</Button>
+        </>}>
+        <p className="hx-modal__lede">{confirmSwitch && t("email.switch.confirmBody", { driver: driverName(driver), current: driverName(confirmSwitch) })}</p>
+      </Modal>
+
+      <ConfirmDialog open={confirmRemove} title={t("email.secret.remove.confirmTitle", { secret: secretLabel })}
+        message={t(active?.driver === driver ? "email.secret.remove.confirmBodyActive" : "email.secret.remove.confirmBody", { secret: secretLabel, driver: driverName(driver) })}
+        confirmLabel={t("email.secret.remove.confirm", { secret: secretLabel })} cancelLabel={t("common.cancel")}
+        onConfirm={() => void removeSecret()} onCancel={() => setConfirmRemove(false)} />
     </div>
   );
 }
 
-/** Keep the from address and name when switching to a driver that has no saved row yet. */
-function carryFrom(drafts: Drafts, providers: MessagingProvider[]): { fromAddress: string; fromName: string } | undefined {
+/** Keep the from address, name and send rate cap when switching to a driver that has no saved row yet. */
+function carryFrom(drafts: Drafts, providers: MessagingProvider[]): Carry | undefined {
   const draft = Object.values(drafts).find((d) => d && d.fromAddress);
-  if (draft) return { fromAddress: draft.fromAddress, fromName: draft.fromName };
-  const saved = providers.find((p) => p.channel === "EMAIL" && p.fromAddress);
-  return saved ? { fromAddress: saved.fromAddress ?? "", fromName: saved.fromName ?? "" } : undefined;
+  if (draft) return { fromAddress: draft.fromAddress, fromName: draft.fromName, sendLimitPerMinute: draft.config.sendLimitPerMinute };
+  const saved = activeEmailProvider(providers) ?? providers.find((p) => p.channel === "EMAIL" && p.fromAddress);
+  return saved ? { fromAddress: saved.fromAddress ?? "", fromName: saved.fromName ?? "", sendLimitPerMinute: saved.config?.sendLimitPerMinute } : undefined;
 }
 
 function driverTag(d: EmailDriver, t: (k: string) => string) {
@@ -264,9 +331,13 @@ interface DriverSectionProps {
   update: (f: EmailForm) => void;
   setConfig: (key: string, value: string) => void;
   fieldError: (key: string) => string | undefined;
+  /** Remove the stored secret (asks first); `removeBlocked` is an i18n key when it can't be removed. */
+  onRemoveSecret: () => void;
+  removeBlocked: string | null;
+  removing: boolean;
 }
 
-function SmtpSection({ form, update, setConfig, fieldError }: DriverSectionProps) {
+function SmtpSection({ form, update, setConfig, fieldError, onRemoveSecret, removeBlocked, removing }: DriverSectionProps) {
   const { t } = useT();
   const mode = resolveTlsMode(form.config);
   const advancedHasValue = ["caBundle", "connectTimeoutMs", "readTimeoutMs", "ehloName"].some((k) => (form.config[k] ?? "").trim() || fieldError(`config.${k}`));
@@ -295,7 +366,7 @@ function SmtpSection({ form, update, setConfig, fieldError }: DriverSectionProps
         <FormField label={t("email.field.username")} error={fieldError("config.username")} hint={t("email.field.username.hint")}>
           <Input value={form.config.username ?? ""} onChange={(e) => setConfig("username", e.target.value)} autoComplete="off" spellCheck={false} />
         </FormField>
-        <SecretField label={t("email.secret.password")} form={form} update={update} error={fieldError("secret")} hint={t("email.secret.password.hint")} />
+        <SecretField label={t("email.secret.password")} form={form} update={update} onRemove={onRemoveSecret} removeBlocked={removeBlocked} removing={removing} error={fieldError("secret")} hint={t("email.secret.password.hint")} />
       </div>
 
       <details className="hx-disclosure" open={advancedHasValue || undefined}>
@@ -319,7 +390,7 @@ function SmtpSection({ form, update, setConfig, fieldError }: DriverSectionProps
   );
 }
 
-function CloudflareSection({ form, update, setConfig, fieldError }: DriverSectionProps) {
+function CloudflareSection({ form, update, setConfig, fieldError, onRemoveSecret, removeBlocked, removing }: DriverSectionProps) {
   const { t } = useT();
   const advancedHasValue = ["baseUrl", "connectTimeoutMs", "readTimeoutMs", "caBundle"].some((k) => (form.config[k] ?? "").trim() || fieldError(`config.${k}`));
   return (
@@ -335,7 +406,7 @@ function CloudflareSection({ form, update, setConfig, fieldError }: DriverSectio
         <FormField label={t("email.field.accountId")} required error={fieldError("config.accountId")} hint={t("email.field.accountId.hint")}>
           <Input className="hx-mono" value={form.config.accountId ?? ""} onChange={(e) => setConfig("accountId", e.target.value)} placeholder="023e105f4ecef8ad9ca31a8372d0c353" autoComplete="off" spellCheck={false} aria-invalid={!!fieldError("config.accountId")} />
         </FormField>
-        <SecretField label={t("email.secret.apiToken")} form={form} update={update} required error={fieldError("secret")} hint={t("email.secret.apiToken.hint")} />
+        <SecretField label={t("email.secret.apiToken")} form={form} update={update} onRemove={onRemoveSecret} removeBlocked={removeBlocked} removing={removing} required error={fieldError("secret")} hint={t("email.secret.apiToken.hint")} />
       </div>
       <details className="hx-disclosure" open={advancedHasValue || undefined}>
         <summary>{t("email.advanced")} <span className="hx-disclosure__hint">{t("email.cf.advanced.hint")}</span></summary>
@@ -358,7 +429,7 @@ function CloudflareSection({ form, update, setConfig, fieldError }: DriverSectio
   );
 }
 
-function HttpSection({ form, update, setConfig, fieldError }: DriverSectionProps) {
+function HttpSection({ form, update, setConfig, fieldError, onRemoveSecret, removeBlocked, removing }: DriverSectionProps) {
   const { t } = useT();
   return (
     <Section title={t("email.http.title")} description={t("email.http.description")}>
@@ -373,7 +444,7 @@ function HttpSection({ form, update, setConfig, fieldError }: DriverSectionProps
           <Input value={form.config.authScheme ?? ""} onChange={(e) => setConfig("authScheme", e.target.value)} placeholder="Bearer " spellCheck={false} />
         </FormField>
       </div>
-      <SecretField label={t("email.secret.relayKey")} form={form} update={update} error={fieldError("secret")} hint={t("email.secret.relayKey.hint")} />
+      <SecretField label={t("email.secret.relayKey")} form={form} update={update} onRemove={onRemoveSecret} removeBlocked={removeBlocked} removing={removing} error={fieldError("secret")} hint={t("email.secret.relayKey.hint")} />
     </Section>
   );
 }
@@ -382,8 +453,9 @@ function HttpSection({ form, update, setConfig, fieldError }: DriverSectionProps
  * A write-only secret: "Set" / "Not set" and a Replace action. The stored value is never shown or prefilled; an
  * empty field is never sent (the API keeps the stored secret when none is given).
  */
-function SecretField({ label, form, update, error, hint, required }: {
+function SecretField({ label, form, update, error, hint, required, onRemove, removeBlocked, removing }: {
   label: string; form: EmailForm; update: (f: EmailForm) => void; error?: string; hint?: string; required?: boolean;
+  onRemove: () => void; removeBlocked: string | null; removing: boolean;
 }) {
   const { t } = useT();
   const s = form.secret;
@@ -401,8 +473,16 @@ function SecretField({ label, form, update, error, hint, required }: {
             autoComplete="new-password" spellCheck={false} aria-label={label} aria-invalid={!!error} />
         )}
         {s.stored && !s.replacing && <Button variant="ghost" onClick={() => set({ replacing: true, value: "" })}>{t("email.secret.replace")}</Button>}
+        {s.stored && !s.replacing && (
+          <Button variant="ghost" className={removeBlocked ? undefined : "hx-btn--danger"} onClick={onRemove} disabled={removing || removeBlocked === "email.secret.remove.blockedCloudflare"}>
+            {removing ? t("email.secret.removing") : t("email.secret.remove")}
+          </Button>
+        )}
         {s.stored && s.replacing && <Button variant="ghost" onClick={() => set({ replacing: false, value: "" })}>{t("email.secret.keep")}</Button>}
       </div>
+      {s.stored && !s.replacing && removeBlocked === "email.secret.remove.blockedCloudflare" && (
+        <span className="hx-field__hint">{t(removeBlocked)}</span>
+      )}
     </FormField>
   );
 }
@@ -428,8 +508,8 @@ function CaBundleField({ form, setConfig, error }: { form: EmailForm; setConfig:
   );
 }
 
-function TestEmail({ api, realmId, driver, existing, dirty, otherEnabled }: {
-  api: MessagingApi; realmId: string; driver: EmailDriver; existing?: MessagingProvider; dirty: boolean; otherEnabled: boolean;
+function TestEmail({ api, realmId, driver, existing, dirty }: {
+  api: MessagingApi; realmId: string; driver: EmailDriver; existing?: MessagingProvider; dirty: boolean;
 }) {
   const { t } = useT();
   const [to, setTo] = React.useState("");
@@ -438,7 +518,8 @@ function TestEmail({ api, realmId, driver, existing, dirty, otherEnabled }: {
   const [view, setView] = React.useState<TestResultView | null>(null);
   React.useEffect(() => { setView(null); setError(null); }, [driver]);
 
-  const ready = !!existing && existing.enabled;
+  // Any saved provider can be tested, also one that is switched off: the test names the driver.
+  const ready = !!existing;
   const send = async () => {
     const problem = validateTestRecipient(to);
     setError(problem);
@@ -446,7 +527,7 @@ function TestEmail({ api, realmId, driver, existing, dirty, otherEnabled }: {
     setBusy(true);
     setView(null);
     try {
-      setView(describeTestResult(await api.testProvider(realmId, "EMAIL", to.trim()), driver));
+      setView(describeTestResult(await api.testProvider(realmId, "EMAIL", to.trim(), driver), driver));
     } catch (e) {
       setView({ tone: "danger", title: "email.test.notSent", message: String((e as Error).message ?? e) });
     } finally {
@@ -454,12 +535,13 @@ function TestEmail({ api, realmId, driver, existing, dirty, otherEnabled }: {
     }
   };
 
-  const note = !existing ? t("email.test.needSave") : !existing.enabled ? t("email.test.needEnabled")
-    : dirty ? t("email.test.unsaved") : otherEnabled ? t("email.test.otherEnabled") : null;
+  const note = !existing ? t("email.test.needSave") : dirty ? t("email.test.unsaved")
+    : !existing.enabled ? t("email.test.offProvider", { driver: t(`email.driver.${driver}.title`) }) : null;
+  const noteTone = !existing ? "info" : dirty ? "warning" : "info";
 
   return (
     <Section title={t("email.test.title")} description={t("email.test.description")}>
-      {note && <Alert tone={ready ? "warning" : "info"}>{note}</Alert>}
+      {note && <Alert tone={noteTone}>{note}</Alert>}
       <FormField label={t("email.test.to")} error={error ? t(error) : undefined} hint={t("email.test.to.hint")}>
         <div className="hx-inputrow hx-inputrow--stack">
           <Input type="email" value={to} onChange={(e) => { setTo(e.target.value); if (error) setError(validateTestRecipient(e.target.value)); }}

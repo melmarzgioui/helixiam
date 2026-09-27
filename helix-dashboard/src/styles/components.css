@@ -473,3 +473,20 @@ td.hx-col-sticky { background: var(--bg); }
   .hx-inputrow--stack { flex-direction: column; align-items: stretch; }
   .hx-inputrow--stack > .hx-input { width: 100%; }
 }
+/* A keyboard-focusable wrapper around a non-interactive element that carries a tooltip (e.g. a status badge). */
+.hx-focusable { display: inline-flex; border-radius: 999px; }
+.hx-focusable:focus-visible { outline: none; box-shadow: var(--ring); }
+/* An alert that follows a switch row explains what saving the switch will do. */
+.hx-switchrow + .hx-alert { margin-top: var(--sp-3); }
+/* Explanatory note beside a field in a field grid (aligned with the input, not the label). */
+.hx-limitnote { margin-top: 1.7rem; }
+@media (max-width: 560px) {
+  .hx-limitnote { margin-top: 0; }
+  /* Section header: title and description take the full width; header actions (status badges) stack below. */
+  .hx-section > .hx-section__head { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+  .hx-section > .hx-section__head > div:first-child { flex: none; }
+  .hx-section__headctl { flex-wrap: wrap; }
+  .hx-section__headctl > span { max-width: 100%; white-space: normal; }
+  /* Input + action rows: the action gets the full width under the input. */
+  .hx-inputrow--stack > .hx-btn { width: 100%; justify-content: center; }
+}

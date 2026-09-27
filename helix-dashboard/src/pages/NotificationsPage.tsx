@@ -100,7 +100,7 @@ export function NotificationsPage({ api, realmId }: NotificationsPageProps) {
           <TemplatesEditor api={api} realmId={realmId} templates={templates} onSaved={(tmpl) => { setTemplates(tmpl); setNote({ tone: "success", title: t("notifications.toast.templateSaved") }); }} onError={(m) => setNote({ tone: "error", title: t("notifications.toast.templateSaveError"), message: m })} />
         ) : tab === "EMAIL" ? (
           <EmailDeliverySettings key={realmId} api={api} realmId={realmId} providers={providers}
-            onChanged={() => api.listProviders(realmId).then(setProviders)}
+            onChanged={() => api.listProviders(realmId).then((list) => { setProviders(list); return list; })}
             onSaved={() => setNote({ tone: "success", title: t("notifications.toast.providerSaved") })} />
         ) : (
           <ChannelForm key={tab} api={api} realmId={realmId} channel={tab} providers={providers}
