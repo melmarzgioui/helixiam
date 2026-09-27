@@ -51,26 +51,16 @@ import java.util.function.Function;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    // Security review M3: Content-Security-Policy for the server-rendered login/consent/MFA/reset chain.
-    // script-src is 'self' with NO 'unsafe-inline' — every inline <script>/on*-handler was externalised to
-    // /js/*.js (see the flow/MFA templates) — plus the two optional CAPTCHA vendors (Cloudflare Turnstile /
-    // Google reCAPTCHA), which only load when a realm enables CAPTCHA. style-src keeps 'unsafe-inline'
-    // because the login/consent pages carry per-realm dynamic branding CSS (admin-authored, templated per
-    // request) and scattered inline style="" attributes that cannot be cheaply externalised. img-src allows
-    // https: so admin-configured brand/IdP logos (external URLs) render. frame-ancestors 'none' + object-src
-    // 'none' + base-uri 'self' round out the anti-clickjacking / anti-injection posture.
-    private static final String CSP_BASE =
-            "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; "
-            + "img-src 'self' data: https:; font-src 'self'; style-src 'self' 'unsafe-inline'; "
-            + "script-src 'self' https://challenges.cloudflare.com https://www.google.com https://www.gstatic.com; "
-            + "frame-src https://challenges.cloudflare.com https://www.google.com; "
-            + "connect-src 'self' https://challenges.cloudflare.com";
-    // Interactive pages only ever POST back to us.
-    private static final String CSP_STRICT = CSP_BASE + "; form-action 'self'";
-    // SAML POST-binding pages (flow/saml-post.html) auto-submit an AuthnRequest / SAMLResponse /
-    // LogoutResponse to the peer (external IdP, or the SP's ACS) — a cross-origin https POST — so
-    // form-action must permit https destinations here.
-    private static final String CSP_SAML = CSP_BASE + "; form-action 'self' https:";
+    // Security review M3 + structured theming §6: the Content-Security-Policy of the server-rendered pages is built per
+    // request by PageCspPolicy — style-src 'self' (no 'unsafe-inline': no inline styles are left), img-src 'self' data:
+    // plus the realm's allowlisted image origins, CAPTCHA hosts only when the realm enables CAPTCHA, and a relaxed
+    // form-action on the SAML POST-binding pages.
+
+    /** The public, realm-scoped theme asset path (after RealmRoutingFilter strips the realm prefix). */
+    static final String THEME_ASSET_PATTERN = "/theme/assets/*";
+
+    /** The realm's generated stylesheet (after RealmRoutingFilter strips the realm prefix). */
+    static final String THEME_CSS_PATH = "/theme.css";
 
     private final String[] whitelist;
     private final boolean mfaEnabled;
@@ -231,7 +221,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate, final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService) throws Exception {
+    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate, final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final PageCspPolicy pageCspPolicy) throws Exception {
         // Helix IAM SSO P4: register every login's session in the SessionRegistry (unlimited concurrency)
         // so the authorization server can resolve its `sid`. The registry tracks session ids regardless of
         // where the HttpSession itself is stored.
@@ -247,11 +237,18 @@ public class SecurityConfig {
                 .csrfTokenRequestHandler(new org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler()));
         http.addFilterAfter(new CsrfCookieFilter(), org.springframework.security.web.csrf.CsrfFilter.class);
         // Security review M3: CSP + clickjacking/sniffing/referrer headers on the server-rendered pages.
-        applySecurityHeaders(http);
+        applySecurityHeaders(http, pageCspPolicy);
         http.authorizeHttpRequests(requests -> requests.requestMatchers(whitelist).permitAll());
         // 1.0 item 8: the container's error page must be reachable, or every unhandled 500 (and every 403/404
         // rendered via /error) turns into a 401 from the authentication entry point and hides the real failure.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/error").permitAll());
+        // Structured theming (spec §3): uploaded theme fonts and images are public, read-only and realm-scoped —
+        // sign-in pages and emails load them before anyone is signed in. Only GET/HEAD of exactly
+        // /theme/assets/{file} (flat: RealmRoutingFilter stripped /realms/{realm}); nothing else under /theme.
+        // The generated /theme.css (spec §2) is public in the same way: GET/HEAD only.
+        http.authorizeHttpRequests(requests -> requests
+                .requestMatchers(org.springframework.http.HttpMethod.GET, THEME_ASSET_PATTERN, THEME_CSS_PATH).permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.HEAD, THEME_ASSET_PATTERN, THEME_CSS_PATH).permitAll());
         // 1.0 item 6: magic-link sign-in pages (each answers 404 unless the realm enabled magic links).
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/login/magic", "/login/magic/verify").permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
@@ -440,11 +437,11 @@ public class SecurityConfig {
      *       {@code /workload-identity/**}, {@code /agent/delegation/**}, the MCP resource-metadata doc) get
      *       <b>no</b> CSP — a page-content policy is meaningless on JSON and must not touch the separately
      *       served SPA console's fetches;</li>
-     *   <li>the SAML POST-binding pages ({@code /saml/idp/**}, {@code /broker/**}) get {@link #CSP_SAML}
-     *       (relaxed {@code form-action}); every other page gets the strict {@link #CSP_STRICT}.</li>
+     *   <li>the SAML POST-binding pages ({@code /saml/idp/**}, {@code /broker/**}) get the relaxed
+     *       {@code form-action}; every other page gets the strict one ({@link PageCspPolicy}).</li>
      * </ul>
      */
-    private void applySecurityHeaders(final HttpSecurity http) throws Exception {
+    private void applySecurityHeaders(final HttpSecurity http, final PageCspPolicy pageCspPolicy) throws Exception {
         final org.springframework.security.web.util.matcher.RequestMatcher apiPaths =
                 new org.springframework.security.web.util.matcher.OrRequestMatcher(
                         new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/admin/**"),
@@ -475,11 +472,9 @@ public class SecurityConfig {
                 .referrerPolicy(referrer -> referrer.policy(
                         org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                 .addHeaderWriter(new org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter(
-                        strictPaths,
-                        new org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter(CSP_STRICT)))
+                        strictPaths, pageCspPolicy.headerWriter(false)))
                 .addHeaderWriter(new org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter(
-                        samlPaths,
-                        new org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter(CSP_SAML))));
+                        samlPaths, pageCspPolicy.headerWriter(true))));
     }
 
     @Bean
@@ -542,6 +537,14 @@ public class SecurityConfig {
      * the account SPA's safe (GET) calls, where the token is otherwise never accessed and thus never set.
      */
     static final class CsrfCookieFilter extends org.springframework.web.filter.OncePerRequestFilter {
+        private static boolean isThemeAsset(final jakarta.servlet.http.HttpServletRequest request) {
+            final String path = request.getServletPath();
+            return path != null && (THEME_CSS_PATH.equals(path)
+                    || path.startsWith("/theme/assets/") && path.indexOf('/', "/theme/assets/".length()) < 0)
+                    && ("GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod()));
+        }
+
+
         @Override
         protected void doFilterInternal(final jakarta.servlet.http.HttpServletRequest request,
                                         final jakarta.servlet.http.HttpServletResponse response,
@@ -550,7 +553,8 @@ public class SecurityConfig {
             final org.springframework.security.web.csrf.CsrfToken csrfToken =
                     (org.springframework.security.web.csrf.CsrfToken) request.getAttribute(
                             org.springframework.security.web.csrf.CsrfToken.class.getName());
-            if (csrfToken != null) {
+            // Public theme assets and theme.css are cacheable by shared caches: never attach a cookie to them.
+            if (csrfToken != null && !isThemeAsset(request)) {
                 csrfToken.getToken(); // materialise → triggers the deferred cookie write
             }
             filterChain.doFilter(request, response);

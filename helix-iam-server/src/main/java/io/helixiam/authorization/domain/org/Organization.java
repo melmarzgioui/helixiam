@@ -42,7 +42,11 @@ public class Organization {
     @Column(name = "enabled")
     private boolean enabled = true;
 
-    /** 1.0 item 7: https URL of the organization's logo (login, consent and MFA pages). */
+    /**
+     * 1.0 item 7 (legacy column): since structured theming (Flyway V20) the logo and primary colour live on the
+     * organization theme ({@code organization_theme}): Flyway V20 / the backfill move them there and set these columns
+     * to NULL. They stay in the schema but are no longer read or written; a rollback to 1.0 finds them empty.
+     */
     @Column(name = "logo_url")
     private String logoUrl;
 

@@ -85,4 +85,29 @@ class AuditEventMapperTest {
         assertEquals("widgets", a.resourceType());
         assertEquals("w-1", a.resourceId());
     }
+
+    @Test
+    void mapsThemeUpdates() {
+        final AuditEventMapper.AdminAudit realm = map("PUT", "/admin/realms/gov/theme", 200);
+        assertEquals("THEME_UPDATE", realm.type());
+        assertEquals("theme", realm.resourceType());
+        final AuditEventMapper.AdminAudit org = map("PUT", "/admin/realms/gov/organizations/o-1/theme", 200);
+        assertEquals("ORGANIZATION_THEME_UPDATE", org.type());
+        assertEquals("o-1", org.resourceId());
+        assertEquals("ORGANIZATION_THEME_UPDATE", map("PUT", "/admin/realms/gov/organizations/o-1/branding", 200).type());
+    }
+
+    @Test
+    void mapsThemeAssetUploadsAndDeletions() {
+        final AuditEventMapper.AdminAudit upload = map("POST", "/admin/realms/gov/theme/assets", 201);
+        assertEquals("THEME_ASSET_UPLOAD", upload.type());
+        assertEquals("theme-asset", upload.resourceType());
+        assertEquals("gov", upload.realm());
+        final AuditEventMapper.AdminAudit delete = map("DELETE", "/admin/realms/gov/theme/assets/a-1", 409);
+        assertEquals("THEME_ASSET_DELETE", delete.type());
+        assertEquals("theme-asset", delete.resourceType());
+        assertEquals("a-1", delete.resourceId());
+        assertEquals("DENIED", delete.outcome());
+        assertEquals("THEME_UPDATE", map("PUT", "/admin/realms/gov/theme", 200).type());
+    }
 }

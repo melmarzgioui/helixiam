@@ -31,14 +31,17 @@ class RealmAdminServiceTest {
     private RealmService realmService;
     private ConsoleClientBootstrapService consoleClientBootstrapService;
     private RealmAdminService service;
+    private io.helixiam.authorization.theme.ThemeService themeService;
 
     @BeforeEach
     void setUp() {
         realmService = mock(RealmService.class);
         consoleClientBootstrapService = mock(ConsoleClientBootstrapService.class);
+        themeService = mock(io.helixiam.authorization.theme.ThemeService.class);
+        when(themeService.legacyBranding(any())).thenReturn(io.helixiam.authorization.theme.LegacyBranding.NONE);
         service = new RealmAdminService(realmService, mock(RealmAdminBootstrapService.class),
                 mock(AuthFlowService.class), mock(DefaultRolesBootstrapService.class),
-                consoleClientBootstrapService);
+                consoleClientBootstrapService, themeService);
     }
 
     @Test
@@ -69,6 +72,21 @@ class RealmAdminServiceTest {
         assertEquals(RealmConfig.DEFAULT_PASSWORD_MIN_LENGTH, dto.passwordMinLength());
         assertTrue(dto.enabled());
         assertFalse(dto.requireMfa());
+    }
+
+    @Test
+    void get_readsTheDeprecatedBrandingFieldsFromTheRealmTheme() {
+        when(realmService.getOrDefault("gov")).thenReturn(RealmConfig.defaults("gov"));
+        when(themeService.legacyBranding("gov")).thenReturn(new io.helixiam.authorization.theme.LegacyBranding(
+                "https://cdn.gov.example/logo.svg", "#0a7d52", "#f5f8f6", "Welkom", null));
+
+        final RealmSettingsDto dto = service.get("gov");
+
+        assertEquals("https://cdn.gov.example/logo.svg", dto.logoUrl());
+        assertEquals("#0a7d52", dto.primaryColor());
+        assertEquals("#f5f8f6", dto.backgroundColor());
+        assertEquals("Welkom", dto.welcomeText());
+        assertEquals(null, dto.customCss());
     }
 
     @Test
@@ -129,14 +147,13 @@ class RealmAdminServiceTest {
         // strips it before the browser); so the persisted entity holds it.
         assertEquals("secret-key", saved.getCaptchaSecretKey());
 
-        // B2: per-realm login theming round-trips onto the entity + back into the returned DTO.
-        assertEquals("https://cdn/logo.svg", saved.getLogoUrl());
-        assertEquals("#0a7d52", saved.getPrimaryColor());
-        assertEquals("#f5f8f6", saved.getBackgroundColor());
-        assertEquals("Welcome to Gov NL", saved.getWelcomeText());
-        assertEquals(".hx{color:red}", saved.getCustomCss());
-        assertEquals("https://cdn/logo.svg", dto.logoUrl());
-        assertEquals("#0a7d52", dto.primaryColor());
+        // B2 (deprecated): the legacy branding fields are written onto the realm theme, not the entity, and read
+        // back from it.
+        verify(themeService).applyLegacyBranding("gov", new io.helixiam.authorization.theme.LegacyBranding(
+                "https://cdn/logo.svg", "#0a7d52", "#f5f8f6", "Welcome to Gov NL", ".hx{color:red}"));
+        assertEquals(null, saved.getLogoUrl());
+        assertEquals(null, saved.getCustomCss());
+        verify(themeService, org.mockito.Mockito.atLeastOnce()).legacyBranding("gov");
     }
 
     @Test

@@ -67,4 +67,38 @@ class LocaleResolverI18nTest {
         assertEquals(Locale.ENGLISH, AcceptHeaderCookieLocaleResolver.supportedOrDefault(null));
         assertEquals(Locale.ENGLISH, AcceptHeaderCookieLocaleResolver.supportedOrDefault(Locale.GERMAN));
     }
+
+    // ---- Structured theming: a realm's theme.layout.supportedLocales narrows (or widens) the languages it offers.
+
+    private static AcceptHeaderCookieLocaleResolver realmResolver(final java.util.List<String> locales) {
+        final AcceptHeaderCookieLocaleResolver r = new AcceptHeaderCookieLocaleResolver();
+        r.setRealmLocales(request -> locales);
+        return r;
+    }
+
+    @Test
+    void anEnglishOnlyRealmServesEnglishToADutchBrowser() {
+        final MockHttpServletRequest req = new MockHttpServletRequest();
+        req.addPreferredLocale(Locale.forLanguageTag("nl"));
+        assertEquals("en", realmResolver(java.util.List.of("en")).resolveLocale(req).getLanguage());
+        req.setCookies(new Cookie(I18nConfig.LOCALE_COOKIE, "nl"));
+        assertEquals("en", realmResolver(java.util.List.of("en")).resolveLocale(req).getLanguage());
+    }
+
+    @Test
+    void aRealmLocaleOutsideTheBundledOnesIsKept_andAnythingElseFallsToTheRealmsFirst() {
+        final MockHttpServletRequest de = new MockHttpServletRequest();
+        de.addPreferredLocale(Locale.forLanguageTag("de-AT"));
+        assertEquals(Locale.forLanguageTag("de"), realmResolver(java.util.List.of("nl", "de")).resolveLocale(de));
+        final MockHttpServletRequest fr = new MockHttpServletRequest();
+        fr.addPreferredLocale(Locale.FRENCH);
+        assertEquals(Locale.forLanguageTag("nl"), realmResolver(java.util.List.of("nl", "de")).resolveLocale(fr));
+    }
+
+    @Test
+    void withoutRealmLocalesTheBundledSetStillApplies() {
+        final MockHttpServletRequest req = new MockHttpServletRequest();
+        req.addPreferredLocale(Locale.GERMAN);
+        assertEquals("en", realmResolver(null).resolveLocale(req).getLanguage());
+    }
 }

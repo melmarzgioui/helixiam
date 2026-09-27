@@ -1,52 +1,36 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#a3d4c4">
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2f3033">
-    <meta name="theme-color" content="#a3d4c4">
-    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
-    <title>HelixIAM - Profile</title>
-
-    <meta name="googlebot" content="noindex">
-    <meta name="robots" content="noindex">
-    <script defer src="/js/App.js?@project.version@" type="module"></script>
-    <link rel="icon" href="/img/favicon.avif" sizes="32x32">
-    <link rel="icon" href="/img/favicon.avif" sizes="192x192">
-    <link rel="icon" href="/img/favicon.avif">
+    <th:block th:replace="~{fragments/theme :: hxHead(#{profile.title}, false)}"></th:block>
+    <script defer src="/js/App.js" type="module"></script>
 </head>
 <body>
 <div class="mainWrapper">
 
-    <header>
-        <div class="headerBar">
-            <a>
-                <div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div>
-            </a>
-        </div>
-    </header>
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
 
     <main>
-        <div class="container">
-            <h3>My profile</h3>
+        <div class="container title">
+            <h1 class="hx-title" th:text="#{profile.title}">My profile</h1>
         </div>
-
         <div class="container">
-            <label>Email Address</label>
-            <span th:text="*{username}"/>
-
-            <label>First Name</label>
-            <span th:text="*{firstName}"/>
-
-            <label>Last Name</label>
-            <span th:text="*{lastName}"/>
-
-            <label>Phone Number</label>
-            <span th:text="*{mobilePhone}"/>
+            <article>
+                <dl class="hx-profile">
+                    <dt th:text="#{profile.username}">Username</dt>
+                    <dd th:text="${profile.username()} ?: #{profile.notSet}" th:classappend="${profile.username() == null} ? 'hx-muted'">ada</dd>
+                    <dt th:text="#{profile.email}">Email address</dt>
+                    <dd th:text="${profile.email()} ?: #{profile.notSet}" th:classappend="${profile.email() == null} ? 'hx-muted'">ada@example.com</dd>
+                    <dt th:text="#{profile.givenName}">First name</dt>
+                    <dd th:text="${profile.givenName()} ?: #{profile.notSet}" th:classappend="${profile.givenName() == null} ? 'hx-muted'">Ada</dd>
+                    <dt th:text="#{profile.familyName}">Last name</dt>
+                    <dd th:text="${profile.familyName()} ?: #{profile.notSet}" th:classappend="${profile.familyName() == null} ? 'hx-muted'">Lovelace</dd>
+                    <dt th:text="#{profile.phone}">Phone number</dt>
+                    <dd th:text="${profile.phone()} ?: #{profile.notSet}" th:classappend="${profile.phone() == null} ? 'hx-muted'">+31 6 1234 5678</dd>
+                </dl>
+            </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer></footer>
 </div>
 </body>
 </html>

@@ -952,3 +952,47 @@ CREATE TABLE IF NOT EXISTS notification_code (
     creation_date timestamp DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS notification_code_identifier_idx ON notification_code (identifier, type);
+
+-- Structured theming: realm and organization theme layers (same as Flyway V19). The legacy branding columns are
+-- moved into them at startup by LegacyBrandingBackfill (the Flyway path does it in V20).
+CREATE TABLE IF NOT EXISTS realm_theme (
+    realm_id   character varying(255) NOT NULL PRIMARY KEY,
+    theme_json text NOT NULL,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (realm_id) REFERENCES realm_config(realm_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS organization_theme (
+    org_id     character varying(255) NOT NULL PRIMARY KEY,
+    realm_id   character varying(255) NOT NULL,
+    theme_json text NOT NULL,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (org_id) REFERENCES organization(org_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS organization_theme_realm_idx ON organization_theme (realm_id);
+
+-- Structured theming: uploaded fonts and images (same as Flyway V21).
+CREATE TABLE IF NOT EXISTS theme_asset (
+    asset_id     character varying(64)  NOT NULL PRIMARY KEY,
+    realm_id     character varying(255) NOT NULL,
+    kind         character varying(16)  NOT NULL,
+    name         character varying(64)  NOT NULL,
+    extension    character varying(8)   NOT NULL,
+    content_type character varying(64)  NOT NULL,
+    font_weight  character varying(16),
+    font_style   character varying(16),
+    size_bytes   integer NOT NULL,
+    sha256       character varying(64)  NOT NULL,
+    content      bytea NOT NULL,
+    created_at   timestamp DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (realm_id) REFERENCES realm_config(realm_id) ON DELETE CASCADE,
+    CONSTRAINT theme_asset_kind_chk CHECK (kind IN ('font', 'image')),
+    CONSTRAINT theme_asset_extension_chk CHECK ((kind = 'font' AND extension = 'woff2')
+        OR (kind = 'image' AND extension IN ('svg', 'png', 'webp'))),
+    CONSTRAINT theme_asset_size_chk CHECK (size_bytes > 0 AND size_bytes <= 524288)
+);
+CREATE INDEX IF NOT EXISTS theme_asset_realm_idx ON theme_asset (realm_id, kind);
+-- Same as Flyway V22: font faces are unique case-insensitively (CSS family names are).
+DROP INDEX IF EXISTS theme_asset_font_face_uq;
+CREATE UNIQUE INDEX IF NOT EXISTS theme_asset_font_face_ci_uq
+    ON theme_asset (realm_id, lower(name), font_weight, font_style) WHERE kind = 'font';

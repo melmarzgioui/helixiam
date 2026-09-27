@@ -1,39 +1,17 @@
 <!DOCTYPE html>
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#a3d4c4">
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2f3033">
-    <meta name="theme-color" content="#a3d4c4">
-    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=overlays-content">
-    <title th:text="#{login.page.title}">HelixIAM - Login</title>
-    <script defer src="/js/App.js?@project.version@" type="module"></script>
-    <meta name="googlebot" content="noindex">
-    <meta name="robots" content="noindex">
-    <link rel="icon" href="/img/favicon.avif" sizes="32x32">
-    <link rel="icon" href="/img/favicon.avif" sizes="192x192">
-    <link rel="icon" href="/img/favicon.avif">
-    <!-- 1.0 item 7: the organization's (else the realm's) primary colour; validated #RRGGBB, never raw CSS. -->
-    <style th:if="${brandingPrimaryColor != null}" th:inline="text">
-        .buttonHolder > button, .buttonHolder > a.button { background-color: [[${brandingPrimaryColor}]] !important; border-color: [[${brandingPrimaryColor}]] !important; }
-        .mainWrapper > main > div.container.title h3, details.recovery > summary { color: [[${brandingPrimaryColor}]] !important; }
-    </style>
+    <th:block th:replace="~{fragments/theme :: hxHead(#{mfa.totp.title}, false)}"></th:block>
+    <script defer src="/js/App.js" type="module"></script>
 </head>
 <body>
 <div class="mainWrapper">
 
-    <header>
-        <div class="headerBar">
-            <a>
-                <div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div><span class="hx-org-name" th:if="${brandingOrgName != null}" th:text="${brandingOrgName}">Organization</span>
-            </a>
-        </div>
-    </header>
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
 
     <main>
         <div class="container title">
-            <h3 th:text="#{mfa.totp.title}">Open Your Authenticator App</h3>
+            <h1 class="hx-title" th:text="#{mfa.totp.title}">Open Your Authenticator App</h1>
             <div class="description" th:text="#{mfa.totp.description}">Grab your authenticator app and add your authentication code</div>
         </div>
 
@@ -43,8 +21,8 @@
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
 
                 <label for="code" th:text="#{mfa.code.label}">Authentication Code:</label>
-                <input type="number" id="code" name="code" autofocus placeholder="XXXXXX" autocomplete="off"/>
-                <span class="error" th:text="#{mfa.code.error}">Invalid code, please try again</span>
+                <input type="text" inputmode="numeric" id="code" name="code" autofocus placeholder="123456" autocomplete="one-time-code" th:attr="aria-invalid=${error != null} ? 'true' : null, aria-describedby=${error != null} ? 'code-error' : null"/>
+                <span class="error" id="code-error" role="alert" th:if="${error != null}" th:text="#{mfa.code.error}">Invalid code, please try again</span>
 
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder">
@@ -58,8 +36,8 @@
                 <summary th:text="#{mfa.recovery.use}">Use a recovery code instead</summary>
                 <form th:action="@{/mfa/recovery}" method="post" th:classappend="${recoveryError != null ? 'invalid' : 'valid'}">
                     <label for="recoveryCode" th:text="#{mfa.recovery.label}">Recovery code:</label>
-                    <input type="text" id="recoveryCode" name="recoveryCode" autocomplete="off" placeholder="XXXX-XXXX"/>
-                    <span class="error" th:text="#{mfa.recovery.error}">That recovery code is not valid or was already used</span>
+                    <input type="text" id="recoveryCode" name="recoveryCode" autocomplete="off" placeholder="XXXX-XXXX" th:attr="aria-invalid=${recoveryError != null} ? 'true' : null, aria-describedby=${recoveryError != null} ? 'recovery-error' : null"/>
+                    <span class="error" id="recovery-error" role="alert" th:if="${recoveryError != null}" th:text="#{mfa.recovery.error}">That recovery code is not valid or was already used</span>
                     <div class="spacer">&nbsp;</div>
                     <div class="buttonHolder">
                         <button type="submit"><span th:text="#{mfa.verify}">Verify</span></button>
@@ -68,8 +46,8 @@
             </details>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer></footer>
 </div>
 </body>
 </html>

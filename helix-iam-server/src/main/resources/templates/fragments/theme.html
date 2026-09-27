@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/*
+  Structured theming (spec §2): the ONE shared head and brand fragment of every user-facing page.
+
+  Every value comes from the page model `hx` (io.helixiam.authorization.theme.render.ThemePage), built from the
+  effective theme (organization in context → realm → HelixIAM default). Colours, fonts, radius and spacing are in
+  /realms/{realm}/theme.css as --hx-* custom properties; this fragment links it and renders the logo, favicon, texts
+  and links. Everything is escaped (th:text / th:href / th:src / th:attr) — never th:utext — and there are no inline
+  styles or scripts (the CSP has no 'unsafe-inline').
+
+  Usage:
+    <head><th:block th:replace="~{fragments/theme :: hxHead(#{login.title}, true)}"/> …page scripts… </head>
+    split pages:  <div th:replace="~{fragments/theme :: brandPanel}"></div>  +  logoAbove / switcher / formFooter
+    card pages:   <header th:replace="~{fragments/theme :: hxHeader(false)}"></header> … <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+*/-->
+<head>
+<th:block th:fragment="hxHead(title, split)">
+    <meta charset="UTF-8">
+    <th:block th:if="${hx.preview != null}">
+        <meta http-equiv="Content-Security-Policy" th:content="${hx.preview.csp}">
+        <base th:href="${hx.preview.baseHref}">
+    </th:block>
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=overlays-content">
+    <meta name="robots" content="noindex">
+    <meta name="googlebot" content="noindex">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" th:content="${hx.themeColorLight}">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" th:content="${hx.themeColorDark}">
+    <title th:text="${hx.title(title)}">Sign in</title>
+    <link rel="stylesheet" th:href="@{/css/helix.css}">
+    <link th:if="${split}" rel="stylesheet" th:href="@{/css/login.css}">
+    <link th:if="${hx.preview == null and hx.orgId == null}" rel="stylesheet" class="hx-theme"
+          th:href="@{/theme.css(v=${hx.cssVersion})}">
+    <link th:if="${hx.preview == null and hx.orgId != null}" rel="stylesheet" class="hx-theme"
+          th:href="@{/theme.css(v=${hx.cssVersion},org=${hx.orgId})}">
+    <link th:if="${hx.preview != null}" rel="stylesheet" class="hx-theme" th:href="${hx.preview.cssDataUrl}"
+          th:attr="nonce=${hx.preview.nonce}">
+    <link th:if="${hx.faviconUrl != null}" rel="icon" th:href="${hx.faviconUrl}">
+    <!--/* The HelixIAM icons only on unbranded pages; a branded page without its own favicon sets none (review B2). */-->
+    <link th:if="${hx.faviconUrl == null and !hx.branded}" rel="icon" type="image/svg+xml" th:href="@{/img/helix-favicon.svg}">
+    <link th:if="${hx.faviconUrl == null and !hx.branded}" rel="icon" th:href="@{/img/favicon.avif}" sizes="32x32">
+</th:block>
+</head>
+<body>
+
+<!--/* The logo: the theme's logo (with its dark-mode variant), else the built-in HelixIAM wordmark.
+     onDark: the logo sits on the brand panel, which is a dark ground in both colour schemes — the dark-ground
+     variant (logoDarkUrl) is then used in both, when the theme has one. */-->
+<th:block th:fragment="logo(imgClass, onDark)">
+    <img th:if="${hx.logoUrl != null and onDark and hx.logoDarkUrl != null}" th:class="${imgClass}"
+         th:src="${hx.logoDarkUrl}" th:alt="${hx.brandName.isEmpty()} ? 'Logo' : ${hx.brandName}">
+    <picture th:if="${hx.logoUrl != null and !(onDark and hx.logoDarkUrl != null)}">
+        <source th:if="${hx.logoDarkUrl != null}" media="(prefers-color-scheme: dark)" th:attr="srcset=${hx.logoDarkUrl}">
+        <img th:class="${imgClass}" th:src="${hx.logoUrl}" th:alt="${hx.brandName.isEmpty()} ? 'Logo' : ${hx.brandName}">
+    </picture>
+    <span th:if="${hx.logoUrl == null}" class="hx-wordmark">Helix<b>IAM</b><svg class="hx-spark" viewBox="0 0 125 125" aria-hidden="true"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg></span>
+</th:block>
+
+<!--/* Language switcher (theme layout.showLanguageSwitcher + supportedLocales; one locale hides it). */-->
+<nav th:fragment="switcher" class="lang" th:if="${!hx.locales.isEmpty()}" th:attr="aria-label=#{common.language}">
+    <th:block th:each="loc, it : ${hx.locales}">
+        <span th:unless="${it.first}" aria-hidden="true">·</span>
+        <a th:href="@{''(lang=${loc.tag()})}" th:text="${loc.label()}" th:lang="${loc.tag()}"
+           th:attr="aria-current=${loc.current()} ? 'true' : 'false'">English</a>
+    </th:block>
+</nav>
+
+<!--/* Split layout: the brand panel (logo, headline, subhead, badges, byline, optional side image). */-->
+<aside th:fragment="brandPanel" th:if="${hx.split()}" class="helix-brand" th:classappend="${(hx.brandImageUrl != null ? 'has-image ' : '') + (hx.branded ? 'is-branded' : '')}">
+    <img th:if="${hx.brandImageUrl != null}" class="brand-image" th:src="${hx.brandImageUrl}" alt="">
+    <div th:unless="${hx.branded}" class="brand-watermark" aria-hidden="true">
+        <svg viewBox="0 0 125 125"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+    </div>
+
+    <div class="brand-lockup">
+        <th:block th:replace="~{fragments/theme :: logo('brand-logo-custom', true)}"></th:block>
+    </div>
+
+    <div class="brand-mid">
+        <h1 th:if="${hx.brandHeadline != ''}" th:text="${hx.brandHeadline} ?: #{login.brand.headline}">Secure access for every human and machine.</h1>
+        <p th:if="${hx.brandSubhead != ''}" th:text="${hx.brandSubhead} ?: #{login.brand.subhead}">One identity platform.</p>
+        <ul class="brand-badges" th:if="${hx.badges == null or !hx.badges.isEmpty()}" aria-hidden="true">
+            <th:block th:if="${hx.badges == null}">
+                <li>OpenID Connect</li>
+                <li>SAML 2.0</li>
+                <li>SCIM</li>
+                <li>Passkeys</li>
+            </th:block>
+            <li th:each="badge : ${hx.badges}" th:text="${badge}">Badge</li>
+        </ul>
+    </div>
+
+    <!--/* Always present (empty when the byline is hidden) so the headline keeps its place in the panel. */-->
+    <div class="brand-bottom">
+        <svg th:if="${!hx.branded and hx.brandByline != ''}" class="kd-spark" viewBox="0 0 125 125" aria-hidden="true"><path fill="currentColor" d="M 115.0625 65.007812 L 88.875 77.605469 L 72.496094 85.519531 L 65.570312 115.921875 L 65.363281 116.910156 L 61.667969 116.910156 L 61.667969 62.769531 L 9.9375 62.769531 L 10.164062 61.816406 L 10.441406 61.3125 L 11.5 60.808594 L 54.8125 39.949219 L 61.753906 9.546875 L 62.066406 8.160156 L 62.257812 8.089844 L 62.761719 8.332031 L 64.027344 8.941406 L 64.027344 62.769531 L 114.558594 62.769531 L 114.785156 63.636719 Z"/></svg>
+        <span th:if="${hx.brandByline != ''}" th:text="${hx.brandByline} ?: #{login.brand.byline}">Self-hosted identity</span>
+    </div>
+</aside>
+
+<!--/* Split layout, centered variant: the logo above the form (the brand panel is not shown). */-->
+<div th:fragment="logoAbove" class="form-logo" th:unless="${hx.split()}">
+    <th:block th:replace="~{fragments/theme :: logo('form-logo-custom', false)}"></th:block>
+    <span class="hx-org-name" th:if="${hx.orgName != null}" th:text="${hx.orgName}">Organization</span>
+</div>
+
+<!--/* Split layout: the welcome text under the page title. */-->
+<p th:fragment="welcome" th:if="${hx.welcomeText != null and hx.welcomeText != ''}" class="hx-welcome"
+   th:text="${hx.welcomeText}">Welcome</p>
+
+<!--/* Split layout: footer text and legal links under the form. */-->
+<div th:fragment="formFooter" class="form-footer" th:if="${hx.hasFooter()}">
+    <th:block th:replace="~{fragments/theme :: legal}"></th:block>
+</div>
+
+<!--/* Footer text + privacy / terms / support links (https only; they open in a new tab). */-->
+<th:block th:fragment="legal">
+    <p class="hx-footer-text" th:if="${hx.footerText != null and hx.footerText != ''}" th:text="${hx.footerText}">Footer</p>
+    <ul class="hx-legal" th:if="${hx.privacyUrl != null or hx.termsUrl != null or hx.supportUrl != null}">
+        <li th:if="${hx.privacyUrl != null}"><a th:href="${hx.privacyUrl}" target="_blank" rel="noopener noreferrer">Privacy</a></li>
+        <li th:if="${hx.termsUrl != null}"><a th:href="${hx.termsUrl}" target="_blank" rel="noopener noreferrer">Terms</a></li>
+        <li th:if="${hx.supportUrl != null}"><a th:href="${hx.supportUrl}" target="_blank" rel="noopener noreferrer">Support</a></li>
+    </ul>
+</th:block>
+
+<!--/* Card pages: the header bar with the logo, the organization name and (optionally) the language switcher. */-->
+<header th:fragment="hxHeader(switcher)">
+    <div class="headerBar">
+        <a class="hx-home">
+            <div class="logo"><th:block th:replace="~{fragments/theme :: logo('hx-logo', false)}"></th:block></div>
+            <span class="hx-org-name" th:if="${hx.orgName != null}" th:text="${hx.orgName}">Organization</span>
+        </a>
+        <th:block th:if="${switcher}"><nav th:replace="~{fragments/theme :: switcher}"></nav></th:block>
+    </div>
+</header>
+
+<!--/* Card pages: footer text and legal links under the content, the same pattern as the split pages'
+     formFooter; nothing at all when the theme sets neither (review S9). */-->
+<footer th:fragment="hxFooter" class="hx-page-footer" th:if="${hx.hasFooter()}">
+    <th:block th:replace="~{fragments/theme :: legal}"></th:block>
+</footer>
+
+</body>
+</html>

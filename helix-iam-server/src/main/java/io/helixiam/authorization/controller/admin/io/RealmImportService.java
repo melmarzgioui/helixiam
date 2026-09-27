@@ -125,6 +125,19 @@ public class RealmImportService {
     public static final String SLICE_RESOURCE_INDICATORS = "resourceIndicators";
     public static final String SLICE_AUTHZ = "authorizationServices";
     public static final String SLICE_AGENTS = "agents";
+    public static final String SLICE_THEME = "theme";
+    public static final String SLICE_ORG_THEMES = "organizationThemes";
+
+    private io.helixiam.authorization.theme.ThemeService themeService;
+
+    /**
+     * Structured theming: when present, the realm theme (or, in older documents, the legacy realm branding fields)
+     * and the organization themes are imported through the theme service, with the same validation as the admin API.
+     */
+    @Autowired(required = false)
+    public void setThemeService(final io.helixiam.authorization.theme.ThemeService themeService) {
+        this.themeService = themeService;
+    }
 
     private final RealmAdminPublisher realmPublisher;
     private final ClientAdminPublisher clientPublisher;
@@ -221,18 +234,48 @@ public class RealmImportService {
     /** Applies every present slice into {@code realmId} honouring {@code options}; returns the summary. */
     public RealmImportResult importInto(final String realmId, final RealmExportDocument doc,
                                         final ImportOptions options) {
+        return importInto(realmId, doc, options, new RealmImportResult.Builder(realmId));
+    }
+
+    /**
+     * As {@link #importInto(String, RealmExportDocument, ImportOptions)}, adding to a result a caller already started
+     * (the archive import records its {@code themeAssets} slice there first).
+     */
+    public RealmImportResult importInto(final String realmId, final RealmExportDocument doc,
+                                        final ImportOptions options, final RealmImportResult.Builder result) {
         final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
-        final RealmImportResult.Builder result = new RealmImportResult.Builder(realmId);
         if (doc == null) {
             return result.build();
         }
+        if (!importRealmStage(realmId, doc, opts, result)) {
+            return result.build();
+        }
+        return importRest(realmId, doc, opts, result);
+    }
+
+    /**
+     * Stage 1 of an import: the realm slice (which creates the realm when it does not exist yet). False when it
+     * failed, in which case nothing else may be imported. The archive import runs its asset stage between this and
+     * {@link #importRest}, because assets need the realm row.
+     */
+    public boolean importRealmStage(final String realmId, final RealmExportDocument doc, final ImportOptions options,
+                                    final RealmImportResult.Builder result) {
+        final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
         importRealm(realmId, doc, opts, result);
         if (result.hasFailed(SLICE_REALM)) {
             // Review rc.3 #5: without its realm nothing else can be imported consistently — stop here.
             LOG.warn("Helix realm import [{}]: the realm could not be written; nothing else was imported",
                     LogSafe.sanitize(realmId));
-            return result.build();
+            return false;
         }
+        return true;
+    }
+
+    /** Stage 2 of an import: every slice after the realm. */
+    public RealmImportResult importRest(final String realmId, final RealmExportDocument doc, final ImportOptions options,
+                                        final RealmImportResult.Builder result) {
+        final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
+        importTheme(realmId, doc, opts, result);
         importRoles(realmId, doc, opts, result);
         importScopes(realmId, doc, opts, result);
         importApplications(realmId, doc, opts, result);
@@ -241,6 +284,7 @@ public class RealmImportService {
         importIdps(realmId, doc, opts, result);
         importFlows(realmId, doc, opts, result);
         importOrgs(realmId, doc, opts, result);
+        importOrganizationThemes(realmId, doc, opts, result);
         importWebhooks(realmId, doc, opts, result);
         importScim(realmId, doc, opts, result);
         importWorkload(realmId, doc, opts, result);
@@ -322,6 +366,12 @@ public class RealmImportService {
         if (blocked(exists, SLICE_REALM, realmId, opts, r)) {
             return;
         }
+        // Structured theming: the branding fields are validated and applied by importTheme; here they are kept as
+        // they are in the target realm, so the settings write never touches the theme.
+        final io.helixiam.authorization.theme.LegacyBranding keep = themeService == null
+                ? new io.helixiam.authorization.theme.LegacyBranding(in.logoUrl(), in.primaryColor(), in.backgroundColor(),
+                        in.welcomeText(), in.customCss())
+                : themeService.storedLegacyBranding(realmId);
         try {
             // Force the target realm id from the path; never carry the source realm's CAPTCHA secret.
             final RealmSettingsDto retargeted = new RealmSettingsDto(realmId, in.displayName(), in.issuer(),
@@ -336,7 +386,7 @@ public class RealmImportService {
                     in.concurrentSessionEvictOldest(), in.riskPolicyEnabled(),
                     in.riskMediumThreshold(), in.riskHighThreshold(), in.riskLowAction(), in.riskMediumAction(),
                     in.riskHighAction(),
-                    in.logoUrl(), in.primaryColor(), in.backgroundColor(), in.welcomeText(), in.customCss(),
+                    keep.logoUrl(), keep.primaryColor(), keep.backgroundColor(), keep.welcomeText(), keep.customCss(),
                     in.registrationEnabled());
             realmPublisher.save(retargeted);
             if (exists) {
@@ -347,6 +397,86 @@ public class RealmImportService {
         } catch (final RuntimeException ex) {
             failed(r, SLICE_REALM, realmId, ex);
         }
+    }
+
+    // --- theme: the realm's theme layer (or the legacy realm branding fields of older documents), validated. ---
+    private void importTheme(final String realmId, final RealmExportDocument doc, final ImportOptions opts,
+                             final RealmImportResult.Builder r) {
+        if (themeService == null) {
+            return;
+        }
+        final io.helixiam.authorization.theme.Theme theme = doc.theme();
+        final RealmSettingsDto legacySource = doc.realm();
+        final io.helixiam.authorization.theme.LegacyBranding legacy = theme != null || legacySource == null ? null
+                : new io.helixiam.authorization.theme.LegacyBranding(legacySource.logoUrl(), legacySource.primaryColor(),
+                        legacySource.backgroundColor(), legacySource.welcomeText(), legacySource.customCss()).normalized();
+        if (theme == null && (legacy == null || legacy.equals(themeService.storedLegacyBranding(realmId)))) {
+            return;
+        }
+        final boolean exists = !themeService.realmTheme(realmId).isEmpty();
+        if (blocked(exists, SLICE_THEME, realmId, opts, r)) {
+            return;
+        }
+        try {
+            if (theme != null) {
+                themeService.saveRealmTheme(realmId, theme);
+            } else {
+                themeService.applyLegacyBranding(realmId, legacy);
+            }
+            if (exists) {
+                r.updated(SLICE_THEME);
+            } else {
+                r.created(SLICE_THEME);
+            }
+        } catch (final io.helixiam.authorization.theme.ThemeValidationException ex) {
+            themeFailed(r, SLICE_THEME, realmId, ex);
+        } catch (final RuntimeException ex) {
+            failed(r, SLICE_THEME, realmId, ex);
+        }
+    }
+
+    // --- organization themes: matched by organization name in the target realm, validated. ---
+    private void importOrganizationThemes(final String realmId, final RealmExportDocument doc, final ImportOptions opts,
+                                          final RealmImportResult.Builder r) {
+        if (themeService == null || doc.organizationThemes() == null) {
+            return;
+        }
+        final Map<String, OrgDto> orgs = byKey(orgPublisher.list(realmId), OrgDto::name);
+        for (final RealmExportDocument.OrganizationThemeExport entry : doc.organizationThemes()) {
+            if (entry == null || isBlank(entry.organization()) || entry.theme() == null
+                    || !orgs.containsKey(entry.organization())) {
+                r.skipped(SLICE_ORG_THEMES);
+                continue;
+            }
+            final String orgId = orgs.get(entry.organization()).orgId();
+            final boolean exists = themeService.organizationTheme(realmId, orgId).map(t -> !t.isEmpty()).orElse(false);
+            if (blocked(exists, SLICE_ORG_THEMES, entry.organization(), opts, r)) {
+                continue;
+            }
+            try {
+                themeService.saveOrganizationTheme(realmId, orgId, entry.theme());
+                if (exists) {
+                    r.updated(SLICE_ORG_THEMES);
+                } else {
+                    r.created(SLICE_ORG_THEMES);
+                }
+            } catch (final io.helixiam.authorization.theme.ThemeValidationException ex) {
+                themeFailed(r, SLICE_ORG_THEMES, realmId, ex);
+            } catch (final RuntimeException ex) {
+                failed(r, SLICE_ORG_THEMES, realmId, ex);
+            }
+        }
+    }
+
+    /** A theme refused by validation: reported with its field errors (field: message; …). */
+    private static void themeFailed(final RealmImportResult.Builder r, final String slice, final String realmId,
+                                    final io.helixiam.authorization.theme.ThemeValidationException ex) {
+        final StringBuilder reason = new StringBuilder("The theme is not valid: ");
+        ex.fieldErrors().forEach((field, message) -> reason.append(field).append(": ").append(message).append("; "));
+        LOG.warn("Helix realm import [{}]: {} refused: {}", LogSafe.sanitize(realmId), LogSafe.sanitize(slice),
+                LogSafe.sanitize(reason.toString()));
+        final String text = reason.toString().trim();
+        r.failed(slice, text.length() > 500 ? text.substring(0, 500) + "…" : text);
     }
 
     // --- roles: create by name; if the name already exists, count as updated (or skip per conflict mode). ---

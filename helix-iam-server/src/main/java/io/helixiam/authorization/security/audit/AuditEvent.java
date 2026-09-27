@@ -48,6 +48,14 @@ public record AuditEvent(String ts, String kind, String category, String type, S
         return new AuditEvent(ts, KIND, ADMIN, type, realm, actor, sourceIp, resourceType, resourceId, outcome, null);
     }
 
+    /** An admin mutation event with extra detail (e.g. the fields changed). */
+    public static AuditEvent admin(final String ts, final String type, final String realm, final String actor,
+                                   final String sourceIp, final String resourceType, final String resourceId,
+                                   final String outcome, final Map<String, String> detail) {
+        return new AuditEvent(ts, KIND, ADMIN, type, realm, actor, sourceIp, resourceType, resourceId, outcome,
+                emptyToNull(detail));
+    }
+
     private static Map<String, String> emptyToNull(final Map<String, String> detail) {
         return detail == null || detail.isEmpty() ? null : detail;
     }

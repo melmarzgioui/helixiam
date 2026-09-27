@@ -196,7 +196,7 @@ public class RegisterUserController {
     try {
       userPublisher.selfSignup(userRegister);
     } catch (final Exception e) {
-      errors.put("invalid.username", true);
+      errors.put("invalid.signup", true); // the address cannot be used (e.g. taken); the page says so
     }
 
     if (errors.isEmpty()) {

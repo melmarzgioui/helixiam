@@ -1,22 +1,14 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="theme-color" content="#a3d4c4">
-    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>HelixIAM - Sign in with a passkey</title>
-    <meta name="robots" content="noindex">
-    <link rel="icon" href="/img/favicon.avif">
+    <th:block th:replace="~{fragments/theme :: hxHead('Sign in with a passkey', false)}"></th:block>
 </head>
 <body>
 <div class="mainWrapper">
-    <header>
-        <div class="headerBar"><a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a></div>
-    </header>
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3>Sign in with a passkey</h3>
+            <h1 class="hx-title">Sign in with a passkey</h1>
             <div class="description">No password needed — pick the passkey saved on this device.</div>
         </div>
         <div class="container">
@@ -24,7 +16,7 @@
                 <form id="passkeyForm" th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}"
                       th:data-challenge="${passkeyLoginChallenge}" th:data-rp-id="${rpId}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
-                    <!-- Conditional-UI autofill anchor: browsers surface discoverable passkeys in this field. -->
+                    <!--/* Conditional-UI autofill anchor: browsers surface discoverable passkeys in this field. */-->
                     <input type="text" id="passkeyHint" name="passkeyHint" autocomplete="username webauthn"
                            placeholder="Use a passkey" aria-label="Use a passkey" autofocus/>
                     <input type="hidden" id="credentialId" name="credentialId"/>
@@ -32,16 +24,16 @@
                     <input type="hidden" id="clientDataJSON" name="clientDataJSON"/>
                     <input type="hidden" id="signature" name="signature"/>
                     <input type="hidden" id="userHandle" name="userHandle"/>
-                    <span class="error">Passkey not recognised, please try again</span>
+                    <span class="error" role="alert" th:if="${error != null}">Passkey not recognised, please try again</span>
                     <div class="spacer">&nbsp;</div>
                     <div class="buttonHolder"><button type="button" id="passkeyBtn"><span>Use a passkey</span></button></div>
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer></footer>
 </div>
-<!-- Security review M3 (CSP): ceremony JS externalised to /js/passkey-login.js (script-src 'self'). -->
-<script defer src="/js/passkey-login.js?@project.version@"></script>
+<!--/* Security review M3 (CSP): ceremony JS externalised to /js/passkey-login.js (script-src 'self'). */-->
+<script defer src="/js/passkey-login.js"></script>
 </body>
 </html>

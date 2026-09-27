@@ -5,7 +5,9 @@
 
 package io.helixiam.authorization.i18n;
 
+import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 
 import org.springframework.lang.Nullable;
 import org.springframework.web.servlet.i18n.CookieLocaleResolver;
@@ -34,17 +36,57 @@ import jakarta.servlet.http.HttpServletRequest;
  */
 public class AcceptHeaderCookieLocaleResolver extends CookieLocaleResolver {
 
+    /** The current realm's (and organization's) supported locales, or null when there is no realm theme to apply. */
+    private Function<HttpServletRequest, List<String>> realmLocales;
+
     public AcceptHeaderCookieLocaleResolver() {
         super(I18nConfig.LOCALE_COOKIE);
-        // No cookie? Negotiate from Accept-Language, constrained to the supported set.
-        setDefaultLocaleFunction(request -> supportedOrDefault(request.getLocale()));
+        // No cookie? Use the Accept-Language locale; resolveLocale narrows it to what the realm (or HelixIAM) offers.
+        setDefaultLocaleFunction(HttpServletRequest::getLocale);
+    }
+
+    /**
+     * Structured theming: the realm theme's {@code layout.supportedLocales} decide which languages a realm offers
+     * (an English-only realm serves English to a Dutch browser; a realm may list a language HelixIAM has no bundle
+     * for — its theme texts are then used, with the built-in messages in English).
+     */
+    public void setRealmLocales(final Function<HttpServletRequest, List<String>> realmLocales) {
+        this.realmLocales = realmLocales;
     }
 
     @Override
     public Locale resolveLocale(final HttpServletRequest request) {
         // Parent applies: cookie (or the interceptor's same-request attribute) -> defaultLocaleFunction.
-        // Re-clamp to the supported set so a stale/hand-set cookie like "fr" still degrades to en.
-        return supportedOrDefault(super.resolveLocale(request));
+        final Locale requested = super.resolveLocale(request);
+        final List<String> offered = offered(request);
+        if (offered == null || offered.isEmpty()) {
+            // Re-clamp to the supported set so a stale/hand-set cookie like "fr" still degrades to en.
+            return supportedOrDefault(requested);
+        }
+        if (requested != null) {
+            for (final String tag : offered) {
+                if (tag.equalsIgnoreCase(requested.toLanguageTag())) {
+                    return Locale.forLanguageTag(tag);
+                }
+            }
+            for (final String tag : offered) {
+                if (Locale.forLanguageTag(tag).getLanguage().equals(requested.getLanguage())) {
+                    return Locale.forLanguageTag(tag);
+                }
+            }
+        }
+        return Locale.forLanguageTag(offered.get(0));
+    }
+
+    private List<String> offered(final HttpServletRequest request) {
+        if (realmLocales == null) {
+            return null;
+        }
+        try {
+            return realmLocales.apply(request);
+        } catch (final RuntimeException e) {
+            return null; // a theme lookup problem must never break a page
+        }
     }
 
     /** Matches the requested locale's language against {@link I18nConfig#SUPPORTED}; else {@code en}. */

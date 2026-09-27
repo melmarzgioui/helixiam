@@ -33,9 +33,12 @@ public record RealmSettingsDto(String realmId, String displayName, String issuer
                                // Adaptive risk-based authentication (default OFF).
                                boolean riskPolicyEnabled, int riskMediumThreshold, int riskHighThreshold,
                                String riskLowAction, String riskMediumAction, String riskHighAction,
-                               // B2: per-realm login theming/branding (all optional; null/blank → built-in defaults).
-                               String logoUrl, String primaryColor, String backgroundColor,
-                               String welcomeText, String customCss,
+                               // B2 branding — DEPRECATED since structured theming: mapped onto the realm theme, kept for one minor version.
+                               @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use assets.logoUrl on PUT /admin/realms/{realmId}/theme.") String logoUrl,
+                               @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use colors.primary.light on PUT /admin/realms/{realmId}/theme.") String primaryColor,
+                               @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use colors.surface.light on PUT /admin/realms/{realmId}/theme.") String backgroundColor,
+                               @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use texts.welcomeText on PUT /admin/realms/{realmId}/theme.") String welcomeText,
+                               @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use customCss on PUT /admin/realms/{realmId}/theme.") String customCss,
                                // Per-realm self-registration switch (default true; ANDed with the global master flag).
                                boolean registrationEnabled) {
 }

@@ -1,34 +1,26 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="theme-color" content="#a3d4c4">
-    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>HelixIAM - Login</title>
-    <meta name="robots" content="noindex">
-    <link rel="icon" href="/img/favicon.avif">
+    <th:block th:replace="~{fragments/theme :: hxHead('Verify your device', false)}"></th:block>
 </head>
 <body>
 <div class="mainWrapper">
-    <header>
-        <div class="headerBar"><a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a></div>
-    </header>
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3>Approve on your device</h3>
+            <h1 class="hx-title">Approve on your device</h1>
             <div class="description">Approve this sign-in on your enrolled device. The device signs the
                 challenge with its hardware key.</div>
         </div>
         <div class="container">
             <article>
-                <div th:if="${error}" class="error" style="display:block">Device verification failed, please try again.</div>
-                <!--
+                <div th:if="${error}" class="hx-alert hx-alert-error" role="alert">Device verification failed, please try again.</div>
+                <!--/*
                     E4.1 ships the server-side device factor (challenge issuance + ES256 verification via
                     the Credential SPI). Cross-device delivery is wired in later stories: a QR/SSE flow
                     (E4.2) and FCM/APNs push with number matching (E4.3) replace this manual form. Until
                     then the enrolled device posts deviceId + base64url(DER signature) over the challenge.
-                -->
+                */-->
                 <form id="deviceForm" th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                     <label>Device ID<input type="text" name="deviceId" autocomplete="off"/></label>
@@ -37,8 +29,8 @@
                 </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer></footer>
 </div>
 </body>
 </html>

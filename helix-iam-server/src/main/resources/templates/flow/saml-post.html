@@ -1,21 +1,33 @@
 <!DOCTYPE html>
-<!-- Helix IAM E6: SAML HTTP-POST binding — auto-submits the (signed) AuthnRequest to the IdP.
-     Used by DigiD/eHerkenning, which require the POST binding rather than HTTP-Redirect. -->
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<!--/* Helix IAM E6: SAML HTTP-POST binding — auto-submits the (signed) AuthnRequest / SAMLResponse / LogoutResponse.
+     Used by DigiD/eHerkenning, which require the POST binding rather than HTTP-Redirect.
+     Themed like every other page: it is on screen only for a moment (or, without JavaScript, until the visitor
+     presses Continue) and should not flash an unbranded page. No inline style or script (the CSP has no
+     'unsafe-inline'); the auto-submit lives in /js/saml-post.js and submits the page's only form. */-->
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8"/>
-    <title>Redirecting to your identity provider…</title>
-    <!-- Security review M3 (CSP): auto-submit moved from an inline onload handler to /js/saml-post.js
-         so the page runs under `script-src 'self'` with NO 'unsafe-inline'. -->
+    <th:block th:replace="~{fragments/theme :: hxHead('Redirecting…', false)}"></th:block>
     <script defer src="/js/saml-post.js"></script>
 </head>
 <body>
-<noscript>
-    <p>JavaScript is disabled. Click the button to continue to your identity provider.</p>
-</noscript>
-<form method="post" th:action="${action}">
-    <input type="hidden" th:each="field : ${fields}" th:name="${field.key}" th:value="${field.value}"/>
-    <noscript><button type="submit">Continue</button></noscript>
-</form>
+<div class="mainWrapper">
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+    <main>
+        <div class="container center">
+            <article class="hx-autosubmit">
+                <h1 class="hx-title">Redirecting…</h1>
+                <p>Redirecting you to continue signing in…</p>
+                <noscript>
+                    <p>JavaScript is disabled. Press Continue to go on.</p>
+                </noscript>
+                <form method="post" th:action="${action}">
+                    <input type="hidden" th:each="field : ${fields}" th:name="${field.key}" th:value="${field.value}"/>
+                    <noscript><div class="buttonHolder"><button type="submit"><span>Continue</span></button></div></noscript>
+                </form>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
 </body>
 </html>

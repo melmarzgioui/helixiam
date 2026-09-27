@@ -1,46 +1,15 @@
 /* =========================================================================
-   HelixIAM sign-in — split brand panel.
-   Loaded AFTER theme.css; it owns the login layout and overrides theme.css
-   where the two disagree. The B2 per-realm theming <style> blocks in
-   login.html are injected AFTER this file, so an admin's brand colours,
-   logo, welcome text and custom CSS always win.
-   Brand: HelixIAM brandbook — Cucumber #476957, Jade #a3d4c4, Black Cat #2f3033,
-   Work Sans (bundled via theme.css @font-face).
+   HelixIAM sign-in and registration — split layout (brand panel + form),
+   or the centered layout (form only) when the theme sets layout=centered.
+   Loaded after helix.css. Like helix.css, it reads every colour, font,
+   radius and spacing value from the --hx-* custom properties of the
+   realm's theme.css. The brand panel inverts the page: --hx-brand-bg
+   ground, --hx-brand-fg text, --hx-brand-accent highlights.
    ========================================================================= */
 
-/* Tokens + self-hosted fonts come from the shared brand system (single source of truth):
-   platform/brand/brand.css, synced here as ./brand.css. Edit platform/brand/brand.css and
-   run `node platform/brand/sync.mjs`. The login's --hx-* names alias the shared --kd-* palette. */
-@import "brand.css";
-
-:root {
-  /* HelixIAM warm-humanist login — sage / coral / ink, matching helixiam.com. */
-  --hx-cucumber: #2f6b52;           /* sage (primary accent on the dark panel) */
-  --hx-cucumber-deep: #285c46;
-  --hx-jade: #e8896b;               /* coral highlight */
-  --hx-blackcat: #22352b;           /* deep green-ink panel ground */
-  --hx-brand-fg: #f6f1e9;           /* cream text on the panel */
-  --hx-brand-fg-soft: rgba(246, 241, 233, 0.74);
-  --hx-brand-fg-faint: rgba(246, 241, 233, 0.5);
-  /* Primary submit button = sage (was Black-Cat ink); overrides the shared brand.css tokens. */
-  --btn-primary-bg: #2f6b52;
-  --btn-primary-bg-hover: #285c46;
-  --btn-primary-fg: #f6f1e9;
-  --focus-ring: 0 0 0 2px #f6f1e9, 0 0 0 4px rgba(47, 107, 82, 0.55);
-  --wordmark-accent: #a7d8c4;       /* light sage for "IAM"/spark on the dark panel */
-}
-
-/* The split needs a scrolling, full-height page — theme.css locks the body to
-   100vh / overflow:hidden which clips the stacked layout on small screens. */
-html, body {
-  height: auto;
-  min-height: 100vh;
-  max-height: none !important;
-  overflow: auto !important;
-}
 body {
   display: block;
-  background: var(--hx-blackcat);
+  background: var(--hx-brand-bg);
 }
 
 /* ---------------------------------------------------------------- shell -- */
@@ -49,6 +18,10 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+}
+.helix-auth.is-centered {
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--hx-surface);
 }
 @media (max-width: 900px) {
   .helix-auth { grid-template-columns: 1fr; }
@@ -62,108 +35,140 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 2.5rem;
-  padding: clamp(2rem, 4.5vw, 4rem);
+  gap: calc(var(--hx-space) * 7.5);
+  padding: clamp(calc(var(--hx-space) * 6), 4.5vw, calc(var(--hx-space) * 12));
   color: var(--hx-brand-fg);
   background:
-    radial-gradient(130% 90% at 12% 8%, rgba(47, 107, 82, 0.35), transparent 55%),
-    radial-gradient(90% 70% at 100% 100%, rgba(232, 137, 107, 0.16), transparent 55%),
-    linear-gradient(158deg, #223529 0%, #1e3026 52%, #16211b 100%);
+    radial-gradient(130% 90% at 12% 8%, color-mix(in srgb, var(--hx-primary) 35%, transparent), transparent 55%),
+    radial-gradient(90% 70% at 100% 100%, color-mix(in srgb, var(--hx-brand-accent) 12%, transparent), transparent 55%),
+    linear-gradient(158deg, var(--hx-brand-bg) 0%, color-mix(in srgb, var(--hx-brand-bg) 88%, #000) 52%,
+      color-mix(in srgb, var(--hx-brand-bg) 66%, #000) 100%);
+}
+.helix-brand * {
+  color: var(--hx-brand-fg);
 }
 
-/* faint oversized spark, bottom-right, behind the copy */
+/* optional side-panel image (theme assets.brandImageUrl), under a scrim so the copy stays legible */
+.helix-brand .brand-image {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.helix-brand.has-image::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hx-brand-bg) 55%, transparent),
+    color-mix(in srgb, var(--hx-brand-bg) 85%, transparent));
+  pointer-events: none;
+}
+
+/* faint oversized spark, bottom-right, behind the copy (built-in look only) */
 .helix-brand .brand-watermark {
   position: absolute;
   z-index: -1;
   right: -6%;
   bottom: -14%;
   width: min(64%, 540px);
-  color: var(--hx-jade);
-  opacity: 0.07;
+  opacity: 0.012;
   pointer-events: none;
 }
-.helix-brand .brand-watermark svg { width: 100%; height: auto; display: block; }
+.helix-brand .brand-watermark svg { width: 100%; height: auto; display: block; color: var(--hx-brand-accent); }
 
 /* thin helix-strand hairlines sweeping the panel */
-.helix-brand::before {
+/* the lines, glow and watermark are the HelixIAM look: never on a branded panel (review B3) */
+.helix-brand.is-branded {
+  background: var(--hx-brand-bg);
+}
+.helix-brand:not(.has-image):not(.is-branded)::before {
   content: "";
   position: absolute;
   z-index: -1;
   inset: 0;
   background-image:
-    linear-gradient(115deg, transparent 0 49.6%, rgba(163, 212, 196, 0.08) 49.6% 50%, transparent 50%),
-    linear-gradient(115deg, transparent 0 61.6%, rgba(163, 212, 196, 0.05) 61.6% 62%, transparent 62%);
+    linear-gradient(115deg, transparent 0 49.6%, color-mix(in srgb, var(--hx-brand-accent) 8%, transparent) 49.6% 50%, transparent 50%),
+    linear-gradient(115deg, transparent 0 61.6%, color-mix(in srgb, var(--hx-brand-accent) 5%, transparent) 61.6% 62%, transparent 62%);
   pointer-events: none;
 }
 
 .brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: calc(var(--hx-space) * 1.5);
   text-decoration: none;
 }
-.brand-lockup .word {
-  font: 800 1.55rem/1 "Work Sans", sans-serif;
-  letter-spacing: -0.02em;
+.brand-lockup .hx-wordmark {
+  font-size: 1.55rem;
   color: var(--hx-brand-fg);
 }
-/* lockup "IAM" + spark = deep HelixIAM cyan (--wordmark-accent): ONE colour on every surface & ground */
-.brand-lockup .word b { font-weight: 800; color: var(--wordmark-accent); }
-.brand-lockup .spark {
+.brand-lockup .hx-wordmark b,
+.brand-lockup .hx-wordmark .hx-spark {
+  color: var(--hx-brand-accent);
+}
+.brand-lockup .hx-wordmark .hx-spark {
   width: 1.3rem;
   height: 1.3rem;
-  color: var(--wordmark-accent);
-  flex: 0 0 auto;
-  align-self: center;
+  margin-left: calc(var(--hx-space) * 1.5);
 }
 .brand-lockup img.brand-logo-custom { max-height: 40px; width: auto; display: block; }
 
 .brand-mid { max-width: 30rem; }
 .brand-mid h1 {
-  font: 800 clamp(1.9rem, 3vw, 2.7rem)/1.12 "Work Sans", sans-serif;
-  letter-spacing: -0.02em;
+  font-family: var(--hx-font-display);
+  font-weight: var(--hx-font-display-weight);
+  font-size: clamp(1.9rem, 3vw, 2.7rem);
+  line-height: 1.12;
+  letter-spacing: var(--hx-font-display-tracking);
   color: var(--hx-brand-fg);
-  margin: 0 0 1rem;
+  margin: 0 0 calc(var(--hx-space) * 3);
 }
 .brand-mid p {
   font-size: 1.02rem;
   line-height: 1.65;
-  color: var(--hx-brand-fg-soft);
+  color: color-mix(in srgb, var(--hx-brand-fg) 74%, transparent);
   margin: 0;
   max-width: 44ch;
 }
 .brand-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 1.9rem 0 0;
+  gap: calc(var(--hx-space) * 1.5);
+  margin: calc(var(--hx-space) * 5.7) 0 0;
   padding: 0;
   list-style: none;
 }
-.brand-badges li {
-  font: 600 0.72rem/1 "Work Sans", sans-serif;
+.helix-brand .brand-badges li {
+  font-weight: 600;
+  font-size: 0.72rem;
+  line-height: 1;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--hx-jade);
-  border: 1px solid rgba(163, 212, 196, 0.3);
+  color: var(--hx-brand-accent);
+  border: 1px solid color-mix(in srgb, var(--hx-brand-accent) 30%, transparent);
   border-radius: 999px;
-  padding: 0.42rem 0.75rem;
+  padding: calc(var(--hx-space) * 1.26) calc(var(--hx-space) * 2.25);
 }
 
 .brand-bottom {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: calc(var(--hx-space) * 1.5);
   font-size: 0.84rem;
   font-weight: 500;
   letter-spacing: 0.01em;
-  color: rgba(255, 255, 255, 0.74);
+}
+.helix-brand .brand-bottom span {
+  font-size: inherit;
+  color: color-mix(in srgb, var(--hx-brand-fg) 74%, transparent);
 }
 .brand-bottom .kd-spark {
   width: 0.9rem;
   height: 0.9rem;
-  color: var(--hx-jade);
-  opacity: 1;
+  color: var(--hx-brand-accent);
 }
 
 /* ----------------------------------------------------------- form panel -- */
@@ -171,136 +176,195 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(2rem, 4.5vw, 4rem);
-  background: var(--color-body); /* light, flips to blackcat in dark mode via theme.css */
+  padding: clamp(calc(var(--hx-space) * 6), 4.5vw, calc(var(--hx-space) * 12));
+  background: var(--hx-surface);
 }
 .helix-form .form-inner { width: 100%; max-width: 400px; }
 
-.helix-form .lang {
+/* centered layout: the logo sits above the form */
+.helix-form .form-logo {
   display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
-  font-size: 0.82rem;
+  align-items: center;
+  gap: calc(var(--hx-space) * 2.5);
+  margin-bottom: calc(var(--hx-space) * 8);
 }
-.helix-form .lang a { font-weight: 600; }
-.helix-form .lang span { color: var(--color-grade-out); }
+.helix-form .form-logo img { max-height: 40px; width: auto; display: block; }
+.helix-form .form-logo .hx-wordmark { font-size: 1.55rem; }
+.helix-form .form-logo .hx-wordmark .hx-spark { width: 1.3rem; height: 1.3rem; margin-left: calc(var(--hx-space) * 1.5); }
 
-.helix-form .form-head { margin-bottom: 1.75rem; }
+.helix-form .lang {
+  margin-bottom: calc(var(--hx-space) * 6);
+}
+
+.helix-form .form-head { margin-bottom: calc(var(--hx-space) * 5.25); }
 .helix-form .form-head h2 {
-  font: 800 1.85rem/1.1 "Work Sans", sans-serif;
-  letter-spacing: -0.02em;
-  color: var(--color-black);
-  margin: 0 0 0.4rem;
+  font-family: var(--hx-font-display);
+  font-weight: var(--hx-font-display-weight);
+  font-size: 1.85rem;
+  line-height: 1.1;
+  letter-spacing: var(--hx-font-display-tracking);
+  color: var(--hx-ink);
+  margin: 0 0 calc(var(--hx-space) * 1.2);
 }
 .helix-form .form-head p {
   margin: 0;
   font-size: 0.95rem;
   line-height: 1.5;
-  color: var(--color-grade-out);
+  color: var(--hx-ink-muted);
+  white-space: pre-line;
 }
 
 /* alerts sit full-width above the form */
 .helix-form .alert {
-  border-radius: 8px;
-  padding: 0.7rem 0.85rem;
-  margin-bottom: 1.1rem;
+  border-radius: var(--hx-radius);
+  padding: calc(var(--hx-space) * 2.1) calc(var(--hx-space) * 2.55);
+  margin-bottom: calc(var(--hx-space) * 3.3);
   font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.45;
 }
-.helix-form .alert.error { background: rgba(156, 75, 62, 0.08); border: 1px solid rgba(156, 75, 62, 0.35); color: #9c4b3e; }
-.helix-form .alert.success { background: rgba(71, 105, 87, 0.08); border: 1px solid rgba(71, 105, 87, 0.35); color: var(--hx-cucumber); }
+.helix-form .alert.error {
+  background: var(--hx-negative-tint);
+  border: 1px solid color-mix(in srgb, var(--hx-negative) 35%, transparent);
+  color: var(--hx-negative);
+}
+.helix-form .alert.success {
+  background: var(--hx-positive-tint);
+  border: 1px solid color-mix(in srgb, var(--hx-positive) 35%, transparent);
+  color: var(--hx-positive);
+}
 
-/* fields — larger, calmer than theme.css defaults */
+/* fields — larger, calmer than the card pages */
 .helix-form form { gap: 0; }
 .helix-form form label {
   display: block;
-  margin: 1.05rem 0 0.4rem;
-  font: 600 0.82rem/1 "Work Sans", sans-serif;
+  margin: calc(var(--hx-space) * 3.15) 0 calc(var(--hx-space) * 1.2);
+  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1;
   letter-spacing: 0;
-  color: var(--color-black);
+  color: var(--hx-ink);
 }
 .helix-form form label:first-of-type { margin-top: 0; }
 .helix-form form input[type=text],
+.helix-form form input[type=email],
 .helix-form form input[type=password] {
-  font-size: 14px;
-  padding: 11px 13px;
-  border-radius: 8px;
+  font-size: 1.1667rem;
+  padding: calc(var(--hx-space) * 2.75) calc(var(--hx-space) * 3.25);
+  border-radius: var(--hx-radius);
 }
 .helix-form form input[type=text]:focus,
+.helix-form form input[type=email]:focus,
 .helix-form form input[type=password]:focus {
-  border-color: var(--hx-cucumber);
-  box-shadow: 0 0 0 3px rgba(71, 105, 87, 0.14);
+  border-color: var(--hx-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hx-primary) 14%, transparent);
 }
 
-.helix-form .resetPasswordContainer { margin: 0.75rem 0 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; }
+.helix-form .resetPasswordContainer {
+  margin: calc(var(--hx-space) * 2.25) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: calc(var(--hx-space) * 1.5) calc(var(--hx-space) * 3);
+}
 .helix-form .resetPasswordContainer > a { font-size: 0.82rem; }
 
-/* primary submit — full width, unified HelixIAM ink button, arrow glyph (no icon-font dependency).
-   Form sits on a LIGHT ground → ink (Black-Cat #2f3033); tokens from brand.css. */
-.helix-form .buttonHolder { margin-top: 1.6rem; }
+/* primary submit — full width, arrow glyph (no icon-font dependency) */
+.helix-form .buttonHolder { margin-top: calc(var(--hx-space) * 4.8); }
 .helix-form .buttonHolder > button {
   width: 100%;
   height: auto;
-  padding: 12px 14px;
-  gap: 0.5rem;
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--btn-primary-fg);
-  background-color: var(--btn-primary-bg);
-  border: 1px solid var(--btn-primary-bg);
+  padding: calc(var(--hx-space) * 3) calc(var(--hx-space) * 3.5);
+  gap: calc(var(--hx-space) * 1.5);
+  border-radius: var(--hx-radius);
+  font-size: 1.1667rem;
+  color: var(--hx-on-primary);
+  background-color: var(--hx-primary);
+  border: 1px solid var(--hx-primary);
   transition: background-color 0.15s ease, transform 0.02s ease, box-shadow 0.15s ease;
 }
-.helix-form .buttonHolder > button:hover { background-color: var(--btn-primary-bg-hover); border-color: var(--btn-primary-bg-hover); }
+.helix-form .buttonHolder > button:hover {
+  background-color: var(--hx-primary-strong);
+  border-color: var(--hx-primary-strong);
+}
 .helix-form .buttonHolder > button:active { transform: translateY(1px); }
-.helix-form .buttonHolder > button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.helix-form .buttonHolder > button .btn-arrow { width: 16px; height: 16px; stroke: var(--btn-primary-fg); flex: 0 0 auto; }
+.helix-form .buttonHolder > button:focus-visible { outline: none; box-shadow: var(--hxi-focus); }
+.helix-form .buttonHolder > button .btn-arrow {
+  width: 16px;
+  height: 16px;
+  stroke: var(--hx-on-primary);
+  flex: 0 0 auto;
+}
 
 .helix-form .subtext {
-  margin: 1.5rem 0 0;
+  margin: calc(var(--hx-space) * 4.5) 0 0;
   font-size: 0.88rem;
-  color: var(--color-grade-out);
+  color: var(--hx-ink-muted);
 }
-.helix-form .subtext span { font-size: 0.88rem; }
+.helix-form .subtext span,
 .helix-form .subtext a { font-size: 0.88rem; }
+.helix-form .subtext span { color: var(--hx-ink); }
+
+.helix-form .description,
+.helix-form .description span,
+.helix-form .description a { font-size: 0.88rem; }
+
+/* legal links + footer text under the form */
+.helix-form .form-footer {
+  margin-top: calc(var(--hx-space) * 9);
+  padding-top: calc(var(--hx-space) * 4);
+  border-top: 1px solid var(--hx-border);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 2);
+}
+.helix-form .form-footer,
+.helix-form .form-footer * {
+  font-size: 0.8rem;
+  color: var(--hx-ink-muted);
+}
+.helix-form .form-footer a {
+  font-weight: 600;
+  color: var(--hx-primary-strong);
+}
 
 /* federated providers — full-width neutral buttons */
-.helix-form .federationProviders { margin-top: 0.5rem; }
+.helix-form .federationProviders { margin-top: calc(var(--hx-space) * 1.5); }
 .helix-form .federationDivider {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  margin: 1.6rem 0 1.2rem;
+  gap: calc(var(--hx-space) * 2.55);
+  margin: calc(var(--hx-space) * 4.8) 0 calc(var(--hx-space) * 3.6);
   font-size: 0.8rem;
-  color: var(--color-grade-out);
+  color: var(--hx-ink-muted);
 }
+.helix-form .federationDivider span { font-size: inherit; color: var(--hx-ink-muted); }
 .helix-form .federationDivider::before,
 .helix-form .federationDivider::after {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--color-box-border);
+  background: var(--hx-border);
 }
 .helix-form a.federationProvider {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: calc(var(--hx-space) * 1.5);
   width: 100%;
-  margin-bottom: 0.6rem;
-  padding: 11px 14px;
-  border: 1px solid var(--color-box-border);
-  border-radius: 8px;
-  font-size: 14px;
+  margin-bottom: calc(var(--hx-space) * 1.8);
+  padding: calc(var(--hx-space) * 2.75) calc(var(--hx-space) * 3.5);
+  border: 1px solid var(--hx-border);
+  border-radius: var(--hx-radius);
+  font-size: 1.1667rem;
   font-weight: 600;
-  color: var(--color-black);
+  color: var(--hx-ink);
   background: transparent;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 .helix-form a.federationProvider:hover {
-  border-color: var(--hx-cucumber);
-  background: rgba(71, 105, 87, 0.06);
+  border-color: var(--hx-primary);
+  background: var(--hx-primary-tint);
 }
 /* brand mark on the button (official eID logo or admin-set custom logo) */
 .helix-form a.federationProvider .fed-logo {
@@ -310,51 +374,39 @@ body {
   object-fit: contain;
   flex: 0 0 auto;
 }
-/* per-scheme brand accent — a thin brand-colour edge + tinted hover, so DigiD/eHerkenning/eIDAS
-   read as their official brand while staying legible on the light form panel. */
+/* per-scheme accent edge: the official scheme colours, not theme colours (they identify the scheme) */
 .helix-form a.federationProvider.idp-digid { border-left: 3px solid #e17000; }
-.helix-form a.federationProvider.idp-digid:hover { border-color: #e17000; background: rgba(225, 112, 0, 0.06); }
 .helix-form a.federationProvider.idp-eherkenning { border-left: 3px solid #2b3a8c; }
-.helix-form a.federationProvider.idp-eherkenning:hover { border-color: #2b3a8c; background: rgba(43, 58, 140, 0.06); }
 .helix-form a.federationProvider.idp-eidas { border-left: 3px solid #003399; }
-.helix-form a.federationProvider.idp-eidas:hover { border-color: #003399; background: rgba(0, 51, 153, 0.06); }
 
-/* --------------------------------------------------------- dark mode ---- */
+/* ---------------------------------------------------------- dark mode -- */
+/* the panel and the form side must read as two halves in dark mode too (review S8) */
 @media (prefers-color-scheme: dark) {
-  .helix-form .form-head h2 { color: var(--color-black); } /* --color-black flips light in theme.css */
-  /* The form ground flips to Black-Cat in dark, so the primary button must invert to jade + ink
-     (like every other dark HelixIAM surface) — ink #2f3033 would be black-on-black here. Overriding
-     the tokens auto-flips the button fill, hover AND the arrow glyph (it uses --btn-primary-fg). */
-  :root {
-    --btn-primary-bg: var(--kd-jade);          /* #a3d4c4 */
-    --btn-primary-bg-hover: #b6e0d0;
-    --btn-primary-fg: var(--kd-ink);           /* #22251f — ink on jade (WCAG ~11:1) */
-  }
-  /* Federated providers ("the other" buttons) on the dark ground → white label + hairline so they
-     read against Black-Cat instead of dark-on-dark. */
-  .helix-form a.federationProvider { color: #ffffff; border-color: rgba(255, 255, 255, 0.22); }
-  .helix-form a.federationProvider:hover { border-color: rgba(255, 255, 255, 0.45); background: rgba(163, 212, 196, 0.08); }
+  .helix-brand { border-inline-end: 1px solid var(--hx-border); }
 }
 
 /* ---------------------------------------------------------- responsive -- */
+/* On a phone the brand panel collapses to a compact header and the form starts right under it. */
 @media (max-width: 900px) {
+  .helix-auth { min-height: 100vh; grid-template-rows: auto 1fr; align-content: start; }
   .helix-brand {
-    padding: 1.75rem 1.5rem;
-    gap: 1.25rem;
+    padding: calc(var(--hx-space) * 4) calc(var(--hx-space) * 4.5);
+    gap: calc(var(--hx-space) * 2);
+    justify-content: flex-start;
   }
   .helix-brand .brand-watermark,
   .helix-brand::before { display: none; }
-  .brand-mid h1 { font-size: 1.45rem; margin-bottom: 0.5rem; }
+  .brand-mid h1 { font-size: 1.3rem; margin: 0; }
   .brand-mid p { display: none; }
   .brand-badges { display: none; }
-  .helix-form { padding: 2rem 1.5rem 3rem; }
-  .helix-form .lang { margin-bottom: 1.5rem; }
-}
-
-/* HelixIAM warm theme — display face (Bricolage Grotesque) for the login wordmark + headings. */
-.brand-lockup .word,
-.helix-brand h1,
-.helix-form .form-head h2 {
-  font-family: "Bricolage Grotesque", "Hanken Grotesk", "Work Sans", sans-serif;
-  letter-spacing: -0.02em;
+  .brand-bottom { display: none; }
+  .helix-form {
+    align-items: flex-start;
+    padding: calc(var(--hx-space) * 6) calc(var(--hx-space) * 4.5) calc(var(--hx-space) * 9);
+  }
+  .helix-form .lang { margin-bottom: calc(var(--hx-space) * 3); }
+  .helix-form .buttonHolder > button { min-height: 44px; }
+  @media (prefers-color-scheme: dark) {
+    .helix-brand { border-inline-end: 0; border-block-end: 1px solid var(--hx-border); }
+  }
 }

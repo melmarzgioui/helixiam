@@ -63,4 +63,24 @@ public final class AuditContext {
         }
         return request.getRemoteAddr();
     }
+
+    /** Request attribute holding extra audit detail for the admin event of this request. */
+    public static final String DETAIL_ATTRIBUTE = AuditContext.class.getName() + ".detail";
+
+    /**
+     * Attaches detail (e.g. the names of the fields changed — never secret values) to the admin audit event that
+     * {@link AuditAdminInterceptor} emits for this request.
+     */
+    public static void attachDetail(final HttpServletRequest request, final java.util.Map<String, String> detail) {
+        if (request != null && detail != null && !detail.isEmpty()) {
+            request.setAttribute(DETAIL_ATTRIBUTE, java.util.Map.copyOf(detail));
+        }
+    }
+
+    /** The detail attached with {@link #attachDetail}, or null. */
+    @SuppressWarnings("unchecked")
+    public static java.util.Map<String, String> detail(final HttpServletRequest request) {
+        final Object v = request == null ? null : request.getAttribute(DETAIL_ATTRIBUTE);
+        return v instanceof java.util.Map<?, ?> m ? (java.util.Map<String, String>) m : null;
+    }
 }

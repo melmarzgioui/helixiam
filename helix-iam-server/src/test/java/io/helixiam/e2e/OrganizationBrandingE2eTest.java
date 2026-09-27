@@ -111,17 +111,57 @@ class OrganizationBrandingE2eTest extends AbstractE2eTest {
         // Without the hint (a new browser) the realm's own branding is used.
         final E2eHttp.Response plain = newBrowser().followRedirects(newBrowser().get(
                 "/realms/" + realm + "/login", "Accept", "text/html"));
-        assertThat(plain.body()).doesNotContain("Harbor &amp; Pine").doesNotContain(LOGO);
+        assertThat(plain.body()).doesNotContain("Harbor &amp; Pine").doesNotContain(LOGO).doesNotContain("&amp;org=");
+    }
+
+    @Test
+    void theLegacyBrandingPut_changesOnlyTheFieldsItIsGiven_nullMeansUnchanged() {
+        final String orgId = admin.get("/admin/realms/" + realm + "/organizations").json().findValuesAsText("orgId")
+                .stream().filter(id -> admin.get(brandingPath(id)).json().path("primaryColor").asText().equals(COLOR))
+                .findFirst().orElseThrow();
+        final String themePath = "/admin/realms/" + realm + "/organizations/" + orgId + "/theme";
+        // The org theme also carries a field the legacy API does not know.
+        final com.fasterxml.jackson.databind.node.ObjectNode theme =
+                (com.fasterxml.jackson.databind.node.ObjectNode) admin.get(themePath).json();
+        theme.putObject("shape").put("radius", 4);
+        assertThat(admin.put(themePath, theme).status()).isEqualTo(200);
+
+        final Map<String, Object> onlyName = new LinkedHashMap<>();
+        onlyName.put("displayName", "Harbor & Pine LLP");
+        onlyName.put("primaryColor", null);
+        onlyName.put("logoUrl", null);
+        final E2eHttp.Response renamed = admin.put(brandingPath(orgId), onlyName);
+        assertThat(renamed.status()).as(renamed.toString()).isEqualTo(200);
+        assertThat(renamed.json().path("displayName").asText()).isEqualTo("Harbor & Pine LLP");
+        assertThat(renamed.json().path("primaryColor").asText()).as("null = unchanged").isEqualTo(COLOR);
+        assertThat(renamed.json().path("logoUrl").asText()).isEqualTo(LOGO);
+        final com.fasterxml.jackson.databind.JsonNode after = admin.get(themePath).json();
+        assertThat(after.path("colors").path("primary").path("light").asText()).isEqualToIgnoringCase(COLOR);
+        assertThat(after.path("shape").path("radius").asInt()).isEqualTo(4);
+
+        // An empty string clears a field explicitly; the other fields stay.
+        final E2eHttp.Response cleared = admin.put(brandingPath(orgId), Map.of("primaryColor", ""));
+        assertThat(cleared.status()).as(cleared.toString()).isEqualTo(200);
+        assertThat(cleared.json().path("primaryColor").isNull() || cleared.json().path("primaryColor").isMissingNode())
+                .isTrue();
+        assertThat(cleared.json().path("logoUrl").asText()).isEqualTo(LOGO);
+        assertThat(cleared.json().path("displayName").asText()).isEqualTo("Harbor & Pine LLP");
     }
 
     private void adminPutMfa() {
         assertThat(admin.put("/admin/realms/" + realm + "/settings/mfa", Map.of("requireMfa", true)).status()).isEqualTo(200);
     }
 
-    private static void assertBranded(final E2eHttp.Response page, final String what) {
+    private void assertBranded(final E2eHttp.Response page, final String what) {
         assertThat(page.body()).as(what + " shows the organization name").contains("Harbor &amp; Pine Accountants");
         assertThat(page.body()).as(what + " shows the organization logo").contains("src=\"" + LOGO + "\"");
-        assertThat(page.body()).as(what + " uses the organization colour").containsIgnoringCase(COLOR);
+        // Structured theming: colours live in the realm's theme.css, which the page links with ?org= while the
+        // organization is in context; the stylesheet then carries the organization's primary colour.
+        final Matcher link = Pattern.compile("href=\"([^\"]*/theme\\.css\\?v=[0-9a-f]+&amp;org=([^\"]+))\"").matcher(page.body());
+        assertThat(link.find()).as(what + " links the organization's theme.css: " + page.body()).isTrue();
+        final E2eHttp.Response css = newBrowser().get(link.group(1).replace("&amp;", "&"));
+        assertThat(css.status()).isEqualTo(200);
+        assertThat(css.body()).as(what + " uses the organization colour").containsIgnoringCase("--hx-primary: " + COLOR + ";");
     }
 
     private String brandingPath(final String orgId) {

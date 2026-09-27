@@ -1,23 +1,15 @@
 <!DOCTYPE html>
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="theme-color" content="#a3d4c4">
-    <link th:href="@{/css/theme.css}" rel="stylesheet"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title th:text="#{login.page.title}">HelixIAM - Login</title>
-    <script defer src="/js/App.js?@project.version@" type="module"></script>
-    <meta name="robots" content="noindex">
-    <link rel="icon" href="/img/favicon.avif">
+    <th:block th:replace="~{fragments/theme :: hxHead(#{flow.recovery.title}, false)}"></th:block>
+    <script defer src="/js/App.js" type="module"></script>
 </head>
 <body>
 <div class="mainWrapper">
-    <header>
-        <div class="headerBar"><a><div class="logo"><img th:if="${brandingLogo != null}" th:src="${brandingLogo}" alt="Logo"><span th:unless="${brandingLogo != null}" class="hx-wordmark">Helix<b>IAM</b><i class="hx-spark" aria-hidden="true"></i></span></div></a></div>
-    </header>
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
     <main>
         <div class="container title">
-            <h3 th:text="#{flow.recovery.title}">Recovery Code</h3>
+            <h1 class="hx-title" th:text="#{flow.recovery.title}">Recovery Code</h1>
             <div class="description" th:text="#{flow.recovery.description}">Enter one of the single-use backup codes you saved when you set up MFA.</div>
         </div>
         <div class="container">
@@ -25,15 +17,15 @@
             <form th:action="${flowAction}" method="post" th:classappend="${error != null ? 'invalid' : 'valid'}">
                 <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                 <label for="code" th:text="#{flow.recovery.code.label}">Recovery Code:</label>
-                <input type="text" id="code" name="code" autofocus placeholder="XXXX-XXXX" autocomplete="off"/>
-                <span class="error" th:text="#{flow.recovery.code.error}">Invalid or already-used code, please try again</span>
+                <input type="text" id="code" name="code" autofocus placeholder="XXXX-XXXX" autocomplete="off" th:attr="aria-invalid=${error != null} ? 'true' : null, aria-describedby=${error != null} ? 'code-error' : null"/>
+                <span class="error" id="code-error" role="alert" th:if="${error != null}" th:text="#{flow.recovery.code.error}">Invalid or already-used code, please try again</span>
                 <div class="spacer">&nbsp;</div>
                 <div class="buttonHolder"><button type="submit"><span th:text="#{common.verify}">Verify</span></button></div>
             </form>
             </article>
         </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
     </main>
-    <footer></footer>
 </div>
 </body>
 </html>
