@@ -3,6 +3,22 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Review of rc.3 (after `v1.0.0-rc.3`)
+
+> **SECURITY ADVISORY — cross-realm admin takeover (HIGH, fixed in `e4dcb9c`).** In rc.1–rc.3 several admin
+> operations looked objects up by id without checking the realm in the URL. An admin of one realm could reset
+> another realm's user's password, remove her TOTP and sign in as her, and grant the master realm's `admin` role to
+> their own user (admin of every realm). Federated login and LDAP sync could also attach to a user of another realm
+> by email. Upgrade; Flyway V16 removes any role grant whose user is not a member of the role's realm.
+
+- **#1 — security** — `e4dcb9c` Every by-id admin operation is scoped to the path realm (users, role grants, groups, organizations, client-scope claims, realm keys, webhooks, SCIM targets, workload identities, agents, application references, push tokens); federated/LDAP user matching stays within the realm and JIT users are linked to it; V16 cleans up cross-realm role grants. `2f52bf2` The `organizations` claim only lists the token realm's organizations.
+- **#2** — `c295bab` A client without its own token lifetime uses the realm's access/refresh token lifetime.
+- **#3** — `e421a80` Per-client sub-resources (mappers, roles, authz, allowed resources, token-exchange policy) accept the internal client id; an unknown client is a 404.
+- **#4** — `7055c8b` Duplicate email → 409 (no DB detail); a changed email is unverified; tokens carry `email_verified`.
+- **#5** — `792537d` Re-importing a realm's own export succeeds; an import stops when the realm cannot be written; invalid realm ids → 400; plain failure reasons. Usernames remain unique across realms (known).
+- **#6** — `aaa79c0` With PostgreSQL sessions the Redis health indicator is off, so `/actuator/health` is UP without Redis.
+- **#7 — security** — `e786c6d` At most 5 wrong second-factor codes per sign-in (then the password is needed again); wrong codes count toward the realm lockout; `/mfa` is rate limited per IP.
+
 ## 1.0 release blockers (branch `fix/1.0-blockers`, after `v1.0.0-rc.2`)
 
 > **SECURITY ADVISORY — claim injection (item 1, critical).** In rc.1 and rc.2 a signed-in user could set
