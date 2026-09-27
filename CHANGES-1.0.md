@@ -24,6 +24,26 @@ Open issues found when Monthfold moved its production sign-in to rc.4
 - **A9 — security** — `2414be0` Logout tokens expire after 120 s (`HELIX_LOGOUT_TOKEN_TTL_SECONDS`, 1–600) and every
   token has its own `jti`. `docs/oidc-sessions-and-logout.md` tells relying parties how to validate a logout token,
   including rejecting a `jti` they have already seen until its `exp`.
+- **B1** — `feb4c71`…`21fe41c` Every realm has an account console at `/realms/{realm}/account`, themed like the sign-in
+  pages (`/me` redirects to it). A user of any realm can change their password (current password required, realm
+  policy and history apply), set up or move to a new authenticator app, remove it where the realm allows it and does not
+  require two-step verification, get new recovery codes (needs a current code), see where they are signed in and sign
+  out everywhere else, change their email address (unverified until the link sent to the new address is opened; the
+  old address is told), and, where the realm allows it, download their data or delete their account.
+  - Sensitive actions need a sign-in at most `helix.account.step-up-max-age-seconds` (default 300) old, else the
+    console asks for the password (and a code, when an authenticator is set up) again; that stamps a new `auth_time`.
+  - Every change is an `AUTHN` audit event (`ACCOUNT_*`); attempts are rate limited per user; a wrong password or code
+    counts toward the account lockout. Every form post needs the CSRF token.
+  - `?referrer=<client_id>&referrer_uri=<url>` shows "Back to &lt;app&gt;" when the URL is on the origin of one of the
+    client's redirect URIs; it is only ever a link.
+  - "Sign out everywhere else" and account deletion end the other browser sessions in any session store
+    (`user_credentials.sessions_revoked_at`) and send back-channel logout to their applications.
+  - New realm settings `GET/PUT /admin/realms/{realm}/settings/account-console` (`allowAuthenticatorRemoval` and
+    `allowDataExport` default on, `allowAccountDeletion` default off), also in the realm export/import as
+    `accountConsole`. Flyway V60–V62.
+  - **security** — the account API follows the same rules: removing TOTP or recovery codes and the data export are
+    refused where the realm does not allow them; new recovery codes need a code or a fresh sign-in; an email address
+    changed through `PUT /account/profile` also gets the confirmation link.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 
