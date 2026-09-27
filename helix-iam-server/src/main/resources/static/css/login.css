@@ -74,7 +74,7 @@ body {
   right: -6%;
   bottom: -14%;
   width: min(64%, 540px);
-  opacity: 0.04;
+  opacity: 0.025;
   pointer-events: none;
 }
 .helix-brand .brand-watermark svg { width: 100%; height: auto; display: block; color: var(--hx-brand-accent); }
