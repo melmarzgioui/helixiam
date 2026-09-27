@@ -241,6 +241,11 @@ class ThemedTemplatesTest {
         m.put("remaining", 1);
         m.put("token", "magic-token");
         m.put("fields", Map.of("SAMLRequest", "PHNhbWw+"));
+        m.put("errorKind", "client");
+        m.put("errorCode", "invalid_request");
+        m.put("errorReference", "3f2b8c1e-0000-4000-8000-000000000000");
+        m.put("frames", List.of("https://app.monthfold.example/auth/frontchannel-logout?iss=x&sid=y"));
+        m.put("redirect", "https://app.monthfold.example/");
         return m;
     }
 

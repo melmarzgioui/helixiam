@@ -47,6 +47,15 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   `e2e/helm-template-check.sh` checks the renders; `STORE=queue e2e/image-boot-smoke.sh` and
   `NO_REDIS=1 e2e/monthfold/k3d-helm.sh` boot without any Redis (k3d: readiness UP, 38/38 checks, 6/6 tokens).
 
+- **Item 6** — Error pages of the sign-in endpoints are themed. An unknown `client_id`, an unregistered
+  `redirect_uri`, an authorization request without `client_id` or a bare `GET /connect/logout` showed Spring's plain
+  "Whitelabel" page; any 4xx of a realm endpoint that a browser (an `Accept` with `text/html`) receives is now the
+  realm's themed `protocol-error` page, in the user's language, with a message from a fixed set, the standard OAuth
+  error code and a logged reference; nothing from the request is shown. API clients keep the JSON body. The OIDC
+  front-channel logout page is themed as well and lost its inline style and script; its `frame-src` now allows the
+  clients' front-channel logout origins, which the pages' `frame-src 'none'` used to block, so the iframes never
+  loaded.
+
 - **Item 7a** — The theme validator checks muted text: `inkMuted` on `surface` and on `surfaceRaised`, light and
   dark, at least 4.5:1 (`contrast.inkMutedOnSurface.*`, `contrast.inkMutedOnSurfaceRaised.*`, same message format).
   So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/*
+  OIDC Front-Channel Logout (SSO P6, themed in item 6): one hidden iframe per client of the session, each on its
+  frontchannel_logout_uri with iss + sid, then on to the post-logout URI. No inline script or style (CSP): the
+  iframes use the hidden attribute and the page moves on with a meta refresh, or the Continue link.
+  Model: frames (the iframe URLs), redirect (the post-logout URI).
+*/-->
+<head>
+    <th:block th:replace="~{fragments/theme :: hxHead(#{logout.frontchannel.title}, false)}"></th:block>
+    <meta http-equiv="refresh" th:content="${'2;url=' + redirect}">
+</head>
+<body>
+<div class="mainWrapper">
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <h1 class="hx-title" th:text="#{logout.frontchannel.title}">Signing you out</h1>
+            <div class="description" th:text="#{logout.frontchannel.description}">Signing you out of all applications…</div>
+        </div>
+
+        <div class="container">
+            <article>
+                <div class="buttonHolder">
+                    <a class="button" th:href="${redirect}"><span th:text="#{logout.frontchannel.continue}">Continue</span></a>
+                </div>
+                <iframe th:each="frame : ${frames}" th:src="${frame}" hidden aria-hidden="true" tabindex="-1"
+                        title=""></iframe>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

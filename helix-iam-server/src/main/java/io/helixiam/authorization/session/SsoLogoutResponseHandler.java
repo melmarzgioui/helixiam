@@ -112,11 +112,17 @@ public class SsoLogoutResponseHandler implements AuthenticationSuccessHandler {
                 : List.of();
         if (!frontchannel.isEmpty()) {
             final String sid = terminated != null ? terminated.ssoSessionId() : null;
-            final String html = frontchannelRenderer.render(issuerUrl, sid, frontchannel, redirectTarget);
-            response.setContentType("text/html;charset=UTF-8");
-            response.setHeader("Cache-Control", "no-store");
-            response.getWriter().write(html);
-            return;
+            try {
+                frontchannelRenderer.render(request, response, issuerUrl, sid, frontchannel, redirectTarget);
+                return;
+            } catch (final Exception e) {
+                // The session is already ended; without the page the clients miss only the front-channel call.
+                LOG.warn("Front-channel logout page could not be rendered; redirecting: {}", LogSafe.sanitize(e.toString()));
+                if (response.isCommitted()) {
+                    return;
+                }
+                response.resetBuffer();
+            }
         }
 
         response.sendRedirect(redirectTarget);

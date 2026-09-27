@@ -5,44 +5,71 @@
 
 package io.helixiam.authorization.session.logout;
 
+import io.helixiam.authorization.security.PageCspPolicy;
+import io.helixiam.authorization.theme.render.ThemedPageRenderer;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Helix IAM SSO P6: renders the OIDC Front-Channel Logout interstitial. The browser loads one hidden iframe
- * per participating client (each pointed at its {@code frontchannel_logout_uri} with the {@code iss}+{@code sid}
- * query params per the spec, so the RP can clear its own session), then is redirected to the post-logout URI.
- * All URLs are HTML-escaped to keep the page injection-safe.
+ * Helix IAM SSO P6: the OIDC Front-Channel Logout interstitial. The browser loads one hidden iframe per participating
+ * client (each pointed at its {@code frontchannel_logout_uri} with the {@code iss}+{@code sid} query params per the
+ * spec, so the RP can clear its own session), then moves on to the post-logout URI.
+ *
+ * <p>Item 6: the page is the themed template {@value #TEMPLATE} (the realm's theme, the user's language), with no
+ * inline style or script: the iframes are {@code hidden} and the page moves on with a meta refresh (or its Continue
+ * link). Its {@code frame-src} allows exactly the origins of those logout URLs ({@link PageCspPolicy#withFrames}); the
+ * pages' default {@code frame-src 'none'} blocked them.
  */
 @Component
 public class FrontchannelLogoutRenderer {
 
-    /** Full HTML document for the front-channel logout page. */
-    public String render(final String issuer, final String sid,
-                         final List<LogoutTargetResolver.FrontchannelTarget> targets, final String postLogoutRedirectUri) {
+    /** The template rendered. */
+    public static final String TEMPLATE = "logout/frontchannel";
+
+    private final ObjectProvider<ThemedPageRenderer> pages;
+    private final ObjectProvider<PageCspPolicy> csp;
+
+    public FrontchannelLogoutRenderer(final ObjectProvider<ThemedPageRenderer> pages,
+                                      final ObjectProvider<PageCspPolicy> csp) {
+        this.pages = pages;
+        this.csp = csp;
+    }
+
+    /** Renders the interstitial as the response. */
+    public void render(final HttpServletRequest request, final HttpServletResponse response, final String issuer,
+                       final String sid, final List<LogoutTargetResolver.FrontchannelTarget> targets,
+                       final String postLogoutRedirectUri) throws Exception {
         final String redirect = postLogoutRedirectUri == null || postLogoutRedirectUri.isBlank()
                 ? "/" : postLogoutRedirectUri;
-        final StringBuilder iframes = new StringBuilder();
+        final List<String> frames = frameUrls(issuer, sid, targets);
+        final PageCspPolicy policy = csp.getIfAvailable();
+        if (policy != null) {
+            response.setHeader("Content-Security-Policy", policy.withFrames(request, frames));
+        }
+        pages.getObject().render(TEMPLATE, Map.of("frames", frames, "redirect", redirect), HttpServletResponse.SC_OK,
+                request, response);
+    }
+
+    /** The iframe URLs: each client's front-channel logout URI with {@code iss} and {@code sid}. */
+    static List<String> frameUrls(final String issuer, final String sid,
+                                  final List<LogoutTargetResolver.FrontchannelTarget> targets) {
+        final List<String> frames = new ArrayList<>();
         if (targets != null) {
             for (final LogoutTargetResolver.FrontchannelTarget target : targets) {
-                if (target.frontchannelLogoutUri() == null || target.frontchannelLogoutUri().isBlank()) {
-                    continue;
+                if (target.frontchannelLogoutUri() != null && !target.frontchannelLogoutUri().isBlank()) {
+                    frames.add(withIssSid(target.frontchannelLogoutUri(), issuer, sid));
                 }
-                iframes.append("  <iframe src=\"").append(htmlEscape(withIssSid(target.frontchannelLogoutUri(), issuer, sid)))
-                        .append("\" style=\"display:none\" aria-hidden=\"true\"></iframe>\n");
             }
         }
-        return "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
-                + "<title>Signing out…</title>"
-                + "<meta http-equiv=\"refresh\" content=\"2;url=" + htmlEscape(redirect) + "\">"
-                + "</head><body>\n"
-                + "<p>Signing you out of all applications…</p>\n"
-                + iframes
-                + "<script>setTimeout(function(){location.href=" + jsString(redirect) + ";},2000);</script>\n"
-                + "</body></html>\n";
+        return frames;
     }
 
     /** Append the OIDC {@code iss}+{@code sid} query params (preserving any existing query string). */
@@ -58,14 +85,5 @@ public class FrontchannelLogoutRenderer {
             out.append(sep).append("sid=").append(URLEncoder.encode(sid, StandardCharsets.UTF_8));
         }
         return out.toString();
-    }
-
-    private static String htmlEscape(final String value) {
-        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("\"", "&quot;").replace("'", "&#39;");
-    }
-
-    private static String jsString(final String value) {
-        return "'" + value.replace("\\", "\\\\").replace("'", "\\'").replace("<", "\\u003c") + "'";
     }
 }

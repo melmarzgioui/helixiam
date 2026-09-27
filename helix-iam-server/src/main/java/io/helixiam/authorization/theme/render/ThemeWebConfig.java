@@ -7,6 +7,9 @@ package io.helixiam.authorization.theme.render;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.boot.autoconfigure.security.SecurityProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
@@ -28,6 +31,19 @@ public class ThemeWebConfig implements WebMvcConfigurer {
 
     public ThemeWebConfig(final ThemePageResolver pages) {
         this.pages = pages;
+    }
+
+    /**
+     * Item 6: themed error pages for browsers on realm endpoints ({@link ProtocolErrorPageFilter}), inside the realm
+     * routing and ahead of Spring Security, so the OAuth / OIDC endpoints' {@code sendError} is caught.
+     */
+    @Bean
+    public FilterRegistrationBean<ProtocolErrorPageFilter> protocolErrorPageFilter(final ThemedPageRenderer renderer) {
+        final FilterRegistrationBean<ProtocolErrorPageFilter> registration =
+                new FilterRegistrationBean<>(new ProtocolErrorPageFilter(renderer));
+        registration.setOrder(SecurityProperties.DEFAULT_FILTER_ORDER - 8);
+        registration.addUrlPatterns("/*");
+        return registration;
     }
 
     @Override

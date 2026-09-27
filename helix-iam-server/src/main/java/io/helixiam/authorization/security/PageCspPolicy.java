@@ -246,6 +246,31 @@ public class PageCspPolicy {
                 + "form-action " + form;
     }
 
+    /**
+     * Item 6: the page policy with {@code frame-src} set to the http(s) origins of {@code frameUrls} (the OIDC
+     * front-channel logout page loads each client's logout URL in a hidden iframe; every other page has
+     * {@code frame-src 'none'}). URLs that are not plain http(s) origins are left out; none left gives {@code 'none'}.
+     */
+    public String withFrames(final HttpServletRequest request, final Collection<String> frameUrls) {
+        final Set<String> origins = new TreeSet<>();
+        if (frameUrls != null) {
+            for (final String url : frameUrls) {
+                final String source = formActionSource(url);
+                if (source != null && (source.startsWith("https://") || source.startsWith("http://"))) {
+                    origins.add(source);
+                }
+            }
+        }
+        final String policy = policy(request, false);
+        final int start = policy.indexOf("frame-src ");
+        final int end = start < 0 ? -1 : policy.indexOf(';', start);
+        if (start < 0 || end < 0) {
+            return policy;
+        }
+        return policy.substring(0, start) + "frame-src " + (origins.isEmpty() ? "'none'" : String.join(" ", origins))
+                + policy.substring(end);
+    }
+
     /** A header writer for the page responses; a CSP the handler already set (e.g. on theme assets) is kept. */
     public HeaderWriter headerWriter(final boolean saml) {
         return (final HttpServletRequest request, final HttpServletResponse response) -> {

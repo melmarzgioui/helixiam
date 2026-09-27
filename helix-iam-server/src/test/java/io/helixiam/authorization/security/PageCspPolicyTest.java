@@ -176,4 +176,18 @@ class PageCspPolicyTest {
         assertThat(PageCspPolicy.build(Set.of(), null, true, List.of("https://app.example")))
                 .endsWith("form-action 'self' https:");
     }
+
+    @Test
+    void theFrontChannelLogoutPage_mayFrameExactlyTheClientsLogoutOrigins() {
+        final PageCspPolicy policy = policyWith(client());
+        RealmContextHolder.set("monthfold");
+        final String csp = policy.withFrames(pageRequest("/connect/logout", new MockHttpSession()), List.of(
+                "https://app.monthfold.com/auth/fc?iss=x&sid=y", "https://b.example:8443/fc", "javascript:alert(1)",
+                "https://evil.example/x; script-src *", "custom-app:/fc"));
+        assertThat(csp).contains("frame-src https://app.monthfold.com https://b.example:8443; ")
+                .doesNotContain("javascript").doesNotContain("evil").doesNotContain("custom-app")
+                .contains("style-src 'self'; ").contains("script-src 'self'; ");
+        assertThat(policy.withFrames(pageRequest("/connect/logout", new MockHttpSession()), List.of()))
+                .contains("frame-src 'none'; ");
+    }
 }

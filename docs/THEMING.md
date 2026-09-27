@@ -2,7 +2,8 @@
 
 HelixIAM themes every user-facing page from structured, validated settings: the sign-in and registration pages,
 two-step enrolment and entry, recovery codes, password reset, consent, device activation, required actions, magic
-link, the flow pages, the maintenance page and the account console. The emails use the same settings too. You do not
+link, the flow pages, the maintenance page, the account console, the error pages of the sign-in endpoints and the
+front-channel logout page. The emails use the same settings too. You do not
 need to write CSS. A restricted custom-CSS escape hatch remains for the few things the model does not cover.
 
 This page is for operators and integrators. It covers:
@@ -858,6 +859,20 @@ connect-src 'self' <CAPTCHA host>; form-action 'self' <registered redirect origi
 The preview has its own, stricter policy (see [Preview](#preview)). Theme assets have their own (see
 [Assets](#assets-upload-list-delete)).
 
+### Error pages
+
+When a browser request to a realm endpoint ends in a 4xx error that cannot go back to the application, the page is
+themed (`protocol-error`): an unknown `client_id`, a `redirect_uri` that is not registered for the client, an
+authorization request without `client_id`, an end-session request (`/connect/logout`) without `id_token_hint`, and
+any other 4xx of a realm page (404, 403, 405). The page shows a title, a message from a fixed set, the OAuth error code
+when it is a standard one (`invalid_request`, …) and a reference that is logged with the error. It never shows the
+request's parameters, the error description, an exception or a stack trace. Only requests whose `Accept` asks for
+HTML get the page; API clients keep the JSON error body.
+
+The OIDC front-channel logout page (`logout/frontchannel`) is themed too. It loads each client's
+`frontchannel_logout_uri` in a hidden iframe and moves on to the post-logout URI after two seconds (or with its
+Continue link), without inline script. Its `frame-src` allows exactly the origins of those logout URIs.
+
 ---
 
 ## 9. Emails
@@ -1025,7 +1040,6 @@ before upgrading if you may need to roll back with branding intact.
 - **Identity-provider logo origins** are added to `img-src` from the global provider registry, not only from the
   current realm's providers.
 - **Caching:** a theme change can take up to about 30 seconds to reach other replicas.
-- **The front-channel logout page** is not themed.
 - **SVG input is strict.** Some design-tool exports (DOCTYPE, editor namespaces, embedded images, CSS comments in
   `<style>`) must be re-exported as plain or optimised SVG.
 
