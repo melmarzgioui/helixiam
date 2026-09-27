@@ -96,6 +96,10 @@ public class LoginController {
         model.addAttribute("captchaSiteKey", captchaEnabled ? captchaService.siteKey(realm) : null);
         addBranding(model, realm);
         model.addAttribute("magicLinkEnabled", magicLinks != null && magicLinks.enabled(realm));
+        // One-time values from the previous step (item A8: the address just verified; after a failed sign-in: the
+        // username that was typed). Kept in the session, never in the URL.
+        model.addAttribute("loginNotice", LoginFlash.takeNotice(request).orElse(null));
+        model.addAttribute("prefillUsername", LoginFlash.takeUsername(request).orElse(null));
         return "login";
     }
 

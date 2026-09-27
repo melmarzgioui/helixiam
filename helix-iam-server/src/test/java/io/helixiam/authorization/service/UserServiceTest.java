@@ -134,4 +134,12 @@ class UserServiceTest {
         assertFalse(service.verifyEmail(" "));
         assertFalse(service.verifyEmail(null));
     }
+
+    @Test
+    void verifyEmailFor_returnsTheVerifiedUsername_orNullForAnUnknownCode() {
+        primeSignupVerification();
+        assertEquals("alice", service.verifyEmailFor("code-1"));
+        when(notificationCodeRepository.findByCodeAndType("wrong", "USER_SIGNUP")).thenReturn(Optional.empty());
+        org.junit.jupiter.api.Assertions.assertNull(service.verifyEmailFor("wrong"));
+    }
 }

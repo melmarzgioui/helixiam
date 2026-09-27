@@ -13,6 +13,7 @@ import io.helixiam.authorization.amqp.user.UserPublisher;
 import io.helixiam.authorization.domain.UserRegister;
 import io.helixiam.authorization.security.captcha.CaptchaService;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.authorization.security.flow.InFlightClientResolver;
 import io.helixiam.authorization.security.realm.RealmSettingsResolver;
 import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,6 +67,10 @@ public class RegisterUserController {
 
   @Autowired(required = false)
   private BrandingSupport brandingSupport;
+
+  // Item A8: the realm's landing page after registration / verification when no sign-in is pending.
+  @Autowired(required = false)
+  private io.helixiam.authorization.service.registration.RegistrationSettingsService registrationSettings;
 
   public RegisterUserController(final UserPublisher userPublisher, @Value("${user.register.enabled:true}") boolean registerEnabled) {
     this.userPublisher = userPublisher;
@@ -148,14 +153,52 @@ public class RegisterUserController {
 
   private String verify(final String code, final Model model, final HttpServletRequest request,
                         final HttpServletResponse response) throws IOException {
-    if (!Boolean.TRUE.equals(userPublisher.verifyEmail(code))) {
+    final String username = userPublisher.verifyEmailFor(code);
+    if (username == null) {
       // Unknown, used or mistyped: say so on the code page (it used to redirect to "verified" regardless).
       response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
       return verifyView(model, code, true);
     }
+    // Item A8: back into the pending sign-in (the login page says the address is verified and is pre-filled); else
+    // the realm's landing page on the app; else the realm's login page. Never spBaseUrl (the IdP host).
+    LoginFlash.username(request, username);
+    final java.util.Optional<String> pending = InFlightClientResolver.pendingAuthorizeUrl(request);
+    if (pending.isPresent()) {
+      LoginFlash.notice(request, LoginFlash.VERIFIED);
+      response.sendRedirect(pending.get());
+      return null;
+    }
+    final java.util.Optional<String> landing = postRegistrationRedirect();
+    if (landing.isPresent()) {
+      response.sendRedirect(landing.get());
+      return null;
+    }
     // MT-4: context-relative so it stays under the realm path (/realms/{realm}/login).
     response.sendRedirect(request.getContextPath() + "/login?info=verified");
     return null;
+  }
+
+  /**
+   * Item A8: where "continue" goes after registering — the pending sign-in, else the realm's
+   * {@code postRegistrationRedirectUrl}, else the realm's login page.
+   */
+  private String continueUrl(final HttpServletRequest request) {
+    return InFlightClientResolver.pendingAuthorizeUrl(request)
+            .or(this::postRegistrationRedirect)
+            .orElse(request.getContextPath() + "/login");
+  }
+
+  private java.util.Optional<String> postRegistrationRedirect() {
+    if (registrationSettings == null) {
+      return java.util.Optional.empty();
+    }
+    try {
+      return registrationSettings.postRegistrationRedirect(RealmContextHolder.get());
+    } catch (final RuntimeException e) {
+      log.warn("postRegistrationRedirectUrl lookup failed for realm '{}': {}", LogSafe.sanitize(RealmContextHolder.get()),
+              LogSafe.sanitize(e.toString()));
+      return java.util.Optional.empty();
+    }
   }
 
   private String verifyView(final Model model, final String code, final boolean error) {
@@ -236,6 +279,7 @@ public class RegisterUserController {
     }
 
     if (errors.isEmpty()) {
+      model.addAttribute("continueUrl", continueUrl(request));
       return "register/success";
     }
     model.addAttribute(ControllerConstants.USER_REGISTER, userRegister);

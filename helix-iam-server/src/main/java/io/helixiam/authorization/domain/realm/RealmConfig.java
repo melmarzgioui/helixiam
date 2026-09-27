@@ -81,6 +81,14 @@ public class RealmConfig {
     @JsonProperty
     private int mfaSkipGraceDays = 0;
 
+    /**
+     * Item A8: where a user goes after registering or verifying their email when no sign-in is pending; must be on one
+     * of the realm's registered redirect origins. Null = the realm's login page.
+     */
+    @Column(name = "post_registration_redirect_url")
+    @JsonProperty
+    private String postRegistrationRedirectUrl;
+
     /** 1.0 item 6: passwordless sign-in by emailed link (off by default). */
     @Column(name = "magic_link_enabled")
     @JsonProperty
@@ -324,6 +332,14 @@ public class RealmConfig {
 
     public void setMagicLinkEnabled(final boolean magicLinkEnabled) {
         this.magicLinkEnabled = magicLinkEnabled;
+    }
+
+    public String getPostRegistrationRedirectUrl() {
+        return postRegistrationRedirectUrl;
+    }
+
+    public void setPostRegistrationRedirectUrl(final String postRegistrationRedirectUrl) {
+        this.postRegistrationRedirectUrl = postRegistrationRedirectUrl;
     }
 
     public int getMfaSkipGraceDays() {

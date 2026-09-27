@@ -112,7 +112,7 @@ class RegistrationVerificationBrowserE2eTest extends AbstractBrowserE2eTest {
         assertThat(page().locator(".actionSuccess").count()).as(describeBrowser()).isEqualTo(1);
     }
 
-    String verifyLink(final MailSink.CapturedEmail mail, final ReferenceSetup.Realm realm) {
+    static String verifyLink(final MailSink.CapturedEmail mail, final ReferenceSetup.Realm realm) {
         final Matcher m = VERIFY_LINK.matcher(mail.body().replace("&amp;", "&"));
         assertThat(m.find()).as("a verification link in: " + mail.body()).isTrue();
         final String link = m.group();

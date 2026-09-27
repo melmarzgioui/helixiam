@@ -33,6 +33,27 @@ public final class InFlightClientResolver {
         return clientIdOf(REQUEST_CACHE.getRequest(request, response));
     }
 
+    /**
+     * Item A8: the URL of the pending {@code /oauth2/authorize} request saved in the session (not consumed), to send
+     * the user back into their sign-in after registering or verifying their email. Empty when none is pending.
+     */
+    public static java.util.Optional<String> pendingAuthorizeUrl(final HttpServletRequest request) {
+        if (request == null || request.getSession(false) == null) {
+            return java.util.Optional.empty();
+        }
+        final SavedRequest saved = REQUEST_CACHE.getRequest(request, null);
+        if (saved == null || saved.getRedirectUrl() == null) {
+            return java.util.Optional.empty();
+        }
+        try {
+            final String path = java.net.URI.create(saved.getRedirectUrl()).getPath();
+            return path != null && path.endsWith("/oauth2/authorize") && "GET".equalsIgnoreCase(saved.getMethod())
+                    ? java.util.Optional.of(saved.getRedirectUrl()) : java.util.Optional.empty();
+        } catch (final IllegalArgumentException e) {
+            return java.util.Optional.empty();
+        }
+    }
+
     /** Extracts {@code client_id} from a saved request (package-visible for testing). */
     static String clientIdOf(final SavedRequest saved) {
         if (saved == null) {
