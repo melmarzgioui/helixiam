@@ -77,6 +77,38 @@ afterwards; rotate its secret with `POST /admin/realms/master/clients/{id}/secre
 `config.mfaEnabled: true` (default) requires TOTP for every password sign-in in every realm; `false` leaves it to
 each realm's `requireMfa`. Neither affects `client_credentials` tokens.
 
+## Global email
+
+A realm normally has its own email provider (`PUT /admin/realms/{realm}/messaging/providers`, drivers `SMTP`,
+`CLOUDFLARE`, `HTTP`, `LOG`). The `email` values set the server-wide default used when it has none. Credentials are
+keys in `secrets.existingSecret`, mounted as files under `/etc/helixiam/email` and read at every send, so rotating
+the Secret needs no restart.
+
+```sh
+# Cloudflare Email Service over HTTPS (port 443): token with Account → Email Sending → Edit, domain onboarded.
+kubectl create secret generic helix-secrets ... --from-literal=cf-email-token=<token>
+helm upgrade --install helixiam deploy/helm/helixiam ... \
+  --set email.driver=cloudflare --set email.fromAddress=no-reply@example.com \
+  --set email.cloudflare.accountId=<account id> --set email.cloudflare.apiTokenKey=cf-email-token
+
+# SMTP with implicit TLS (SMTPS, port 465): also allow the port in networkPolicy.extraEgressPorts.
+helm upgrade --install helixiam deploy/helm/helixiam ... \
+  --set email.smtp.host=smtp.example.com --set email.smtp.tlsMode=IMPLICIT --set-string email.smtp.port=465 \
+  --set email.smtp.username=mailer --set email.smtp.passwordKey=smtp-password \
+  --set 'networkPolicy.extraEgressPorts[0].port=465'
+```
+
+
+Retries, send rate caps and code lifetimes (all optional; empty keeps the server default, see `docs/EMAIL.md`):
+
+| Value | Server default | Setting |
+|---|---|---|
+| `email.retry.enabled` | `true` | retry transient failures |
+| `email.retry.delays` | `30s,2m,10m,30m` | the wait before each retry (escape commas with `--set`: `30s\,2m`) |
+| `email.retry.maxAge` / `.jitter` / `.pollInterval` / `.batchSize` / `.lease` | `1h` / `0.2` / `5s` / `20` / `2m` | |
+| `email.rateLimit.realmPerMinute` / `.globalPerMinute` | `120` / `600` | send rate caps per replica; `0` = off |
+| `email.codes.resetPasswordTtl` / `.signupTtl` | `1h` / `24h` | how long the emailed reset and sign-up codes work |
+
 ## File themes
 Set `themes.enabled=true` and point `themes.configMap.name` (with `items` mapping keys to
 `{theme}/theme.json`, `{theme}/fonts.json` and `{theme}/assets/<file>`) or `themes.existingVolume` at your theme

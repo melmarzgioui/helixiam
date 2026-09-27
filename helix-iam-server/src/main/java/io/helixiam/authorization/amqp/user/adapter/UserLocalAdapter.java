@@ -59,6 +59,11 @@ public class UserLocalAdapter implements UserPublisher {
     }
 
     @Override
+    public Boolean resetCodeUsable(final String code) {
+        return userService.resetCodeUsable(code);
+    }
+
+    @Override
     public Boolean verifyEmail(final String code) {
         return userService.verifyEmail(code);
     }

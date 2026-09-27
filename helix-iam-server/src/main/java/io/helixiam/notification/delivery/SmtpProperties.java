@@ -22,10 +22,22 @@ public class SmtpProperties {
 
     /** Blank = no global fallback configured; {@link SmtpNotifier} then only delivers via a realm provider. */
     private String host;
-    private int port = 587;
+    /** Blank = 587, or 465 with {@code tls-mode=IMPLICIT}. */
+    private Integer port;
     private String username;
     private String password;
+    /** A file holding the password (a mounted secret); read at every send, wins over {@code password}. */
+    private String passwordFile;
+    /** Deprecated: use {@code tls-mode} ({@code true} = STARTTLS_REQUIRED, {@code false} = STARTTLS_OPTIONAL). */
     private boolean starttls = true;
+    /** {@code STARTTLS_REQUIRED} (default), {@code STARTTLS_OPTIONAL}, {@code IMPLICIT} or {@code NONE} (dev only). */
+    private String tlsMode;
+    private java.time.Duration connectTimeout;
+    private java.time.Duration readTimeout;
+    /** The EHLO name; blank = the local host name. */
+    private String ehloName;
+    /** A PEM file of CA certificates trusted in addition to the JDK roots (a private relay). */
+    private String caBundleFile;
     private String fromAddress = "no-reply@helix.local";
     private String fromName = "HelixIAM";
 
@@ -37,12 +49,60 @@ public class SmtpProperties {
         this.host = host;
     }
 
-    public int getPort() {
+    public Integer getPort() {
         return port;
     }
 
-    public void setPort(final int port) {
+    public void setPort(final Integer port) {
         this.port = port;
+    }
+
+    public String getPasswordFile() {
+        return passwordFile;
+    }
+
+    public void setPasswordFile(final String passwordFile) {
+        this.passwordFile = passwordFile;
+    }
+
+    public String getTlsMode() {
+        return tlsMode;
+    }
+
+    public void setTlsMode(final String tlsMode) {
+        this.tlsMode = tlsMode;
+    }
+
+    public java.time.Duration getConnectTimeout() {
+        return connectTimeout;
+    }
+
+    public void setConnectTimeout(final java.time.Duration connectTimeout) {
+        this.connectTimeout = connectTimeout;
+    }
+
+    public java.time.Duration getReadTimeout() {
+        return readTimeout;
+    }
+
+    public void setReadTimeout(final java.time.Duration readTimeout) {
+        this.readTimeout = readTimeout;
+    }
+
+    public String getEhloName() {
+        return ehloName;
+    }
+
+    public void setEhloName(final String ehloName) {
+        this.ehloName = ehloName;
+    }
+
+    public String getCaBundleFile() {
+        return caBundleFile;
+    }
+
+    public void setCaBundleFile(final String caBundleFile) {
+        this.caBundleFile = caBundleFile;
     }
 
     public String getUsername() {
@@ -83,5 +143,11 @@ public class SmtpProperties {
 
     public void setFromName(final String fromName) {
         this.fromName = fromName;
+    }
+
+    @Override
+    public String toString() {
+        return "SmtpProperties[host=" + host + ", port=" + port + ", username=" + username + ", password="
+                + (password == null ? "unset" : "***") + ", tlsMode=" + tlsMode + "]";
     }
 }

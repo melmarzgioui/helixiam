@@ -60,12 +60,14 @@ class ThemedEmailsBrowserE2eTest extends AbstractBrowserE2eTest {
         assertThemed(readCapturedEmail(email, "/register/verify/"), "verification");
 
         // Reset: request it in the browser for a seeded user.
+        // Typed: the username, which looks like an address; the link goes to the account's stored address (the
+        // seed's username@e2e.helixiam.test), never to the typed one.
         final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe") + "@monthfold.test",
                 "Reset-Me-Passw0rd-2026!");
         page().navigate(baseUrl() + realm.path() + "/reset/password");
         page().locator("#username").fill(joe.username());
         submit(page().locator("#passwordReset button[type=submit]"));
-        final MailSink.CapturedEmail reset = readCapturedEmail(joe.username(), "/reset/password/");
+        final MailSink.CapturedEmail reset = readCapturedEmail(joe.username() + "@e2e.helixiam.test", "/reset/password/");
         assertThemed(reset, "reset");
         assertThat(reset.link(realm.path() + "/reset/password/")).as("a link to the realm's reset page").isPresent();
 

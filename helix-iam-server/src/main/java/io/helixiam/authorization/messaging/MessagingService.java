@@ -10,21 +10,32 @@ import io.helixiam.authorization.amqp.messaging.MessageTemplateDto;
 import io.helixiam.authorization.amqp.messaging.MessagingAdminPublisher;
 import io.helixiam.authorization.amqp.messaging.ResolveRequest;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
-import io.helixiam.authorization.messaging.driver.EmailDriver;
 import io.helixiam.authorization.messaging.driver.PushDriver;
 import io.helixiam.authorization.messaging.driver.SmsDriver;
+import io.helixiam.authorization.messaging.email.DeliveryResult;
+import io.helixiam.authorization.messaging.email.EmailDelivery;
+import io.helixiam.authorization.messaging.email.EmailDeliveryException;
+import io.helixiam.authorization.messaging.email.EmailMessage;
+import io.helixiam.authorization.messaging.email.EmailOutbox;
+import io.helixiam.authorization.messaging.email.EmailSendOutcome;
+import io.helixiam.authorization.messaging.email.EmailTransport;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Helix IAM notifications (N3): the send path. Resolves the realm's enabled provider for a channel + the
  * named template, renders the message, and dispatches via the matching driver. Returns {@code false} (so the
- * caller can fall back to the dev log) when the realm has no provider configured, or no driver matches.
+ * caller can fall back to the dev log) when the realm has no provider configured, or no driver matches. Email goes
+ * through {@link EmailDelivery} (the email transport SPI), which classifies the outcome.
  */
 @Service
 public class MessagingService {
@@ -33,21 +44,34 @@ public class MessagingService {
 
     private final MessagingAdminPublisher publisher;
     private final List<SmsDriver> smsDrivers;
-    private final List<EmailDriver> emailDrivers;
     private final List<PushDriver> pushDrivers;
+    private EmailOutbox outbox;
     private EmailBrandingSource emailBranding;
 
+    @Autowired
     public MessagingService(final MessagingAdminPublisher publisher, final List<SmsDriver> smsDrivers,
-                            final List<EmailDriver> emailDrivers, final List<PushDriver> pushDrivers) {
+                            final EmailDelivery emailDelivery, final List<PushDriver> pushDrivers) {
         this.publisher = publisher;
         this.smsDrivers = smsDrivers;
-        this.emailDrivers = emailDrivers;
         this.pushDrivers = pushDrivers;
+        this.outbox = EmailOutbox.direct(emailDelivery);
+    }
+
+    /** Email through {@code emailTransports} for the realm's own providers only (no global default; tests). */
+    public MessagingService(final MessagingAdminPublisher publisher, final List<SmsDriver> smsDrivers,
+                            final List<? extends EmailTransport> emailTransports, final List<PushDriver> pushDrivers) {
+        this(publisher, smsDrivers, new EmailDelivery(realm -> publisher.enabledProviders(new ResolveRequest(realm, "EMAIL")),
+                emailTransports, null, null, null), pushDrivers);
     }
 
     /** Render {@code templateKey} and SMS it to {@code to}; false if the realm has no SMS provider. */
     public boolean sendSms(final String realm, final String to, final String templateKey, final Map<String, String> vars) {
-        final ResolvedProviderDto provider = firstEnabled(realm, "SMS");
+        return sendSms(realm, firstEnabled(realm, "SMS"), to, templateKey, vars);
+    }
+
+    /** Render {@code templateKey} and SMS it to {@code to} through {@code provider}; false when it is null or unknown. */
+    public boolean sendSms(final String realm, final ResolvedProviderDto provider, final String to,
+                           final String templateKey, final Map<String, String> vars) {
         if (provider == null) {
             return false;
         }
@@ -63,22 +87,78 @@ public class MessagingService {
         return true;
     }
 
-    /** Render {@code templateKey} and email it to {@code to}; false if the realm has no email provider. */
+    /**
+     * Render {@code templateKey} and email it to {@code to}; false if the realm has no email provider. The email carries
+     * no expiring code or link (see {@link #sendEmail(String, String, String, Map, Duration)}).
+     *
+     * @throws EmailDeliveryException when the provider did not take the email and it is not queued for a retry (the
+     *                                classified result is attached)
+     */
     public boolean sendEmail(final String realm, final String to, final String templateKey, final Map<String, String> vars) {
-        final ResolvedProviderDto provider = firstEnabled(realm, "EMAIL");
-        if (provider == null) {
-            return false;
-        }
-        final EmailDriver driver = emailDrivers.stream().filter(d -> d.driver().equalsIgnoreCase(provider.driver()))
-                .findFirst().orElse(null);
-        if (driver == null) {
-            LOG.warn("No email driver for '{}' in realm {}",
-                    LogSafe.sanitize(provider.driver()), LogSafe.sanitize(realm));
+        return sendEmail(realm, to, templateKey, vars, null);
+    }
+
+    /**
+     * Render {@code templateKey} and email it to {@code to} through the realm's email provider, via the
+     * {@link EmailOutbox}: the send rate caps, one synchronous attempt, then retries of a transient failure (never
+     * after the code or link in the email stops working, {@code validFor} from now; null: it carries none).
+     *
+     * @return true when the provider took the email or it is queued for a retry; false when the realm has no enabled
+     *         email provider with a known driver
+     * @throws EmailDeliveryException when the email failed (permanently, or transiently without a retry: rate capped,
+     *                                or the code would expire first); the classified result is attached
+     */
+    public boolean sendEmail(final String realm, final String to, final String templateKey,
+                             final Map<String, String> vars, final Duration validFor) {
+        if (outbox.realmProvider(realm).isEmpty()) {
             return false;
         }
         final Rendered r = render(realm, templateKey, vars);
-        driver.send(provider, to, r.subject(), r.body(), r.html(), r.text());
+        final EmailMessage message = EmailMessage.of(null, to, r.subject(), r.body(), r.html(), r.text())
+                .withExpiresAt(validFor == null ? null : Instant.now().plus(validFor));
+        final EmailSendOutcome outcome = outbox.send(realm, message, EmailOutbox.SendOptions.TRANSACTIONAL);
+        if (!outcome.inFlight()) {
+            throw new EmailDeliveryException(outcome.result());
+        }
         return true;
+    }
+
+    /**
+     * Render {@code templateKey} and email it to {@code to} through the realm's email provider, once (the admin test
+     * endpoint): the classified result of that attempt, never queued for a retry; empty when the realm has no enabled
+     * email provider with a known driver. The send rate caps apply.
+     */
+    public Optional<DeliveryResult> sendEmailWithResult(final String realm, final String to, final String templateKey,
+                                                        final Map<String, String> vars) {
+        return sendEmailWithResult(realm, null, to, templateKey, vars);
+    }
+
+    /**
+     * As {@link #sendEmailWithResult(String, String, String, Map)}, through {@code provider} when given (enabled or
+     * not); null uses the realm's active email provider.
+     */
+    public Optional<DeliveryResult> sendEmailWithResult(final String realm, final ResolvedProviderDto provider,
+                                                        final String to, final String templateKey,
+                                                        final Map<String, String> vars) {
+        if (provider == null && outbox.realmProvider(realm).isEmpty()) {
+            return Optional.empty();
+        }
+        final Rendered r = render(realm, templateKey, vars);
+        final EmailMessage message = EmailMessage.of(null, to, r.subject(), r.body(), r.html(), r.text());
+        return Optional.of(outbox.send(realm, provider, message, EmailOutbox.SendOptions.TEST).result());
+    }
+
+    /** The driver of the realm's active (enabled) email provider, if it has one. */
+    public Optional<String> activeEmailDriver(final String realm) {
+        return outbox.realmProvider(realm).map(ResolvedProviderDto::driver);
+    }
+
+    /** The outbox email goes through (rate caps, retries, bounces); without one, a single synchronous attempt. */
+    @Autowired(required = false)
+    public void setEmailOutbox(final EmailOutbox outbox) {
+        if (outbox != null) {
+            this.outbox = outbox;
+        }
     }
 
     /**
@@ -98,6 +178,16 @@ public class MessagingService {
         } catch (final RuntimeException e) {
             LOG.warn("Could not resolve PUSH providers for realm {}: {}",
                     LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
+            return false;
+        }
+        return sendPush(realm, providers, deviceTokens, templateKey, vars, data);
+    }
+
+    /** As {@link #sendPush(String, List, String, Map, Map)}, through the given {@code providers}. */
+    public boolean sendPush(final String realm, final List<ResolvedProviderDto> providers,
+                            final List<DevicePushTokenDto> deviceTokens, final String templateKey,
+                            final Map<String, String> vars, final Map<String, String> data) {
+        if (deviceTokens == null || deviceTokens.isEmpty()) {
             return false;
         }
         if (providers == null || providers.isEmpty()) {

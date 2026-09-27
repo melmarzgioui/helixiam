@@ -85,6 +85,9 @@ public class MessagingProvider {
     @Column(name = "modify_date")
     private Date modifyDate;
 
+    public Date getCreationDate() { return creationDate; }
+    public Date getModifyDate() { return modifyDate; }
+    public void setModifyDate(final Date modifyDate) { this.modifyDate = modifyDate; }
     public String getId() { return id; }
     public void setId(final String id) { this.id = id; }
     public String getRealmId() { return realmId; }

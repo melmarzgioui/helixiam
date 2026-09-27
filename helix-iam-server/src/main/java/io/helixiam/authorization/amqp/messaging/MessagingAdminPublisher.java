@@ -37,6 +37,9 @@ public interface MessagingAdminPublisher {
     /** SENDER path (N3): the realm's enabled providers for a channel, with secrets. Server-to-server only. */
     List<ResolvedProviderDto> enabledProviders(ResolveRequest request);
 
+    /** One provider (realm + channel + driver), enabled or not, with its secret; null when there is none. */
+    ResolvedProviderDto resolveProvider(MessagingProviderKey key);
+
     List<MessageTemplateDto> listTemplates(String realmId);
 
     MessageTemplateDto saveTemplate(MessageTemplateDto dto);

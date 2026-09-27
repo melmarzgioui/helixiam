@@ -8,6 +8,11 @@
 {{- if .Values.themes.enabled }}
 {{- include "helixiam.require" (dict "name" "themes.configMap.name or themes.existingVolume" "val" (or .Values.themes.configMap.name .Values.themes.existingVolume)) -}}
 {{- end }}
+{{- if eq (lower (default "" .Values.email.driver)) "cloudflare" }}
+{{- include "helixiam.require" (dict "name" "email.cloudflare.accountId" "val" .Values.email.cloudflare.accountId) -}}
+{{- include "helixiam.require" (dict "name" "email.cloudflare.apiTokenKey" "val" .Values.email.cloudflare.apiTokenKey) -}}
+{{- end }}
+{{- $emailSecrets := or .Values.email.smtp.passwordKey .Values.email.cloudflare.apiTokenKey }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -105,6 +110,11 @@ spec:
               mountPath: {{ .Values.themes.mountPath }}
               readOnly: true
             {{- end }}
+            {{- if $emailSecrets }}
+            - name: email-secrets
+              mountPath: /etc/helixiam/email
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -117,6 +127,22 @@ spec:
             items:
               - key: {{ .Values.secrets.bootstrapClientSecretKey }}
                 path: client-secret
+        {{- end }}
+        {{- if $emailSecrets }}
+        # Email credentials as files (read at every send, so a rotated Secret applies without a restart).
+        - name: email-secrets
+          secret:
+            secretName: {{ .Values.secrets.existingSecret }}
+            defaultMode: 0440   # readable by the pod's fsGroup (10001), not world
+            items:
+              {{- if .Values.email.smtp.passwordKey }}
+              - key: {{ .Values.email.smtp.passwordKey }}
+                path: smtp-password
+              {{- end }}
+              {{- if .Values.email.cloudflare.apiTokenKey }}
+              - key: {{ .Values.email.cloudflare.apiTokenKey }}
+                path: cloudflare-api-token
+              {{- end }}
         {{- end }}
         {{- if .Values.themes.enabled }}
         - name: themes

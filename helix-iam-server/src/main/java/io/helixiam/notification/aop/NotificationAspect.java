@@ -14,7 +14,6 @@ import io.helixiam.notification.annotation.NotificationMediaType;
 import io.helixiam.notification.domain.NotificationCode;
 import io.helixiam.notification.domain.NotificationRequest;
 import io.helixiam.notification.repository.NotificationCodeRepository;
-import io.helixiam.notification.utils.CodeGeneration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -49,6 +48,31 @@ public class NotificationAspect {
 
     private final Notifier notifier;
     private final NotificationCodeRepository notificationCodeRepository;
+    private io.helixiam.notification.NotificationCodePolicy codePolicy =
+            io.helixiam.notification.NotificationCodePolicy.defaults();
+
+    private io.helixiam.notification.NotificationCodeIssuer codeIssuer;
+
+    /** Issues the codes (hashed at rest); without one (tests), a default issuer over the repository. */
+    @Autowired(required = false)
+    public void setCodeIssuer(final io.helixiam.notification.NotificationCodeIssuer codeIssuer) {
+        this.codeIssuer = codeIssuer;
+    }
+
+    private io.helixiam.notification.NotificationCodeIssuer codeIssuer() {
+        if (codeIssuer == null) {
+            codeIssuer = new io.helixiam.notification.NotificationCodeIssuer(notificationCodeRepository, codePolicy);
+        }
+        return codeIssuer;
+    }
+
+    /** How long the generated codes work (password reset 1 hour, sign-up 24 hours by default). */
+    @Autowired(required = false)
+    public void setCodePolicy(final io.helixiam.notification.NotificationCodePolicy codePolicy) {
+        if (codePolicy != null) {
+            this.codePolicy = codePolicy;
+        }
+    }
 
     @Autowired
     public NotificationAspect(final Notifier notifier, final NotificationCodeRepository notificationCodeRepository) {
@@ -90,9 +114,9 @@ public class NotificationAspect {
             notificationRequest.setEmailAddress(userDetails.get("EMAIL"));
 
             if (notification.generateCode() || notification.generateSimpleCode()) {
-                final NotificationCode notificationCode = notificationCodeRepository
-                        .findByIdentifierAndType(identifier, notification.type())
-                        .orElseGet(() -> notificationCodeRepository.save(new NotificationCode(identifier, generateCode(notification), notification.type())));
+                // A new code on every request; only its SHA-256 is stored (NotificationCodeIssuer).
+                final NotificationCode notificationCode = codeIssuer().issue(identifier, notification.type(),
+                        notification.generateSimpleCode());
                 notificationRequest.setNotificationCode(notificationCode);
             }
 
@@ -100,13 +124,6 @@ public class NotificationAspect {
         }
 
         return Optional.empty();
-    }
-
-    private String generateCode(final Notification notification) {
-        if(notification.generateSimpleCode()) {
-            return CodeGeneration.generateSimpleCode();
-        }
-        return CodeGeneration.generateCode();
     }
 
     private static boolean isNotEmpty(final String value) {

@@ -77,6 +77,10 @@ class UsernamePerRealmE2eTest extends AbstractE2eTest {
                 "displayName", "Firm A", "accessTokenTtlSeconds", 3600, "refreshTokenTtlSeconds", 86400, "enabled", true,
                 "passwordMinLength", 8, "registrationEnabled", true));
         assertThat(open.status()).as(open.toString()).isEqualTo(200);
+        // Realm A's email goes to the test mail sink, to read the code from the sign-up email.
+        assertThat(adminSession().put("/admin/realms/" + realmA + "/messaging/providers", Map.of("channel", "EMAIL",
+                "driver", "HTTP", "enabled", true, "fromAddress", "no-reply@firm-a.example",
+                "config", Map.of("url", io.helixiam.e2e.browser.MailSink.get().url()))).status()).isEqualTo(200);
 
         final String address = E2eSeed.unique("newcomer") + "@firm-a.example";
         final E2eHttp http = newBrowser();
@@ -103,8 +107,14 @@ class UsernamePerRealmE2eTest extends AbstractE2eTest {
         assertThat(userId).as("registered user listed in realm A").isNotNull();
 
         // The account unlocks when the email address is verified (the code from the sign-up email).
-        final String code = context.getBean(org.springframework.jdbc.core.JdbcTemplate.class).queryForObject(
+        final String link = io.helixiam.e2e.browser.MailSink.get().await(address,
+                m -> m.link("/register/verify/").isPresent(), java.time.Duration.ofSeconds(10))
+                .link("/register/verify/").orElseThrow();
+        final String code = link.substring(link.lastIndexOf('/') + 1);
+        // Only the code's SHA-256 is stored, never the code itself.
+        final String stored = context.getBean(org.springframework.jdbc.core.JdbcTemplate.class).queryForObject(
                 "SELECT code FROM notification_code WHERE identifier = ? AND type = 'USER_SIGNUP'", String.class, userId);
+        assertThat(stored).isEqualTo(io.helixiam.notification.NotificationCodePolicy.hash(code)).isNotEqualTo(code);
         assertThat(http.get("/realms/" + realmA + "/register/verify/" + code, "Accept", "text/html").status()).isLessThan(400);
 
         // Signs in at A, not at B.

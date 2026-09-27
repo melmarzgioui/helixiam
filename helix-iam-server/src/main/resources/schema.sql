@@ -1049,3 +1049,26 @@ CREATE TABLE IF NOT EXISTS browser_session (
     FOREIGN KEY (user_id) REFERENCES user_credentials(user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS browser_session_user_idx ON browser_session (user_id);
+
+-- Email delivery stage 2 (same as Flyway V72): the persisted email retry queue (payload encrypted at rest) and
+-- bounced addresses on the user.
+CREATE TABLE IF NOT EXISTS email_retry (
+    message_id       character varying(255) NOT NULL PRIMARY KEY,
+    realm_id         character varying(255),
+    payload          text                   NOT NULL,
+    attempts         integer                NOT NULL,
+    created_at       bigint                 NOT NULL,
+    next_attempt_at  bigint                 NOT NULL,
+    give_up_at       bigint                 NOT NULL,
+    expires_at       bigint,
+    last_reason      character varying(32),
+    claimed_by       character varying(64)
+);
+CREATE INDEX IF NOT EXISTS email_retry_due_idx ON email_retry (next_attempt_at);
+ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email_bounced_at bigint;
+ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email_bounced_address character varying(255);
+-- Security (same as Flyway V73): emailed one-time codes (password reset, sign-up verification) expire.
+ALTER TABLE notification_code ADD COLUMN IF NOT EXISTS expires_at timestamp;
+-- Security (same as Flyway V74): emailed one-time codes are stored as their hex SHA-256; pending plain codes are hashed
+-- in place (idempotent: a 64-hex value is already a hash).
+UPDATE notification_code SET code = encode(sha256(convert_to(code, 'UTF8')), 'hex') WHERE code !~ '^[0-9a-f]{64}$';

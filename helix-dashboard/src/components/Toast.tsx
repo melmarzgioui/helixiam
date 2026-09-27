@@ -4,6 +4,7 @@
  */
 
 import React from "react";
+import { useT } from "../i18n/LocaleContext";
 
 export type ToastTone = "success" | "error" | "info";
 
@@ -22,6 +23,7 @@ const glyph: Record<ToastTone, React.ReactNode> = {
 
 /** Single toast notification. Compose a stack in your app's toast region (ToastHost / .hx-toasthost). Class-based. */
 export function Toast({ tone = "info", title, message, onDismiss }: ToastProps) {
+  const { t } = useT();
   return (
     <div role="status" className={`hx-toast hx-toast--${tone}`}>
       <svg className="hx-toast__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -32,7 +34,7 @@ export function Toast({ tone = "info", title, message, onDismiss }: ToastProps) 
         {message && <div className="hx-toast__msg">{message}</div>}
       </div>
       {onDismiss && (
-        <button type="button" className="hx-toast__x" aria-label="Dismiss" onClick={onDismiss}>
+        <button type="button" className="hx-toast__x" aria-label={t("common.dismiss")} onClick={onDismiss}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>

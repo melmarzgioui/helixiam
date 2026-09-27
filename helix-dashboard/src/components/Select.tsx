@@ -4,6 +4,7 @@
  */
 
 import React from "react";
+import { useFieldA11y } from "./fieldA11y";
 import { createPortal } from "react-dom";
 
 export interface SelectOption {
@@ -39,6 +40,7 @@ export function Select({
   id,
   ...aria
 }: SelectProps) {
+  const fieldA11y = useFieldA11y({});
   const isControlled = value !== undefined;
   const [internal, setInternal] = React.useState<string | undefined>(defaultValue);
   const selected = isControlled ? value : internal;
@@ -148,6 +150,7 @@ export function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={aria["aria-label"]}
+        {...fieldA11y}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onTriggerKey}
       >

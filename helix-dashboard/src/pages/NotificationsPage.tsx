@@ -16,6 +16,7 @@ import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
 import { MessagingApi, MessagingProvider, MessageTemplate } from "../api/messaging";
 import { useT } from "../i18n/LocaleContext";
+import { EmailDeliverySettings } from "./EmailDeliverySettings";
 
 export interface NotificationsPageProps {
   api: MessagingApi;
@@ -43,25 +44,8 @@ const SCHEMA: Record<string, { label: string; drivers: Record<string, { label: s
       ] },
     },
   },
-  EMAIL: {
-    label: "notifications.tab.email",
-    drivers: {
-      SMTP: { label: "notifications.driver.smtp", secretLabel: "notifications.secret.password", fields: [
-        { key: "host", label: "notifications.field.host", target: "config", placeholder: "smtp.example.com" },
-        { key: "port", label: "notifications.field.port", target: "config", placeholder: "587" },
-        { key: "username", label: "notifications.field.username", target: "config", placeholder: "apikey" },
-        { key: "from", label: "notifications.field.fromAddress", target: "from", placeholder: "no-reply@example.com" },
-        { key: "fromName", label: "notifications.field.fromName", target: "fromName", placeholder: "Helix" },
-        { key: "starttls", label: "notifications.field.starttls", target: "config", placeholder: "true" },
-      ] },
-      HTTP: { label: "notifications.driver.httpApi", secretLabel: "notifications.secret.apiKey", fields: [
-        { key: "url", label: "notifications.field.apiUrl", target: "config", placeholder: "https://api.sendgrid.com/v3/mail/send" },
-        { key: "from", label: "notifications.field.fromAddress", target: "from", placeholder: "no-reply@example.com" },
-        { key: "fromName", label: "notifications.field.fromName", target: "fromName" },
-        { key: "authHeader", label: "notifications.field.authHeader", target: "config", placeholder: "Authorization" },
-      ] },
-    },
-  },
+  // EMAIL has its own form (EmailDeliverySettings): driver choice, TLS modes, write-only secrets and test results.
+  EMAIL: { label: "notifications.tab.email", drivers: {} },
   PUSH: {
     label: "notifications.tab.push",
     drivers: {
@@ -114,6 +98,10 @@ export function NotificationsPage({ api, realmId }: NotificationsPageProps) {
           <div className="hx-loadwrap"><Spinner size={28} label={t("common.loading")} /></div>
         ) : tab === "TEMPLATES" ? (
           <TemplatesEditor api={api} realmId={realmId} templates={templates} onSaved={(tmpl) => { setTemplates(tmpl); setNote({ tone: "success", title: t("notifications.toast.templateSaved") }); }} onError={(m) => setNote({ tone: "error", title: t("notifications.toast.templateSaveError"), message: m })} />
+        ) : tab === "EMAIL" ? (
+          <EmailDeliverySettings key={realmId} api={api} realmId={realmId} providers={providers}
+            onChanged={() => api.listProviders(realmId).then((list) => { setProviders(list); return list; })}
+            onSaved={(title) => setNote({ tone: "success", title: title ?? t("notifications.toast.providerSaved") })} />
         ) : (
           <ChannelForm key={tab} api={api} realmId={realmId} channel={tab} providers={providers}
             onSaved={() => { reload(); setNote({ tone: "success", title: t("notifications.toast.providerSaved") }); }}
@@ -123,7 +111,7 @@ export function NotificationsPage({ api, realmId }: NotificationsPageProps) {
       </PageBody>
 
       {note && (
-        <div className="hx-toasthost">
+        <div className={tab === "EMAIL" ? "hx-toasthost hx-toasthost--savebar" : "hx-toasthost"}>
           <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
         </div>
       )}
@@ -207,11 +195,10 @@ function ChannelForm({ api, realmId, channel, providers, onSaved, onError, onTes
       </div>
 
       <Divider />
-      <FormField label={t("notifications.channel.test.label")} hint={channel === "EMAIL" ? t("notifications.channel.test.hint.email")
-        : channel === "PUSH" ? t("notifications.channel.test.hint.push")
+      <FormField label={t("notifications.channel.test.label")} hint={channel === "PUSH" ? t("notifications.channel.test.hint.push")
         : t("notifications.channel.test.hint.sms")}>
         <div className="hx-inputrow">
-          <Input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder={channel === "EMAIL" ? "you@example.com" : channel === "PUSH" ? "device-token…" : "+15551234567"} />
+          <Input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder={channel === "PUSH" ? "device-token…" : "+15551234567"} />
           <Button variant="ghost" onClick={test} disabled={busy || !testTo.trim()}>{t("notifications.channel.test.action")}</Button>
         </div>
       </FormField>

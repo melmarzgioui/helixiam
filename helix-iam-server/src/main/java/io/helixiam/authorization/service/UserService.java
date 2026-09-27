@@ -40,6 +40,30 @@ public class UserService {
     private final VerifyEmailRepository verifyEmailRepository;
     private final MfaUserRepository mfaUserRepository;
     private final Notifier notifier;
+    private io.helixiam.authorization.messaging.email.JdbcBounceRecorder emailBounces;
+    private PasswordResetMailer passwordResetMailer;
+
+    /** Sends the reset email to the account's stored address. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPasswordResetMailer(final PasswordResetMailer passwordResetMailer) {
+        this.passwordResetMailer = passwordResetMailer;
+    }
+    private io.helixiam.notification.NotificationCodePolicy codePolicy =
+            io.helixiam.notification.NotificationCodePolicy.defaults();
+
+    /** How long the emailed reset and sign-up codes work (defaults: 1 hour, 24 hours). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCodePolicy(final io.helixiam.notification.NotificationCodePolicy codePolicy) {
+        if (codePolicy != null) {
+            this.codePolicy = codePolicy;
+        }
+    }
+
+    /** Clears a bounced address when the user verifies it again (the signup verification code). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEmailBounces(final io.helixiam.authorization.messaging.email.JdbcBounceRecorder emailBounces) {
+        this.emailBounces = emailBounces;
+    }
     private final PasswordEncoderService passwordEncoderService;
 
     // Auth-hardening (features 3+4): enforce the realm's password policy on the public self-service paths.
@@ -118,42 +142,79 @@ public class UserService {
     }
 
     /**
-     * Initiates password reset flow and sends email with reset code.
+     * Starts a password reset. {@code typed} (username or email address) only finds the account in the realm; the
+     * link goes to the account's stored email address, off the request thread ({@link PasswordResetMailer}). An unknown
+     * account or one without an address gets nothing, and the caller cannot tell: both lookups always run, and the
+     * answer does not depend on the account.
+     *
+     * @return the account found, or null (for the caller's own use; never to be shown to the requester)
      */
-    @Notification(mediaType = NotificationMediaType.EMAIL, type = "USER_RESET_PASSWORD", generateCode = true)
-    public UserCredentials resetPasswordRequest(@NotificationEmail final String username) {
-        final String identifier = username == null ? "" : username.trim().toLowerCase();
-        return userCredentialsRepository.findByRealmIdAndUsername(currentRealm(), identifier)
-                .or(() -> userCredentialsRepository.findByRealmIdAndEmail(currentRealm(), identifier)).orElse(null);
+    public UserCredentials resetPasswordRequest(final String typed) {
+        final String identifier = typed == null ? "" : typed.trim().toLowerCase();
+        final String realm = currentRealm();
+        // Both lookups always run, so an existing and an unknown account take the same work.
+        final java.util.Optional<UserCredentials> byUsername = userCredentialsRepository.findByRealmIdAndUsername(realm,
+                identifier);
+        final java.util.Optional<UserCredentials> byEmail = userCredentialsRepository.findByRealmIdAndEmail(realm,
+                identifier);
+        final UserCredentials account = byUsername.or(() -> byEmail).orElse(null);
+        if (account != null && passwordResetMailer != null) {
+            passwordResetMailer.send(account);
+        }
+        return account;
     }
 
     /**
-     * Updates password using reset code and new hashed password.
+     * Sets a new password with an emailed reset code. The code must exist, be unexpired
+     * ({@code helix.notification.reset-password.code-ttl}) and unused: it is consumed atomically, so it works once.
+     *
+     * @return false when the code is unknown, expired or already used (the reset page says so); true once the new
+     *         password is stored
      */
+    @org.springframework.transaction.annotation.Transactional
     public boolean resetPasswordUpdate(final ChangePassword changePassword) {
-        notificationCodeRepository.findByCodeAndType(changePassword.getCode(), "USER_RESET_PASSWORD").ifPresent(notificationCode -> {
-            final String userId = notificationCode.getIdentifier();
-            // Auth-hardening: enforce the default-realm password policy on the public self-service reset.
-            if (passwordPolicyEnforcer != null) {
-                final String username = userCredentialsRepository.findByUserId(userId)
-                        .map(UserCredentials::getUsername).orElse(null);
-                passwordPolicyEnforcer.enforce(RealmConfig.ADMIN_REALM_ID, userId, username,
-                        changePassword.getNewPassword());
-            }
-            final String password = passwordEncoderService.encode(changePassword.getNewPassword());
-
-            changePassword.setUserId(userId);
-            changePassword.setNewPassword(password);
-            changePassword.setPasswordSaltValue(null);
-
-            changePasswordRepository.save(changePassword);
-            if (passwordPolicyEnforcer != null) {
-                passwordPolicyEnforcer.recordHistory(RealmConfig.ADMIN_REALM_ID, userId, password);
-            }
-            notificationCodeRepository.delete(notificationCode);
-        });
-
+        final String code = changePassword.getCode();
+        if (code == null || code.isBlank()) {
+            return false;
+        }
+        final java.util.Optional<io.helixiam.notification.domain.NotificationCode> found =
+                notificationCodeRepository.findByCodeAndType(io.helixiam.notification.NotificationCodePolicy.hash(code), "USER_RESET_PASSWORD");
+        if (found.isEmpty()) {
+            return false;
+        }
+        final io.helixiam.notification.domain.NotificationCode notificationCode = found.get();
+        if (!codePolicy.isValid(notificationCode, java.time.Instant.now())) {
+            notificationCodeRepository.consume(notificationCode.getCode(), "USER_RESET_PASSWORD"); // expired: gone
+            return false;
+        }
+        final String userId = notificationCode.getIdentifier();
+        // Auth-hardening: enforce the default-realm password policy on the public self-service reset (before the
+        // code is used up, so a refused password leaves the link working).
+        if (passwordPolicyEnforcer != null) {
+            final String username = userCredentialsRepository.findByUserId(userId)
+                    .map(UserCredentials::getUsername).orElse(null);
+            passwordPolicyEnforcer.enforce(RealmConfig.ADMIN_REALM_ID, userId, username,
+                    changePassword.getNewPassword());
+        }
+        if (notificationCodeRepository.consume(notificationCode.getCode(), "USER_RESET_PASSWORD") != 1) {
+            return false; // used by a concurrent request
+        }
+        final String password = passwordEncoderService.encode(changePassword.getNewPassword());
+        changePassword.setUserId(userId);
+        changePassword.setNewPassword(password);
+        changePassword.setPasswordSaltValue(null);
+        changePasswordRepository.save(changePassword);
+        if (passwordPolicyEnforcer != null) {
+            passwordPolicyEnforcer.recordHistory(RealmConfig.ADMIN_REALM_ID, userId, password);
+        }
         return true;
+    }
+
+    /** Whether {@code code} is a reset code that still works (unknown, used and expired codes do not). */
+    public boolean resetCodeUsable(final String code) {
+        return code != null && !code.isBlank() && notificationCodeRepository.findByCodeAndType(
+                        io.helixiam.notification.NotificationCodePolicy.hash(code), "USER_RESET_PASSWORD")
+                .filter(c -> codePolicy.isValid(c, java.time.Instant.now())).isPresent();
     }
 
     /**
@@ -185,6 +246,7 @@ public class UserService {
      *
      * @return whether {@code code} was a pending verification code (item A7: the code page says when it is not)
      */
+    @org.springframework.transaction.annotation.Transactional
     public boolean verifyEmail(final String code) {
         return verifyEmailFor(code) != null;
     }
@@ -195,17 +257,28 @@ public class UserService {
      * @return the verified user's username ({@code ""} when the account is gone), or null when {@code code} was not a
      *         pending verification code
      */
+    @org.springframework.transaction.annotation.Transactional
     public String verifyEmailFor(final String code) {
         if (code == null || code.isBlank()) {
             return null;
         }
-        final java.util.Optional<io.helixiam.notification.domain.NotificationCode> pending =
-                notificationCodeRepository.findByCodeAndType(code.trim(), "USER_SIGNUP");
+        final java.util.Optional<io.helixiam.notification.domain.NotificationCode> found =
+                notificationCodeRepository.findByCodeAndType(io.helixiam.notification.NotificationCodePolicy.hash(code), "USER_SIGNUP");
+        if (found.isPresent() && !codePolicy.isValid(found.get(), java.time.Instant.now())) {
+            notificationCodeRepository.consume(found.get().getCode(), "USER_SIGNUP"); // expired: gone
+            return null;
+        }
+        // Single use: only the request that consumes the code verifies.
+        final java.util.Optional<io.helixiam.notification.domain.NotificationCode> pending = found
+                .filter(c -> notificationCodeRepository.consume(c.getCode(), "USER_SIGNUP") == 1);
         pending.ifPresent(notificationCode -> {
             final VerifyEmail verifyEmail = new VerifyEmail();
             verifyEmail.setUserId(notificationCode.getIdentifier());
 
             verifyEmailRepository.save(verifyEmail);
+            if (emailBounces != null) {
+                emailBounces.clear(notificationCode.getIdentifier()); // verified again: a bounce no longer holds
+            }
 
             try {
                 if (registrationNotificationRecipient != null && !registrationNotificationRecipient.isBlank()) {
@@ -220,8 +293,6 @@ public class UserService {
             } catch (final Exception e) {
                 // swallow all in case something goes wrong
             }
-
-            notificationCodeRepository.delete(notificationCode);
         });
 
         return pending.map(c -> userCredentialsRepository.findByUserId(c.getIdentifier())

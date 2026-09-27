@@ -37,6 +37,10 @@ public class NotificationCode {
     @Column(name = "creation_date", updatable = false)
     private Date creationDate;
 
+    // When the code stops working (V73); null on codes issued before it, see NotificationCodePolicy.
+    @Column(name = "expires_at")
+    private Date expiresAt;
+
 
     public NotificationCode() {
     }
@@ -59,5 +63,26 @@ public class NotificationCode {
 
     public String getCode() {
         return code;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public Date getCreationDate() {
+        return creationDate;
+    }
+
+    public void setCreationDate(final Date creationDate) {
+        this.creationDate = creationDate;
+    }
+
+    /** When the code stops working, or null (issued before expiries were stored). */
+    public Date getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(final Date expiresAt) {
+        this.expiresAt = expiresAt;
     }
 }

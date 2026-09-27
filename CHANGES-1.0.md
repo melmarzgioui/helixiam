@@ -101,6 +101,114 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's
   surfaces when needed, and a derived dark `inkMuted` now also reaches 4.5:1 on the dark raised surface.
 
+- **Email delivery, stage 1** — `62cd77a` Email goes through a transport SPI (`EmailTransport`, package
+  `io.helixiam.authorization.messaging.email`) with one entry point, `EmailDelivery.deliver(realm, message)`: the
+  realm's provider, else the global default, and a classified `DeliveryResult` (`ACCEPTED`, `QUEUED`,
+  `PERMANENT_FAILURE`, `TRANSIENT_FAILURE`, a reason, the provider's message id and a diagnostic that never holds a
+  secret or the body). Each email has a message id that stays the same across attempts (the SMTP `Message-ID`) and
+  always a plain-text part with its links; the Cloudflare driver sends both parts. The old `EmailDriver` interface
+  still works for a custom driver (deprecated).
+  - **SMTP** — new `tlsMode`: `STARTTLS_REQUIRED` (default), `STARTTLS_OPTIONAL`, `IMPLICIT` (SMTPS, port 465 by
+    default) and `NONE`, which is refused unless the server runs with the `dev` profile. The boolean `starttls` is
+    deprecated: `true` means `STARTTLS_REQUIRED` (before, STARTTLS was used only when offered, so a server without it
+    now fails instead of receiving the email in plain text) and `false` means `STARTTLS_OPTIONAL`. Certificates and
+    the host name are always verified; `caBundle` adds CA certificates for a private relay. Also `connectTimeoutMs`,
+    `readTimeoutMs` and `ehloName`. An SMTP 5xx reply is a permanent failure (on a recipient, a bounce); a 4xx reply,
+    a connection, timeout or TLS error is transient.
+  - **Cloudflare Email Service** — driver `CLOUDFLARE` (`accountId`, the API token as `secret`, optional `baseUrl`,
+    https outside the dev profile, timeouts and `caBundle`) over HTTPS, through the egress guard, with the spec's
+    classification. A refused token (401/403) counts in `helix_email_provider_auth_failures_total{realm,driver}`,
+    logs a WARN ("ACTION NEEDED") and emits an `EMAIL_PROVIDER_AUTH_FAILED` audit event. Every attempt counts in
+    `helix_email_send_total{realm,driver,result}`.
+  - **Admin API** — `PUT /admin/realms/{realm}/messaging/providers` validates before saving (400
+    `{message, fieldErrors}`): a known channel and driver (email: `SMTP`, `CLOUDFLARE`, `HTTP`, `LOG`), the from
+    address, and each driver's required settings. A credential typed into `config` (`password`, `apiToken`) is
+    moved to the encrypted, write-only `secret`. `POST …/messaging/providers/EMAIL/test` now answers with `result`,
+    `reason`, `diagnostic` and `providerMessageId` next to `sent` and `message`.
+  - **Global default** — `helix.notification.email.driver` (`smtp`, `cloudflare`, `log`) and `.from-address` /
+    `.from-name`; `helix.notification.cloudflare.*` (`account-id`, `api-token`, `api-token-file`, `base-url`, timeouts,
+    `ca-bundle-file`); for SMTP also `password-file`, `tls-mode`, timeouts, `ehlo-name` and `ca-bundle-file`. Secret
+    files are read at every send, and realm providers are read at every send, so a rotated secret needs no restart.
+  - **Helm** — `8cc0116` optional `email.*` values; the credentials are keys of the existing Secret, mounted as files.
+  - Retries, bounce marking, the per-realm send rate cap, the remaining metrics and `docs/EMAIL.md` follow in stage 2.
+- **security** — `3892c16` Password-reset codes expired never: a reset link from any time in the past still set a new
+  password, and a code already used, expired or unknown still "succeeded" (the reset page redirected as if it had
+  worked). Reset codes now expire after `helix.notification.reset-password.code-ttl` (default 1 hour) and the
+  sign-up verification code after `helix.notification.signup.code-ttl` (default 24 hours); both are single-use,
+  consumed atomically (`DELETE`, so two concurrent submits cannot both use one). A new request replaces an expired
+  code. Opening an expired, used or unknown reset link shows the themed error "This link has expired or was already
+  used" with a link to request a new one, and submitting it changes nothing. The code's expiry is stored
+  (`notification_code.expires_at`, Flyway `V73` and `schema.sql`; codes issued before it expire their TTL after
+  creation) and becomes the email's `expiresAt`, so a reset email is never retried after its code died. The other
+  emailed codes and links were checked and already expire and work once: the email OTP (5 minutes, attempt-limited),
+  the magic link, the verification link and the email-change link.
+- **security** — The password-reset email went to whatever was typed on the reset page, not to the account's address:
+  typing a username sent the link to that username as if it were an address, and an account whose username looks like
+  an address (for example `old@example.org` with the stored email `new@example.com`) had its reset link sent to the
+  typed address, possibly someone else's mailbox. The typed value now only finds the account in the realm (username or
+  email); the link goes only to the account's stored email address, and an account without one gets nothing. The
+  answer is the same for an existing account, an unknown one and one without an address; both lookups always run and
+  the code is issued and the email sent off the request thread, so the timing does not tell them apart either. The
+  link goes to the stored address whether or not it is verified or has bounced, as most identity providers do: it is
+  the account's only address and the user needs a way back in.
+- **security** — Emailed reset and sign-up codes are stored hashed: `notification_code.code` holds the hex
+  SHA-256 of the code, like the magic-link tokens, and the plain code exists only in the email. Lookup and the atomic
+  single-use consume go by the hash. The codes are random UUIDs (122 bits), so a plain hash is enough (no salt or slow
+  KDF), and a database dump no longer hands out working reset links. Every request now issues a new code (a pending
+  one cannot be re-sent, as its plain value is not kept); the new link replaces the older one.
+  **Upgrade note:** Flyway `V74` (and `schema.sql`, idempotently) hashes the codes pending at the upgrade in place, so
+  links already sent keep working until they expire; nobody has to request a new one.
+- **Test a chosen provider** — `492d221` `POST /admin/realms/{r}/messaging/providers/{channel}/test` takes an optional
+  `driver`: it tests the realm's provider with that driver even when it is disabled (to check it before switching),
+  and without it the active provider as before. The answer now also names the tested `driver` (EMAIL). An unknown
+  driver is a 400 with `fieldErrors.driver`; a known one the realm has not configured answers `sent: false`.
+- **One active email provider per realm** — `059e73d` Saving an enabled `EMAIL` provider switches the realm to it:
+  the realm's other email providers are disabled in the same transaction (serialised per realm), and logged. Saving a
+  disabled provider changes no other, so a new provider can be prepared and tested before the switch. Delivery never
+  has to choose between enabled providers any more. Realms that already had several enabled are repaired at startup:
+  the most recently saved stays enabled, the others are disabled with a WARN line each.
+- **Clear a provider secret** — `0bd926a` `PUT /admin/realms/{r}/messaging/providers` takes `"clearSecret": true` to
+  remove the stored secret without deleting the provider. An absent, null or blank `secret` still keeps it, and a
+  value replaces it; `clearSecret` with a `secret` is a 400 (`fieldErrors.clearSecret`). The Cloudflare API token is
+  now required only to enable the provider (a disabled one may have none).
+- **Helm** — `b2009bc` `email.retry.*` (`enabled`, `delays`, `maxAge`, `jitter`, `pollInterval`, `batchSize`,
+  `lease`), `email.rateLimit.realmPerMinute` / `.globalPerMinute` and `email.codes.resetPasswordTtl` / `.signupTtl`;
+  empty keeps the server default, `0` and `false` are passed through. `e2e/helm-template-check.sh` checks each.
+- **Email delivery, stage 2** — `1e3b2c4` Callers send through `EmailOutbox`, around `EmailDelivery`. See
+  `docs/EMAIL.md`.
+  - **Retries** — The first attempt stays synchronous (the flow and the admin test endpoint get the real result). A
+    `TRANSIENT_FAILURE` is stored in a new table `email_retry` (Flyway `V72`, and `schema.sql`) and sent again after
+    30 s, 2 min, 10 min and 30 min (±20 % jitter), never later than 1 hour after the first attempt, with the same
+    message id; a restart or another replica picks it up. The rendered message (recipient, subject, both parts) is
+    stored encrypted with `DB_ENCRYPTION` and the row is deleted when the email is finished. Every replica polls;
+    rows are claimed with `SELECT … FOR UPDATE SKIP LOCKED` and a lease, so two replicas never send the same retry.
+    Settings `helix.notification.email.retry.*` (`enabled`, `delays`, `max-age`, `jitter`, `poll-interval`,
+    `batch-size`, `lease`). A permanent failure, `NO_PROVIDER`, the admin test email and a rate-capped email are never
+    retried.
+  - **No dead links** — `EmailMessage` has an `expiresAt`: the one-time code (5 minutes), the magic link, the
+    verification and email-change links (their lifetimes) and the password-reset email (1 hour) are never retried at
+    or after it. `MessagingService.sendEmail(…, Duration validFor)` sets it.
+  - **Bounces** — A permanent bounce marks the address on the realm's users who have it (`user_credentials`
+    `email_bounced_at`, `email_bounced_address`; `V72`); the admin user API shows `emailBounced` and `emailBouncedAt`
+    (epoch millis). The mark goes when the address changes and is cleared when it is verified again (verification or
+    email-change link, signup code, an admin setting `emailVerified` to `true`). Counted in
+    `helix_email_bounces_total{realm}` and audited (`EMAIL_BOUNCED`).
+  - **Send rate cap** — per realm (`helix.notification.email.rate-limit.realm-per-minute`, default 120, or the realm
+    provider's `config.sendLimitPerMinute`) and per server (`…global-per-minute`, default 600), per replica. An email
+    over a cap is refused with `TRANSIENT_FAILURE / RATE_CAPPED` (new reason), not queued, counted in
+    `helix_email_rate_capped_total{realm,scope}` and audited (`EMAIL_SEND_RATE_CAPPED`, once per realm and minute).
+  - **Observability** — new `helix_email_send_duration_seconds{realm,driver,result}` (histogram),
+    `helix_email_retry_total{realm,outcome}` and the gauge `helix_email_retry_queued`; audit event `EMAIL_SEND_FAILED`
+    (permanent failures, retries given up or expired). No audit event or log line holds the body, subject, a code, a
+    link or a secret.
+  - **Idempotency** — the HTTP driver sends the message id as `Idempotency-Key`; SMTP already sends it as
+    `Message-ID`. Cloudflare takes no idempotency key: delivery through it is at least once (documented).
+  - **Realm import** validates messaging providers like the admin API: an invalid provider is not saved and the import
+    result reports it with the same field messages; a credential typed into `config` is moved to the secret.
+  - **Docs** — new `docs/EMAIL.md`: choosing a transport and hosting port blocks, SPF/DKIM/DMARC alignment, Cloudflare
+    Email Service setup, SMTPS versus STARTTLS (and the STARTTLS-required behaviour change), every setting and the
+    per-realm API with `curl` examples, retries, bounces, the rate cap, metrics, and troubleshooting by result code.
+
 ## Next release (after `v1.0.0-rc.4`)
 
 Open issues found when Monthfold moved its production sign-in to rc.4

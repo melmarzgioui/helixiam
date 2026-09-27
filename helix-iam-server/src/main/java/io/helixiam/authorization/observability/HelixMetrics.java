@@ -6,8 +6,13 @@
 package io.helixiam.authorization.observability;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
+import java.util.function.Supplier;
 
 /**
  * Helix IAM observability: a thin, MeterRegistry-backed facade for the custom IAM metrics. Every public
@@ -31,6 +36,13 @@ public class HelixMetrics {
     static final String TOKENS_ISSUED_TOTAL = "helix_tokens_issued_total";
     static final String MFA_CHALLENGE_TOTAL = "helix_mfa_challenge_total";
     static final String ADMIN_WRITE_TOTAL = "helix_admin_write_total";
+    static final String EMAIL_SEND_TOTAL = "helix_email_send_total";
+    static final String EMAIL_PROVIDER_AUTH_FAILURES_TOTAL = "helix_email_provider_auth_failures_total";
+    static final String EMAIL_SEND_DURATION = "helix_email_send_duration";
+    static final String EMAIL_RETRY_TOTAL = "helix_email_retry_total";
+    static final String EMAIL_RETRY_QUEUED = "helix_email_retry_queued";
+    static final String EMAIL_RATE_CAPPED_TOTAL = "helix_email_rate_capped_total";
+    static final String EMAIL_BOUNCES_TOTAL = "helix_email_bounces_total";
 
     private static final String UNKNOWN = "unknown";
 
@@ -64,6 +76,71 @@ public class HelixMetrics {
      */
     public void recordAdminWrite(final String realm, final String method, final String outcome) {
         increment(ADMIN_WRITE_TOTAL, "realm", realm, "method", safe(method), "outcome", safe(outcome));
+    }
+
+    /**
+     * Record one email delivery attempt: {@code driver} is the transport id ({@code SMTP}, {@code CLOUDFLARE}, …) and
+     * {@code result} the {@code DeliveryResult} status ({@code ACCEPTED}, {@code QUEUED}, {@code PERMANENT_FAILURE},
+     * {@code TRANSIENT_FAILURE}). Both are bounded vocabularies.
+     */
+    public void recordEmailSend(final String realm, final String driver, final String result) {
+        increment(EMAIL_SEND_TOTAL, "realm", realm, "driver", safe(driver), "result", safe(result));
+    }
+
+    /**
+     * Record an email provider refusing HelixIAM's credentials (bad API token or password, sending domain not
+     * onboarded): an operator must act. Alert on any increase.
+     */
+    public void recordEmailProviderAuthFailure(final String realm, final String driver) {
+        increment(EMAIL_PROVIDER_AUTH_FAILURES_TOTAL, "realm", realm, "driver", safe(driver));
+    }
+
+    /**
+     * Record how long one email delivery attempt took ({@code helix_email_send_duration_seconds} in Prometheus, a
+     * histogram), with the same bounded tags as {@link #recordEmailSend}.
+     */
+    public void recordEmailSendDuration(final String realm, final String driver, final String result,
+                                        final Duration duration) {
+        try {
+            Timer.builder(EMAIL_SEND_DURATION).description("Duration of one email delivery attempt")
+                    .tags("realm", safe(realm), "driver", safe(driver), "result", safe(result))
+                    .publishPercentileHistogram().minimumExpectedValue(Duration.ofMillis(5))
+                    .maximumExpectedValue(Duration.ofSeconds(60)).register(registry).record(duration);
+        } catch (final RuntimeException ignored) {
+            // A metrics failure must never propagate into the send path.
+        }
+    }
+
+    /**
+     * Record a step of the email retry queue. {@code outcome}: {@code scheduled} (a failed first attempt was queued),
+     * {@code delivered}, {@code rescheduled} (a retry failed again and waits once more), {@code permanent} (a retry
+     * failed permanently), {@code expired} (the code in the email expired first) or {@code gave_up}.
+     */
+    public void recordEmailRetry(final String realm, final String outcome) {
+        increment(EMAIL_RETRY_TOTAL, "realm", realm, "outcome", safe(outcome));
+    }
+
+    /** Record an email refused by a send rate cap; {@code scope} is {@code realm} or {@code global}. */
+    public void recordEmailRateCapped(final String realm, final String scope) {
+        increment(EMAIL_RATE_CAPPED_TOTAL, "realm", realm, "scope", safe(scope));
+    }
+
+    /** Record an email that bounced permanently (the recipient's address does not accept mail). */
+    public void recordEmailBounce(final String realm) {
+        increment(EMAIL_BOUNCES_TOTAL, "realm", realm);
+    }
+
+    /**
+     * Register the gauge of emails waiting for a retry ({@code helix_email_retry_queued}); {@code queued} is read at
+     * every scrape. Every replica reports the same shared queue, so aggregate with {@code max}, not {@code sum}.
+     */
+    public void registerEmailRetryQueueGauge(final Supplier<Number> queued) {
+        try {
+            Gauge.builder(EMAIL_RETRY_QUEUED, queued).description("Emails waiting for a delivery retry")
+                    .strongReference(true).register(registry);
+        } catch (final RuntimeException ignored) {
+            // A metrics failure must never propagate.
+        }
     }
 
     private void increment(final String name, final String... tags) {

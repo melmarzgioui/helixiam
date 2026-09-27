@@ -131,6 +131,19 @@ public class RealmImportService {
 
     private io.helixiam.authorization.theme.ThemeService themeService;
 
+    private io.helixiam.authorization.controller.admin.MessagingProviderValidator messagingValidator;
+
+    /**
+     * Imported messaging providers are validated like {@code PUT /admin/realms/{r}/messaging/providers}: an invalid one
+     * is not saved and is reported with the same field errors, and a credential typed into {@code config} is moved to
+     * the write-only secret.
+     */
+    @Autowired(required = false)
+    public void setMessagingProviderValidator(
+            final io.helixiam.authorization.controller.admin.MessagingProviderValidator messagingValidator) {
+        this.messagingValidator = messagingValidator;
+    }
+
     private io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings;
 
     /** B1: the {@code accountConsole} slice (what the realm's account console allows) is imported when present. */
@@ -508,8 +521,14 @@ public class RealmImportService {
     /** A theme refused by validation: reported with its field errors (field: message; …). */
     private static void themeFailed(final RealmImportResult.Builder r, final String slice, final String realmId,
                                     final io.helixiam.authorization.theme.ThemeValidationException ex) {
-        final StringBuilder reason = new StringBuilder("The theme is not valid: ");
-        ex.fieldErrors().forEach((field, message) -> reason.append(field).append(": ").append(message).append("; "));
+        fieldErrorsFailed(r, slice, realmId, "The theme is not valid: ", ex.fieldErrors());
+    }
+
+    /** An entry refused by validation: reported with its field errors ({@code prefix}field: message; …). */
+    private static void fieldErrorsFailed(final RealmImportResult.Builder r, final String slice, final String realmId,
+                                          final String prefix, final Map<String, String> fieldErrors) {
+        final StringBuilder reason = new StringBuilder(prefix);
+        fieldErrors.forEach((field, message) -> reason.append(field).append(": ").append(message).append("; "));
         LOG.warn("Helix realm import [{}]: {} refused: {}", LogSafe.sanitize(realmId), LogSafe.sanitize(slice),
                 LogSafe.sanitize(reason.toString()));
         final String text = reason.toString().trim();
@@ -969,14 +988,22 @@ public class RealmImportService {
                 continue;
             }
             try {
-                messagingPublisher.saveProvider(new MessagingProviderWriteDto(realmId, p.channel(), p.driver(),
+                MessagingProviderWriteDto write = new MessagingProviderWriteDto(realmId, p.channel(), p.driver(),
                         p.enabled(), p.fromAddress(), p.fromName(), resolveConfigSecrets(p.config(), opts),
-                        resolveSecret(p.secret(), opts)));
+                        resolveSecret(p.secret(), opts), p.clearSecret());
+                if (messagingValidator != null) {
+                    final MessagingProviderDto current = existing.get(key);
+                    write = messagingValidator.validate(write, current != null && current.secretSet());
+                }
+                messagingPublisher.saveProvider(write);
                 if (existing.containsKey(key)) {
                     r.updated(SLICE_MESSAGING);
                 } else {
                     r.created(SLICE_MESSAGING);
                 }
+            } catch (final io.helixiam.authorization.controller.admin.ProviderValidationException ex) {
+                fieldErrorsFailed(r, SLICE_MESSAGING, realmId, "The provider " + key + " is not valid: ",
+                        ex.fieldErrors());
             } catch (final RuntimeException ex) {
                 failed(r, SLICE_MESSAGING, realmId, ex);
             }

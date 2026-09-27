@@ -29,6 +29,9 @@ public interface UserPublisher {
 
     Boolean resetPasswordUpdate(final ChangePassword changePassword);
 
+    /** Whether {@code code} is a password-reset code that still works (not unknown, expired or used). */
+    Boolean resetCodeUsable(final String code);
+
     Boolean verifyEmail(final String code);
 
     /**

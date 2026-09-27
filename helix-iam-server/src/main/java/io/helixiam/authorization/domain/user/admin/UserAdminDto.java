@@ -18,7 +18,18 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record UserAdminDto(String realmId, String userId, String username, String email, boolean enabled,
                            boolean locked, boolean mfaEnabled, List<String> roles, Map<String, String> attributes,
-                           Long createdAt, boolean emailVerified) {
+                           Long createdAt, boolean emailVerified, boolean emailBounced, Long emailBouncedAt) {
+
+    /**
+     * Without the bounce state: {@code emailBounced} is true while mail to the user's current address bounced
+     * permanently, {@code emailBouncedAt} is when (epoch millis); both clear when the address changes or is verified.
+     */
+    public UserAdminDto(final String realmId, final String userId, final String username, final String email,
+                        final boolean enabled, final boolean locked, final boolean mfaEnabled, final List<String> roles,
+                        final Map<String, String> attributes, final Long createdAt, final boolean emailVerified) {
+        this(realmId, userId, username, email, enabled, locked, mfaEnabled, roles, attributes, createdAt, emailVerified,
+                false, null);
+    }
 
     /** C3: without {@code emailVerified} (false). */
     public UserAdminDto(final String realmId, final String userId, final String username, final String email,

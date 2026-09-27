@@ -519,6 +519,61 @@ class RealmImportServiceTest {
     }
 
     // --- sample document ---
+    @Test
+    void importedMessagingProviders_areValidatedLikeTheAdminApi_withTheSameErrors() {
+        final io.helixiam.authorization.amqp.messaging.MessagingAdminPublisher messaging =
+                mock(io.helixiam.authorization.amqp.messaging.MessagingAdminPublisher.class);
+        when(messaging.listProviders("gov")).thenReturn(List.of());
+        final RealmImportService importer = new RealmImportService(realm, clients, saml, roles, scopes, idps, flows,
+                orgs, apps, webhooks, scims, workloads, messaging,
+                mock(io.helixiam.authorization.amqp.adminrbac.AdminRbacPublisher.class), groupPub, userPub,
+                environment, mapperPub, clientRolePub, resourcePub, authzPub,
+                mock(io.helixiam.authorization.amqp.agent.AgentIdentityPublisher.class));
+        final io.helixiam.authorization.controller.admin.MessagingProviderValidator validator =
+                new io.helixiam.authorization.controller.admin.MessagingProviderValidator(
+                        io.helixiam.common.startup.DeploymentProfile.production());
+        importer.setMessagingProviderValidator(validator);
+        final io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto brokenCloudflare =
+                new io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto("src", "EMAIL", "CLOUDFLARE",
+                        true, "no-reply@acme.example.com", "Acme",
+                        java.util.Map.of("baseUrl", "http://cf.acme.example.com/client/v4"), null);
+        final io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto smtp =
+                new io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto("src", "EMAIL", "SMTP", true,
+                        "no-reply@acme.example.com", "Acme", java.util.Map.of("host", "smtp.acme.example.com",
+                        "tlsMode", "IMPLICIT", "password", "typed-into-config"), null);
+        final io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto unknown =
+                new io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto("src", "EMAIL", "PIGEON", true,
+                        "no-reply@acme.example.com", null, java.util.Map.of(), null);
+        final RealmExportDocument doc = new RealmExportDocument(2, null, null, null, null, null, null, null, null,
+                null, null, null, null, List.of(brokenCloudflare, smtp, unknown), null, null, null, null, null, null,
+                null, null, null, null, null);
+
+        final RealmImportResult result = importer.importInto("gov", doc);
+
+        // The same field errors the admin API answers with (400 {message, fieldErrors}).
+        final java.util.Map<String, String> expected = new java.util.LinkedHashMap<>();
+        try {
+            validator.validate(brokenCloudflare, false);
+        } catch (final io.helixiam.authorization.controller.admin.ProviderValidationException e) {
+            expected.putAll(e.fieldErrors());
+        }
+        assertThat(expected).containsKeys("config.accountId", "secret", "config.baseUrl");
+        assertThat(result.slices().get(RealmImportService.SLICE_MESSAGING).failed()).isEqualTo(2);
+        assertThat(result.slices().get(RealmImportService.SLICE_MESSAGING).created()).isEqualTo(1);
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason)
+                .anySatisfy(reason -> expected.forEach((field, message) ->
+                        assertThat(reason).contains(field + ": " + message)))
+                .anySatisfy(reason -> assertThat(reason).contains("driver: Unknown EMAIL driver"));
+        final org.mockito.ArgumentCaptor<io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto> saved =
+                org.mockito.ArgumentCaptor.forClass(io.helixiam.authorization.amqp.messaging.MessagingProviderWriteDto.class);
+        verify(messaging).saveProvider(saved.capture());
+        assertThat(saved.getValue().driver()).isEqualTo("SMTP");
+        assertThat(saved.getValue().realmId()).isEqualTo("gov");
+        // As on the admin API, a credential typed into config is moved to the write-only secret.
+        assertThat(saved.getValue().config()).doesNotContainKey("password");
+        assertThat(saved.getValue().secret()).isEqualTo("typed-into-config");
+    }
+
     private static RealmExportDocument sampleDoc() {
         final RealmSettingsDto rs = new RealmSettingsDto("source", "Gov", "https://issuer", 300, 3600, false, false,
                 8, true, 1800, 36000, false, 0, false, 5, 900, 900, false, false, false, false, false, false, 0,

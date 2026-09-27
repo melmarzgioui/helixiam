@@ -73,9 +73,13 @@ glance:
 - **SAML IdP**: `HELIX_SAML_IDP_ENABLED`, `HELIX_SAML_IDP_ENTITY_ID`,
   `HELIX_SAML_IDP_SIGNING_CERTIFICATE` / `HELIX_SAML_IDP_SIGNING_PRIVATE_KEY` (optional; falls
   back to a key derived from the realm's OIDC signing key).
-- **Notifications**: `helix.notification.provider` (`smtp`/`log`) and
-  `helix.notification.smtp.*` as the global SMTP fallback; per-realm providers are configured via
-  the admin API/console.
+- **Notifications**: `helix.notification.provider` (`smtp`/`log`); the global email default
+  `helix.notification.email.driver` (`smtp`/`cloudflare`/`log`) with `helix.notification.smtp.*` or
+  `helix.notification.cloudflare.*`; per-realm providers (`SMTP`, `CLOUDFLARE`, `HTTP`, `LOG`) are configured via
+  the admin API/console. Email drivers implement the `EmailTransport` SPI
+  (`io.helixiam.authorization.messaging.email`); callers send through `EmailOutbox` (send rate caps
+  `helix.notification.email.rate-limit.*`, persisted retries `helix.notification.email.retry.*` in the
+  `email_retry` table, bounce marking). See [`../docs/EMAIL.md`](../docs/EMAIL.md).
 - **Admin bootstrap**: `HELIX_ADMIN_USERNAME` / `HELIX_ADMIN_PASSWORD`.
 
 See `src/main/java/group/mfnr/authorization/service/realm/RealmAdminBootstrapService.java` for the

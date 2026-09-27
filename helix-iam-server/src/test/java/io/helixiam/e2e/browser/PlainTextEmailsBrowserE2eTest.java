@@ -49,12 +49,14 @@ class PlainTextEmailsBrowserE2eTest extends AbstractBrowserE2eTest {
                 .contains("Of vul deze code in op de bevestigingspagina:").contains("Verstuurd door").doesNotContain("Confirm");
         page().navigate(baseUrl() + realm.path() + "/reset/password?lang=en");
 
+        // Typed: the username, which looks like an address; the link goes to the account's stored address (the
+        // seed's username@e2e.helixiam.test), never to the typed one.
         final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe") + "@monthfold.test",
                 "Reset-Me-Passw0rd-2026!");
         page().navigate(baseUrl() + realm.path() + "/reset/password");
         page().locator("#username").fill(joe.username());
         submit(page().locator("#passwordReset button[type=submit]"));
-        final MailSink.CapturedEmail reset = readCapturedEmail(joe.username(), "/reset/password/");
+        final MailSink.CapturedEmail reset = readCapturedEmail(joe.username() + "@e2e.helixiam.test", "/reset/password/");
         final String resetLink = reset.link(realm.path() + "/reset/password/").orElseThrow();
         assertPlainText(reset, "reset");
         assertThat(reset.text()).as("reset").contains("Choose a new password:\n" + resetLink)

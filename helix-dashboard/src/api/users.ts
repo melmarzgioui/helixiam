@@ -16,6 +16,11 @@ export interface UserSummary {
   roles: string[];
   attributes: Record<string, string>;
   createdAt: number | null;
+  emailVerified?: boolean;
+  /** True while mail to the user's current address bounced permanently; clears when the address changes or is verified again. */
+  emailBounced?: boolean;
+  /** When the address bounced (epoch millis). */
+  emailBouncedAt?: number | null;
 }
 
 /** Create/update body. password only honoured on create. */

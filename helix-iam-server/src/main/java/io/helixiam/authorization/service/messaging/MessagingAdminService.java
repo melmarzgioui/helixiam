@@ -35,6 +35,26 @@ public class MessagingAdminService {
     private final MessageTemplateRepository templates;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final org.apache.logging.log4j.Logger LOG =
+            org.apache.logging.log4j.LogManager.getLogger(MessagingAdminService.class);
+    private static final String EMAIL = "EMAIL";
+
+    /** Most recently saved first (modify date, then creation date, then id): the defined winner among providers. */
+    static final java.util.Comparator<MessagingProvider> NEWEST_FIRST = java.util.Comparator
+            .comparing((MessagingProvider p) -> p.getModifyDate(), java.util.Comparator.nullsLast(
+                    java.util.Comparator.<java.util.Date>reverseOrder()))
+            .thenComparing(MessagingProvider::getCreationDate, java.util.Comparator.nullsLast(
+                    java.util.Comparator.<java.util.Date>reverseOrder()))
+            .thenComparing(MessagingProvider::getId, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()));
+
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    /** Serialises concurrent provider saves of one realm (a PostgreSQL advisory lock); optional in tests. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setJdbc(final org.springframework.jdbc.core.JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
     public MessagingAdminService(final MessagingProviderRepository providers, final MessageTemplateRepository templates) {
         this.providers = providers;
         this.templates = templates;
@@ -52,14 +72,39 @@ public class MessagingAdminService {
             final String realmId, final String channel) {
         return providers.findByRealmIdAndChannel(realmId, channel).stream()
                 .filter(p -> Boolean.TRUE.equals(p.getEnabled()))
+                .sorted(NEWEST_FIRST)
                 .map(p -> new io.helixiam.authorization.domain.messaging.admin.ResolvedProviderDto(
                         p.getChannel(), p.getDriver(), p.getFromAddress(), p.getFromName(),
                         readJson(p.getConfig()), p.getSecret()))
                 .toList();
     }
 
+    /**
+     * One provider of the realm by channel and driver (case-insensitive), enabled or not, WITH its secret: the admin
+     * test endpoint tests exactly that provider. Server-side only.
+     */
+    public java.util.Optional<io.helixiam.authorization.domain.messaging.admin.ResolvedProviderDto> resolveProvider(
+            final String realmId, final String channel, final String driver) {
+        return providers.findByRealmIdAndChannel(realmId, channel).stream()
+                .filter(p -> p.getDriver() != null && p.getDriver().equalsIgnoreCase(driver))
+                .findFirst()
+                .map(p -> new io.helixiam.authorization.domain.messaging.admin.ResolvedProviderDto(
+                        p.getChannel(), p.getDriver(), p.getFromAddress(), p.getFromName(),
+                        readJson(p.getConfig()), p.getSecret()));
+    }
+
+    /**
+     * Saves a provider. A realm has at most one enabled EMAIL provider: saving an enabled one switches the realm to it,
+     * disabling the realm's other EMAIL providers in the same transaction (logged). Saving a disabled one changes no
+     * other provider.
+     */
     @Transactional
     public MessagingProviderDto saveProvider(final MessagingProviderWriteDto write) {
+        final boolean email = EMAIL.equalsIgnoreCase(write.channel());
+        if (email && jdbc != null) {
+            // Two concurrent saves in one realm must not both leave an enabled provider behind.
+            jdbc.query("SELECT pg_advisory_xact_lock(hashtext(?))", rs -> null, "messaging-email:" + write.realmId());
+        }
         final MessagingProvider entity = providers
                 .findByRealmIdAndChannelAndDriver(write.realmId(), write.channel(), write.driver())
                 .orElseGet(MessagingProvider::new);
@@ -73,8 +118,58 @@ public class MessagingAdminService {
         // Write-only secret: replace only when a non-blank value is supplied; otherwise keep what's stored.
         if (write.secret() != null && !write.secret().isBlank()) {
             entity.setSecret(write.secret());
+        } else if (write.clearsSecret()) {
+            entity.setSecret(null); // explicit clearSecret: the provider stays, without a secret
         }
-        return toDto(providers.save(entity));
+        entity.setModifyDate(new java.util.Date());
+        final MessagingProvider saved = providers.save(entity);
+        if (email && write.enabled()) {
+            for (final MessagingProvider other : providers.findByRealmIdAndChannel(write.realmId(), saved.getChannel())) {
+                if (!other.getId().equals(saved.getId()) && Boolean.TRUE.equals(other.getEnabled())) {
+                    other.setEnabled(false);
+                    providers.save(other);
+                    LOG.info("Realm {}: EMAIL provider {} enabled, so {} is disabled (one active email provider per realm)",
+                            io.helixiam.common.log.LogSafe.sanitize(write.realmId()),
+                            io.helixiam.common.log.LogSafe.sanitize(saved.getDriver()),
+                            io.helixiam.common.log.LogSafe.sanitize(other.getDriver()));
+                }
+            }
+        }
+        return toDto(saved);
+    }
+
+    /**
+     * Repairs data from before the one-active-email-provider rule: in each realm with several enabled EMAIL providers,
+     * the most recently saved stays enabled and the others are disabled, each logged (WARN). Runs at startup;
+     * idempotent.
+     */
+    @Transactional
+    public int enforceSingleEnabledEmailProvider() {
+        final Map<String, List<MessagingProvider>> enabledByRealm = new LinkedHashMap<>();
+        for (final MessagingProvider p : providers.findAll()) {
+            if (EMAIL.equalsIgnoreCase(p.getChannel()) && Boolean.TRUE.equals(p.getEnabled())) {
+                enabledByRealm.computeIfAbsent(p.getRealmId(), k -> new ArrayList<>()).add(p);
+            }
+        }
+        int disabled = 0;
+        for (final Map.Entry<String, List<MessagingProvider>> realm : enabledByRealm.entrySet()) {
+            if (realm.getValue().size() < 2) {
+                continue;
+            }
+            final List<MessagingProvider> ordered = realm.getValue().stream().sorted(NEWEST_FIRST).toList();
+            final MessagingProvider winner = ordered.get(0);
+            for (final MessagingProvider loser : ordered.subList(1, ordered.size())) {
+                loser.setEnabled(false);
+                providers.save(loser);
+                disabled++;
+                LOG.warn("Realm {} had several enabled EMAIL providers; keeping the most recently saved ({}) and "
+                                + "disabling {}. A realm has one active email provider.",
+                        io.helixiam.common.log.LogSafe.sanitize(realm.getKey()),
+                        io.helixiam.common.log.LogSafe.sanitize(winner.getDriver()),
+                        io.helixiam.common.log.LogSafe.sanitize(loser.getDriver()));
+            }
+        }
+        return disabled;
     }
 
     @Transactional

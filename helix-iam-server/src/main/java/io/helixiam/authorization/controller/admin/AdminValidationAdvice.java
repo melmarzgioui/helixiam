@@ -63,6 +63,13 @@ public class AdminValidationAdvice {
         return body(first, fieldErrors);
     }
 
+    /** A messaging provider with an unknown channel or driver, or missing / invalid settings. */
+    @ExceptionHandler(ProviderValidationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, Object> onProviderInvalid(final ProviderValidationException ex) {
+        return body(ex.getMessage(), ex.fieldErrors());
+    }
+
     /** Malformed / unparseable JSON body. */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)

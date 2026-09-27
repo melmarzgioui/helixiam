@@ -89,18 +89,36 @@ export interface RadioCardProps {
   title: React.ReactNode;
   description?: React.ReactNode;
   icon?: React.ReactNode;
+  /**
+   * Part of a radio group that behaves as one tab stop: only the selected card is tabbable, and the arrow keys move
+   * to (and select) the previous or next card, as for native radio buttons. Needs a selected card in the group.
+   */
+  roving?: boolean;
 }
 
-/** RadioCard — a selectable tile; the building block of the protocol/provider picker. */
-export function RadioCard({ selected, onSelect, disabled, title, description, icon }: RadioCardProps) {
+/** Arrow-key navigation between the enabled radio cards that share this card's parent. */
+function moveInGroup(e: React.KeyboardEvent<HTMLButtonElement>) {
+  const delta = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+  if (!delta) return;
+  const parent = e.currentTarget.parentElement;
+  if (!parent) return;
+  const cards = Array.from(parent.querySelectorAll<HTMLButtonElement>(':scope > [role="radio"]:not(:disabled)'));
+  const at = cards.indexOf(e.currentTarget);
+  if (at < 0 || cards.length < 2) return;
+  e.preventDefault();
+  const next = cards[(at + delta + cards.length) % cards.length];
+  next.focus();
+  next.click();
+}
+
+export function RadioCard({ selected, onSelect, disabled, title, description, icon, roving }: RadioCardProps) {
   return (
-    <button type="button" role="radio" className="hx-tile" aria-checked={!!selected} disabled={disabled} onClick={onSelect}>
-      {icon && <span style={{ flexShrink: 0, marginTop: 1 }}>{icon}</span>}
-      <span>
-        <span style={{ display: "block", font: "600 1rem var(--font)", color: "var(--fg)" }}>{title}</span>
-        {description && (
-          <span style={{ display: "block", marginTop: ".2rem", fontSize: ".85rem", color: "var(--fg-muted)" }}>{description}</span>
-        )}
+    <button type="button" role="radio" className="hx-tile" aria-checked={!!selected} disabled={disabled} onClick={onSelect}
+      tabIndex={roving ? (selected ? 0 : -1) : undefined} onKeyDown={roving ? moveInGroup : undefined}>
+      {icon && <span className="hx-tile__icon">{icon}</span>}
+      <span className="hx-tile__text">
+        <span className="hx-tile__title">{title}</span>
+        {description && <span className="hx-tile__desc">{description}</span>}
       </span>
     </button>
   );

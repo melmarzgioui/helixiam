@@ -12,6 +12,8 @@ import { Toast, ToastTone } from "../components/Toast";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
+import { Tooltip } from "../components/Tooltip";
+import { emailBounce } from "./userBounce";
 import { FormField, Input, Textarea } from "../components/FormField";
 import { Select } from "../components/Select";
 import { Switch } from "../components/Switch";
@@ -188,13 +190,13 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
                             <Avatar name={u.username} />
                             <div>
                               <button type="button" className="hx-textbtn" onClick={() => onOpen?.(u.userId)}>{u.username}</button>
-                              <div className="hx-conn__alias">{u.email ?? u.userId.slice(0, 8)}</div>
+                              {u.email ? <div className="hx-conn__alias">{u.email}</div> : <div className="hx-conn__alias hx-conn__alias--empty">{t("userDetail.noEmail")}</div>}
                             </div>
                           </div>
                         </td>
                         <td>{u.roles.length ? u.roles.map((r) => <Badge key={r} tone="neutral">{r}</Badge>) : <span className="hx-faint">—</span>}</td>
                         <td>{u.mfaEnabled ? <Badge tone="success">{t("users.table.mfa")}</Badge> : <span className="hx-faint">Off</span>}</td>
-                        <td><StatusBadge enabled={u.enabled} locked={u.locked} /></td>
+                        <td><span className="hx-badges"><StatusBadge enabled={u.enabled} locked={u.locked} /><BounceBadge user={u} /></span></td>
                         <td className="hx-cell-right">
                           <RowMenu items={[
                             ...(onOpen ? [{ label: t("users.row.open"), onSelect: () => onOpen(u.userId) }] : []),
@@ -222,6 +224,7 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
                     <div className="hx-conncard__row">
                       <StatusBadge enabled={u.enabled} locked={u.locked} />
                       {u.mfaEnabled && <Badge tone="success">{t("users.mfa.on")}</Badge>}
+                      <BounceBadge user={u} />
                     </div>
                   </div>
                   <div className="hx-rowcard__actions">
@@ -272,14 +275,25 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
   );
 }
 
-export function Avatar({ name, size = 34 }: { name: string; size?: number }) {
+/** Initials avatar in one of the kit sizes: 34 (lists), 38 (mobile cards) or 46 (detail header). */
+export function Avatar({ name, size = 34 }: { name: string; size?: 34 | 38 | 46 }) {
   const initials = name.replace(/@.*/, "").slice(0, 2).toUpperCase();
+  return <span aria-hidden="true" className={`hx-avatar hx-avatar--${size}`}>{initials}</span>;
+}
+
+/** "Email bounced" while mail to the user's current address bounces; the date shows on hover/focus. */
+export function BounceBadge({ user }: { user: Pick<UserSummary, "emailBounced" | "emailBouncedAt"> }) {
+  const { t, locale } = useT();
+  const bounce = emailBounce(user, locale);
+  if (!bounce) return null;
+  const detail = bounce.when ? t("users.bounce.tooltip", { when: bounce.when }) : t("users.bounce.tooltipNoDate");
   return (
-    <span
-      aria-hidden="true"
-      className="hx-avatar hx-avatar--sized"
-      style={{ ["--avatar-size" as never]: `${size}px` }}
-    >{initials}</span>
+    <Tooltip content={detail}>
+      <button type="button" className="hx-badge-btn" aria-label={`${t("users.bounce.badge")}: ${detail}`}
+        onClick={(e) => e.stopPropagation()}>
+        <Badge tone="warning">{t("users.bounce.badge")}</Badge>
+      </button>
+    </Tooltip>
   );
 }
 
@@ -331,7 +345,7 @@ export function UserForm({ initial, onSubmit, onCancel }: { initial: UserSummary
       </FormField>
 
       <FormField label={t("users.form.email")} hint={t("users.form.email.hint")}>
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="person@organisation.nl" />
+        <Input data-field="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="person@organisation.nl" />
       </FormField>
 
       {!editing && (
