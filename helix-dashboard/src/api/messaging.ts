@@ -17,7 +17,8 @@ export interface MessagingProvider {
   secretSet: boolean;
 }
 
-/** Create/update payload. `secret` is write-only — omit/empty to keep the stored secret. */
+/** Create/update payload. `secret` is write-only: null or blank keeps the stored secret (the API cannot
+ *  clear one; delete the provider instead). `config` replaces the stored config as a whole. */
 export interface MessagingProviderWrite {
   channel: string;
   driver: string;
@@ -41,7 +42,31 @@ export interface MessageTemplate {
   html: boolean;
 }
 
-export interface TestResult { sent: boolean; message: string; }
+/**
+ * Outcome of a test send. For EMAIL the server also returns the classified delivery `result`
+ * (ACCEPTED | QUEUED | PERMANENT_FAILURE | TRANSIENT_FAILURE), its `reason` (e.g. AUTHENTICATION,
+ * RECIPIENT_BOUNCED, NETWORK), a one-line `diagnostic` that never contains the secret, and the
+ * provider's message id. They are absent for SMS and PUSH, and when nothing was sent at all.
+ */
+export interface TestResult {
+  sent: boolean;
+  message: string;
+  result?: string;
+  reason?: string;
+  diagnostic?: string;
+  providerMessageId?: string;
+}
+
+/**
+ * A failed admin call. On a 400 the server answers `{message, fieldErrors}` (AdminValidationAdvice); the
+ * field keys are `channel`, `driver`, `fromAddress`, `fromName`, `secret` and `config.<key>`.
+ */
+export class MessagingApiError extends Error {
+  constructor(message: string, readonly status: number, readonly fieldErrors: Record<string, string> = {}) {
+    super(message);
+    this.name = "MessagingApiError";
+  }
+}
 export interface RenderedPreview { subject: string; body: string; }
 
 export interface MessagingApi {
@@ -60,7 +85,18 @@ export function createMessagingHttpClient(baseUrl = ""): MessagingApi {
   const root = (realmId: string) => `${base}/admin/realms/${encodeURIComponent(realmId)}/messaging`;
 
   const json = async (res: Response) => {
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      let message = `${res.status} ${res.statusText}`;
+      let fieldErrors: Record<string, string> = {};
+      try {
+        const body = await res.json();
+        if (body && typeof body.message === "string") message = body.message;
+        if (body && body.fieldErrors && typeof body.fieldErrors === "object") fieldErrors = body.fieldErrors;
+      } catch {
+        /* non-JSON error body: keep the status line */
+      }
+      throw new MessagingApiError(message, res.status, fieldErrors);
+    }
     return res.status === 204 ? null : res.json();
   };
   const send = (url: string, method: string, body?: unknown) =>
