@@ -329,6 +329,56 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         assertLandedOnRpCallback();
     }
 
+    // --------------------------------------------------------------------------------------------------- email
+
+    @Test
+    void anEmailChange_isUnverifiedUntilTheLinkSentToTheNewAddressIsOpened() {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        final E2eSeed.SeededUser ada = seed().user(realm.realm(), E2eSeed.unique("ada"), PASSWORD);
+        final E2eSeed.SeededUser other = seed().user(realm.realm(), E2eSeed.unique("bob"), PASSWORD);
+        markEmailVerified(ada.userId());
+        final String fresh = E2eSeed.unique("ada-new") + "@monthfold.test";
+
+        // An old sign-in first confirms it's the user.
+        openAccount(realm, ada);
+        assertThat(page().locator("#email-verified").isVisible()).isTrue();
+        ageSignIn(realm, 600);
+        page().navigate(accountUrl(realm, null));
+        submit(page().locator("#change-email"));
+        assertOnIdpPath("/account/reauth");
+        page().locator("#reauth-password").fill(PASSWORD);
+        submit(page().locator("#reauth-continue"));
+        assertOnIdpPath("/account/email");
+
+        page().locator("#email").fill(other.dto().email());
+        submit(page().locator("#email-save"));
+        assertThat(page().locator("#email-error").innerText()).isEqualTo("That email address is already used by another account.");
+        page().locator("#email").fill(fresh.toUpperCase(java.util.Locale.ROOT));
+        submit(page().locator("#email-save"));
+
+        assertOnIdpPath("/account");
+        assertThat(page().locator("#account-status").innerText()).contains("Open the link we sent to the new address");
+        assertThat(page().locator("#profile-email").innerText()).contains(fresh);
+        assertThat(page().locator("#email-unverified").isVisible()).isTrue();
+        final MailSink.CapturedEmail notice = readCapturedEmail(ada.dto().email(), "was just changed");
+        assertThat(notice.body()).doesNotContain(fresh);
+        final MailSink.CapturedEmail mail = readCapturedEmail(fresh, "/account/email/verify");
+        final String link = mail.link("/account/email/verify?token=").orElseThrow();
+        assertThat(link).startsWith(baseUrl() + realm.path() + "/account/email/verify?token=");
+
+        // The link works in any browser, once.
+        final com.microsoft.playwright.Page phone = otherBrowser();
+        phone.navigate(link);
+        assertThat(phone.locator("#notice-title").innerText()).isEqualTo("Email address confirmed");
+        phone.navigate(link);
+        assertThat(phone.locator("#notice-title").innerText()).isEqualTo("This link can't be used");
+
+        page().navigate(accountUrl(realm, null));
+        assertThat(page().locator("#email-verified").isVisible()).isTrue();
+        awaitAudit(realm, "ACCOUNT_EMAIL_CHANGE", "SUCCESS");
+        awaitAudit(realm, "ACCOUNT_EMAIL_VERIFY", "SUCCESS");
+    }
+
     // ------------------------------------------------------------------------------------------------ helpers
 
     static String enc(final String s) {
@@ -418,6 +468,14 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         tab.navigate(rp().loginUrl(realm.web()));
         tab.waitForLoadState(LoadState.LOAD);
         assertThat(tab.url()).startsWith(rp().callbackUri());
+    }
+
+    /** Marks the user's email verified directly in the database (auto-commit is off: commit explicitly). */
+    void markEmailVerified(final String userId) {
+        new org.springframework.transaction.support.TransactionTemplate(
+                context.getBean(org.springframework.transaction.PlatformTransactionManager.class))
+                .executeWithoutResult(tx -> context.getBean(org.springframework.jdbc.core.JdbcTemplate.class)
+                        .update("UPDATE user_credentials SET email_verified = true WHERE user_id = ?", userId));
     }
 
     /** The path of the current page. */

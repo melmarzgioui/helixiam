@@ -65,6 +65,17 @@ public class AccountController {
         this.mfaPolicy = mfaPolicy;
     }
 
+    private io.helixiam.authorization.service.account.EmailChangeService emailChanges;
+    private String idpBaseUrl;
+
+    /** B1: a changed email address gets a confirmation link, as in the account console. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEmailChanges(final io.helixiam.authorization.service.account.EmailChangeService emailChanges,
+                                @org.springframework.beans.factory.annotation.Value("${idp.base.url}") final String idpBaseUrl) {
+        this.emailChanges = emailChanges;
+        this.idpBaseUrl = idpBaseUrl;
+    }
+
     private boolean secondFactorRemovable() {
         final String realm = realm();
         return (consoleSettings == null || consoleSettings.get(realm).authenticatorRemoval())
@@ -118,6 +129,11 @@ public class AccountController {
         // Preserve username/enabled/locked from the persisted record; only email + attributes are user-editable.
         final UserAdminDto saved = publisher.update(new UserWriteDto(realm(), user.getUserId(), current.username(),
                 request.email(), null, current.enabled(), current.locked(), attributes));
+        // B1: a new address is unverified until the user opens the confirmation link sent to it.
+        if (saved != null && emailChanges != null && saved.email() != null
+                && !saved.email().equalsIgnoreCase(current.email() == null ? "" : current.email())) {
+            emailChanges.sendLink(realm(), user.getUserId(), saved.email(), idpBaseUrl + "/realms/" + realm());
+        }
         return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(saved);
     }
 

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/account :: accountHead(#{'account.notice.' + ${notice} + '.title'})}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <h1 class="hx-title" id="notice-title" th:text="#{'account.notice.' + ${notice} + '.title'}">Email address confirmed</h1>
+            <p class="hx-lead" th:text="#{'account.notice.' + ${notice} + '.lead'}">Thanks, your email address is verified.</p>
+        </div>
+
+        <div class="container hx-account-form" th:if="${referrer != null or notice != 'deleted'}">
+            <article>
+                <div class="hx-account-actions">
+                    <a th:if="${referrer != null}" class="hx-btn" id="account-return" th:href="${referrer.uri()}"
+                       th:text="#{account.return(${referrer.label()})}">Back to the app</a>
+                    <a th:if="${notice != 'deleted'}" class="hx-btn" th:classappend="${referrer != null} ? 'hx-btn-secondary'"
+                       id="notice-account" th:href="@{/account}" th:text="#{account.notice.toAccount}">Go to your account</a>
+                </div>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

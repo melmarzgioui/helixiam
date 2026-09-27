@@ -128,7 +128,43 @@ public class MessagingAdminService {
                         + "If you didn't request it, you can safely ignore this email.</p>", true));
         list.add(template(realmId, "push-approval", "PUSH", "Approve your sign-in",
                 "Tap to approve signing in to {{realm}}. Match this number: {{number}}.", false));
+        // B1: account console email change.
+        list.add(template(realmId, EMAIL_CHANGE_VERIFY, "EMAIL", "Confirm your new email address",
+                "<p>Hi {{user}},</p>\n<p>You changed the email address of your {{realm}} account to this address. "
+                        + "Confirm it with the button below.</p>\n"
+                        + "<p><a href=\"{{link}}\" data-button>Confirm email address</a></p>\n"
+                        + "<p style=\"color:#7a7468;font-size:13px\">If the button doesn't work, copy this link into your browser:<br>"
+                        + "<a href=\"{{link}}\" style=\"color:#7a7468;word-break:break-all\">{{link}}</a></p>\n"
+                        + "<p style=\"color:#7a7468;font-size:13px\">The link works once and expires in {{ttl}}. "
+                        + "If you didn't change your email address, you can ignore this email.</p>", true));
+        list.add(template(realmId, EMAIL_CHANGED_NOTICE, "EMAIL", "Your email address was changed",
+                "<p>Hi {{user}},</p>\n<p>The email address of your {{realm}} account was just changed, and this "
+                        + "address will no longer receive its messages.</p>\n"
+                        + "<p style=\"color:#7a7468;font-size:13px\">If you didn't do this, sign in and change your "
+                        + "password, or contact the service's support.</p>", true));
         return list;
+    }
+
+    /** B1: the confirmation link sent to a changed email address ({@code {{link}}}, {@code {{ttl}}}). */
+    public static final String EMAIL_CHANGE_VERIFY = "email-change-verify";
+    /** B1: the notice sent to the previous address when the email address changes. */
+    public static final String EMAIL_CHANGED_NOTICE = "email-changed-notice";
+
+    /**
+     * B1: makes sure the realm has the default template {@code key} (a realm whose templates were seeded before the
+     * template existed gets it now), without touching the realm's other templates.
+     */
+    @Transactional
+    public void ensureDefaultTemplate(final String realmId, final String key) {
+        if (templates.findByRealmIdAndTemplateKey(realmId, key).isPresent()) {
+            return;
+        }
+        if (templates.findByRealmId(realmId).isEmpty()) {
+            listTemplates(realmId); // first read seeds the whole default set
+            return;
+        }
+        defaultTemplates(realmId).stream().filter(t -> key.equals(t.getTemplateKey())).findFirst()
+                .ifPresent(templates::save);
     }
 
     private static MessageTemplate template(final String realmId, final String key, final String channel,
