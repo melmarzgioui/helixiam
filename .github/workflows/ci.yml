@@ -25,12 +25,35 @@ jobs:
           java-version: "21"
           cache: maven
 
+      # The real-browser e2e tests (io.helixiam.e2e.browser) drive Playwright's Chromium, which Playwright
+      # downloads to ~/.cache/ms-playwright. Cache it per Playwright version (pinned in pom.xml), then install
+      # the browser (a no-op on a cache hit) and the OS libraries it needs on this runner.
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('helix-iam-server/pom.xml') }}
+
+      - name: Install Chromium for the browser tests
+        working-directory: helix-iam-server
+        run: >-
+          mvn -B -ntp -q exec:java -Dexec.mainClass=com.microsoft.playwright.CLI
+          -Dexec.classpathScope=test -Dexec.args="install --with-deps chromium"
+
       # Testcontainers uses the Docker daemon already running on the Actions ubuntu-latest
-      # runner, so no docker-compose/service step is needed for PostgreSQL. The test suite runs
-      # with spring.session.store-type=none, so no Redis service is needed either.
+      # runner, so no docker-compose/service step is needed for PostgreSQL or Redis. The browser
+      # tests run in the same `mvn verify`, against the same embedded server.
       - name: Build and test
         working-directory: helix-iam-server
         run: mvn -B -ntp clean verify
+
+      - name: Upload browser-test failure captures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-failures
+          path: helix-iam-server/target/browser-failures/
+          if-no-files-found: ignore
 
   dashboard:
     name: helix-dashboard (build + test)
@@ -96,3 +119,4 @@ jobs:
         run: |
           docker buildx build --platform linux/amd64,linux/arm64 \
             -f helix-iam-server/Dockerfile helix-iam-server
+
