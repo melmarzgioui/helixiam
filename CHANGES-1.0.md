@@ -3,6 +3,26 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Code scanning and dependencies (after `v1.0.0-rc.4`)
+
+First CodeQL, Trivy and Dependabot results on `master` (the workflows had been listening on `main`).
+
+> **SECURITY ADVISORY — admin rights through a role name (HIGH, fixed in `f063eac` + `aadb9ef`).** Admin
+> authorities are `admin_<realmId>` and realm ids may contain `_`. In rc.1–rc.4 an admin of realm `acme` could create
+> a role `admin_prod`, whose authority `admin_prod_acme` is the same string as "admin of realm `prod_acme`", and grant
+> it to any user. Role names starting with `admin_` are now refused (API and import), and such a role already in the
+> database grants no authority.
+
+- **security** — `b041f65` Workload-identity exchange: the issuer discovery fetch (credential without `jwksUri`) goes through the SSRF guard, like the JWKS fetch already did.
+- **security** — `e387510` A generated bootstrap admin password is never logged: it is written 0600 to `helix.admin.password-file` (default `<tmp>/helixiam-admin-password`) and only the path is logged; if the file cannot be written no admin is created and the log says to set `HELIX_ADMIN_PASSWORD`. The SSRF guard logs only `scheme://host[:port]`, never credentials, path or query.
+- `dc41bc6` The remembered-device cookie is `Secure` according to `helix.security.cookie-secure` (not the request scheme); `6dc303d` SCIM paging with a huge `count` no longer overflows into a 500; `aadb9ef` the Prometheus endpoint is authenticated unless `helix.actuator.prometheus-anonymous=true` (the in-code default said `true`).
+- `9bb64ac` Log injection: user-controlled values in log lines are passed through `LogSafe.sanitize` (line breaks and control characters → `_`), and the console/audit layouts encode CR/LF (`%enc{%m}{CRLF}`).
+- Dependencies (no framework major): Spring Security 6.5.11, pgjdbc 42.7.12, BouncyCastle 1.86, OpenSAML 5.2.3, webauthn4j 0.31.10 and the rest of Dependabot's Maven minor/patch group (#13); grpc 1.83.2 and `golang.org/x/*` in the Terraform provider; express 4.22.3 and patched transitive packages in the sandbox RP.
+- Images and manifests: the console image runs as the non-root `nginx` user with a HEALTHCHECK, on nginx 1.29 and a Node 22 build stage (Node 20 is end of life); the release-check Postgres/Redis manifest runs non-root with a read-only root filesystem.
+- Sandbox RP: rate limiting, session regeneration at login, HttpOnly/SameSite cookies (`Secure` in production or with `COOKIE_SECURE=true`), CSRF tokens on its own forms, session secret from `SESSION_SECRET`. MCP demo: every request's bearer token is verified (RS256, `exp`, `nbf`).
+- CI: all pinned actions updated together (CodeQL action v4, checkout v7, sbom-action 0.24.2). Framework majors (Spring Boot 4, Security 7, Flyway 13, React 19, Vite 8, Storybook 10, Express 5, …) are ignored by Dependabot and listed in ROADMAP.md as planned post-1.0 upgrades.
+- Findings not fixed in code, with reasons: `helix-iam-server/CODEQL-TRIAGE.md` (false positives) and `SECURITY-TRIAGE.md`.
+
 ## Review of rc.3 (after `v1.0.0-rc.3`)
 
 > **SECURITY ADVISORY — cross-realm admin takeover (HIGH, fixed in `e4dcb9c`).** In rc.1–rc.3 several admin
