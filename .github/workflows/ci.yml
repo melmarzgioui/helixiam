@@ -120,3 +120,24 @@ jobs:
           docker buildx build --platform linux/amd64,linux/arm64 \
             -f helix-iam-server/Dockerfile helix-iam-server
 
+  server-image-boot:
+    name: helix-iam-server image boots (${{ matrix.arch }})
+    # Native build + boot on each architecture (no QEMU): the arm64 runner is a real arm64 machine, so this proves
+    # the linux/arm64 image starts and passes readiness, not just that it builds.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Builds the image, starts it with the Helm chart's default env and security context against an empty
+      # PostgreSQL + Redis (containers on a private Docker network), waits for /actuator/health/readiness = UP.
+      - name: Build and boot the image
+        run: e2e/image-boot-smoke.sh
