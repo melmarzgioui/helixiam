@@ -86,21 +86,51 @@ public class MfaEnforcementFilter extends OncePerRequestFilter {
      * code without one.
      */
     public boolean gate(final HttpServletRequest request, final HttpServletResponse response) throws IOException {
-        final Authentication held = SecurityContextHolder.getContext().getAuthentication();
-        final boolean fromHolder = held != null && held.isAuthenticated() && !(held instanceof AnonymousAuthenticationToken);
-        final Authentication auth = fromHolder ? held : sessionAuthentication(request);
+        final java.util.Optional<String> step = pendingSecondStep(request);
+        if (step.isEmpty()) {
+            return false;
+        }
+        holdForSecondStep(request, response);
+        if (promptNone(request) && sendInteractionRequired(request, response)) {
+            return true; // prompt=none: no page may be shown; the client is told instead
+        }
+        requestCache.saveRequest(request, response);
+        response.sendRedirect(request.getContextPath() + step.get());
+        return true;
+    }
+
+    /**
+     * The second-step page ({@code /mfa/totp}, or {@code /mfa/enable} when the user has not enrolled) this request's
+     * sign-in must pass before anything is issued to it; empty when there is nothing to hold (anonymous, already held,
+     * a machine, the second factor passed in this sign-in, or neither the realm nor the user requires one). The
+     * sign-in is read from {@link SecurityContextHolder}, else from the session's persisted context. Changes nothing.
+     */
+    public java.util.Optional<String> pendingSecondStep(final HttpServletRequest request) {
+        final Authentication auth = signIn(request);
         if (auth == null || !auth.isAuthenticated() || auth instanceof MfaAuthentication
                 || !(auth.getPrincipal() instanceof UserCredentials user)) {
-            return false; // anonymous / gated / machine: the normal chain handles it
+            return java.util.Optional.empty(); // anonymous / gated / machine: the normal chain handles it
         }
         final String userId = user.getUsername();
         if (MfaSessionState.isVerified(request, userId)) {
-            return false;
+            return java.util.Optional.empty();
         }
         final boolean enrolled = totp.isEnrolled(userId);
         if (!enrolled && !policy.required(RealmContextHolder.get())) {
-            return false;
+            return java.util.Optional.empty();
         }
+        return java.util.Optional.of(enrolled ? "/mfa/totp" : "/mfa/enable");
+    }
+
+    /**
+     * Puts the session behind the second step (the sign-in becomes an unauthenticated {@link MfaAuthentication} until
+     * the factor passes) and saves {@code request} to resume afterwards. Call only when {@link #pendingSecondStep} is
+     * present; the caller then sends the browser to that page.
+     */
+    public void holdForSecondStep(final HttpServletRequest request, final HttpServletResponse response) {
+        final Authentication held = SecurityContextHolder.getContext().getAuthentication();
+        final boolean fromHolder = held != null && held.isAuthenticated() && !(held instanceof AnonymousAuthenticationToken);
+        final Authentication auth = fromHolder ? held : sessionAuthentication(request);
         final SecurityContext gated = SecurityContextHolder.createEmptyContext();
         gated.setAuthentication(new MfaAuthentication(auth));
         if (fromHolder) {
@@ -110,12 +140,17 @@ public class MfaEnforcementFilter extends OncePerRequestFilter {
         // From the session only: nothing loaded the holder for this request and nothing would clear it, so it is left
         // alone (a context set here would leak to the next request on this thread).
         contexts.saveContext(gated, request, response);
-        if (promptNone(request) && sendInteractionRequired(request, response)) {
-            return true; // prompt=none: no page may be shown; the client is told instead
-        }
+    }
+
+    /** Resumes {@code request} after the second step (the saved request the success handlers redirect to). */
+    public void saveRequest(final HttpServletRequest request, final HttpServletResponse response) {
         requestCache.saveRequest(request, response);
-        response.sendRedirect(request.getContextPath() + (enrolled ? "/mfa/totp" : "/mfa/enable"));
-        return true;
+    }
+
+    private static Authentication signIn(final HttpServletRequest request) {
+        final Authentication held = SecurityContextHolder.getContext().getAuthentication();
+        return held != null && held.isAuthenticated() && !(held instanceof AnonymousAuthenticationToken)
+                ? held : sessionAuthentication(request);
     }
 
     /** The persisted sign-in of the session, if any (never creates a session). */
