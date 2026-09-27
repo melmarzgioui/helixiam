@@ -14,12 +14,17 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 
@@ -39,10 +44,21 @@ public class MfaEnforcementFilter extends OncePerRequestFilter {
     private final TotpService totp;
     private final HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
     private final HttpSessionSecurityContextRepository contexts = new HttpSessionSecurityContextRepository();
+    private final RegisteredClientRepository clients;
+
+    /** Spring Security's session key of the persisted {@code SecurityContext}. */
+    static final String SPRING_SECURITY_CONTEXT_KEY = HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY;
 
     public MfaEnforcementFilter(final MfaPolicyService policy, final TotpService totp) {
+        this(policy, totp, null);
+    }
+
+    /** @param clients to answer {@code prompt=none} with {@code interaction_required} (null: always the second step) */
+    public MfaEnforcementFilter(final MfaPolicyService policy, final TotpService totp,
+                                final RegisteredClientRepository clients) {
         this.policy = policy;
         this.totp = totp;
+        this.clients = clients;
     }
 
     @Override
@@ -62,9 +78,17 @@ public class MfaEnforcementFilter extends OncePerRequestFilter {
     /**
      * B1: the same check for any other page that must not be used before the second factor (the account console).
      * Returns true when the request was saved and the browser sent to the second step (the caller stops there).
+     *
+     * <p>Security (MFA gate): the sign-in is read from {@link SecurityContextHolder} and, when that is empty, from the
+     * session's persisted {@code SPRING_SECURITY_CONTEXT}. In the authorization-server chain this filter runs before
+     * the session's context is loaded into the holder, so reading the holder alone saw nobody and let every full
+     * session through: a federated sign-in, or a session from before the realm required a second factor, was issued a
+     * code without one.
      */
     public boolean gate(final HttpServletRequest request, final HttpServletResponse response) throws IOException {
-        final Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        final Authentication held = SecurityContextHolder.getContext().getAuthentication();
+        final boolean fromHolder = held != null && held.isAuthenticated() && !(held instanceof AnonymousAuthenticationToken);
+        final Authentication auth = fromHolder ? held : sessionAuthentication(request);
         if (auth == null || !auth.isAuthenticated() || auth instanceof MfaAuthentication
                 || !(auth.getPrincipal() instanceof UserCredentials user)) {
             return false; // anonymous / gated / machine: the normal chain handles it
@@ -77,12 +101,62 @@ public class MfaEnforcementFilter extends OncePerRequestFilter {
         if (!enrolled && !policy.required(RealmContextHolder.get())) {
             return false;
         }
-        requestCache.saveRequest(request, response);
         final SecurityContext gated = SecurityContextHolder.createEmptyContext();
         gated.setAuthentication(new MfaAuthentication(auth));
-        SecurityContextHolder.setContext(gated);
+        if (fromHolder) {
+            // The chain saves the holder's context at the end of the request: it must be the gated one.
+            SecurityContextHolder.setContext(gated);
+        }
+        // From the session only: nothing loaded the holder for this request and nothing would clear it, so it is left
+        // alone (a context set here would leak to the next request on this thread).
         contexts.saveContext(gated, request, response);
+        if (promptNone(request) && sendInteractionRequired(request, response)) {
+            return true; // prompt=none: no page may be shown; the client is told instead
+        }
+        requestCache.saveRequest(request, response);
         response.sendRedirect(request.getContextPath() + (enrolled ? "/mfa/totp" : "/mfa/enable"));
+        return true;
+    }
+
+    /** The persisted sign-in of the session, if any (never creates a session). */
+    private static Authentication sessionAuthentication(final HttpServletRequest request) {
+        final HttpSession session = request.getSession(false);
+        return session != null && session.getAttribute(SPRING_SECURITY_CONTEXT_KEY) instanceof SecurityContext ctx
+                ? ctx.getAuthentication() : null;
+    }
+
+    private static boolean promptNone(final HttpServletRequest request) {
+        final String prompt = request.getParameter("prompt");
+        return prompt != null && java.util.Arrays.asList(prompt.trim().split("\\s+")).contains("none")
+                && "/oauth2/authorize".equals(request.getServletPath());
+    }
+
+    /**
+     * OpenID Connect: with {@code prompt=none} the second step cannot be shown, so the client gets
+     * {@code error=interaction_required} (with its {@code state}) at its redirect URI — only one registered for the
+     * client. False when that cannot be done safely (then the user is sent to the second step as usual).
+     */
+    private boolean sendInteractionRequired(final HttpServletRequest request, final HttpServletResponse response)
+            throws IOException {
+        final String clientId = request.getParameter("client_id");
+        final RegisteredClient client = clients == null || clientId == null ? null : clients.findByClientId(clientId);
+        if (client == null) {
+            return false;
+        }
+        final String requested = request.getParameter("redirect_uri");
+        final String redirect = requested != null ? (client.getRedirectUris().contains(requested) ? requested : null)
+                : client.getRedirectUris().size() == 1 ? client.getRedirectUris().iterator().next() : null;
+        if (redirect == null) {
+            return false;
+        }
+        final UriComponentsBuilder target = UriComponentsBuilder.fromUriString(redirect)
+                .queryParam("error", "interaction_required")
+                .queryParam("error_description", "A second factor is required");
+        final String state = request.getParameter("state");
+        if (state != null) {
+            target.queryParam("state", state);
+        }
+        response.sendRedirect(target.encode().build().toUriString());
         return true;
     }
 }

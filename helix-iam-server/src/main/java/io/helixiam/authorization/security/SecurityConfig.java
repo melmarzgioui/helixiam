@@ -118,7 +118,8 @@ public class SecurityConfig {
         // 1.0 item 7: an `organization` hint on /oauth2/authorize brands the rest of the sign-in.
         http.addFilterAfter(new io.helixiam.authorization.security.realm.OrganizationContext(organizationBrandingService),
                 SecurityContextHolderFilter.class);
-        http.addFilterAfter(new io.helixiam.authorization.security.mfa.MfaEnforcementFilter(mfaPolicyService, totpService),
+        http.addFilterAfter(new io.helixiam.authorization.security.mfa.MfaEnforcementFilter(mfaPolicyService, totpService,
+                        registeredClientRepository),
                 SecurityContextHolderFilter.class);
         // Item E4: a hinted organization that requires membership refuses non-members (access_denied to the client).
         // Registered after the two-step gate, so it only ever judges a fully signed-in user.
