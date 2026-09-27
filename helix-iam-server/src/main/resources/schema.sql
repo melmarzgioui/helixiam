@@ -1020,3 +1020,20 @@ CREATE INDEX IF NOT EXISTS email_verification_token_user_idx ON email_verificati
 ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS post_registration_redirect_url character varying(2048);
 -- Same as Flyway V51 (item E4): a hinted organization may require membership (off by default).
 ALTER TABLE organization ADD COLUMN IF NOT EXISTS require_membership boolean DEFAULT false NOT NULL;
+
+-- B1 account console (same as Flyway V60-V62): what users may do themselves, email-change links, "sign out others".
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS account_allow_authenticator_removal boolean NOT NULL DEFAULT true;
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS account_allow_data_export boolean NOT NULL DEFAULT true;
+ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS account_allow_deletion boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS email_change_token (
+    token_hash  character varying(64)  NOT NULL PRIMARY KEY,
+    realm_id    character varying(255) NOT NULL,
+    user_id     character varying(255) NOT NULL,
+    email       character varying(255) NOT NULL,
+    created_at  timestamp              NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  timestamp              NOT NULL,
+    used_at     timestamp              DEFAULT NULL,
+    FOREIGN KEY (user_id) REFERENCES user_credentials(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS email_change_token_user_idx ON email_change_token (user_id);
+ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS sessions_revoked_at bigint;

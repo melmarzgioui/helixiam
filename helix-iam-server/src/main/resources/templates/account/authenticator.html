@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/account :: accountHead(#{account.authenticator.title})}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <div class="hx-account-top">
+                <a th:replace="~{fragments/account :: overviewLink}"></a>
+                <a th:replace="~{fragments/account :: returnLink}"></a>
+            </div>
+            <h1 class="hx-title" th:text="#{account.authenticator.title}">Set up your authenticator app</h1>
+            <p class="hx-lead" th:text="${replacing} ? #{account.authenticator.replaceLead} : #{account.authenticator.lead}">Scan the code with an authenticator app, then enter the code it shows.</p>
+        </div>
+
+        <div class="container hx-account-form">
+            <article>
+                <div class="qrCode">
+                    <img th:src="${qrCode}" th:alt="#{mfa.enable.title}" alt="QR code">
+                </div>
+                <div class="text">
+                    <span th:text="#{mfa.enable.scanHelp.prefix}">Having trouble scanning?</span> <a id="showCode" th:text="#{mfa.enable.scanHelp.link}">Show code</a> <span th:text="#{mfa.enable.scanHelp.suffix}">to manually set up your authenticator app.</span>
+                </div>
+                <div class="text">
+                    <a th:href="${otpAuthUrl}" th:text="#{mfa.enable.openApp}">Open in your authenticator app</a>
+                </div>
+                <div id="setupKey" class="hide">
+                    <label th:text="#{mfa.enable.secret.label}">Your setup key</label>
+                    <pre><code th:text="${secret}">JBSWY3DPEHPK3PXP</code></pre>
+                </div>
+
+                <form th:action="@{/account/authenticator}" method="post" id="authenticator-form" th:classappend="${failure != null} ? 'invalid'">
+                    <input th:replace="~{fragments/account :: csrfField}">
+                    <label for="code" th:text="#{mfa.code.label}">Verification code</label>
+                    <input type="text" inputmode="numeric" id="code" name="code" autocomplete="one-time-code" maxlength="6" required
+                           th:attr="aria-invalid=${failure != null} ? 'true' : null, aria-describedby=${failure != null} ? 'code-error' : null">
+                    <span class="error" id="code-error" role="alert" th:if="${failure != null}" th:text="#{'account.error.' + ${failure}}">That code is not valid. Try again.</span>
+                    <div class="buttonHolder">
+                        <a class="button secondary" th:href="@{/account}" th:text="#{common.cancel}">Cancel</a>
+                        <button type="submit" id="authenticator-confirm"><span th:text="#{account.authenticator.confirm}">Confirm</span></button>
+                    </div>
+                </form>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

@@ -62,6 +62,16 @@ public class SsoLogoutService {
      * Back-Channel Logout to every participating client that registered a back-channel URI (best-effort).
      */
     public SsoSession terminate(final String ssoSessionId, final String realm, final String issuerUrl) {
+        return terminate(ssoSessionId, realm, issuerUrl, true);
+    }
+
+    /**
+     * As {@link #terminate(String, String, String)}; with {@code endHttpSessions=false} the user's HTTP sessions are
+     * left alone (B1 "sign out everywhere else": the browser that asks keeps its session, and the others are ended by
+     * {@link SessionRevocation} instead).
+     */
+    public SsoSession terminate(final String ssoSessionId, final String realm, final String issuerUrl,
+                                final boolean endHttpSessions) {
         final SsoSession session = sessionStore.findById(ssoSessionId);
         if (session == null) {
             return null;
@@ -79,10 +89,10 @@ public class SsoLogoutService {
                 authorizationService.remove(authorization);
             }
         }
-        if (sidBound) {
+        if (endHttpSessions && sidBound) {
             // End only this SSO session's browser login(s); the user's other browsers stay signed in.
             httpSessions.deleteAll(browserSessions);
-        } else if (session.principalName() != null) {
+        } else if (endHttpSessions && session.principalName() != null) {
             // Legacy session without a sid (authorizations from before sids): the old by-user behaviour.
             springSessionStore.deleteByPrincipal(session.principalName());
         }

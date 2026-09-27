@@ -37,9 +37,15 @@ import java.util.List;
 public class AccountGdprController {
 
     private final GdprPublisher publisher;
+    private io.helixiam.authorization.service.account.AccountConsoleSettingsService consoleSettings;
 
     public AccountGdprController(final GdprPublisher publisher) {
         this.publisher = publisher;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setConsoleSettings(final io.helixiam.authorization.service.account.AccountConsoleSettingsService consoleSettings) {
+        this.consoleSettings = consoleSettings;
     }
 
     /** Art. 15/20: the signed-in user's own complete data export (secret-free). 401 when unauthenticated. */
@@ -47,6 +53,10 @@ public class AccountGdprController {
     public ResponseEntity<GdprExportDto> export(@AuthenticationPrincipal final UserCredentials principal) {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        // B1: only where the realm lets users download their data (the account console's setting).
+        if (consoleSettings != null && !consoleSettings.get(realm()).dataExport()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         final GdprExportDto export = publisher.export(new GdprUserRef(realm(), principal.getUserId()));
         return export == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(export);

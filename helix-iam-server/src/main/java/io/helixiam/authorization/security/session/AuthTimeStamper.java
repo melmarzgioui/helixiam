@@ -31,6 +31,9 @@ public final class AuthTimeStamper {
     /** Session attribute holding the epoch-second auth_time. */
     public static final String HELIX_AUTH_TIME = "HELIX_AUTH_TIME";
 
+    /** Session attribute holding the same moment in epoch milliseconds (B1: "sign out everywhere else" compares it). */
+    public static final String HELIX_AUTH_TIME_MS = "HELIX_AUTH_TIME_MS";
+
     /** Session attribute holding the OIDC {@code sid} of this SSO session (A3). */
     public static final String HELIX_SID = "HELIX_SID";
 
@@ -53,7 +56,11 @@ public final class AuthTimeStamper {
      */
     public void stamp(final HttpServletRequest request) {
         final HttpSession session = request.getSession(true);
-        session.setAttribute(HELIX_AUTH_TIME, nowEpochSeconds.getAsLong());
+        final long nowMillis = System.currentTimeMillis();
+        final long seconds = nowEpochSeconds.getAsLong();
+        session.setAttribute(HELIX_AUTH_TIME, seconds);
+        // Same moment in millis; a test clock (seconds) that is not "now" is carried over as whole seconds.
+        session.setAttribute(HELIX_AUTH_TIME_MS, nowMillis / 1000L == seconds ? nowMillis : seconds * 1000L);
         if (!(session.getAttribute(HELIX_SID) instanceof String)) {
             session.setAttribute(HELIX_SID, newSid());
         }
@@ -69,6 +76,12 @@ public final class AuthTimeStamper {
         final byte[] bytes = new byte[24];
         RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** The session's auth_time in epoch milliseconds, or {@code null} when unset / no session / stamped before B1. */
+    public static Long readMillis(final HttpServletRequest request) {
+        final HttpSession session = request.getSession(false);
+        return session != null && session.getAttribute(HELIX_AUTH_TIME_MS) instanceof Long ms ? ms : null;
     }
 
     /** The session's auth_time in epoch seconds, or {@code null} when unset / no session. */

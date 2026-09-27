@@ -139,7 +139,7 @@ class ThemedTemplatesTest {
                         "mfa/recovery-codes", "mfa/webauthn-register", "reset/password", "reset/set", "reset/success",
                         "consent", "activate", "required-actions/acknowledge", "required-actions/update-password",
                         "magic/request", "magic/sent", "magic/confirm", "magic/invalid", "flow/otp-form",
-                        "flow/saml-post", "maintenance", "me/profile");
+                        "flow/saml-post", "maintenance", "account/index");
         return List.copyOf(out);
     }
 
@@ -222,8 +222,22 @@ class ThemedTemplatesTest {
         m.put("webauthnChallenge", "Y2hhbGxlbmdl");
         m.put("action", "VERIFY_EMAIL");
         m.put("actionLabel", "Verify your email address");
-        m.put("profile", new io.helixiam.authorization.controller.ProfileController.Profile("ada", "ada@example.com",
-                "Ada", null, null));
+        m.put("account", new io.helixiam.authorization.controller.account.console.AccountOverview(
+                new io.helixiam.authorization.controller.account.console.AccountOverview.Profile("ada", "ada@example.com",
+                        false, "Ada", null, null),
+                new io.helixiam.authorization.controller.account.console.AccountOverview.TwoStep(true, false, true, 8),
+                List.of(new io.helixiam.authorization.controller.account.console.AccountOverview.SessionRow(true,
+                                "27 Sep 2026, 14:03 UTC", List.of("web")),
+                        new io.helixiam.authorization.controller.account.console.AccountOverview.SessionRow(false,
+                                "26 Sep 2026, 09:12 UTC", List.of())),
+                true, true));
+        m.put("referrer", new io.helixiam.authorization.service.account.AccountReferrer.Link("web", "Client Portal",
+                "https://app.monthfold.example/settings"));
+        m.put("twoStep", new io.helixiam.authorization.controller.account.console.AccountOverview.TwoStep(true, false, true, 8));
+        m.put("email", "ada@example.com");
+        m.put("replacing", true);
+        m.put("stepUpCode", true);
+        m.put("notice", "emailVerified");
         m.put("remaining", 1);
         m.put("token", "magic-token");
         m.put("fields", Map.of("SAMLRequest", "PHNhbWw+"));

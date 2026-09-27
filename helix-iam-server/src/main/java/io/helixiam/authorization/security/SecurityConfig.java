@@ -94,7 +94,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService, final io.helixiam.authorization.service.org.OrganizationMembershipPolicy organizationMembershipPolicy, final io.helixiam.authorization.security.audit.AuditLog auditLog) throws Exception {
+    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService, final io.helixiam.authorization.service.org.OrganizationMembershipPolicy organizationMembershipPolicy, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.session.SessionRevocation sessionRevocation) throws Exception {
         // Helix IAM SSO P4: share OUR SessionRegistry bean with the authorization server BEFORE
         // applyDefaultSecurity (which would otherwise create its own). SAS reads it at token-issuance to
         // stamp the OIDC `sid` (session id hash) into id_tokens — the key that unifies a login's client
@@ -102,6 +102,11 @@ public class SecurityConfig {
         http.setSharedObject(org.springframework.security.core.session.SessionRegistry.class, sessionRegistry);
 
         OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
+
+        // B1: a browser session revoked by "sign out everywhere else" or an account deletion ends here, before any
+        // authorization request can be answered from it.
+        http.addFilterAfter(new io.helixiam.authorization.session.SessionRevocationFilter(sessionRevocation),
+                SecurityContextHolderFilter.class);
 
         // Helix IAM SSO P2/P3: OIDC prompt/max_age + per-realm SSO max-lifetime (SAS has none). Anchored
         // right after the SecurityContext is loaded (so SecurityContextHolder is populated) and before the
@@ -227,7 +232,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate, final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final PageCspPolicy pageCspPolicy) throws Exception {
+    public SecurityFilterChain defaultSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher, final AuthFlowMapper authFlowMapper, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter, final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager adminAuthorizationManager, final io.helixiam.authorization.observability.HelixMetrics helixMetrics, final io.helixiam.authorization.security.requiredactions.RequiredActionsGate requiredActionsGate, final io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final PageCspPolicy pageCspPolicy, final io.helixiam.authorization.session.SessionRevocation sessionRevocation) throws Exception {
         // Helix IAM SSO P4: register every login's session in the SessionRegistry (unlimited concurrency)
         // so the authorization server can resolve its `sid`. The registry tracks session ids regardless of
         // where the HttpSession itself is stored.
@@ -242,6 +247,9 @@ public class SecurityConfig {
                 .csrfTokenRepository(csrfTokenRepository())
                 .csrfTokenRequestHandler(new org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler()));
         http.addFilterAfter(new CsrfCookieFilter(), org.springframework.security.web.csrf.CsrfFilter.class);
+        // B1: end browser sessions revoked by "sign out everywhere else" or an account deletion (all stores).
+        http.addFilterAfter(new io.helixiam.authorization.session.SessionRevocationFilter(sessionRevocation),
+                SecurityContextHolderFilter.class);
         // Security review M3: CSP + clickjacking/sniffing/referrer headers on the server-rendered pages.
         applySecurityHeaders(http, pageCspPolicy);
         http.authorizeHttpRequests(requests -> requests.requestMatchers(whitelist).permitAll());
@@ -259,6 +267,9 @@ public class SecurityConfig {
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/login/magic", "/login/magic/verify").permitAll());
         // C3: the emailed verification link (a confirmation page, then a single-use POST) works without a session.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/verify-email").permitAll());
+        // B1: the link that confirms a changed email address works in any browser (it carries a single-use token).
+        http.authorizeHttpRequests(requests -> requests.requestMatchers(org.springframework.http.HttpMethod.GET,
+                "/account/email/verify").permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
         // (confirm) and the mid-login browser (SSE/poll); they are secured by the device signature
         // + single-use rotating token, not the session, so permit them and exempt them from CSRF.

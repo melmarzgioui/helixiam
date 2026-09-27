@@ -260,6 +260,21 @@ public class RealmConfig {
     @JsonProperty
     private String selfEditableAttributes;
 
+    /** B1: whether a user may remove their authenticator app in the account console (still refused when MFA is required). */
+    @Column(name = "account_allow_authenticator_removal")
+    @JsonProperty
+    private boolean accountAllowAuthenticatorRemoval = true;
+
+    /** B1: whether a user may download their own data from the account console. */
+    @Column(name = "account_allow_data_export")
+    @JsonProperty
+    private boolean accountAllowDataExport = true;
+
+    /** B1: whether a user may delete their own account from the account console (off unless the realm opts in). */
+    @Column(name = "account_allow_deletion")
+    @JsonProperty
+    private boolean accountAllowDeletion;
+
     @CreationTimestamp
     @Column(name = "creation_date", updatable = false)
     private Date creationDate;
@@ -653,5 +668,29 @@ public class RealmConfig {
 
     public void setSelfEditableAttributes(final String selfEditableAttributes) {
         this.selfEditableAttributes = selfEditableAttributes;
+    }
+
+    public boolean isAccountAllowAuthenticatorRemoval() {
+        return accountAllowAuthenticatorRemoval;
+    }
+
+    public void setAccountAllowAuthenticatorRemoval(final boolean accountAllowAuthenticatorRemoval) {
+        this.accountAllowAuthenticatorRemoval = accountAllowAuthenticatorRemoval;
+    }
+
+    public boolean isAccountAllowDataExport() {
+        return accountAllowDataExport;
+    }
+
+    public void setAccountAllowDataExport(final boolean accountAllowDataExport) {
+        this.accountAllowDataExport = accountAllowDataExport;
+    }
+
+    public boolean isAccountAllowDeletion() {
+        return accountAllowDeletion;
+    }
+
+    public void setAccountAllowDeletion(final boolean accountAllowDeletion) {
+        this.accountAllowDeletion = accountAllowDeletion;
     }
 }

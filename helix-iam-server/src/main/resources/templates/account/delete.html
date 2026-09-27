@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/account :: accountHead(#{account.delete.title})}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <div class="hx-account-top">
+                <a th:replace="~{fragments/account :: overviewLink}"></a>
+                <a th:replace="~{fragments/account :: returnLink}"></a>
+            </div>
+            <h1 class="hx-title" th:text="#{account.delete.title}">Delete your account</h1>
+            <p class="hx-lead" th:text="#{account.delete.lead}">This deletes your account and signs you out of every app. It can't be undone.</p>
+        </div>
+
+        <div class="container hx-account-form hx-account">
+            <article class="hx-danger">
+                <form th:action="@{/account/delete}" method="post" id="delete-form" th:classappend="${failure != null} ? 'invalid'">
+                    <input th:replace="~{fragments/account :: csrfField}">
+                    <label for="confirm" th:text="#{account.delete.confirmLabel(${username})}">Type your username (ada) to confirm</label>
+                    <input type="text" id="confirm" name="confirm" autocomplete="off" autocapitalize="none" spellcheck="false" required
+                           th:attr="aria-invalid=${failure != null} ? 'true' : null, aria-describedby=${failure != null} ? 'confirm-error' : null">
+                    <span class="error" id="confirm-error" role="alert" th:if="${failure != null}" th:text="#{'account.error.' + ${failure}}">That's not your username.</span>
+                    <div class="buttonHolder">
+                        <a class="button secondary" th:href="@{/account}" th:text="#{common.cancel}">Cancel</a>
+                        <button type="submit" class="hx-btn hx-btn-danger hx-btn-solid" id="delete-confirm" th:text="#{account.delete.confirm}">Delete my account</button>
+                    </div>
+                </form>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

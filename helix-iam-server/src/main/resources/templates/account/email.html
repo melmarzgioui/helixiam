@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/account :: accountHead(#{account.email.title})}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <div class="hx-account-top">
+                <a th:replace="~{fragments/account :: overviewLink}"></a>
+                <a th:replace="~{fragments/account :: returnLink}"></a>
+            </div>
+            <h1 class="hx-title" th:text="#{account.email.title}">Change your email address</h1>
+            <p class="hx-lead" th:text="#{account.email.lead}">We'll send a confirmation link to the new address.</p>
+        </div>
+
+        <div class="container hx-account-form">
+            <article>
+                <dl class="hx-profile" th:if="${email != null}">
+                    <dt th:text="#{account.email.current}">Current address</dt>
+                    <dd id="current-email" th:text="${email}">ada@example.com</dd>
+                </dl>
+                <form th:action="@{/account/email}" method="post" id="email-form" th:classappend="${failure != null} ? 'invalid'">
+                    <input th:replace="~{fragments/account :: csrfField}">
+                    <label for="email" th:text="#{account.email.new}">New email address</label>
+                    <input type="email" id="email" name="email" autocomplete="email" required maxlength="254" th:value="${typed}"
+                           th:attr="aria-invalid=${failure != null} ? 'true' : null, aria-describedby=${failure != null} ? 'email-error' : null">
+                    <span class="error" id="email-error" role="alert" th:if="${failure != null}" th:text="#{'account.error.' + ${failure}}">Enter a valid email address.</span>
+                    <div class="buttonHolder">
+                        <a class="button secondary" th:href="@{/account}" th:text="#{common.cancel}">Cancel</a>
+                        <button type="submit" id="email-save"><span th:text="#{account.email.save}">Save and send link</span></button>
+                    </div>
+                </form>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

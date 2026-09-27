@@ -127,8 +127,18 @@ public class RealmImportService {
     public static final String SLICE_AGENTS = "agents";
     public static final String SLICE_THEME = "theme";
     public static final String SLICE_ORG_THEMES = "organizationThemes";
+    public static final String SLICE_ACCOUNT_CONSOLE = "accountConsole";
 
     private io.helixiam.authorization.theme.ThemeService themeService;
+
+    private io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings;
+
+    /** B1: the {@code accountConsole} slice (what the realm's account console allows) is imported when present. */
+    @Autowired(required = false)
+    public void setAccountConsoleSettings(
+            final io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings) {
+        this.accountConsoleSettings = accountConsoleSettings;
+    }
 
     /**
      * Structured theming: when present, the realm theme (or, in older documents, the legacy realm branding fields)
@@ -276,6 +286,7 @@ public class RealmImportService {
                                         final RealmImportResult.Builder result) {
         final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
         importTheme(realmId, doc, opts, result);
+        importAccountConsole(realmId, doc, opts, result);
         importRoles(realmId, doc, opts, result);
         importScopes(realmId, doc, opts, result);
         importApplications(realmId, doc, opts, result);
@@ -396,6 +407,32 @@ public class RealmImportService {
             }
         } catch (final RuntimeException ex) {
             failed(r, SLICE_REALM, realmId, ex);
+        }
+    }
+
+    // --- account console (B1): one settings object; under SKIP/FAIL a realm that differs from the defaults is kept. ---
+    private void importAccountConsole(final String realmId, final RealmExportDocument doc, final ImportOptions opts,
+                                      final RealmImportResult.Builder r) {
+        final io.helixiam.authorization.service.account.AccountConsoleSettings in = doc.accountConsole();
+        if (in == null || accountConsoleSettings == null) {
+            return;
+        }
+        try {
+            final boolean exists = accountConsoleSettings.find(realmId)
+                    .map(current -> !current.equals(io.helixiam.authorization.service.account.AccountConsoleSettings.DEFAULTS))
+                    .orElse(false);
+            if (blocked(exists, SLICE_ACCOUNT_CONSOLE, realmId, opts, r)) {
+                return;
+            }
+            if (accountConsoleSettings.replace(realmId, in).isEmpty()) {
+                r.failed(SLICE_ACCOUNT_CONSOLE, "The realm does not exist.");
+            } else if (exists) {
+                r.updated(SLICE_ACCOUNT_CONSOLE);
+            } else {
+                r.created(SLICE_ACCOUNT_CONSOLE);
+            }
+        } catch (final RuntimeException ex) {
+            failed(r, SLICE_ACCOUNT_CONSOLE, realmId, ex);
         }
     }
 
