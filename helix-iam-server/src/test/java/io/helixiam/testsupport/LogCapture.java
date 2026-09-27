@@ -35,7 +35,7 @@ public final class LogCapture implements AutoCloseable {
     private LogCapture(final Logger logger, final String name, final boolean keepLevel) {
         this.logger = logger;
         this.keepLevel = keepLevel;
-        this.previousLevel = logger.getLevel();
+        this.previousLevel = logger == null ? null : logger.getLevel();
         this.appender = new AbstractAppender(name, null, null, true,
                 Property.EMPTY_ARRAY) {
             @Override
@@ -44,6 +44,15 @@ public final class LogCapture implements AutoCloseable {
             }
         };
         appender.start();
+        if (logger == null) {
+            // Root of the live configuration, and refresh every logger's cached config: loggers whose own config was
+            // created by an earlier capture in this JVM must still reach the root appender.
+            final org.apache.logging.log4j.core.LoggerContext ctx =
+                    (org.apache.logging.log4j.core.LoggerContext) LogManager.getContext(false);
+            ctx.getConfiguration().getRootLogger().addAppender(appender, null, null);
+            ctx.updateLoggers();
+            return;
+        }
         logger.addAppender(appender);
         if (!keepLevel) {
             logger.setLevel(Level.ALL);
@@ -59,7 +68,7 @@ public final class LogCapture implements AutoCloseable {
      * asserting that a secret never reaches the server's logs in an end-to-end test.
      */
     public static LogCapture all() {
-        return new LogCapture((Logger) LogManager.getRootLogger(), "log-capture-all", true);
+        return new LogCapture(null, "log-capture-all", true);
     }
 
     /** The messages of the logger named {@code name} at its configured level (e.g. the non-additive audit stream). */
@@ -78,6 +87,14 @@ public final class LogCapture implements AutoCloseable {
 
     @Override
     public void close() {
+        if (logger == null) {
+            final org.apache.logging.log4j.core.LoggerContext ctx =
+                    (org.apache.logging.log4j.core.LoggerContext) LogManager.getContext(false);
+            ctx.getConfiguration().getRootLogger().removeAppender(appender.getName());
+            ctx.updateLoggers();
+            appender.stop();
+            return;
+        }
         logger.removeAppender(appender);
         if (!keepLevel) {
             logger.setLevel(previousLevel);
