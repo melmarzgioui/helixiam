@@ -22,3 +22,7 @@ data:
   HELIX_MIGRATIONS_ENABLED: {{ .Values.config.migrationsEnabled | quote }}
   HELIX_SQL_INIT_MODE: {{ ternary "never" "always" .Values.config.migrationsEnabled | quote }}
   HELIX_ADMIN_USERNAME: {{ .Values.secrets.adminUsername | quote }}
+  {{- if .Values.themes.enabled }}
+  HELIX_THEME_DIRECTORY: {{ .Values.themes.mountPath | quote }}
+  HELIX_THEME_RELOAD_INTERVAL_SECONDS: {{ .Values.themes.reloadIntervalSeconds | quote }}
+  {{- end }}

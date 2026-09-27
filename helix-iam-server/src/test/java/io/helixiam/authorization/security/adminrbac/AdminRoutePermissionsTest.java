@@ -90,6 +90,8 @@ class AdminRoutePermissionsTest {
     void themes_realmNeedsManageRealm_organizationNeedsManageOrganizations() {
         for (final String method : new String[] {"GET", "PUT"}) {
             assertThat(AdminRoutePermissions.required("/admin/realms/gov/theme", method)).contains("manage-realm");
+            // File themes (spec §5): selecting the realm's file theme is realm configuration too.
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov/theme/base", method)).contains("manage-realm");
             assertThat(AdminRoutePermissions.required("/admin/realms/gov/organizations/o-1/theme", method))
                     .contains("manage-organizations");
         }

@@ -9,7 +9,6 @@ import io.helixiam.authorization.theme.EffectiveTheme;
 import io.helixiam.authorization.theme.Theme;
 import io.helixiam.authorization.theme.ThemeDefaults;
 import io.helixiam.authorization.theme.ThemeService;
-import io.helixiam.authorization.theme.asset.ThemeAssetKind;
 import io.helixiam.authorization.theme.asset.ThemeAssetService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -94,8 +93,7 @@ public class ThemeStylesheet {
         if (!uploaded || service == null) {
             return List.of();
         }
-        return service.list(realmId).stream()
-                .filter(m -> m.kind() == ThemeAssetKind.FONT)
+        return service.servedFonts(realmId).stream()
                 .map(m -> new FontFace(m.name(), m.url(), m.weight(), m.style()))
                 .toList();
     }

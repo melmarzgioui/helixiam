@@ -24,6 +24,18 @@ Open issues found when Monthfold moved its production sign-in to rc.4
 - **A9 — security** — `2414be0` Logout tokens expire after 120 s (`HELIX_LOGOUT_TOKEN_TTL_SECONDS`, 1–600) and every
   token has its own `jti`. `docs/oidc-sessions-and-logout.md` tells relying parties how to validate a logout token,
   including rejecting a `jti` they have already seen until its `exp`.
+- **File themes (structured theming, spec §5)** — Operators can keep themes in version control: set
+  `helix.theme.directory` (`HELIX_THEME_DIRECTORY`; Helm `themes.enabled` with a ConfigMap or an existing volume) to a
+  directory of `{name}/theme.json` (same schema and validation as `PUT /admin/realms/{r}/theme`), an optional
+  `fonts.json` and `assets/` (fonts and images checked with the same type, size, count and SVG rules as uploads;
+  referenced as `assets/<file>`). A realm selects one with `PUT /admin/realms/{r}/theme/base {"themeName": ...}`
+  (`manage-realm`, audited as `THEME_UPDATE`); it becomes the layer between the default and the realm's database theme,
+  so database fields override file values. Themes are validated at startup and whenever the files change (polled
+  every `helix.theme.reload-interval-seconds`, default 30); an invalid theme is refused with an error log listing
+  every problem, and realms that select it fall back to their database theme or the default. File assets are served
+  under the selecting realm's own `/realms/{r}/theme/assets/` path with the same headers as uploads. Deleting an
+  uploaded asset now also checks base layers, and a font family the file theme provides keeps resolving. Schema:
+  `realm_theme.theme_name` (Flyway `V70`, and `schema.sql`).
 - **E5** — `PUT /admin/realms/{r}/organizations/{org}/members/{user}` changes a member's role in place: 201 with the
   membership when it adds the member, 200 when it changes (or keeps) the role; a body without `role` keeps the current
   role instead of resetting it to `member`. An organization or user outside the path realm is now a 404 (it was a 409,

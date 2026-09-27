@@ -59,6 +59,33 @@ secrets:
   adminUsername: admin
   adminPasswordKey: admin-password
 
+# ---------------------------------------------------------------------------
+# File themes (structured theming): theme directories mounted read-only at themes.mountPath, one per theme:
+#   {name}/theme.json   same schema as PUT /admin/realms/{realm}/theme; assets referenced as "assets/<file>"
+#   {name}/fonts.json   optional: [{"file": "Brand.woff2", "family": "Brand Sans", "weight": "400", "style": "normal"}]
+#   {name}/assets/*     .woff2, .svg, .png, .webp (the same checks and limits as uploaded assets)
+# Themes are validated at startup and whenever the files change (polled every reloadIntervalSeconds); an invalid
+# theme is refused and logged, and realms that select it fall back to their database theme or the default.
+# A realm selects a theme with PUT /admin/realms/{realm}/theme/base {"themeName": "<name>"}.
+# ---------------------------------------------------------------------------
+themes:
+  enabled: false
+  mountPath: /etc/helixiam/themes
+  reloadIntervalSeconds: 30       # HELIX_THEME_RELOAD_INTERVAL_SECONDS; 0 = only at startup
+  # Source 1 — an existing ConfigMap you create. ConfigMap keys cannot contain "/", so map them to paths
+  # (put .woff2/.png files under the ConfigMap's binaryData), e.g.
+  #   items:
+  #     - {key: monthfold.theme.json, path: monthfold/theme.json}
+  #     - {key: monthfold.logo.svg,   path: monthfold/assets/logo.svg}
+  # With no items, every key becomes a file at the mount root (only useful with a single flat theme layout).
+  configMap:
+    name: ""
+    items: []
+  # Source 2 — any other volume source, used when configMap.name is empty, e.g.
+  #   existingVolume:
+  #     persistentVolumeClaim: {claimName: helixiam-themes, readOnly: true}
+  existingVolume: {}
+
 service:
   type: ClusterIP
   port: 8080

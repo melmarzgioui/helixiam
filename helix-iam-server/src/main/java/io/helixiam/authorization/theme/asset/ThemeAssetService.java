@@ -47,6 +47,14 @@ public class ThemeAssetService {
         this.themes = themes;
     }
 
+    private MountedThemeAssets mounted;
+
+    /** File-theme assets (spec §5), served next to the uploaded ones; optional. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMountedThemeAssets(final MountedThemeAssets mounted) {
+        this.mounted = mounted;
+    }
+
     /** An asset with its bytes. */
     public record StoredAsset(ThemeAssetMetadata metadata, byte[] bytes) {
     }
@@ -96,15 +104,36 @@ public class ThemeAssetService {
         return store.list(realmId);
     }
 
-    /** One asset of the realm (metadata only). */
+    /**
+     * One asset the realm serves (metadata only): an uploaded one, or a file of the file theme the realm uses
+     * (spec §5; checked with the same rules at load time).
+     */
     public Optional<ThemeAssetMetadata> find(final String realmId, final String assetId) {
-        return store.find(realmId, assetId);
+        final Optional<ThemeAssetMetadata> uploaded = store.find(realmId, assetId);
+        if (uploaded.isPresent() || mounted == null) {
+            return uploaded;
+        }
+        return mounted.find(realmId, assetId).map(StoredAsset::metadata);
     }
 
-    /** One asset of the realm with its bytes. */
+    /** One asset the realm serves, with its bytes (uploaded, or from the realm's file theme). */
     public Optional<StoredAsset> content(final String realmId, final String assetId) {
-        return store.find(realmId, assetId)
+        final Optional<StoredAsset> uploaded = store.find(realmId, assetId)
                 .flatMap(m -> store.content(realmId, assetId).map(b -> new StoredAsset(m, b)));
+        if (uploaded.isPresent() || mounted == null) {
+            return uploaded;
+        }
+        return mounted.find(realmId, assetId);
+    }
+
+    /** Every font file the realm serves: its uploaded fonts, then those of its file theme (for theme.css). */
+    public List<ThemeAssetMetadata> servedFonts(final String realmId) {
+        final List<ThemeAssetMetadata> out = new ArrayList<>(store.list(realmId).stream()
+                .filter(m -> m.kind() == ThemeAssetKind.FONT).toList());
+        if (mounted != null) {
+            out.addAll(mounted.fonts(realmId));
+        }
+        return out;
     }
 
     /**
@@ -174,12 +203,19 @@ public class ThemeAssetService {
         invalidateAfterCommit(original.realmId());
     }
 
-    /** The theme fields (realm layer, then each organization layer) that would break without this asset. */
+    /**
+     * The theme fields that would break without this asset: the base layers (a file theme, spec §5; reported as
+     * {@code baseTheme.…}), the realm layer, then each organization layer. A font family that the realm's file theme
+     * also provides keeps resolving, so deleting its last uploaded file does not break a typography reference.
+     */
     public List<String> references(final String realmId, final ThemeAssetMetadata asset) {
-        final boolean lastOfFamily = asset.kind() == ThemeAssetKind.FONT && store.list(realmId).stream()
-                .noneMatch(m -> m.kind() == ThemeAssetKind.FONT && !m.id().equals(asset.id())
+        final boolean lastOfFamily = asset.kind() == ThemeAssetKind.FONT
+                && servedFonts(realmId).stream().noneMatch(m -> !m.id().equals(asset.id())
                         && m.name().equals(asset.name()));
         final List<String> out = new ArrayList<>();
+        for (final Theme base : themes.baseLayers(realmId)) {
+            collect(base, "baseTheme.", realmId, asset, lastOfFamily, out);
+        }
         collect(themes.realmTheme(realmId), "theme.", realmId, asset, lastOfFamily, out);
         themes.organizationThemes(realmId).forEach((orgId, theme) ->
                 collect(theme, "organizations." + orgId + ".theme.", realmId, asset, lastOfFamily, out));

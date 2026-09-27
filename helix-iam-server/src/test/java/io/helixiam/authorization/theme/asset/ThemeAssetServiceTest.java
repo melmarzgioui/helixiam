@@ -160,6 +160,38 @@ class ThemeAssetServiceTest {
     }
 
     @Test
+    void theDeleteCheckSeesBaseLayers_andFontsTheMountedThemeProvides() {
+        final ThemeAssetMetadata logo = image("a");
+        final ThemeAssetMetadata font = font("a", "Brand Sans", null);
+        // A base layer (any BaseThemeProvider) that uses the uploaded logo and font.
+        when(themes.baseLayers("a")).thenReturn(List.of(Theme.EMPTY
+                .withAssets(new ThemeAssets(logo.url(), null, null, null))));
+        when(themes.realmTheme("a")).thenReturn(new Theme(null,
+                new ThemeTypography("Brand Sans", null, null),
+                null, null, null, null, null, null));
+        assertThatThrownBy(() -> service.delete("a", logo.id())).isInstanceOf(ThemeAssetInUseException.class)
+                .satisfies(e -> assertThat(((ThemeAssetInUseException) e).references())
+                        .containsExactly("baseTheme.assets.logoUrl"));
+        assertThatThrownBy(() -> service.delete("a", font.id())).isInstanceOf(ThemeAssetInUseException.class);
+
+        // The realm's file theme also ships "Brand Sans": the family keeps resolving without the upload.
+        service.setMountedThemeAssets(new MountedThemeAssets() {
+            @Override
+            public Optional<ThemeAssetService.StoredAsset> find(final String realmId, final String assetId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public List<ThemeAssetMetadata> fonts(final String realmId) {
+                return List.of(new ThemeAssetMetadata("ft-1", realmId, ThemeAssetKind.FONT, "Brand Sans", "woff2",
+                        "font/woff2", 256, "0".repeat(64), "400", "normal", java.time.Instant.now()));
+            }
+        });
+        assertThat(service.delete("a", font.id())).isPresent();
+        assertThat(service.servedFonts("a")).extracting(ThemeAssetMetadata::id).containsExactly("ft-1");
+    }
+
+    @Test
     void deletingAnUnreferencedAsset_removesIt() {
         final ThemeAssetMetadata m = image("a");
         assertThat(service.delete("a", m.id())).hasValueSatisfying(d -> assertThat(d.id()).isEqualTo(m.id()));
