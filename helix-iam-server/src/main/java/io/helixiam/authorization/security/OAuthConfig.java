@@ -168,6 +168,9 @@ public class OAuthConfig {
             // presented/forwarded client certificate so a resource server can verify proof-of-possession.
             applyCertificateBinding(context, clientCertificateResolver);
 
+            // A3: sid + auth_time of the SSO session that approved this authorization (ID tokens only; kept on refresh).
+            io.helixiam.authorization.security.session.IdTokenSessionClaims.apply(context);
+
             // Wave 3 observability: count issued tokens per grant type (bounded vocabulary). Swallows internally.
             helixMetrics.recordTokenIssued(
                     io.helixiam.authorization.security.realm.RealmContextHolder.get(),

@@ -37,7 +37,9 @@ public class PersistenceConfig {
     @Bean
     @ConditionalOnProperty(name = "helix.iam.token-store", havingValue = "queue", matchIfMissing = true)
     public OAuth2AuthorizationService queueAuthorizationService(final AuthorizationStorePublisher store) {
-        return new QueueOAuth2AuthorizationService(store);
+        // A3: bind each issued code to the browser SSO session (sid + auth_time) for the ID token claims.
+        return new io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService(
+                new QueueOAuth2AuthorizationService(store));
     }
 
     /** Opt-in: Redis authorization store for the high-throughput tier. */
@@ -50,6 +52,7 @@ public class PersistenceConfig {
         template.setKeySerializer(new StringRedisSerializer());
         template.setValueSerializer(new JdkSerializationRedisSerializer());
         template.afterPropertiesSet();
-        return new RedisOAuth2AuthorizationService(template);
+        return new io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService(
+                new RedisOAuth2AuthorizationService(template));
     }
 }
