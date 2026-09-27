@@ -113,6 +113,13 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
   }
 
   const bounce = emailBounce(user, locale);
+  /** Jump to the Email field of the profile form (the bounce banner's action). */
+  const editEmail = () => {
+    const input = document.querySelector<HTMLInputElement>('.hx-page input[data-field="email"]');
+    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+    input?.focus({ preventScroll: true });
+    input?.select();
+  };
 
   return (
     <Page>
@@ -138,6 +145,9 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
             {bounce && (
               <Alert tone="warning" title={user.email ? t("userDetail.bounce.title", { email: user.email }) : t("userDetail.bounce.titleNoEmail")}>
                 {bounce.when ? t("userDetail.bounce.when", { when: bounce.when }) : t("userDetail.bounce.whenUnknown")} {t("userDetail.bounce.body")}
+                <div className="hx-inlineactions">
+                  <Button variant="ghost" onClick={editEmail}>{t("userDetail.bounce.editEmail")}</Button>
+                </div>
               </Alert>
             )}
             <Section title={t("userDetail.section.profile")}>

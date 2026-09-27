@@ -190,7 +190,7 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
                             <Avatar name={u.username} />
                             <div>
                               <button type="button" className="hx-textbtn" onClick={() => onOpen?.(u.userId)}>{u.username}</button>
-                              <div className="hx-conn__alias">{u.email ?? <span className="hx-faint">{t("userDetail.noEmail")}</span>}</div>
+                              {u.email ? <div className="hx-conn__alias">{u.email}</div> : <div className="hx-conn__alias hx-conn__alias--empty">{t("userDetail.noEmail")}</div>}
                             </div>
                           </div>
                         </td>
@@ -275,15 +275,10 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
   );
 }
 
-export function Avatar({ name, size = 34 }: { name: string; size?: number }) {
+/** Initials avatar in one of the kit sizes: 34 (lists), 38 (mobile cards) or 46 (detail header). */
+export function Avatar({ name, size = 34 }: { name: string; size?: 34 | 38 | 46 }) {
   const initials = name.replace(/@.*/, "").slice(0, 2).toUpperCase();
-  return (
-    <span
-      aria-hidden="true"
-      className="hx-avatar hx-avatar--sized"
-      style={{ ["--avatar-size" as never]: `${size}px` }}
-    >{initials}</span>
-  );
+  return <span aria-hidden="true" className={`hx-avatar hx-avatar--${size}`}>{initials}</span>;
 }
 
 /** "Email bounced" while mail to the user's current address bounces; the date shows on hover/focus. */
@@ -294,9 +289,10 @@ export function BounceBadge({ user }: { user: Pick<UserSummary, "emailBounced" |
   const detail = bounce.when ? t("users.bounce.tooltip", { when: bounce.when }) : t("users.bounce.tooltipNoDate");
   return (
     <Tooltip content={detail}>
-      <span className="hx-focusable" tabIndex={0} aria-label={`${t("users.bounce.badge")}: ${detail}`}>
+      <button type="button" className="hx-badge-btn" aria-label={`${t("users.bounce.badge")}: ${detail}`}
+        onClick={(e) => e.stopPropagation()}>
         <Badge tone="warning">{t("users.bounce.badge")}</Badge>
-      </span>
+      </button>
     </Tooltip>
   );
 }
@@ -349,7 +345,7 @@ export function UserForm({ initial, onSubmit, onCancel }: { initial: UserSummary
       </FormField>
 
       <FormField label={t("users.form.email")} hint={t("users.form.email.hint")}>
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="person@organisation.nl" />
+        <Input data-field="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="person@organisation.nl" />
       </FormField>
 
       {!editing && (
