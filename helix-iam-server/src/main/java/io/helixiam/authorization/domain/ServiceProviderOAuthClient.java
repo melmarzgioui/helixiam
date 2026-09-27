@@ -356,6 +356,10 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
         return builder.build();
     }
 
+    /** Token-settings markers: this lifetime is not set on the client, so the realm's applies. */
+    public static final String REALM_DEFAULT_ACCESS_TTL = "helix.access-token-ttl.realm-default";
+    public static final String REALM_DEFAULT_REFRESH_TTL = "helix.refresh-token-ttl.realm-default";
+
     @Override
     public TokenSettings getTokenSettings() {
         final TokenSettings.Builder builder = TokenSettings.builder()
@@ -364,6 +368,12 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
                 .reuseRefreshTokens(Boolean.TRUE.equals(reuseRefreshTokens));
         if (refreshTokenLifespan != null && refreshTokenLifespan > 0) {
             builder.refreshTokenTimeToLive(Duration.ofSeconds(refreshTokenLifespan));
+        } else {
+            builder.setting(REALM_DEFAULT_REFRESH_TTL, true);
+        }
+        if (accessTokenLifespan == null || accessTokenLifespan <= 0) {
+            // Review rc.3 #2: no client lifetime -> the realm's (applied by RegisteredClientRepositoryService).
+            builder.setting(REALM_DEFAULT_ACCESS_TTL, true);
         }
         if (StringUtils.isNotBlank(idTokenSignatureAlg)) {
             builder.idTokenSignatureAlgorithm(
