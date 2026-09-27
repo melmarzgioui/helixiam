@@ -224,8 +224,15 @@ A **realm import** applies the same validation: an invalid provider in the docum
 result lists it as a failure of the `messagingProviders` slice with the same field messages
 (`The provider EMAIL_CLOUDFLARE is not valid: config.accountId: The Cloudflare account id is required.; …`).
 
-When a realm has several enabled email providers, the first one with a known driver is used. A provider is read from
-the database at every send, so a saved or rotated provider applies at once.
+**One active email provider per realm.** A realm can keep several email providers configured (one per driver), but at
+most one is enabled: saving a provider with `"enabled": true` makes it the realm's active provider and disables the
+realm's other email providers in the same transaction (the `PUT` answers with the saved provider; list the providers
+again to see the others' new state). Saving a provider with `"enabled": false` changes no other provider, so an
+operator can prepare and test (`"driver"` on the test endpoint) a new provider before switching. A realm import
+applies the same rule, entry by entry. A realm saved before this rule with several enabled email providers is repaired
+at startup: the most recently saved one stays enabled, the others are disabled, and each is logged as a WARN line
+("Realm acme had several enabled EMAIL providers; keeping …"). A provider is read from the database at every send, so
+a saved or rotated provider applies at once.
 
 ## 7. Global configuration (properties and environment variables)
 
