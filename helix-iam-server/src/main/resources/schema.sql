@@ -1067,3 +1067,5 @@ CREATE TABLE IF NOT EXISTS email_retry (
 CREATE INDEX IF NOT EXISTS email_retry_due_idx ON email_retry (next_attempt_at);
 ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email_bounced_at bigint;
 ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email_bounced_address character varying(255);
+-- Security (same as Flyway V73): emailed one-time codes (password reset, sign-up verification) expire.
+ALTER TABLE notification_code ADD COLUMN IF NOT EXISTS expires_at timestamp;

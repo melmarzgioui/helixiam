@@ -74,7 +74,12 @@ public class ResetPasswordController {
     @GetMapping("/reset/password/{code}")
     public String passwordReset(@PathVariable("code") final String code, final Model model) {
         model.addAttribute(ControllerConstants.CHANGE_PASSSWORD, new ChangePassword(code));
-        model.addAttribute(ControllerConstants.ERRORS, new HashMap<>());
+        final Map<String, Boolean> errors = new HashMap<>();
+        // An expired or used link says so at once, instead of after the user typed a new password.
+        if (!Boolean.TRUE.equals(userPublisher.resetCodeUsable(code))) {
+            errors.put("invalid.code", true);
+        }
+        model.addAttribute(ControllerConstants.ERRORS, errors);
 
         return "reset/set";
     }
@@ -91,11 +96,12 @@ public class ResetPasswordController {
                     response.sendRedirect(spBaseUrl);
                     return null;
                 }
+                // The code is unknown, expired or already used.
+                errors.put("invalid.code", true);
             } catch (final IOException | ValidationException responseException) {
-                // reported below
+                // The new password was refused (policy): say so on the page.
+                errors.put("invalid.request", true);
             }
-            // The code was not accepted (expired or used) or the new password was refused: say so on the page.
-            errors.put("invalid.request", true);
         }
 
         model.addAttribute(ControllerConstants.CHANGE_PASSSWORD, changePassword);

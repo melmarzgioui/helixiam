@@ -131,6 +131,17 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
     files are read at every send, and realm providers are read at every send, so a rotated secret needs no restart.
   - **Helm** — `8cc0116` optional `email.*` values; the credentials are keys of the existing Secret, mounted as files.
   - Retries, bounce marking, the per-realm send rate cap, the remaining metrics and `docs/EMAIL.md` follow in stage 2.
+- **security** — `ITEM1_HASH` Password-reset codes expired never: a reset link from any time in the past still set a new
+  password, and a code already used, expired or unknown still "succeeded" (the reset page redirected as if it had
+  worked). Reset codes now expire after `helix.notification.reset-password.code-ttl` (default 1 hour) and the
+  sign-up verification code after `helix.notification.signup.code-ttl` (default 24 hours); both are single-use,
+  consumed atomically (`DELETE`, so two concurrent submits cannot both use one). A new request replaces an expired
+  code. Opening an expired, used or unknown reset link shows the themed error "This link has expired or was already
+  used" with a link to request a new one, and submitting it changes nothing. The code's expiry is stored
+  (`notification_code.expires_at`, Flyway `V73` and `schema.sql`; codes issued before it expire their TTL after
+  creation) and becomes the email's `expiresAt`, so a reset email is never retried after its code died. The other
+  emailed codes and links were checked and already expire and work once: the email OTP (5 minutes, attempt-limited),
+  the magic link, the verification link and the email-change link.
 - **Email delivery, stage 2** — `1e3b2c4` Callers send through `EmailOutbox`, around `EmailDelivery`. See
   `docs/EMAIL.md`.
   - **Retries** — The first attempt stays synchronous (the flow and the admin test endpoint get the real result). A

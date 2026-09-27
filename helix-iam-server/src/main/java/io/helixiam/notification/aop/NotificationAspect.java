@@ -49,6 +49,16 @@ public class NotificationAspect {
 
     private final Notifier notifier;
     private final NotificationCodeRepository notificationCodeRepository;
+    private io.helixiam.notification.NotificationCodePolicy codePolicy =
+            io.helixiam.notification.NotificationCodePolicy.defaults();
+
+    /** How long the generated codes work (password reset 1 hour, sign-up 24 hours by default). */
+    @Autowired(required = false)
+    public void setCodePolicy(final io.helixiam.notification.NotificationCodePolicy codePolicy) {
+        if (codePolicy != null) {
+            this.codePolicy = codePolicy;
+        }
+    }
 
     @Autowired
     public NotificationAspect(final Notifier notifier, final NotificationCodeRepository notificationCodeRepository) {
@@ -90,9 +100,23 @@ public class NotificationAspect {
             notificationRequest.setEmailAddress(userDetails.get("EMAIL"));
 
             if (notification.generateCode() || notification.generateSimpleCode()) {
+                // Reuse the pending code while it still works; an expired one is replaced by a new code.
+                final java.time.Instant now = java.time.Instant.now();
                 final NotificationCode notificationCode = notificationCodeRepository
                         .findByIdentifierAndType(identifier, notification.type())
-                        .orElseGet(() -> notificationCodeRepository.save(new NotificationCode(identifier, generateCode(notification), notification.type())));
+                        .filter(existing -> {
+                            if (codePolicy.isValid(existing, now)) {
+                                return true;
+                            }
+                            notificationCodeRepository.delete(existing);
+                            return false;
+                        })
+                        .orElseGet(() -> {
+                            final NotificationCode fresh = new NotificationCode(identifier, generateCode(notification),
+                                    notification.type());
+                            fresh.setExpiresAt(codePolicy.expiryFor(notification.type(), now));
+                            return notificationCodeRepository.save(fresh);
+                        });
                 notificationRequest.setNotificationCode(notificationCode);
             }
 

@@ -24,7 +24,9 @@
             <article>
                 <div class="hx-alert hx-alert-error" id="password-error" role="alert" th:if="${errors.get('invalid.password') != null}" th:text="#{register.error.password}">The passwords are empty or do not match.</div>
                 <div class="hx-alert hx-alert-error" role="alert" th:if="${errors.get('invalid.request') != null}" th:text="#{reset.set.error.failed}">The password could not be saved.</div>
-                <form th:action="@{/reset/password/set}" th:object="${changePassword}" method="post" role="form" id="passwordReset"  th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}">
+                <div class="hx-alert hx-alert-error" id="code-error" role="alert" th:if="${errors.get('invalid.code') != null}" th:text="#{reset.set.error.expired}">This link has expired or was already used. Request a new one.</div>
+                <p th:if="${errors.get('invalid.code') != null}"><a id="request-new-link" th:href="@{/reset/password}" th:text="#{reset.set.requestNew}">Request a new link</a></p>
+                <form th:unless="${errors.get('invalid.code') != null}" th:action="@{/reset/password/set}" th:object="${changePassword}" method="post" role="form" id="passwordReset"  th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}">
 
                     <label for="password" th:text="#{reset.set.password.label}">Password</label>
                     <input type="password" id="password" name="newPassword" th:field="*{newPassword}" th:classappend="${errors.get('invalid.password') != null ? 'invalid' : 'valid'}" autocomplete="new-password" th:attr="aria-invalid=${errors.get('invalid.password') != null} ? 'true' : null, aria-describedby=${errors.get('invalid.password') != null} ? 'password-error' : null"/>

@@ -113,9 +113,8 @@ public class SmtpNotifier implements Notifier {
 
         final EmailComposer.ComposedEmail composed = composeEmail(notification);
         try {
-            final Duration validFor = validFor(notification);
             final EmailMessage message = EmailMessage.of(null, to, composed.subject(), composed.body(),
-                    composed.html(), composed.text()).withExpiresAt(validFor == null ? null : Instant.now().plus(validFor));
+                    composed.html(), composed.text()).withExpiresAt(expiresAt(notification, Instant.now()));
             final EmailSendOutcome outcome = outbox.send(RealmContextHolder.get(), message,
                     EmailOutbox.SendOptions.TRANSACTIONAL);
             final DeliveryResult result = outcome.result();
@@ -136,6 +135,19 @@ public class SmtpNotifier implements Notifier {
             LOG.warn("Failed to send EMAIL notification (type={}): {}", notification.getType(),
                     LogSafe.sanitize(e.getClass().getSimpleName()));
         }
+    }
+
+    /**
+     * When the code in this notification stops working: its stored expiry (the reset and sign-up codes), else
+     * {@link #validFor} from {@code now}; null when it carries none.
+     */
+    static Instant expiresAt(final NotificationRequest notification, final Instant now) {
+        final io.helixiam.notification.domain.NotificationCode code = notification.getNotificationCode();
+        if (code != null && code.getExpiresAt() != null) {
+            return code.getExpiresAt().toInstant();
+        }
+        final Duration validFor = validFor(notification);
+        return validFor == null ? null : now.plus(validFor);
     }
 
     /**

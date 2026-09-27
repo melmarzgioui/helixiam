@@ -221,4 +221,17 @@ class SmtpNotifierTest {
         assertThat(SmtpNotifier.validFor(minutes)).isEqualTo(java.time.Duration.ofMinutes(15));
         assertThat(SmtpNotifier.validFor(new NotificationRequest("NEW_REGISTERED_USER"))).isNull();
     }
+
+    @Test
+    void anEmailedCode_givesTheEmailItsOwnExpiry() {
+        final NotificationRequest reset = new NotificationRequest("USER_RESET_PASSWORD");
+        final NotificationCode code = new NotificationCode("u-1", "c-1", "USER_RESET_PASSWORD");
+        final java.time.Instant expires = java.time.Instant.parse("2026-09-28T10:00:00Z");
+        code.setExpiresAt(java.util.Date.from(expires));
+        reset.setNotificationCode(code);
+
+        assertThat(SmtpNotifier.expiresAt(reset, java.time.Instant.parse("2026-09-28T09:30:00Z"))).isEqualTo(expires);
+        assertThat(SmtpNotifier.expiresAt(new NotificationRequest("USER_RESET_PASSWORD"),
+                java.time.Instant.parse("2026-09-28T09:00:00Z"))).isEqualTo(java.time.Instant.parse("2026-09-28T10:00:00Z"));
+    }
 }

@@ -266,6 +266,13 @@ Every property can be set as an environment variable: upper-case it and replace 
 | `helix.notification.email.retry.batch-size` | `20` | Retries claimed per poll. |
 | `helix.notification.email.retry.lease` | `2m` | A claimed retry whose replica died is claimed again after this. Keep it above the drivers' timeouts. |
 
+**Emailed codes**
+
+| Property | Default | Purpose |
+|---|---|---|
+| `helix.notification.reset-password.code-ttl` | `1h` | How long a password-reset code works. Single-use; an expired or used code is refused on the reset page. |
+| `helix.notification.signup.code-ttl` | `24h` | How long the sign-up verification code works. Single-use. |
+
 **Send rate cap** ([section 10](#10-the-send-rate-cap))
 
 | Property | Default | Purpose |
@@ -286,7 +293,9 @@ Secret files are read at every send and realm providers at every send, so rotati
   address ([section 9](#9-bounces)).
 - **No retry past the code's expiry.** Each email that carries a code or link records when it stops working: the
   one-time code 5 minutes, the magic link its lifetime (15 minutes), the verification and email-change links theirs
-  (24 hours). The password-reset email is not retried after 1 hour (the reset code itself has no server-side expiry).
+  (24 hours), the password-reset code 1 hour (`helix.notification.reset-password.code-ttl`) and the sign-up
+  verification code 24 hours (`helix.notification.signup.code-ttl`). Every one of these codes and links is also
+  single-use and refused by the server once expired.
   A retry that would be due at or after that moment is not queued, and a queued retry found expired (for example
   after downtime) is dropped. The user can always ask for a new email.
 - **Persisted.** A retry is stored in the `email_retry` table, so a restart or a new replica picks it up. The rendered
