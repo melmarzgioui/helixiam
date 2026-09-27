@@ -42,6 +42,7 @@ async function verify(token) {
   if (!h || !p || !sig) throw new Error('malformed token');
   const header = b64urlToJson(h);
   const payload = b64urlToJson(p);
+  if (header.alg !== 'RS256') throw new Error(`unsupported alg: ${header.alg}`);
 
   const keys = (await jwks()).keys || [];
   const jwk = keys.find((k) => k.kid === header.kid) || keys[0];
@@ -52,7 +53,9 @@ async function verify(token) {
   if (!ok) throw new Error('bad signature');
 
   if (payload.iss !== HELIX_ISSUER) throw new Error(`wrong issuer: ${payload.iss}`);
-  if (payload.exp && Date.now() / 1000 > payload.exp) throw new Error('expired');
+  const now = Date.now() / 1000;
+  if (typeof payload.exp !== 'number' || now > payload.exp) throw new Error('expired or missing exp');
+  if (typeof payload.nbf === 'number' && now < payload.nbf) throw new Error('not yet valid');
 
   const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud].filter(Boolean);
   if (!aud.includes(MCP_RESOURCE)) throw new Error(`token aud ${JSON.stringify(aud)} not bound to ${MCP_RESOURCE}`);
@@ -62,6 +65,12 @@ async function verify(token) {
     if (!scopes.includes(REQUIRED_SCOPE)) throw new Error(`missing scope ${REQUIRED_SCOPE}`);
   }
   return payload;
+}
+
+/** The bearer token from an Authorization header, or '' when there is none (verify() then rejects it). */
+function bearerToken(header) {
+  const m = /^Bearer[ ]+([A-Za-z0-9._~+/=-]+)[ ]*$/.exec(header || '');
+  return m ? m[1] : '';
 }
 
 function send(res, status, body, headers = {}) {
@@ -82,15 +91,12 @@ const server = http.createServer(async (req, res) => {
 
   // The protected MCP endpoint (a stand-in for tools/call).
   if (req.method === 'POST' && req.url === '/mcp') {
-    const auth = req.headers.authorization || '';
     const metadataUrl = `${MCP_RESOURCE}/.well-known/oauth-protected-resource`;
-    if (!auth.startsWith('Bearer ')) {
-      // MCP/RFC 9728: tell the client where to discover how to authenticate.
-      return send(res, 401, { error: 'invalid_token', error_description: 'missing bearer token' },
-        { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl}"` });
-    }
+    // Every request goes through verify(): there is no branch on the raw header that could skip it. A missing
+    // or malformed header yields '' and fails verification like any other bad token.
+    const token = bearerToken(req.headers.authorization);
     try {
-      const claims = await verify(auth.slice(7).trim());
+      const claims = await verify(token);
       return send(res, 200, {
         ok: true,
         tool: 'echo',
@@ -107,6 +113,7 @@ const server = http.createServer(async (req, res) => {
         },
       });
     } catch (e) {
+      // MCP/RFC 9728: the challenge always tells the client where to discover how to authenticate.
       return send(res, 401, { error: 'invalid_token', error_description: String(e.message) },
         { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl}", error="invalid_token"` });
     }
