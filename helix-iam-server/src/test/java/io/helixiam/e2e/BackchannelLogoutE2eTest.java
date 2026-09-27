@@ -26,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>A5: a session revoked by an admin (an {@code /admin/**} request, outside any realm route) is announced
  *       with tokens signed by the SESSION's realm key and carrying that realm's issuer — they used to be signed
  *       with the master realm's key, so every RP validating against its realm JWKS rejected them.</li>
+ *   <li>A9: logout tokens carry a short {@code exp} and a {@code jti} unique per token, so an RP can reject a
+ *       replay (see {@code docs/oidc-sessions-and-logout.md}).</li>
  * </ul>
  *
  * Every {@code logout_token} is validated the way an RP must: signature against the realm JWKS, {@code iss},
@@ -36,6 +38,8 @@ class BackchannelLogoutE2eTest extends AbstractE2eTest {
 
     private static final String PASSWORD = "Backchannel-Logout-Passw0rd!";
     private static final String EVENT = "http://schemas.openid.net/event/backchannel-logout";
+    /** A9: logout tokens are short-lived (the default is 120 s). */
+    private static final long MAX_LOGOUT_TOKEN_LIFETIME = 300;
 
     private String realm;
     private String webBackchannel;
@@ -89,11 +93,25 @@ class BackchannelLogoutE2eTest extends AbstractE2eTest {
         assertValidLogoutToken(a, CapturingBackchannelPoster.tokensFor(webBackchannel).get(0), "web", sidA);
         assertValidLogoutToken(a, CapturingBackchannelPoster.tokensFor(portalBackchannel).get(0), "portal", sidA);
 
-        // Every authorization of session A is gone (including web's older one); session B is untouched.
+        // Session B is untouched by A's logout.
+        final OidcFlow.Tokens bRefreshed = b.refresh("web", web.secret(), bWeb.refreshToken());
+        assertThat(bRefreshed.accessToken()).isNotBlank();
+
+        // A9: every logout_token has its own jti (RPs reject a repeated one), also across logouts.
+        final E2eHttp.Response revokeB = adminSession().delete("/admin/realms/" + realm + "/sessions/"
+                + enc(sid(b, bWeb.idToken())));
+        assertThat(revokeB.status()).as(revokeB.toString()).isEqualTo(204);
+        final List<String> jtis = new java.util.ArrayList<>();
+        for (final String t : CapturingBackchannelPoster.tokensFor(webBackchannel)) {
+            jtis.add(OidcFlow.claims(t).get("jti").toString());
+        }
+        jtis.add(OidcFlow.claims(CapturingBackchannelPoster.tokensFor(portalBackchannel).get(0)).get("jti").toString());
+        assertThat(jtis).hasSize(3).doesNotHaveDuplicates();
+
+        // Every authorization of session A is gone (including web's older one).
         assertRefreshRejected(a, "web", web.secret(), aWeb.refreshToken());
         assertRefreshRejected(a, "web", web.secret(), aWeb2.refreshToken());
         assertRefreshRejected(a, "portal", portal.secret(), aPortal.refreshToken());
-        assertThat(b.refresh("web", web.secret(), bWeb.refreshToken()).accessToken()).isNotBlank();
     }
 
     @Test
@@ -147,6 +165,10 @@ class BackchannelLogoutE2eTest extends AbstractE2eTest {
             assertThat((Map<?, ?>) claims.getJSONObjectClaim("events").get(EVENT)).isEmpty();
             assertThat(claims.getStringClaim("sid")).isEqualTo(sid);
             assertThat(claims.getClaim("nonce")).as("a logout_token must not carry a nonce").isNull();
+            // A9: short-lived, so a captured token cannot be replayed for long.
+            assertThat(claims.getExpirationTime()).as("exp").isNotNull().isAfter(new java.util.Date());
+            final long lifetime = (claims.getExpirationTime().getTime() - claims.getIssueTime().getTime()) / 1000;
+            assertThat(lifetime).as("exp - iat (seconds)").isPositive().isLessThanOrEqualTo(MAX_LOGOUT_TOKEN_LIFETIME);
         } catch (final java.text.ParseException e) {
             throw new AssertionError(e);
         }

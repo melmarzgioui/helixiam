@@ -56,6 +56,10 @@ class LogoutTokenIssuerTest {
         assertNotNull(claims.get("jti"));
         assertNotNull(claims.get("iat"));
         assertFalse(claims.containsKey("nonce"), "a logout_token must never carry a nonce");
+        // A9: short-lived.
+        final java.time.Instant iat = (java.time.Instant) claims.get("iat");
+        final java.time.Instant exp = (java.time.Instant) claims.get("exp");
+        assertEquals(LogoutTokenIssuer.DEFAULT_TTL_SECONDS, exp.getEpochSecond() - iat.getEpochSecond());
         final Map<String, Object> events = (Map<String, Object>) claims.get("events");
         assertTrue(events.containsKey(EVENTS_URN), "events must contain the back-channel-logout URN");
     }
@@ -84,6 +88,25 @@ class LogoutTokenIssuerTest {
         } finally {
             io.helixiam.authorization.security.realm.RealmContextHolder.clear();
         }
+    }
+
+    @Test
+    void issue_givesEveryTokenItsOwnJti_andClampsTheLifetime() {
+        final Jwt jwt = mock(Jwt.class);
+        when(jwt.getTokenValue()).thenReturn("t");
+        when(jwtEncoder.encode(any())).thenReturn(jwt);
+        final LogoutTokenIssuer longLived = new LogoutTokenIssuer(jwtEncoder, 86_400);
+
+        longLived.issue("master", "https://idp/realms/master", "a", "user-1", "sid-1");
+        longLived.issue("master", "https://idp/realms/master", "a", "user-1", "sid-1");
+
+        final ArgumentCaptor<JwtEncoderParameters> captor = ArgumentCaptor.forClass(JwtEncoderParameters.class);
+        verify(jwtEncoder, org.mockito.Mockito.times(2)).encode(captor.capture());
+        final Map<String, Object> first = captor.getAllValues().get(0).getClaims().getClaims();
+        final Map<String, Object> second = captor.getAllValues().get(1).getClaims().getClaims();
+        org.junit.jupiter.api.Assertions.assertNotEquals(first.get("jti"), second.get("jti"));
+        assertEquals(600, ((java.time.Instant) first.get("exp")).getEpochSecond()
+                - ((java.time.Instant) first.get("iat")).getEpochSecond(), "lifetime capped at 10 minutes");
     }
 
     @Test

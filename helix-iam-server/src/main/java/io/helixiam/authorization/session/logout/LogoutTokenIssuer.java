@@ -21,8 +21,9 @@ import java.util.UUID;
 /**
  * Helix IAM SSO P6: mints the OIDC Back-Channel Logout {@code logout_token} (a short JWT, RS256, signed
  * with the session realm's active key via the shared {@link JwtEncoder}). Per the spec it carries {@code iss},
- * {@code aud}=clientId, {@code sub}, {@code iat}, {@code jti}, the back-channel-logout {@code events} URN,
- * and {@code sid} when known — and explicitly NO {@code nonce}.
+ * {@code aud}=clientId, {@code sub}, {@code iat}, a short {@code exp}, a unique {@code jti}, the
+ * back-channel-logout {@code events} URN, and {@code sid} when known — and explicitly NO {@code nonce}.
+ * Relying parties should reject a {@code jti} they have already seen until its {@code exp} (A9).
  */
 @Component
 public class LogoutTokenIssuer {
@@ -30,10 +31,24 @@ public class LogoutTokenIssuer {
     /** The OIDC Back-Channel Logout event URN that marks a JWT as a logout_token. */
     public static final String BACKCHANNEL_LOGOUT_EVENT = "http://schemas.openid.net/event/backchannel-logout";
 
+    /** Default lifetime of a logout_token in seconds (A9): long enough for delivery, short against replay. */
+    public static final long DEFAULT_TTL_SECONDS = 120;
+
     private final JwtEncoder jwtEncoder;
+    private final long ttlSeconds;
 
     public LogoutTokenIssuer(final JwtEncoder jwtEncoder) {
+        this(jwtEncoder, DEFAULT_TTL_SECONDS);
+    }
+
+    /** {@code ttlSeconds}: the logout_token lifetime ({@code helix.oidc.logout-token-ttl-seconds}, 1..600). */
+    @org.springframework.beans.factory.annotation.Autowired
+    public LogoutTokenIssuer(final JwtEncoder jwtEncoder,
+                             @org.springframework.beans.factory.annotation.Value(
+                                     "${helix.oidc.logout-token-ttl-seconds:" + DEFAULT_TTL_SECONDS + "}")
+                             final long ttlSeconds) {
         this.jwtEncoder = jwtEncoder;
+        this.ttlSeconds = Math.max(1, Math.min(600, ttlSeconds));
     }
 
     /**
@@ -46,6 +61,7 @@ public class LogoutTokenIssuer {
      */
     public String issue(final String realm, final String issuer, final String clientId, final String subject,
                         final String sid) {
+        final Instant now = Instant.now();
         final Map<String, Object> events = new LinkedHashMap<>();
         events.put(BACKCHANNEL_LOGOUT_EVENT, new LinkedHashMap<>());
 
@@ -53,7 +69,9 @@ public class LogoutTokenIssuer {
                 .issuer(issuer)
                 .subject(subject)
                 .audience(List.of(clientId))
-                .issuedAt(Instant.now())
+                .issuedAt(now)
+                // A9: short-lived and one jti per token (random, never reused), so an RP can reject a replay.
+                .expiresAt(now.plusSeconds(ttlSeconds))
                 .id(UUID.randomUUID().toString())
                 .claim("events", events);
         if (sid != null && !sid.isBlank()) {
