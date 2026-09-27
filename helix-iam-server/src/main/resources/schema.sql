@@ -952,3 +952,21 @@ CREATE TABLE IF NOT EXISTS notification_code (
     creation_date timestamp DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS notification_code_identifier_idx ON notification_code (identifier, type);
+
+-- Structured theming: realm and organization theme layers (same as Flyway V19). The legacy branding columns are
+-- moved into them at startup by LegacyBrandingBackfill (the Flyway path does it in V20).
+CREATE TABLE IF NOT EXISTS realm_theme (
+    realm_id   character varying(255) NOT NULL PRIMARY KEY,
+    theme_json text NOT NULL,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (realm_id) REFERENCES realm_config(realm_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS organization_theme (
+    org_id     character varying(255) NOT NULL PRIMARY KEY,
+    realm_id   character varying(255) NOT NULL,
+    theme_json text NOT NULL,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (org_id) REFERENCES organization(org_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS organization_theme_realm_idx ON organization_theme (realm_id);
