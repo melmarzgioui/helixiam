@@ -59,7 +59,9 @@ curl -s -X POST -H "$AUTH" -H 'Content-Type: application/json' \
 # {"sent":true,"message":"Test email sent.","result":"ACCEPTED","reason":"NONE","diagnostic":"HTTP 200",...}
 ```
 
-The test email is sent once: it is never retried and never marks a bounce, but the send rate cap applies.
+Add `"driver": "SMTP"` (or `CLOUDFLARE`, `HTTP`, `LOG`) to test a provider you have saved but not enabled yet,
+before you switch to it. The test email is sent once: it is never retried and never marks a bounce, but the send
+rate cap applies.
 
 ## 2. The sending domain: SPF, DKIM and DMARC
 
@@ -204,7 +206,7 @@ curl -s -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
 | `GET /admin/realms/{realm}/messaging/providers` | The realm's providers (`secretSet` says whether a secret is stored; the secret itself is never returned). |
 | `PUT /admin/realms/{realm}/messaging/providers` | Create or replace the provider for a `channel` and `driver`. A blank `secret` keeps the stored one. |
 | `DELETE /admin/realms/{realm}/messaging/providers/{channel}/{driver}` | Remove a provider. |
-| `POST /admin/realms/{realm}/messaging/providers/EMAIL/test` | Send a test email: `{"to": "…"}` → `{sent, message, result, reason, diagnostic, providerMessageId}`. |
+| `POST /admin/realms/{realm}/messaging/providers/{channel}/test` | Send a test: `{"to": "…", "driver": "SMTP"}` → `{sent, message, result, reason, diagnostic, providerMessageId, driver}` (the last five for EMAIL). `driver` is optional: with it, the realm's provider with that driver is tested **even when it is disabled**; without it, the active provider. An unknown driver is a 400 (`fieldErrors.driver`); a known one the realm has not configured answers `sent: false`. |
 | `GET /admin/realms/{realm}/users/{userId}` | Includes `emailBounced` and `emailBouncedAt` ([section 9](#9-bounces)). |
 
 Fields of an `EMAIL` provider: `channel` (`EMAIL`), `driver` (`SMTP`, `CLOUDFLARE`, `HTTP` or `LOG`), `enabled`,

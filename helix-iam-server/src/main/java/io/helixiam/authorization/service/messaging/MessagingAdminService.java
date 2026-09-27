@@ -58,6 +58,20 @@ public class MessagingAdminService {
                 .toList();
     }
 
+    /**
+     * One provider of the realm by channel and driver (case-insensitive), enabled or not, WITH its secret: the admin
+     * test endpoint tests exactly that provider. Server-side only.
+     */
+    public java.util.Optional<io.helixiam.authorization.domain.messaging.admin.ResolvedProviderDto> resolveProvider(
+            final String realmId, final String channel, final String driver) {
+        return providers.findByRealmIdAndChannel(realmId, channel).stream()
+                .filter(p -> p.getDriver() != null && p.getDriver().equalsIgnoreCase(driver))
+                .findFirst()
+                .map(p -> new io.helixiam.authorization.domain.messaging.admin.ResolvedProviderDto(
+                        p.getChannel(), p.getDriver(), p.getFromAddress(), p.getFromName(),
+                        readJson(p.getConfig()), p.getSecret()));
+    }
+
     @Transactional
     public MessagingProviderDto saveProvider(final MessagingProviderWriteDto write) {
         final MessagingProvider entity = providers

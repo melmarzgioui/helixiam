@@ -64,6 +64,12 @@ public class MessagingAdminLocalAdapter implements MessagingAdminPublisher {
     }
 
     @Override
+    public ResolvedProviderDto resolveProvider(final MessagingProviderKey key) {
+        return service.resolveProvider(key.realmId(), key.channel(), key.driver())
+                .map(p -> bridge.to(p, ResolvedProviderDto.class)).orElse(null);
+    }
+
+    @Override
     public List<MessageTemplateDto> listTemplates(final String realmId) {
         return bridge.to(service.listTemplates(realmId), new TypeReference<List<MessageTemplateDto>>() { });
     }

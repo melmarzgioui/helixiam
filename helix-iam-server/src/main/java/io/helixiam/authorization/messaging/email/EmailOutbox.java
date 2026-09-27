@@ -119,12 +119,23 @@ public class EmailOutbox {
 
     /** Sends {@code message} for {@code realm} (null: outside a realm); see the class description. Never throws. */
     public EmailSendOutcome send(final String realm, final EmailMessage message, final SendOptions options) {
+        return send(realm, null, message, options);
+    }
+
+    /**
+     * As {@link #send(String, EmailMessage, SendOptions)}, through {@code provider} when given (the admin test endpoint
+     * testing one particular, possibly disabled, provider); null resolves the realm's active provider. Retries always
+     * resolve the active provider again.
+     */
+    public EmailSendOutcome send(final String realm, final ResolvedProviderDto provider, final EmailMessage message,
+                                 final SendOptions options) {
         final Optional<EmailSendOutcome> capped = checkRateCap(realm);
         if (capped.isPresent()) {
             return capped.get();
         }
         final Instant firstAttempt = clock.instant();
-        final DeliveryResult result = delivery.deliver(realm, message);
+        final DeliveryResult result = provider == null ? delivery.deliver(realm, message)
+                : delivery.deliver(realm, provider, message);
         if (!options.track) {
             return new EmailSendOutcome(result, false);
         }

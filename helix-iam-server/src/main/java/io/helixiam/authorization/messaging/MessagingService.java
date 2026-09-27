@@ -66,7 +66,12 @@ public class MessagingService {
 
     /** Render {@code templateKey} and SMS it to {@code to}; false if the realm has no SMS provider. */
     public boolean sendSms(final String realm, final String to, final String templateKey, final Map<String, String> vars) {
-        final ResolvedProviderDto provider = firstEnabled(realm, "SMS");
+        return sendSms(realm, firstEnabled(realm, "SMS"), to, templateKey, vars);
+    }
+
+    /** Render {@code templateKey} and SMS it to {@code to} through {@code provider}; false when it is null or unknown. */
+    public boolean sendSms(final String realm, final ResolvedProviderDto provider, final String to,
+                           final String templateKey, final Map<String, String> vars) {
         if (provider == null) {
             return false;
         }
@@ -125,12 +130,27 @@ public class MessagingService {
      */
     public Optional<DeliveryResult> sendEmailWithResult(final String realm, final String to, final String templateKey,
                                                         final Map<String, String> vars) {
-        if (outbox.realmProvider(realm).isEmpty()) {
+        return sendEmailWithResult(realm, null, to, templateKey, vars);
+    }
+
+    /**
+     * As {@link #sendEmailWithResult(String, String, String, Map)}, through {@code provider} when given (enabled or
+     * not); null uses the realm's active email provider.
+     */
+    public Optional<DeliveryResult> sendEmailWithResult(final String realm, final ResolvedProviderDto provider,
+                                                        final String to, final String templateKey,
+                                                        final Map<String, String> vars) {
+        if (provider == null && outbox.realmProvider(realm).isEmpty()) {
             return Optional.empty();
         }
         final Rendered r = render(realm, templateKey, vars);
         final EmailMessage message = EmailMessage.of(null, to, r.subject(), r.body(), r.html(), r.text());
-        return Optional.of(outbox.send(realm, message, EmailOutbox.SendOptions.TEST).result());
+        return Optional.of(outbox.send(realm, provider, message, EmailOutbox.SendOptions.TEST).result());
+    }
+
+    /** The driver of the realm's active (enabled) email provider, if it has one. */
+    public Optional<String> activeEmailDriver(final String realm) {
+        return outbox.realmProvider(realm).map(ResolvedProviderDto::driver);
     }
 
     /** The outbox email goes through (rate caps, retries, bounces); without one, a single synchronous attempt. */
@@ -158,6 +178,16 @@ public class MessagingService {
         } catch (final RuntimeException e) {
             LOG.warn("Could not resolve PUSH providers for realm {}: {}",
                     LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
+            return false;
+        }
+        return sendPush(realm, providers, deviceTokens, templateKey, vars, data);
+    }
+
+    /** As {@link #sendPush(String, List, String, Map, Map)}, through the given {@code providers}. */
+    public boolean sendPush(final String realm, final List<ResolvedProviderDto> providers,
+                            final List<DevicePushTokenDto> deviceTokens, final String templateKey,
+                            final Map<String, String> vars, final Map<String, String> data) {
+        if (deviceTokens == null || deviceTokens.isEmpty()) {
             return false;
         }
         if (providers == null || providers.isEmpty()) {

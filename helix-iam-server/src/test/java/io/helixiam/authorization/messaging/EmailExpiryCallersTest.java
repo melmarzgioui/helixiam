@@ -130,11 +130,11 @@ class EmailExpiryCallersTest {
     void theAdminTestSend_isOneAttempt_neverQueued() {
         final EmailOutbox outbox = mock(EmailOutbox.class);
         final MessagingService service = realService(outbox);
-        when(outbox.send(eq("acme"), any(), eq(EmailOutbox.SendOptions.TEST))).thenReturn(
+        when(outbox.send(eq("acme"), any(), any(EmailMessage.class), eq(EmailOutbox.SendOptions.TEST))).thenReturn(
                 new EmailSendOutcome(DeliveryResult.accepted(null, null), false));
 
         assertThat(service.sendEmailWithResult("acme", "ada@example.org", "otp-email", Map.of())).isPresent();
 
-        verify(outbox).send(eq("acme"), any(), eq(EmailOutbox.SendOptions.TEST));
+        verify(outbox).send(eq("acme"), any(), any(EmailMessage.class), eq(EmailOutbox.SendOptions.TEST));
     }
 }
