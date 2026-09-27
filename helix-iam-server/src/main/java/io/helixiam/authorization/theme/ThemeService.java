@@ -357,8 +357,14 @@ public class ThemeService {
         return new ThemeValidator(catalog.getIfAvailable(() -> ThemeAssetCatalog.NONE), allowedImageOrigins);
     }
 
-    private void invalidate(final String realmId) {
+    /** Drops the cached effective themes of a realm (done on every local write; for base-layer reloads). */
+    public void invalidate(final String realmId) {
         cache.keySet().removeIf(k -> k.startsWith(realmId + "|"));
+    }
+
+    /** Drops every cached effective theme (e.g. after file themes were reloaded). */
+    public void invalidateAll() {
+        cache.clear();
     }
 
     private static Theme read(final String json, final String owner) {
