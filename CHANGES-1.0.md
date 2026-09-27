@@ -3,6 +3,12 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.4`)
+
+Open issues after the Monthfold production switch (`docs/superpowers/specs/2026-09-27-monthfold-open-issues.md`).
+
+- **C2** — A client secret can be set by the caller: optional `clientSecret` on client create, update and realm import (`clientSecret` or `secret`, `${ENV}` placeholders resolved), and `POST /admin/realms/{r}/clients/{id}/secret` with `{"secret": "..."}` (204; without a secret it still rotates and returns the generated one once). 32–120 printable ASCII characters; stored exactly like a generated secret (AES-GCM at rest); never returned, logged or exported; audited as `CLIENT_SECRET_ROTATE` without the value. A secret containing the letters `noop` is no longer mistaken for an already-prefixed one (it failed client authentication).
+
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 
 First CodeQL, Trivy and Dependabot results on `master` (the workflows had been listening on `main`).

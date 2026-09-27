@@ -5,14 +5,20 @@
 
 package io.helixiam.authorization.amqp.client;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
 
-/** Helix IAM E8.5-S3: publisher-side view of an OAuth client (mirrors the subscriber's domain copy). */
+/**
+ * Helix IAM E8.5-S3: publisher-side view of an OAuth client (mirrors the subscriber's domain copy). {@code secret}
+ * is set only on a create/rotate response (returned once) and when read from an import document, where
+ * {@code clientSecret} is accepted as well (C2); exports always null it ({@code SecretMasking}).
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ClientDto(String realmId, String id, String clientId, List<String> grantTypes,
-                        List<String> redirectUris, List<String> scopes, String secret, String subjectClaim,
+                        List<String> redirectUris, List<String> scopes,
+                        @JsonAlias("clientSecret") String secret, String subjectClaim,
                         String authFlowAlias, String name, String description,
                         List<String> postLogoutRedirectUris, List<String> webOrigins,
                         Boolean publicClient, Boolean consentRequired, Boolean displayOnConsentScreen,
