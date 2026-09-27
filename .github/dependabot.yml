@@ -1,5 +1,7 @@
 version: 2
 # Keep dependencies and pinned action SHAs current. Grouped, weekly PRs to keep the noise low.
+# Major versions of the frameworks the 1.0 line is built on are ignored here: those upgrades are planned
+# work (see ROADMAP.md, "Post-1.0 platform upgrades"), not weekly bumps. Minor and patch updates still flow.
 updates:
   - package-ecosystem: maven
     directory: /helix-iam-server
@@ -9,6 +11,17 @@ updates:
     groups:
       maven-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: "org.springframework.boot:*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.springframework.security:*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.springdoc:*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.flywaydb:*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.apache.santuario:xmlsec"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /helix-dashboard
@@ -18,6 +31,21 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "storybook"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@storybook/*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /helix-sandbox-rp
@@ -27,6 +55,13 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "openid-client"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "otplib"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: gomod
     directory: /terraform-provider-helix
@@ -39,6 +74,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # One PR for all actions: the codeql-action sub-actions (init/analyze/upload-sarif) must move together.
+    groups:
+      github-actions:
+        patterns: ["*"]
+    ignore:
+      # cosign-installer 4 installs cosign 3 (new bundle/signing defaults); move deliberately with a test release.
+      - dependency-name: "sigstore/cosign-installer"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directories:
@@ -48,3 +91,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Base images move only between LTS releases (Java 21/25, Node 22/24), chosen deliberately, never to a
+    # short-lived non-LTS release.
+    ignore:
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "maven"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
