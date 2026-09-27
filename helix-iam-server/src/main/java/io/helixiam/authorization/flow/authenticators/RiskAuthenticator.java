@@ -23,6 +23,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -72,17 +74,31 @@ public class RiskAuthenticator implements Authenticator {
     private final RiskPublisher publisher;
     private final RiskSignalGatherer gatherer;
     private final OtpVerifier otpVerifier;
+    /** The pinned cookie Secure policy ({@code helix.security.cookie-secure}), shared with the session cookie. */
+    private final boolean cookieSecure;
 
+    /** Secure-cookie default (tests / non-Spring wiring). */
     public RiskAuthenticator(final RiskPolicyResolver policyResolver,
                              final RiskEvaluator evaluator,
                              final RiskPublisher publisher,
                              final RiskSignalGatherer gatherer,
                              final OtpVerifier otpVerifier) {
+        this(policyResolver, evaluator, publisher, gatherer, otpVerifier, true);
+    }
+
+    @Autowired
+    public RiskAuthenticator(final RiskPolicyResolver policyResolver,
+                             final RiskEvaluator evaluator,
+                             final RiskPublisher publisher,
+                             final RiskSignalGatherer gatherer,
+                             final OtpVerifier otpVerifier,
+                             @Value("${helix.security.cookie-secure:true}") final boolean cookieSecure) {
         this.policyResolver = policyResolver;
         this.evaluator = evaluator;
         this.publisher = publisher;
         this.gatherer = gatherer;
         this.otpVerifier = otpVerifier;
+        this.cookieSecure = cookieSecure;
     }
 
     @Override
@@ -162,7 +178,7 @@ public class RiskAuthenticator implements Authenticator {
             fingerprint = RiskSignalGatherer.sha256(token);
             final Cookie cookie = new Cookie(RiskSignalGatherer.DEVICE_COOKIE, token);
             cookie.setHttpOnly(true);
-            cookie.setSecure(isSecure());
+            cookie.setSecure(cookieSecure); // pinned policy, not request.isSecure() (M4/M5)
             cookie.setPath("/");
             cookie.setMaxAge(DEVICE_COOKIE_MAX_AGE_SECONDS);
             response.addCookie(cookie);
@@ -190,11 +206,6 @@ public class RiskAuthenticator implements Authenticator {
     private static HttpServletResponse currentResponse() {
         final ServletRequestAttributes attrs = currentAttributes();
         return attrs == null ? null : attrs.getResponse();
-    }
-
-    private static boolean isSecure() {
-        final HttpServletRequest request = currentRequest();
-        return request != null && request.isSecure();
     }
 
     private static ServletRequestAttributes currentAttributes() {

@@ -23,6 +23,19 @@ public final class RealmAdminAuthorities {
     private RealmAdminAuthorities() {
     }
 
+    /** Prefix of every realm-admin authority; see {@link #isReservedRoleName}. */
+    public static final String RESERVED_ROLE_PREFIX = DefaultRoles.ADMIN + "_";
+
+    /**
+     * True for a role name that must never be created: one starting with {@code admin_} (any case). A realm id
+     * may contain {@code _}, so a role {@code admin_prod} in realm {@code acme} would carry the authority
+     * {@code admin_prod_acme} — indistinguishable from "admin of realm {@code prod_acme}" — and would also pass
+     * {@link #isAdminOfAny}. Reserving the prefix keeps {@code admin_<realmId>} unambiguous.
+     */
+    public static boolean isReservedRoleName(final String roleName) {
+        return roleName != null && roleName.regionMatches(true, 0, RESERVED_ROLE_PREFIX, 0, RESERVED_ROLE_PREFIX.length());
+    }
+
     private static String realmAdminAuthority(final String realmId) {
         return DefaultRoles.ADMIN + "_" + realmId;
     }

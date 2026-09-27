@@ -56,8 +56,8 @@ The `dev` profile (`application-dev.properties`) overlays local-friendly default
 `src/main/resources/db/migration` (the default; the legacy idempotent `schema.sql` path remains available
 with `HELIX_MIGRATIONS_ENABLED=false HELIX_SQL_INIT_MODE=always`) and the app seeds the `master` realm: an
 `admin` user (username via `HELIX_ADMIN_USERNAME`, default `admin`; password via
-`HELIX_ADMIN_PASSWORD` — **if unset, a strong random password is generated and printed to the logs
-once on first boot**), default `user` / `auditor` roles, and a self-generated RSA signing keypair.
+`HELIX_ADMIN_PASSWORD` — **if unset, a strong random password is generated once on first boot and
+written (0600) to `HELIX_ADMIN_PASSWORD_FILE`, default `$TMPDIR/helixiam-admin-password` (never logged)**), default `user` / `auditor` roles, and a self-generated RSA signing keypair.
 
 ## Key configuration
 

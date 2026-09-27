@@ -12,6 +12,7 @@ import io.helixiam.authorization.domain.user.UserRoles;
 import io.helixiam.authorization.repository.UserInRoleRepository;
 import io.helixiam.authorization.repository.UserRolesRepository;
 import io.helixiam.authorization.repository.tenant.TenantUserRepository;
+import io.helixiam.authorization.security.adminrbac.RealmAdminAuthorities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +56,11 @@ public class RoleAdminService {
         // Invariant guard: a role must have a name.
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("Role name is required.");
+        }
+        // Invariant guard (admin API validates the same; this also covers realm import): "admin_<x>" would be
+        // read as the realm-admin authority of realm "<x>_<realmId>".
+        if (RealmAdminAuthorities.isReservedRoleName(name)) {
+            throw new IllegalArgumentException("Role names starting with 'admin_' are reserved.");
         }
         if (userRolesRepository.existsByTenantIdAndName(realmId, name)) {
             return userRolesRepository.findByTenantIdAndName(realmId, name).map(r -> toDto(realmId, r)).orElse(null);

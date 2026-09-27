@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
@@ -39,7 +40,7 @@ import java.util.Base64;
  * <p>The bootstrap admin username comes from config (env-overridable): {@code helix.admin.username}
  * (default {@code admin}, env {@code HELIX_ADMIN_USERNAME}). The password comes from
  * {@code helix.admin.password} (env {@code HELIX_ADMIN_PASSWORD}); when it is left unset, a strong random
- * password is generated once and logged (a fresh zero-config deployment stays usable but never ships a
+ * password is generated once and written 0600 to a file whose path is logged (a fresh zero-config deployment stays usable but never ships a
  * known default such as {@code admin/admin}). Usernames are globally unique, so the master realm uses the
  * configured username verbatim and every other realm gets a realm-qualified {@code <username>-<realm>}.
  */
@@ -48,6 +49,8 @@ public class RealmAdminBootstrapService {
 
     private static final Logger LOG = LogManager.getLogger(RealmAdminBootstrapService.class);
     public static final String ADMIN_ROLE = "admin";
+    /** File name of the generated password under {@code java.io.tmpdir} when no helix.admin.password-file is set. */
+    public static final String DEFAULT_PASSWORD_FILE_NAME = "helixiam-admin-password";
 
     private final TenantRepository tenantRepository;
     private final UserRolesRepository userRolesRepository;
@@ -58,7 +61,7 @@ public class RealmAdminBootstrapService {
     private final String adminUsername;
     /** From config; blank means "generate a strong one-time password instead of shipping a known default". */
     private final String configuredPassword;
-    /** Optional path (helix.admin.password-file) to write a generated password to, 0600, instead of logging it. */
+    /** Optional path (helix.admin.password-file) for a generated password (0600); blank = <java.io.tmpdir>/helixiam-admin-password. */
     private final String passwordFilePath;
     private volatile String bootstrapPassword;
 
@@ -90,7 +93,7 @@ public class RealmAdminBootstrapService {
 
     /**
      * The password to set when creating a NEW bootstrap admin. Uses {@code helix.admin.password} when set;
-     * otherwise generates a strong random password ONCE (cached, reused across realms) and logs it, so a
+     * otherwise generates a strong random password ONCE (cached, reused across realms) and writes it to a 0600 file, so a
      * zero-config deployment is usable without ever shipping a known default credential.
      */
     synchronized String resolveBootstrapPassword() {
@@ -98,19 +101,22 @@ public class RealmAdminBootstrapService {
             return configuredPassword;
         }
         if (bootstrapPassword == null) {
-            bootstrapPassword = generateStrongPassword();
-            // L6: when a password file is configured, write it there (0600) and log ONLY the path,
-            // so the credential does not sit in the logs. Falls back to logging it if the write fails.
-            final boolean wroteFile = passwordFilePath != null && !passwordFilePath.isBlank()
-                    && writePasswordFile(passwordFilePath, bootstrapPassword);
+            final String generated = generateStrongPassword();
+            // L6 / CodeQL java/sensitive-log: the generated credential is NEVER logged. It is written 0600 to
+            // helix.admin.password-file, or to <java.io.tmpdir>/helixiam-admin-password when none is set, and
+            // only that path is logged. If it cannot be written there is nowhere safe to deliver it, so refuse
+            // rather than create an admin nobody can sign in as.
+            final String target = passwordFilePath != null && !passwordFilePath.isBlank() ? passwordFilePath
+                    : Path.of(System.getProperty("java.io.tmpdir"), DEFAULT_PASSWORD_FILE_NAME).toString();
+            if (!writePasswordFile(target, generated)) {
+                throw new IllegalStateException("No helix.admin.password (HELIX_ADMIN_PASSWORD) configured and the "
+                        + "generated bootstrap admin password could not be written to " + target
+                        + " — set HELIX_ADMIN_PASSWORD, or HELIX_ADMIN_PASSWORD_FILE to a writable path");
+            }
+            bootstrapPassword = generated;
             LOG.warn("=====================================================================");
             LOG.warn("No helix.admin.password (HELIX_ADMIN_PASSWORD) configured — generated a one-time");
-            LOG.warn("bootstrap admin password.");
-            if (wroteFile) {
-                LOG.warn("Written (0600) to: {}", passwordFilePath);
-            } else {
-                LOG.warn("Password: {}", bootstrapPassword);
-            }
+            LOG.warn("bootstrap admin password, written (0600) to: {}", target);
             LOG.warn("Sign in, change it, and set HELIX_ADMIN_PASSWORD for future deployments.");
             LOG.warn("=====================================================================");
         }
@@ -118,42 +124,41 @@ public class RealmAdminBootstrapService {
     }
 
     /**
-     * Write the password to {@code path} with owner-only (0600) permissions, created ATOMICALLY so the
-     * credential is never even briefly world-readable. On any failure the (possibly partial) file is
-     * removed so the password is never left readable on disk, and false is returned — the caller then
-     * logs it as the documented fallback, so the credential lands in exactly one place, never both.
+     * Write the password to {@code path} with owner-only (0600) permissions: a 0600 temp file in the same
+     * directory is written and then atomically renamed over {@code path}, so the credential is never even
+     * briefly world-readable and a reader never sees a partial file. On any failure the temp file is removed
+     * and false is returned (the caller then refuses — the password is never logged instead).
      */
     private static boolean writePasswordFile(final String path, final String password) {
-        Path file = null;
         try {
-            file = Path.of(path);
+            final Path file = Path.of(path);
             if (file.getParent() != null) {
                 Files.createDirectories(file.getParent());
             }
-            Files.deleteIfExists(file);
+            final Path dir = file.toAbsolutePath().getParent();
+            Path tmp;
             try {
                 // POSIX: create with rw------- as a file attribute (no world-readable window).
-                Files.createFile(file, PosixFilePermissions.asFileAttribute(
+                tmp = Files.createTempFile(dir, ".helix-admin-", ".tmp", PosixFilePermissions.asFileAttribute(
                         PosixFilePermissions.fromString("rw-------")));
             } catch (final UnsupportedOperationException nonPosix) {
                 // Non-POSIX filesystem (e.g. Windows): create then best-effort owner-only via the File API.
-                Files.createFile(file);
-                final java.io.File f = file.toFile();
+                tmp = Files.createTempFile(dir, ".helix-admin-", ".tmp");
+                final java.io.File f = tmp.toFile();
                 f.setReadable(false, false);
                 f.setReadable(true, true);
                 f.setWritable(false, false);
                 f.setWritable(true, true);
             }
-            Files.writeString(file, password + System.lineSeparator(), StandardOpenOption.WRITE);
+            try {
+                Files.writeString(tmp, password + System.lineSeparator(), StandardOpenOption.WRITE);
+                // Atomic replace: concurrent boots sharing the directory never see a partial/foreign file.
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } finally {
+                Files.deleteIfExists(tmp);
+            }
             return true;
         } catch (final Exception e) {
-            if (file != null) {
-                try {
-                    Files.deleteIfExists(file); // never leave a partial credential file behind
-                } catch (final Exception cleanup) {
-                    LOG.warn("Could not remove a partial bootstrap admin password file {}: {}", path, cleanup.getMessage());
-                }
-            }
             LOG.warn("Could not write the bootstrap admin password file {}: {}", path, e.getMessage());
             return false;
         }

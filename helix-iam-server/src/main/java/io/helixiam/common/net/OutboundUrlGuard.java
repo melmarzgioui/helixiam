@@ -234,9 +234,24 @@ public class OutboundUrlGuard {
         return Boolean.parseBoolean(System.getProperty("helix.egress.allow-private", "false"));
     }
 
-    /** Truncate for logging so a huge/hostile URL can't blow up the log line. */
+    /**
+     * The URL reduced to {@code scheme://host[:port]} for logs and exception messages. Userinfo, path and query
+     * are dropped: webhook / logout / JWKS URLs routinely carry credentials or tokens there (a Slack hook path,
+     * {@code ?token=}, {@code user:pass@}). Truncated and CR/LF-stripped so a hostile URL can't forge log lines.
+     */
     private static String safe(final String url) {
-        final String s = url == null ? "" : url;
+        String s = "(unparseable URL)";
+        try {
+            final URI uri = new URI(url == null ? "" : url.trim());
+            if (uri.getHost() != null) {
+                s = (uri.getScheme() == null ? "" : uri.getScheme() + "://") + uri.getHost()
+                        + (uri.getPort() >= 0 ? ":" + uri.getPort() : "");
+            } else if (uri.getScheme() != null) {
+                s = uri.getScheme() + ":…";
+            }
+        } catch (final URISyntaxException e) {
+            // keep the placeholder: a malformed URL is never echoed verbatim
+        }
         return (s.length() > 200 ? s.substring(0, 200) + "…" : s).replaceAll("[\\r\\n]", "");
     }
 }

@@ -187,6 +187,7 @@ public class WorkloadIdentityTokenController {
             return credential.jwksUri().trim();
         }
         final String discovery = credential.issuer() + "/.well-known/openid-configuration";
+        verifier.checkEgress(discovery); // M6: the issuer is admin-configured; the exchange is unauthenticated
         final HttpResponse<String> resp = http.send(
                 HttpRequest.newBuilder(URI.create(discovery)).header("Accept", "application/json")
                         .timeout(Duration.ofSeconds(5)).GET().build(),

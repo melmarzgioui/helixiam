@@ -83,6 +83,16 @@ class RoleAdminServiceTest {
     }
 
     @Test
+    void create_rejectsAReservedAdminPrefixedName_soItCannotPoseAsAnotherRealmsAdmin() {
+        // "admin_prod" in realm "gov" → authority "admin_prod_gov" == admin of realm "prod_gov".
+        final IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.create("gov", "admin_prod"));
+        assertEquals("Role names starting with 'admin_' are reserved.", ex.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> service.create("gov", "Admin_Prod"));
+        verify(userRolesRepository, never()).save(any());
+    }
+
+    @Test
     void delete_removesAssignmentsThenRole_whenRoleBelongsToRealm() {
         final UserRoles role = role("auditor", "gov");
         when(userRolesRepository.findById("r-1")).thenReturn(Optional.of(role));

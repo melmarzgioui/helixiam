@@ -73,7 +73,7 @@ public class ScimUserController {
         final int start = startIndex == null || startIndex < 1 ? 1 : startIndex;
         final int size = count == null || count < 0 ? DEFAULT_COUNT : count;
         final int from = Math.min(start - 1, total);
-        final int to = Math.min(from + size, total);
+        final int to = from + Math.min(size, total - from); // never from + size: a huge count overflows
         final String base = ScimSupport.baseUrl();
         final List<ScimUser> page = all.subList(from, to).stream().map(u -> ScimMapper.toScimUser(u, base)).toList();
         return scim(HttpStatus.OK, ScimListResponse.of(page, total, start));
