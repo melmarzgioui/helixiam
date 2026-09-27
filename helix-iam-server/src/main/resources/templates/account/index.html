@@ -88,7 +88,6 @@
                     </div>
                     <p class="hx-account-note" th:text="#{account.recovery.note}">New codes replace the old ones. Enter a code from your authenticator app to confirm.</p>
                     <form th:action="@{/account/recovery-codes}" method="post" class="hx-account-inline" id="recovery-form" th:classappend="${recoveryError != null} ? 'invalid'">
-                        <input th:replace="~{fragments/account :: csrfField}">
                         <div>
                             <label for="recovery-code" th:text="#{mfa.code.label}">Verification code</label>
                             <input type="text" inputmode="numeric" id="recovery-code" name="code" autocomplete="one-time-code"
@@ -107,27 +106,27 @@
                     <h2 id="sessions-heading" th:text="#{account.sessions.heading}">Where you're signed in</h2>
                 </div>
                 <ul class="hx-sessions" id="session-list">
-                    <li th:each="s : ${account.sessions()}" th:classappend="${s.current()} ? 'hx-session-current'">
+                    <li th:each="s : ${account.sessions()}" th:classappend="${s.current()} ? 'hx-session-current'"
+                        th:with="device=${s.browser() != null and s.os() != null} ? #{account.sessions.device(${s.browser()}, ${s.os()})}
+                                 : (${s.browser() != null} ? ${s.browser()} : (${s.os() != null} ? ${s.os()} : #{account.sessions.unknownDevice}))">
                         <div class="hx-session-what">
-                            <strong th:text="${s.current()} ? #{account.sessions.current} : #{account.sessions.other}">This browser</strong>
-                            <span class="hx-session-device"
-                                  th:text="${s.browser() != null and s.os() != null} ? #{account.sessions.device(${s.browser()}, ${s.os()})}
-                                          : (${s.browser() != null} ? ${s.browser()} : (${s.os() != null} ? ${s.os()} : #{account.sessions.unknownDevice}))">Firefox on Windows</span>
-                            <span th:if="${s.signedIn() != null}" th:text="#{account.sessions.signedIn(${s.signedIn()})}">Signed in 27 Sep 2026, 14:03 UTC</span>
-                            <span th:if="${s.lastUsed() != null}" th:text="#{account.sessions.lastUsed(${s.lastUsed()})}">Last used 27 Sep 2026, 15:40 UTC</span>
+                            <strong class="hx-session-device" th:text="${device}">Firefox on Windows</strong>
+                            <span class="hx-session-times" th:if="${s.signedIn() != null or s.lastUsed() != null}"
+                                  th:text="${s.signedIn() != null and s.lastUsed() != null} ? #{account.sessions.times(${s.signedIn()}, ${s.lastUsed()})}
+                                          : (${s.signedIn() != null} ? #{account.sessions.signedIn(${s.signedIn()})} : #{account.sessions.lastUsed(${s.lastUsed()})})">Signed in 27 Sep 2026, 14:03 UTC · Last used 27 Sep 2026, 15:40 UTC</span>
                             <span th:if="${!s.apps().isEmpty()}" th:text="#{account.sessions.apps(${#strings.listJoin(s.apps(), ', ')})}">Apps: web</span>
                         </div>
                         <span th:if="${s.current()}" class="hx-badge hx-badge-ok" th:text="#{account.sessions.here}">You're here</span>
                         <form th:unless="${s.current()}" th:action="@{/account/sessions/sign-out}" method="post" class="hx-session-sign-out-form">
-                            <input th:replace="~{fragments/account :: csrfField}">
                             <input type="hidden" name="sid" th:value="${s.sid()}">
-                            <button type="submit" class="hx-btn hx-btn-secondary hx-session-sign-out" th:text="#{account.sessions.signOut}">Sign out</button>
+                            <button type="submit" class="hx-btn hx-btn-secondary hx-session-sign-out" th:text="#{account.sessions.signOut}"
+                                    th:attr="aria-label=#{account.sessions.signOutDevice(${device})}">Sign out</button>
                         </form>
                     </li>
                 </ul>
-                <form th:action="@{/account/sessions/sign-out-others}" method="post" class="hx-account-actions" id="sign-out-others-form">
-                    <input th:replace="~{fragments/account :: csrfField}">
-                    <button type="submit" class="hx-btn hx-btn-secondary" id="sign-out-others" th:text="#{account.sessions.signOutOthers}">Sign out everywhere else</button>
+                <p class="hx-account-note" id="only-session" th:if="${account.sessions().size() <= 1}" th:text="#{account.sessions.onlyThis}">This is the only browser signed in to your account.</p>
+                <form th:if="${account.sessions().size() > 1}" th:action="@{/account/sessions/sign-out-others}" method="post" class="hx-account-actions" id="sign-out-others-form">
+                    <button type="submit" class="hx-btn hx-btn-danger" id="sign-out-others" th:text="#{account.sessions.signOutOthers}">Sign out everywhere else</button>
                 </form>
             </article>
 
@@ -139,7 +138,6 @@
                 <p class="hx-account-note" th:if="${account.canExport()}" th:text="#{account.data.exportNote}">Download everything we store about you, as a JSON file.</p>
                 <div class="hx-account-actions">
                     <form th:if="${account.canExport()}" th:action="@{/account/export}" method="post" id="export-form">
-                        <input th:replace="~{fragments/account :: csrfField}">
                         <button type="submit" class="hx-btn hx-btn-secondary" id="export" th:text="#{account.data.export}">Download my data</button>
                     </form>
                     <a th:if="${account.canDelete()}" class="hx-btn hx-btn-danger" id="delete-account" th:href="@{/account/delete}" th:text="#{account.delete.link}">Delete account</a>

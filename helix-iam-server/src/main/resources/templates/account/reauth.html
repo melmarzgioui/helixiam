@@ -23,7 +23,6 @@
                 <p class="hx-alert hx-alert-error" role="alert" id="reauth-error" th:if="${failure != null}"
                    th:text="#{'account.error.' + ${failure}}">Your password is not correct.</p>
                 <form th:action="@{/account/reauth}" method="post" id="reauth-form">
-                    <input th:replace="~{fragments/account :: csrfField}">
                     <input type="hidden" name="next" th:if="${next != null}" th:value="${next}">
                     <input type="hidden" name="username" autocomplete="username" th:value="${username}">
                     <label for="reauth-password" th:text="#{account.reauth.password}">Password</label>

@@ -48,7 +48,12 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         assertThat(page().locator("#profile-email").innerText()).contains(ada.dto().email());
         assertThat(page().locator("#email-unverified").isVisible()).isTrue();
         assertThat(page().locator("#two-step-off").isVisible()).isTrue();
-        assertThat(page().locator("#session-list li").first().innerText()).contains("This browser");
+        assertThat(page().locator("#session-list li").first().innerText()).contains("You're here");
+        // rc.6 S7: one session, so there is nowhere else to sign out of.
+        assertThat(page().locator("#sign-out-others")).hasCount(0);
+        assertThat(page().locator("#only-session")).isVisible();
+        // rc.6 N3: exactly one CSRF field per form.
+        assertThat(page().locator("#export-form input[name=_csrf]")).hasCount(1);
         assertThat(page().locator("#delete-account").count()).as("deletion is off by default").isZero();
         assertThat(page().locator("#export").isVisible()).isTrue();
         assertThat(cspViolations()).as(describeBrowser()).isEmpty();
@@ -303,7 +308,7 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         assertThat(hereSid).isNotEqualTo(phoneSid);
         page().navigate(accountUrl(realm, null));
         assertThat(page().locator("#session-list li")).hasCount(2);
-        assertThat(page().locator("#session-list li").nth(1).innerText()).contains("Another browser").contains("Apps: web");
+        assertThat(page().locator("#session-list li").nth(1).innerText()).contains("Chrome").contains("Apps: web");
 
         submit(page().locator("#sign-out-others"));
 
@@ -357,7 +362,7 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         final Locator rows = page().locator("#session-list li");
         assertThat(rows).hasCount(3);
         final String here = rows.nth(0).innerText();
-        assertThat(here).contains("This browser").contains("You're here").contains("Chrome").contains("Signed in")
+        assertThat(here).contains("You're here").contains("Chrome").contains("Signed in")
                 .contains("Last used");
         assertThat(rows.nth(0).locator("button")).hasCount(0);
         final Locator phoneRow = rows.filter(new Locator.FilterOptions().setHasText("Safari on iPhone"));
@@ -366,6 +371,11 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         final Locator laptopRow = rows.filter(new Locator.FilterOptions().setHasText("Firefox on Windows"));
         assertThat(laptopRow).hasCount(1);
         assertThat(laptopRow.innerText()).contains("Apps: web");
+        // rc.6 S6/S8: the device is the row's first line and names its Sign out button.
+        assertThat(laptopRow.locator("strong").innerText()).isEqualTo("Firefox on Windows");
+        assertThat(laptopRow.locator("button.hx-session-sign-out").getAttribute("aria-label"))
+                .isEqualTo("Sign out Firefox on Windows");
+        assertThat(laptopRow.innerText()).contains(" · Last used ");
 
         // Sign out the phone only.
         submit(phoneRow.locator("button.hx-session-sign-out"));
@@ -392,9 +402,9 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
 
         // A forged form cannot sign out someone else's session.
         page().waitForNavigation(() -> page().evaluate("sid => {"
-                + " const f = document.getElementById('sign-out-others-form');"
-                + " const g = f.cloneNode(true); g.id = 'forged';"
-                + " g.action = f.action.replace('sign-out-others', 'sign-out');"
+                + " const token = document.querySelector('input[name=_csrf]');"
+                + " const g = document.createElement('form'); g.method = 'post';"
+                + " g.action = location.pathname + '/sessions/sign-out'; g.appendChild(token.cloneNode());"
                 + " const i = document.createElement('input'); i.type = 'hidden'; i.name = 'sid'; i.value = sid;"
                 + " g.appendChild(i); document.body.appendChild(g); g.submit(); }", bobSid));
         page().waitForLoadState(LoadState.LOAD);
@@ -408,6 +418,69 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         page().navigate(accountUrl(realm, null));
         assertOnIdpPath("/account");
         assertThat(rows).hasCount(1);
+    }
+
+    static final String WINDOWS_EDGE = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            + " (KHTML, like Gecko) Chrome/129.0 Safari/537.36 Edg/129.0";
+
+    /**
+     * rc.6 UI review (S5–S8, B1): the session list in a themed (Monthfold-like) and an unthemed realm, with several
+     * devices and with one session only. On a phone every button is at least 44 px tall and nothing scrolls sideways. With
+     * {@code -Dhelix.shots=<dir>} each state is captured in light and dark at 1440 and 390 px.
+     */
+    @Test
+    void theSessionList_readsWell_themedAndUnthemed_onAPhoneAndADesktop() {
+        for (final boolean themed : java.util.List.of(true, false)) {
+            final String name = themed ? "sessions-themed" : "sessions-default";
+            clearCookies(); // a fresh browser for each realm
+            final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+            if (themed) {
+                assertThat(adminSession().put("/admin/realms/" + realm.realm() + "/theme", monthfoldTheme()).status())
+                        .isEqualTo(200);
+            }
+            final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe"), PASSWORD);
+
+            // One session only: nothing else to sign out of.
+            openAccount(realm, joe);
+            assertThat(page().locator("#session-list li")).hasCount(1);
+            assertThat(page().locator("#sign-out-others")).hasCount(0);
+            page().locator("#sessions").scrollIntoViewIfNeeded();
+            shots(name + "-single");
+
+            // A phone (console only), a laptop and a tablet (the app), and a browser that names no device.
+            signInToTheConsole(otherBrowser(IPHONE_SAFARI), realm, joe);
+            signInToTheApp(otherBrowser(WINDOWS_FIREFOX), realm, joe);
+            signInToTheApp(otherBrowser(WINDOWS_EDGE), realm, joe);
+            signInToTheConsole(otherBrowser("curl/8.7.1"), realm, joe);
+            page().navigate(accountUrl(realm, null));
+            final Locator rows = page().locator("#session-list li");
+            assertThat(rows).hasCount(5);
+            assertThat(rows.nth(0).locator(".hx-badge")).hasText("You're here");
+            assertThat(rows.locator("strong").allInnerTexts()).contains("Safari on iPhone", "Firefox on Windows",
+                    "Edge on Windows", "Unknown browser");
+            assertThat(page().locator("#sign-out-others")).isVisible();
+
+            page().setViewportSize(390, 844);
+            for (final Locator button : page().locator("#sessions button.hx-btn").all()) {
+                final com.microsoft.playwright.options.BoundingBox box = button.boundingBox();
+                assertThat(box.height).as("button height on a phone").isGreaterThanOrEqualTo(44.0);
+            }
+            assertThat(((Number) page().evaluate("document.documentElement.scrollWidth")).intValue())
+                    .as("no sideways scrolling on a phone").isLessThanOrEqualTo(390);
+            page().setViewportSize(1280, 900);
+            page().locator("#sessions").scrollIntoViewIfNeeded();
+            shots(name);
+        }
+    }
+
+    /** A Monthfold-like realm theme (colours and footer). */
+    static Map<String, Object> monthfoldTheme() {
+        return Map.of("colors", Map.of("primary", Map.of("light", "#1f4d47", "dark", "#7fb8ac"),
+                        "surface", Map.of("light", "#f7f8f6", "dark", "#111615"),
+                        "surfaceRaised", Map.of("light", "#ffffff", "dark", "#192120"),
+                        "ink", Map.of("light", "#16211f", "dark", "#e8eeec"),
+                        "inkMuted", Map.of("light", "#56635f", "dark", "#a3b0ac")),
+                "texts", Map.of("footerText", "© Monthfold BV, Utrecht"));
     }
 
     // --------------------------------------------------------------------------------------------------- email

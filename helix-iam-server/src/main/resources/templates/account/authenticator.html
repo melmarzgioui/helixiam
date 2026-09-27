@@ -35,7 +35,6 @@
                 </div>
 
                 <form th:action="@{/account/authenticator}" method="post" id="authenticator-form" th:classappend="${failure != null} ? 'invalid'">
-                    <input th:replace="~{fragments/account :: csrfField}">
                     <label for="code" th:text="#{mfa.code.label}">Verification code</label>
                     <input type="text" inputmode="numeric" id="code" name="code" autocomplete="one-time-code" maxlength="6" required
                            th:attr="aria-invalid=${failure != null} ? 'true' : null, aria-describedby=${failure != null} ? 'code-error' : null">

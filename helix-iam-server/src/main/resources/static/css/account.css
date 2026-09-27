@@ -214,6 +214,7 @@ form.hx-account-inline {
 }
 .hx-session-what strong {
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 .hx-session-what span {
   color: var(--hx-ink-muted);
@@ -221,6 +222,9 @@ form.hx-account-inline {
 }
 .hx-session-what .hx-session-device {
   color: var(--hx-ink);
+}
+.hx-sessions li.hx-session-current .hx-badge {
+  flex: 0 0 auto;
 }
 .hx-session-sign-out-form {
   margin: 0;
@@ -260,6 +264,11 @@ form.hx-account-inline {
 @media (max-width: 600px) {
   a.hx-btn,
   button.hx-btn,
+  form button.hx-btn {
+    min-height: 44px;
+  }
+  a.hx-btn,
+  button.hx-btn,
   .hx-account-actions form,
   .hx-account-actions > a {
     width: 100%;
@@ -277,6 +286,11 @@ form.hx-account-inline {
   .hx-sessions li {
     align-items: flex-start;
     flex-direction: column;
+  }
+  /* the current row reads at a glance when the badge drops under the text */
+  .hx-sessions li.hx-session-current {
+    box-shadow: inset 3px 0 0 var(--hx-positive);
+    padding-left: calc(var(--hx-space) * 3);
   }
   .hx-session-sign-out-form,
   .hx-session-sign-out-form button.hx-btn {

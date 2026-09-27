@@ -21,7 +21,6 @@
         <div class="container hx-account-form hx-account">
             <article class="hx-danger">
                 <form th:action="@{/account/delete}" method="post" id="delete-form" th:classappend="${failure != null} ? 'invalid'">
-                    <input th:replace="~{fragments/account :: csrfField}">
                     <label for="confirm" th:text="#{account.delete.confirmLabel(${username})}">Type your username (ada) to confirm</label>
                     <input type="text" id="confirm" name="confirm" autocomplete="off" autocapitalize="none" spellcheck="false" required
                            th:attr="aria-invalid=${failure != null} ? 'true' : null, aria-describedby=${failure != null} ? 'confirm-error' : null">

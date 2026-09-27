@@ -5,7 +5,8 @@
     accountHead:  <head><th:block th:replace="~{fragments/account :: accountHead(#{account.title})}"/></head>
     returnLink:   the validated "Back to <app>" link (model `referrer`, see AccountConsoleAdvice), or nothing
     overviewLink: the link back to the console overview on a sub-page
-    csrfField:    the CSRF field of a form
+    csrfField:    a CSRF field, only for a form WITHOUT th:action (kept for custom themes; the console does not use it)
+  Forms use th:action: Spring's RequestDataValueProcessor adds the CSRF field (a second one used to be added by hand).
   No inline styles or scripts (CSP style-src 'self'): styles are in /css/account.css.
 */-->
 <head>
@@ -24,6 +25,7 @@
     <span th:text="#{account.backToAccount}">Your account</span></a>
 
 <input th:fragment="csrfField" type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+
 
 </body>
 </html>

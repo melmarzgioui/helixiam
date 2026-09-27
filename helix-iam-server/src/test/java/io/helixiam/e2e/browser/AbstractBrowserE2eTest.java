@@ -13,6 +13,7 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Tracing;
 import com.microsoft.playwright.impl.driver.Driver;
+import com.microsoft.playwright.options.ColorScheme;
 import com.microsoft.playwright.options.LoadState;
 import io.helixiam.authorization.session.QueueIndexedSessionRepository;
 import io.helixiam.e2e.AbstractE2eTest;
@@ -372,6 +373,27 @@ public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
         if (!ok) {
             throw new AssertionError("Expected the IdP page …" + suffix + "\n" + describeBrowser());
         }
+    }
+
+    /**
+     * With {@code -Dhelix.shots=<dir>}: full-page captures of the current page in light and dark mode at 1440 and
+     * 390 px wide, as {@code <name>-<light|dark>-<width>.png}, for a visual review. A no-op without the property.
+     */
+    protected void shots(final String name) {
+        final String dir = System.getProperty("helix.shots");
+        if (dir == null || dir.isBlank()) {
+            return;
+        }
+        for (final ColorScheme scheme : List.of(ColorScheme.LIGHT, ColorScheme.DARK)) {
+            for (final int width : List.of(1440, 390)) {
+                page.emulateMedia(new Page.EmulateMediaOptions().setColorScheme(scheme));
+                page.setViewportSize(width, width == 390 ? 844 : 900);
+                page.screenshot(new Page.ScreenshotOptions().setFullPage(true).setPath(Path.of(dir,
+                        name + "-" + scheme.name().toLowerCase(java.util.Locale.ROOT) + "-" + width + ".png")));
+            }
+        }
+        page.emulateMedia(new Page.EmulateMediaOptions().setColorScheme(ColorScheme.LIGHT));
+        page.setViewportSize(1280, 900);
     }
 
     // ------------------------------------------------------------------------------------------------

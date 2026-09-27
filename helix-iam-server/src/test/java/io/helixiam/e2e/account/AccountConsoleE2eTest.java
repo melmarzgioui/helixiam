@@ -94,7 +94,9 @@ class AccountConsoleE2eTest extends AbstractE2eTest {
         adminSession().put("/admin/realms/" + realm + "/settings/account-console",
                 Map.of("allowDataExport", false, "allowAccountDeletion", false));
 
-        final String csrf = E2eHttp.csrf(http.get(account).body());
+        // The overview then has no form at all (one session, no export, no deletion): take the token from the
+        // password page.
+        final String csrf = E2eHttp.csrf(http.get(account + "/password").body());
         final E2eHttp.Response export = http.postForm(account + "/export", Map.of("_csrf", csrf));
         assertThat(export.isRedirect()).as(export.toString()).isTrue();
         assertThat(export.location().getPath()).isEqualTo(account);
