@@ -48,6 +48,46 @@ public final class DelegationAttenuator {
     }
 
     /**
+     * The effective delegated roles when the two tokens spell realm roles differently (docs/role-names-in-tokens.md):
+     * a token issued for a user carries {@code <role>_<realm>}, a machine (agent {@code client_credentials}) token
+     * carries the plain role name. Both sides are compared on the plain name, but only a token in the user form is
+     * un-suffixed, so a plain role that happens to end in {@code _<realm>} is never read as another role. The result
+     * keeps the subject token's own spelling (the token output format does not change). {@code requested} narrows by
+     * either spelling; it can never widen.
+     *
+     * @param userQualified  whether {@code userRoles} come from a token in the user form
+     * @param leashQualified whether {@code agentLeash} comes from a token in the user form (a delegated actor token)
+     */
+    public static List<String> effectiveRoles(final List<String> userRoles, final boolean userQualified,
+                                              final List<String> agentLeash, final boolean leashQualified,
+                                              final List<String> requested, final String realm) {
+        final List<String> user = userRoles == null ? List.of() : userRoles;
+        final java.util.Set<String> leash = new java.util.HashSet<>();
+        if (agentLeash != null) {
+            agentLeash.forEach(r -> leash.add(plain(r, leashQualified, realm)));
+        }
+        final boolean narrow = requested != null && !requested.isEmpty();
+        final List<String> out = new ArrayList<>();
+        for (final String role : user) {
+            final String name = plain(role, userQualified, realm);
+            if (leash.contains(name) && (!narrow || requested.contains(role) || requested.contains(name))
+                    && !out.contains(role)) {
+                out.add(role);
+            }
+        }
+        return out;
+    }
+
+    /** The plain role name: {@code <role>_<realm>} without its suffix when the token is in the user form. */
+    static String plain(final String role, final boolean qualified, final String realm) {
+        final String suffix = "_" + realm;
+        if (qualified && realm != null && role != null && role.endsWith(suffix) && role.length() > suffix.length()) {
+            return role.substring(0, role.length() - suffix.length());
+        }
+        return role;
+    }
+
+    /**
      * The RFC 8693 {@code act} actor claim naming {@code agentSub} as what acted. When {@code priorActor}
      * is non-null it is nested under {@code act} to represent a delegation chain (the caller acted through
      * this agent). Mutable maps only.

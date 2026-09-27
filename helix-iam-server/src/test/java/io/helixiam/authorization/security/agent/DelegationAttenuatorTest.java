@@ -60,4 +60,37 @@ class DelegationAttenuatorTest {
         assertEquals("sub-agent", outer.get("sub"));
         assertEquals(inner, outer.get("act"), "the chain is represented as nested act claims (agent→sub-agent)");
     }
+
+    @Test
+    void userRolesInTokenForm_meetPlainAgentRoles_andKeepTheTokenForm() {
+        // User token: <role>_<realm>. Agent (client_credentials) token: plain names.
+        assertEquals(List.of("accountant_mf"), DelegationAttenuator.effectiveRoles(
+                List.of("accountant_mf", "reviewer_mf"), true, List.of("accountant"), false, List.of(), "mf"));
+        // A delegated actor token (chain) is in the user form too.
+        assertEquals(List.of("accountant_mf"), DelegationAttenuator.effectiveRoles(
+                List.of("accountant_mf"), true, List.of("accountant_mf"), true, List.of(), "mf"));
+        // Narrowing by either spelling; never widening.
+        assertEquals(List.of("accountant_mf"), DelegationAttenuator.effectiveRoles(
+                List.of("accountant_mf", "reviewer_mf"), true, List.of("accountant", "reviewer"), false,
+                List.of("accountant"), "mf"));
+        assertEquals(List.of("accountant_mf"), DelegationAttenuator.effectiveRoles(
+                List.of("accountant_mf", "reviewer_mf"), true, List.of("accountant", "reviewer"), false,
+                List.of("accountant_mf"), "mf"));
+        assertTrue(DelegationAttenuator.effectiveRoles(
+                List.of("accountant_mf"), true, List.of(), false, List.of("accountant"), "mf").isEmpty());
+    }
+
+    @Test
+    void aPlainRoleEndingInTheRealmSuffix_isNeverReadAsAnotherRole() {
+        // Realm "mf" has roles "a" and "a_mf". The agent holds only the plain role "a_mf"; the user holds "a"
+        // (token form "a_mf"). The agent must not act with "a".
+        assertTrue(DelegationAttenuator.effectiveRoles(
+                List.of("a_mf"), true, List.of("a_mf"), false, List.of(), "mf").isEmpty());
+        // ...while a user who holds "a_mf" (token form "a_mf_mf") does share it with that agent.
+        assertEquals(List.of("a_mf_mf"), DelegationAttenuator.effectiveRoles(
+                List.of("a_mf_mf"), true, List.of("a_mf"), false, List.of(), "mf"));
+        // An agent configured with the token form (a workaround) no longer matches: configure plain names.
+        assertTrue(DelegationAttenuator.effectiveRoles(
+                List.of("accountant_mf"), true, List.of("accountant_mf"), false, List.of(), "mf").isEmpty());
+    }
 }

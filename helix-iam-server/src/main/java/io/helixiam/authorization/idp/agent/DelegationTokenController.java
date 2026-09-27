@@ -202,8 +202,10 @@ public class DelegationTokenController {
         // (4) Effective authority = user ∩ agent-leash ∩ requested. Only ever shrinks.
         final List<String> requested = isBlank(requestedScope) ? List.of()
                 : Arrays.stream(requestedScope.split("[\\s,]+")).filter(s -> !s.isBlank()).toList();
+        // User tokens spell realm roles <role>_<realm>, machine (agent) tokens use the plain name: compare on the
+        // plain name, keep the subject token's spelling in the output.
         final List<String> effective = DelegationAttenuator.effectiveRoles(
-                realmRoles(userJwt), realmRoles(agentJwt), requested);
+                realmRoles(userJwt), userForm(userJwt), realmRoles(agentJwt), userForm(agentJwt), requested, realm);
 
         // (5) Mint sub=user, act={agent} (nested when the actor was itself acting), attenuated roles.
         final Instant now = Instant.now();
@@ -312,6 +314,24 @@ public class DelegationTokenController {
             LOG.debug("delegation: agent lookup failed for {}: {}", clientId, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * True when the token was issued for a user, so its realm roles read {@code <role>_<realm>}: a delegated token
+     * ({@code act}), or any token whose subject is not its own client. A machine ({@code client_credentials}) token has
+     * {@code sub} = its client id and plain role names.
+     */
+    static boolean userForm(final Jwt jwt) {
+        if (jwt.getClaim("act") != null) {
+            return true;
+        }
+        final String sub = jwt.getSubject();
+        if (sub == null) {
+            return false;
+        }
+        final boolean machine = sub.equals(jwt.getClaimAsString("client_id")) || sub.equals(jwt.getClaimAsString("azp"))
+                || jwt.getAudience() != null && jwt.getAudience().contains(sub);
+        return !machine;
     }
 
     @SuppressWarnings("unchecked")

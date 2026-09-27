@@ -37,13 +37,21 @@ The `USER_ROLE` protocol mapper emits the same strings (the qualified form for u
   "everything after the last underscore": realm ids and role names may themselves contain `_`.
 - For service accounts, check the plain name.
 
+## Delegation (RFC 8693 on-behalf-of)
+
+The delegated token from `/realms/{realm}/agent/delegation/token` carries the roles the user **and** the agent both
+have, in the user token's form (`accountant_monthfold`). Configure an agent's roles with the plain role names, as the
+console's role picker does (`accountant`); HelixIAM compares a user token's `<role>_<realm>` with the agent's
+`<role>`. Only tokens issued for a user are un-suffixed, so a plain role that happens to end in `_<realm>` is never
+read as another role. A requested `scope` may name a role either way; it only narrows.
+
 ## Why it is not configurable per realm (yet)
 
 Open issue E8 asked to document the suffix or make it configurable per realm. It is documented only, for now:
 
-1. **Consumers inside HelixIAM depend on today's strings.** The RFC 8693 delegation exchange intersects the
-   user token's `realm_access.roles` (qualified) with the agent's roles (plain as configured), and the `USER_ROLE`
-   mapper, organization claims and agent roles each have their own form. A per-realm switch has to define what each
+1. **Consumers inside HelixIAM depend on today's strings.** The RFC 8693 delegation exchange compares the user
+   token's `realm_access.roles` (qualified) with the agent's roles (plain as configured) on the plain name, and the
+   `USER_ROLE` mapper, organization claims and agent roles each have their own form. A per-realm switch has to define what each
    of these does in both modes; flipping only the user roles would silently change who may do what through
    delegation.
 2. **The setting belongs in realm settings**, whose DTO is a positional record used at about 17 call sites
@@ -53,5 +61,5 @@ Open issue E8 asked to document the suffix or make it configurable per realm. It
    (announce, dual-emit for a period, or new realms only).
 
 Recommended follow-up: a realm setting `tokenRoleNames: qualified | plain` (default `qualified`), where `plain` emits
-`<role>` for users too, together with a decision on the delegation intersection (compare plain names in both modes)
+`<role>` for users too, with the delegation comparison kept on plain names in both modes
 and a console switch with a clear warning that RPs of the realm must be updated.

@@ -65,6 +65,15 @@ Open issues found when Monthfold moved its production sign-in to rc.4
   The suffix is not made configurable per realm in this release; the page gives the reasons (delegation and mapper
   consumers depend on today's strings, the realm-settings change is cross-cutting, and RPs need a migration path) and
   the recommended follow-up. `RealmRoleNamesInTokensE2eTest` pins the documented behaviour.
+- **Delegation roles — security/correctness fix** — The RFC 8693 on-behalf-of exchange
+  (`/realms/{r}/agent/delegation/token`) intersected the user token's realm roles (`<role>_<realm>`) with the agent's
+  roles (plain names, as the console and admin API configure them), so the delegated token never carried a realm
+  role outside setups that configured agent roles in the token form. It failed closed (no extra rights), but agents
+  acting for users could not use their granted roles. Both sides are now compared on the plain role name; only tokens
+  issued for a user are un-suffixed, so a plain role ending in `_<realm>` is never read as another role. The token
+  output is unchanged (`<role>_<realm>`), and a requested `scope` may name a role in either form. Agents configured
+  with the token form as a workaround (`accountant_monthfold`) must be changed to the plain name (`accountant`).
+  `AgentDelegationRolesE2eTest` reproduces it; `docs/role-names-in-tokens.md` has a Delegation section.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 
