@@ -264,6 +264,27 @@ public class ThemeService {
         return storeRealm(realmId, candidate);
     }
 
+    /**
+     * The effective theme the realm would have with {@code theme} as its layer — validated exactly like
+     * {@link #saveRealmTheme} ({@link ThemeValidationException} when it is not valid) but neither stored nor cached,
+     * and without taking the realm lock. For the admin preview (spec §7).
+     */
+    public EffectiveTheme previewTheme(final String realmId, final Theme theme) {
+        final Theme candidate = ThemeNormalizer.normalize(theme);
+        final List<Theme> layers = new ArrayList<>(belowRealm(realmId));
+        final ThemeValidator validator = validator();
+        final Map<String, String> errors = validator.validate(realmId, ThemeValidator.Scope.REALM, candidate,
+                ThemeMerger.merge(layers));
+        if (!errors.isEmpty()) {
+            throw new ThemeValidationException(errors);
+        }
+        layers.add(candidate);
+        Theme merged = DarkPalette.resolve(ThemeMerger.merge(layers));
+        merged = merged.withCustomCss(servableCss(realmId, merged.customCss()));
+        return new EffectiveTheme(merged, ThemeJson.hash(merged), validator.imageOrigins(merged),
+                validator.cssUrlOrigins());
+    }
+
     /** Validates and stores an organization's layer; empty when the organization is not in the realm. */
     @Transactional
     public Optional<ThemeChange> saveOrganizationTheme(final String realmId, final String orgId, final Theme theme) {
