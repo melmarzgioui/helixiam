@@ -151,6 +151,47 @@ class BackchannelLogoutE2eTest extends AbstractE2eTest {
         assertValidLogoutToken(a, CapturingBackchannelPoster.tokensFor(webBackchannel).get(0), "web", sidA);
     }
 
+    @Test
+    void logoutEndsOnlyThatSessionsBrowserLogin_notTheUsersOtherBrowsers() {
+        final E2eHttp browserA = newBrowser();
+        final OidcFlow a = new OidcFlow(browserA, realm);
+        final OidcFlow.Tokens aWeb = a.authorizationCode("web", web.secret(), web.redirectUri(),
+                user.username(), PASSWORD, "openid profile email");
+        final E2eHttp browserB = newBrowser();
+        final OidcFlow b = new OidcFlow(browserB, realm);
+        b.authorizationCode("web", web.secret(), web.redirectUri(), user.username(), PASSWORD, "openid profile email");
+        final E2eHttp browserC = newBrowser();
+        final OidcFlow c = new OidcFlow(browserC, realm);
+        final OidcFlow.Tokens cWeb = c.authorizationCode("web", web.secret(), web.redirectUri(),
+                user.username(), PASSWORD, "openid profile email");
+
+        // RP-initiated logout of browser A: browsers B and C stay signed in (silent SSO, no login prompt).
+        final E2eHttp.Response logout = browserA.get("/realms/" + realm + "/connect/logout?id_token_hint="
+                + enc(aWeb.idToken()) + "&post_logout_redirect_uri=" + enc(E2eSeed.POST_LOGOUT_REDIRECT_URI));
+        assertThat(logout.locationStartsWith(E2eSeed.POST_LOGOUT_REDIRECT_URI)).as(logout.toString()).isTrue();
+        assertThat(silentAuthorize(browserA).locationStartsWith(web.redirectUri())).as("A is signed out").isFalse();
+        assertThat(silentAuthorize(browserB).locationStartsWith(web.redirectUri())).as("B still signed in").isTrue();
+        assertThat(silentAuthorize(browserC).locationStartsWith(web.redirectUri())).as("C still signed in").isTrue();
+
+        // An admin revoke of browser C's session signs THAT browser out (its HTTP session is ended too), not B.
+        final E2eHttp.Response revoke = adminSession().delete("/admin/realms/" + realm + "/sessions/"
+                + enc(sid(c, cWeb.idToken())));
+        assertThat(revoke.status()).as(revoke.toString()).isEqualTo(204);
+        final E2eHttp.Response cAfter = silentAuthorize(browserC);
+        assertThat(cAfter.locationStartsWith(web.redirectUri())).as("C must sign in again: %s", cAfter).isFalse();
+        assertThat(cAfter.uri().getPath()).isEqualTo("/realms/" + realm + "/login");
+        assertThat(silentAuthorize(browserB).locationStartsWith(web.redirectUri())).as("B still signed in").isTrue();
+    }
+
+    /** A plain authorize request in {@code browser}: a redirect to the callback when its session is signed in. */
+    private E2eHttp.Response silentAuthorize(final E2eHttp browser) {
+        final OidcFlow.Pkce pkce = OidcFlow.Pkce.create();
+        final String url = "/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=web&redirect_uri="
+                + enc(web.redirectUri()) + "&scope=openid&state=s&nonce=n&code_challenge=" + pkce.challenge()
+                + "&code_challenge_method=S256";
+        return browser.followRedirectsUntil(browser.get(url), r -> r.locationStartsWith(web.redirectUri()));
+    }
+
     /** Validates a logout_token exactly as OIDC Back-Channel Logout 1.0 §2.6 asks an RP to. */
     static JWTClaimsSet assertValidLogoutToken(final OidcFlow oidc, final String logoutToken, final String clientId,
                                                final String sid) {

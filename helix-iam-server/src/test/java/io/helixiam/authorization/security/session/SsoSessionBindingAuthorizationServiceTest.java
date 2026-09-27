@@ -52,7 +52,8 @@ class SsoSessionBindingAuthorizationServiceTest {
         assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.SID_ATTRIBUTE)).isEqualTo("sid-1");
         assertThat(saved.get().<Long>getAttribute(SsoSessionBindingAuthorizationService.AUTH_TIME_ATTRIBUTE))
                 .isEqualTo(1_700_000_000L);
-        assertThat(request.getSession(false)).isNotNull();
+        assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.HTTP_SESSION_ATTRIBUTE))
+                .isEqualTo(request.getSession(false).getId());
     }
 
     @Test

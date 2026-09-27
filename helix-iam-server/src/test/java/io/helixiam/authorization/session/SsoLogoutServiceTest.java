@@ -33,8 +33,9 @@ class SsoLogoutServiceTest {
     private final SpringSessionStore springSessionStore = mock(SpringSessionStore.class);
     private final BackchannelLogoutNotifier notifier = mock(BackchannelLogoutNotifier.class);
     private final LogoutTargetResolver targetResolver = mock(LogoutTargetResolver.class);
+    private final HttpSessionTerminator httpSessions = mock(HttpSessionTerminator.class);
     private final SsoLogoutService service = new SsoLogoutService(sessionStore, authorizationService,
-            springSessionStore, notifier, targetResolver);
+            springSessionStore, notifier, targetResolver, httpSessions);
 
     private static SsoSession session(final String key, final String principal, final String... authzIds) {
         final List<SsoSession.ClientInSession> clients = java.util.Arrays.stream(authzIds)
@@ -57,6 +58,33 @@ class SsoLogoutServiceTest {
         assertEquals("alice", terminated.ssoSessionId());
         verify(authorizationService, org.mockito.Mockito.times(3)).remove(any());
         verify(springSessionStore).deleteByPrincipal("alice");
+    }
+
+    @Test
+    void terminate_sidBoundSession_endsOnlyItsOwnBrowserSessions_notEveryOneOfTheUser() {
+        final SsoSession sso = session("sid-1", "alice", "a1", "a2", "a3");
+        when(sessionStore.findById("sid-1")).thenReturn(sso);
+        final OAuth2Authorization a1 = bound("sid-1", "http-1");
+        final OAuth2Authorization a2 = bound("sid-1", "http-2");
+        final OAuth2Authorization a3 = bound("sid-1", "http-1");
+        when(authorizationService.findById("a1")).thenReturn(a1);
+        when(authorizationService.findById("a2")).thenReturn(a2);
+        when(authorizationService.findById("a3")).thenReturn(a3);
+
+        service.terminate("sid-1");
+
+        verify(authorizationService, org.mockito.Mockito.times(3)).remove(any());
+        verify(httpSessions).deleteAll(new java.util.LinkedHashSet<>(List.of("http-1", "http-2")));
+        verify(springSessionStore, never()).deleteByPrincipal(any());
+    }
+
+    private static OAuth2Authorization bound(final String sid, final String httpSession) {
+        final OAuth2Authorization a = mock(OAuth2Authorization.class);
+        when(a.getAttribute(io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService.SID_ATTRIBUTE))
+                .thenReturn(sid);
+        when(a.getAttribute(io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService.HTTP_SESSION_ATTRIBUTE))
+                .thenReturn(httpSession);
+        return a;
     }
 
     @Test

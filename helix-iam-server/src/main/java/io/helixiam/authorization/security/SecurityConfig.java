@@ -158,7 +158,9 @@ public class SecurityConfig {
                                 .providerConfigurationCustomizer(
                                         new io.helixiam.authorization.idp.dcr.OidcRegistrationEndpointCustomizer()
                                                 // A2 (FAPI2): advertise PS256 alongside RS256 in the discovery doc.
-                                                .andThen(new io.helixiam.authorization.security.fapi.FapiSigningMetadataCustomizer())))
+                                                .andThen(new io.helixiam.authorization.security.fapi.FapiSigningMetadataCustomizer())
+                                                // auth_time/sid claims + OIDC Back-Channel Logout (with sid).
+                                                .andThen(new io.helixiam.authorization.security.oidc.SessionMetadataCustomizer())))
                         // Helix IAM SSO P5: enable OIDC RP-initiated logout (end_session). SAS validates
                         // id_token_hint + post_logout_redirect_uri; our handler cascades — terminating the
                         // whole SSO session (removing the user's authorizations + HTTP session) and fanning
