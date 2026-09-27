@@ -121,6 +121,7 @@ public class UserAdminService {
         }
         user.setDisabled(!write.enabled());
         user.setAccountLocked(write.locked());
+        user.setEmailVerified(Boolean.TRUE.equals(write.emailVerified()) && user.getEmail() != null); // C3
         if (write.attributes() != null) {
             user.getUserAttributes().putAll(write.attributes());
         }
@@ -159,6 +160,9 @@ public class UserAdminService {
                 user.setEmailVerified(false); // review rc.3 #4: a new address is unverified until proven
             }
             user.setEmail(email);
+            if (write.emailVerified() != null) {
+                user.setEmailVerified(write.emailVerified() && email != null); // C3: explicit admin choice wins
+            }
             if (write.attributes() != null) {
                 user.getUserAttributes().clear();
                 user.getUserAttributes().putAll(write.attributes());
@@ -303,7 +307,7 @@ public class UserAdminService {
         final Map<String, String> attributes = user.getUserAttributes() == null ? Map.of() : user.getUserAttributes();
         final Long createdAt = user.getCreationDate() == null ? null : user.getCreationDate().getTime();
         return new UserAdminDto(realmId, user.getUserId(), user.getUsername(), user.getEmail(), !user.isDisabled(),
-                user.isLocked(), user.isMfaEnabled(), roles, attributes, createdAt);
+                user.isLocked(), user.isMfaEnabled(), roles, attributes, createdAt, user.isEmailVerified());
     }
 
     /** Email is matched case-insensitively at login, so it is stored lowercase; blank means "none". */

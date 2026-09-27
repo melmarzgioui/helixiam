@@ -254,6 +254,8 @@ public class SecurityConfig {
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/error").permitAll());
         // 1.0 item 6: magic-link sign-in pages (each answers 404 unless the realm enabled magic links).
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/login/magic", "/login/magic/verify").permitAll());
+        // C3: the emailed verification link (a confirmation page, then a single-use POST) works without a session.
+        http.authorizeHttpRequests(requests -> requests.requestMatchers("/verify-email").permitAll());
         // Helix IAM E4.2: the QR-login endpoints are reached by the unauthenticated enrolled phone
         // (confirm) and the mid-login browser (SSE/poll); they are secured by the device signature
         // + single-use rotating token, not the session, so permit them and exempt them from CSRF.

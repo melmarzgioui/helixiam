@@ -38,6 +38,15 @@ public final class NotificationMessageComposer {
                     "Reset your HelixIAM password",
                     "We received a request to reset your password. Your reset code is: " + orBlank(code)
                             + "\n\nIf you didn't request this, you can safely ignore this message.");
+            // C3: the global-SMTP fallback of the email-verification link (realms with an email provider use their
+            // own editable "verify-email" template instead).
+            case "VERIFY_EMAIL" -> new ComposedMessage(
+                    "Verify your email address",
+                    "Please confirm your email address for " + orBlank(notification.getAdditionalData().get("realm"))
+                            + " by opening this link:\n\n" + orBlank(notification.getAdditionalData().get("link"))
+                            + "\n\nThe link works once and expires in "
+                            + orBlank(notification.getAdditionalData().get("ttl"))
+                            + ". If you didn't expect this, you can safely ignore this message.");
             default -> new ComposedMessage(
                     "HelixIAM notification" + (type == null || type.isBlank() ? "" : ": " + type),
                     code != null ? "Your code is: " + code : "You have a new notification.");

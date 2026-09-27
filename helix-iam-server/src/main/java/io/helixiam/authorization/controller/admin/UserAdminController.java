@@ -155,7 +155,8 @@ public class UserAdminController {
     public ResponseEntity<UserAdminDto> create(@PathVariable final String realmId,
                                                @Valid @RequestBody final UserAdminRequest request) {
         final UserAdminDto saved = publisher.create(new UserWriteDto(realmId, null, request.username(),
-                request.email(), request.password(), request.enabledOrDefault(), request.locked(), attrs(request)));
+                request.email(), request.password(), request.enabledOrDefault(), request.locked(), attrs(request),
+                request.emailVerified()));
         provision(realmId, ScimProvisioningDispatcher.Operation.CREATE, saved);
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
@@ -165,7 +166,8 @@ public class UserAdminController {
     public ResponseEntity<UserAdminDto> update(@PathVariable final String realmId, @PathVariable final String userId,
                                                @Valid @RequestBody final UserAdminRequest request) {
         final UserAdminDto saved = publisher.update(new UserWriteDto(realmId, userId, request.username(),
-                request.email(), null, request.enabledOrDefault(), request.locked(), attrs(request)));
+                request.email(), null, request.enabledOrDefault(), request.locked(), attrs(request),
+                request.emailVerified()));
         if (saved != null) {
             provision(realmId, ScimProvisioningDispatcher.Operation.UPDATE, saved);
         }
@@ -239,6 +241,45 @@ public class UserAdminController {
         // Show the human username/email in the console, never the opaque user id.
         final String label = target.username() != null && !target.username().isBlank() ? target.username() : userId;
         return ResponseEntity.ok(Map.of("impersonating", label, "redirectUrl", result.redirectUrl()));
+    }
+
+    private io.helixiam.authorization.service.emailverification.EmailVerificationService emailVerification;
+    private String idpBaseUrl = "";
+
+    /** C3: email verification (setter-injected so the constructor stays as it is). */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setEmailVerification(
+            final io.helixiam.authorization.service.emailverification.EmailVerificationService emailVerification,
+            @org.springframework.beans.factory.annotation.Value("${idp.base.url:}") final String idpBaseUrl) {
+        this.emailVerification = emailVerification;
+        this.idpBaseUrl = idpBaseUrl == null ? "" : idpBaseUrl.trim().replaceAll("/+$", "");
+    }
+
+    /**
+     * C3: emails the user a single-use link that verifies their current address (and clears {@code VERIFY_EMAIL}).
+     * 204 when sent; 404 for no such user in the realm; 400 when the user has no email address; 409 when it is
+     * already verified; 429 when too many were sent. The link's host is {@code idp.base.url}, never the request's.
+     */
+    @PostMapping("/{userId}/send-verification-email")
+    @Operation(summary = "Send a verification email", description = "Email the user a link that verifies their address.")
+    public ResponseEntity<?> sendVerificationEmail(@PathVariable final String realmId, @PathVariable final String userId) {
+        if (idpBaseUrl.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("message", "idp.base.url (IDP_BASE_URL) is not configured, so no link can be built."));
+        }
+        final var result = emailVerification.send(realmId, userId, idpBaseUrl + "/realms/" + realmId);
+        return switch (result) {
+            case SENT -> ResponseEntity.noContent().build();
+            case NOT_FOUND -> ResponseEntity.notFound().build();
+            case NO_EMAIL -> ResponseEntity.badRequest().body(Map.of("message", "The user has no email address.",
+                    "fieldErrors", Map.of("email", "The user has no email address.")));
+            case ALREADY_VERIFIED -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("message", "The user's email address is already verified."));
+            case RATE_LIMITED -> ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("message", "Too many verification emails; try again later."));
+            case NOT_DELIVERED -> ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("message", "The verification email could not be sent."));
+        };
     }
 
     /** B1: the user's pending required actions (CSV) — the console's Required-actions control reads this. */

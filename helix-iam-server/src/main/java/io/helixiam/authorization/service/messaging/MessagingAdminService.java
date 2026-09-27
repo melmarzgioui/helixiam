@@ -91,6 +91,18 @@ public class MessagingAdminService {
             templates.saveAll(seeded);
             return seeded.stream().map(MessagingAdminService::toDto).toList();
         }
+        // C3: a realm seeded before a template key existed (e.g. verify-email) gets the missing defaults too, so a
+        // new message never goes out with an empty body. Existing (possibly edited) templates are left alone.
+        final java.util.Set<String> keys = new java.util.HashSet<>();
+        existing.forEach(t -> keys.add(t.getTemplateKey()));
+        final List<MessageTemplate> missing = defaultTemplates(realmId).stream()
+                .filter(t -> !keys.contains(t.getTemplateKey())).toList();
+        if (!missing.isEmpty()) {
+            templates.saveAll(missing);
+            final List<MessageTemplate> all = new ArrayList<>(existing);
+            all.addAll(missing);
+            return all.stream().map(MessagingAdminService::toDto).toList();
+        }
         return existing.stream().map(MessagingAdminService::toDto).toList();
     }
 
@@ -126,6 +138,13 @@ public class MessagingAdminService {
                         + "<a href=\"{{link}}\" style=\"color:#7a7468;word-break:break-all\">{{link}}</a></p>\n"
                         + "<p style=\"color:#7a7468;font-size:13px\">This link works once and expires in {{ttl}}. "
                         + "If you didn't request it, you can safely ignore this email.</p>", true));
+        list.add(template(realmId, "verify-email", "EMAIL", "Verify your email address for {{realm}}",
+                "<p>Hi,</p>\n<p>Please confirm that {{user}} is your email address.</p>\n"
+                        + "<p><a href=\"{{link}}\" data-button>Verify email address</a></p>\n"
+                        + "<p style=\"color:#7a7468;font-size:13px\">If the button doesn't work, copy this link into your browser:<br>"
+                        + "<a href=\"{{link}}\" style=\"color:#7a7468;word-break:break-all\">{{link}}</a></p>\n"
+                        + "<p style=\"color:#7a7468;font-size:13px\">This link works once and expires in {{ttl}}. "
+                        + "If you didn't expect this email, you can safely ignore it.</p>", true));
         list.add(template(realmId, "push-approval", "PUSH", "Approve your sign-in",
                 "Tap to approve signing in to {{realm}}. Match this number: {{number}}.", false));
         return list;
