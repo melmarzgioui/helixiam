@@ -76,7 +76,12 @@ class LoginSecurityHeadersTest {
                         containsString("form-action 'self'"),
                         containsString("script-src 'self'"),
                         not(containsString("script-src 'unsafe-inline'")),
-                        not(containsString("script-src 'self' 'unsafe-inline'")))))
+                        not(containsString("script-src 'self' 'unsafe-inline'")),
+                        // Structured theming §6: no inline styles are left, and images only from the realm's origins.
+                        containsString("style-src 'self';"),
+                        not(containsString("unsafe-inline")),
+                        containsString("img-src 'self' data:;"),
+                        not(containsString(" https:;")))))
                 // Clickjacking + MIME-sniffing + referrer hardening.
                 .andExpect(header().string("X-Frame-Options", "DENY"))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
