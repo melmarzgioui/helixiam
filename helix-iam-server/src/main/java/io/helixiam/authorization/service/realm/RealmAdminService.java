@@ -11,6 +11,8 @@ import io.helixiam.authorization.service.RealmService;
 import io.helixiam.authorization.service.client.ConsoleClientBootstrapService;
 import io.helixiam.authorization.service.flow.AuthFlowService;
 import io.helixiam.authorization.service.role.DefaultRolesBootstrapService;
+import io.helixiam.authorization.theme.LegacyBranding;
+import io.helixiam.authorization.theme.ThemeService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,18 +35,21 @@ public class RealmAdminService {
     private final AuthFlowService authFlowService;
     private final DefaultRolesBootstrapService defaultRolesBootstrapService;
     private final ConsoleClientBootstrapService consoleClientBootstrapService;
+    private final ThemeService themeService;
 
     @Autowired
     public RealmAdminService(final RealmService realmService,
                              final RealmAdminBootstrapService realmAdminBootstrapService,
                              final AuthFlowService authFlowService,
                              final DefaultRolesBootstrapService defaultRolesBootstrapService,
-                             final ConsoleClientBootstrapService consoleClientBootstrapService) {
+                             final ConsoleClientBootstrapService consoleClientBootstrapService,
+                             final ThemeService themeService) {
         this.realmService = realmService;
         this.realmAdminBootstrapService = realmAdminBootstrapService;
         this.authFlowService = authFlowService;
         this.defaultRolesBootstrapService = defaultRolesBootstrapService;
         this.consoleClientBootstrapService = consoleClientBootstrapService;
+        this.themeService = themeService;
     }
 
     /** The realm's settings, or platform defaults when no row exists yet. */
@@ -109,14 +114,12 @@ public class RealmAdminService {
         config.setRiskLowAction(dto.riskLowAction() == null || dto.riskLowAction().isBlank() ? "allow" : dto.riskLowAction());
         config.setRiskMediumAction(dto.riskMediumAction() == null || dto.riskMediumAction().isBlank() ? "step_up" : dto.riskMediumAction());
         config.setRiskHighAction(dto.riskHighAction() == null || dto.riskHighAction().isBlank() ? "deny" : dto.riskHighAction());
-        // B2: per-realm login theming (all optional → null when blank so the login page falls back to defaults).
-        config.setLogoUrl(blankToNull(dto.logoUrl()));
-        config.setPrimaryColor(blankToNull(dto.primaryColor()));
-        config.setBackgroundColor(blankToNull(dto.backgroundColor()));
-        config.setWelcomeText(blankToNull(dto.welcomeText()));
-        config.setCustomCss(blankToNull(dto.customCss()));
         config.setRegistrationEnabled(dto.registrationEnabled());
         final RealmConfig saved = realmService.save(config);
+        // B2 branding (deprecated): the five legacy fields live on the realm theme now. Validated there (a
+        // ThemeValidationException rolls the whole save back); a no-op when they are unchanged.
+        themeService.applyLegacyBranding(dto.realmId(), new LegacyBranding(dto.logoUrl(), dto.primaryColor(),
+                dto.backgroundColor(), dto.welcomeText(), dto.customCss()));
         if (isNewRealm) {
             // A brand-new realm gets the built-in browser login flow, the curated default roles
             // (admin/user/auditor + admin-permission grants), and an admin user — so it's never created
@@ -139,6 +142,7 @@ public class RealmAdminService {
     }
 
     private RealmSettingsDto toDto(final RealmConfig c) {
+        final LegacyBranding branding = themeService.legacyBranding(c.getRealmId());
         return new RealmSettingsDto(c.getRealmId(), c.getDisplayName(), c.getIssuer(), c.getAccessTokenTtlSeconds(),
                 c.getRefreshTokenTtlSeconds(), c.isReuseRefreshTokens(), c.isRequireMfa(), c.getPasswordMinLength(),
                 c.isEnabled(), c.getSsoSessionIdleTimeoutSeconds(), c.getSsoSessionMaxLifetimeSeconds(),
@@ -155,7 +159,8 @@ public class RealmAdminService {
                 c.getMaxConcurrentSessions(), c.isConcurrentSessionEvictOldest(),
                 c.isRiskPolicyEnabled(), c.getRiskMediumThreshold(), c.getRiskHighThreshold(),
                 c.getRiskLowAction(), c.getRiskMediumAction(), c.getRiskHighAction(),
-                c.getLogoUrl(), c.getPrimaryColor(), c.getBackgroundColor(), c.getWelcomeText(), c.getCustomCss(),
+                branding.logoUrl(), branding.primaryColor(), branding.backgroundColor(), branding.welcomeText(),
+                branding.customCss(),
                 c.isRegistrationEnabled());
     }
 }

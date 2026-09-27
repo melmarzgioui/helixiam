@@ -47,9 +47,12 @@ public record RealmSettingsRequest(@NotBlank(message = "Display name is required
                                    @PositiveOrZero(message = "Risk medium threshold cannot be negative.") int riskMediumThreshold,
                                    @PositiveOrZero(message = "Risk high threshold cannot be negative.") int riskHighThreshold,
                                    String riskLowAction, String riskMediumAction, String riskHighAction,
-                                   // B2: per-realm login theming/branding (all optional).
-                                   String logoUrl, String primaryColor, String backgroundColor,
-                                   String welcomeText, String customCss,
+                                   // B2 branding — DEPRECATED since structured theming: mapped onto the realm theme, kept for one minor version.
+                                   @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use assets.logoUrl on PUT /admin/realms/{realmId}/theme.") String logoUrl,
+                                   @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use colors.primary.light on PUT /admin/realms/{realmId}/theme.") String primaryColor,
+                                   @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use colors.surface.light on PUT /admin/realms/{realmId}/theme.") String backgroundColor,
+                                   @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use texts.welcomeText on PUT /admin/realms/{realmId}/theme.") String welcomeText,
+                                   @io.swagger.v3.oas.annotations.media.Schema(deprecated = true, description = "Deprecated: use customCss on PUT /admin/realms/{realmId}/theme.") String customCss,
                                    // Per-realm self-registration switch.
                                    boolean registrationEnabled) {
 }

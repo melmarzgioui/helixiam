@@ -7,38 +7,76 @@ package io.helixiam.authorization.service.org;
 
 import io.helixiam.authorization.domain.org.Organization;
 import io.helixiam.authorization.repository.org.OrganizationRepository;
+import io.helixiam.authorization.theme.LegacyBranding;
+import io.helixiam.authorization.theme.Theme;
+import io.helixiam.authorization.theme.ThemeAssets;
+import io.helixiam.authorization.theme.ThemeColors;
+import io.helixiam.authorization.theme.ThemeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
 import java.util.Optional;
 
 /**
- * 1.0 item 7 (branding): an organization's display name, logo and primary colour. The admin API validates the
- * values ({@code OrganizationBrandingController}); sign-in pages read them for the organization in context.
+ * 1.0 item 7 (branding): an organization's display name, logo and primary colour. Since structured theming the logo
+ * and colour are a view onto the organization's theme layer ({@code assets.logoUrl}, {@code colors.primary.light});
+ * the display name stays on the organization. Values are validated by the theme rules (https or own-asset logo,
+ * {@code #RRGGBB} colour with WCAG AA text contrast); sign-in pages read them for the organization in context.
  */
 @Service
 public class OrganizationBrandingService {
 
-    private final OrganizationRepository organizations;
+    /** Theme error paths reported under the branding API's field names. */
+    private static final Map<String, String> ERROR_KEYS = Map.of(
+            "assets.logoUrl", "logoUrl",
+            "colors.primary", "primaryColor",
+            "contrast.textOnPrimary", "primaryColor");
 
-    public OrganizationBrandingService(final OrganizationRepository organizations) {
+    private final OrganizationRepository organizations;
+    private final ThemeService themes;
+
+    public OrganizationBrandingService(final OrganizationRepository organizations, final ThemeService themes) {
         this.organizations = organizations;
+        this.themes = themes;
     }
 
     @Transactional(readOnly = true)
     public Optional<Branding> get(final String realmId, final String orgId) {
-        return inRealm(realmId, orgId).map(OrganizationBrandingService::toBranding);
+        return inRealm(realmId, orgId).map(o -> toBranding(o, themes.organizationTheme(realmId, o.getOrgId())
+                .orElse(Theme.EMPTY)));
     }
 
-    /** Replaces the three branding values (null clears one). Empty when the organization is not in the realm. */
+    /**
+     * Replaces the three branding values (null clears one) and keeps the rest of the organization theme. Empty when
+     * the organization is not in the realm; {@link io.helixiam.authorization.theme.ThemeValidationException} (keys
+     * {@code logoUrl}/{@code primaryColor}) when a value breaks the theme rules.
+     */
     @Transactional
     public Optional<Branding> replace(final String realmId, final String orgId, final Branding branding) {
-        return inRealm(realmId, orgId).map(o -> {
-            o.setDisplayName(blankToNull(branding.displayName()));
-            o.setLogoUrl(blankToNull(branding.logoUrl()));
-            o.setPrimaryColor(blankToNull(branding.primaryColor()));
-            return toBranding(organizations.save(o));
-        });
+        final Optional<Organization> org = inRealm(realmId, orgId);
+        if (org.isEmpty()) {
+            return Optional.empty();
+        }
+        final String logo = blankToNull(branding.logoUrl());
+        final String primary = blankToNull(branding.primaryColor());
+        final Optional<ThemeService.ThemeChange> change = themes.patchOrganizationTheme(realmId, org.get().getOrgId(),
+                t -> withBranding(t, logo, primary), ERROR_KEYS);
+        if (change.isEmpty()) {
+            return Optional.empty();
+        }
+        final Organization o = org.get();
+        o.setDisplayName(blankToNull(branding.displayName()));
+        return Optional.of(toBranding(organizations.save(o), change.get().theme()));
+    }
+
+    /** The theme with the logo and the primary colour replaced (an unchanged colour keeps its dark value). */
+    static Theme withBranding(final Theme t, final String logo, final String primary) {
+        final ThemeColors colors = t.colors() == null ? ThemeColors.from(r -> null) : t.colors();
+        final ThemeAssets a = t.assets() == null ? new ThemeAssets(null, null, null, null) : t.assets();
+        return t.withColors(ThemeColors.from(role -> "primary".equals(role)
+                        ? LegacyBranding.color(colors.primary(), primary) : colors.role(role)))
+                .withAssets(new ThemeAssets(logo, a.logoDarkUrl(), a.faviconUrl(), a.brandImageUrl()));
     }
 
     /**
@@ -61,8 +99,10 @@ public class OrganizationBrandingService {
         return organizations.findById(orgId).filter(o -> realmId.equals(o.getTenantId()));
     }
 
-    private static Branding toBranding(final Organization o) {
-        return new Branding(o.getDisplayName() != null ? o.getDisplayName() : o.getName(), o.getLogoUrl(), o.getPrimaryColor());
+    private static Branding toBranding(final Organization o, final Theme theme) {
+        final LegacyBranding view = LegacyBranding.of(theme);
+        return new Branding(o.getDisplayName() != null ? o.getDisplayName() : o.getName(), view.logoUrl(),
+                view.primaryColor());
     }
 
     private static String blankToNull(final String v) {

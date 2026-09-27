@@ -219,7 +219,8 @@ public class RealmConfig {
     @JsonProperty
     private String riskHighAction = "deny";
 
-    // B2: per-realm login theming/branding (all optional; null/blank → built-in HelixIAM defaults).
+    // B2: legacy per-realm branding columns. Since structured theming (Flyway V19/V20) these values live on the realm
+    // theme (realm_theme) and these columns are emptied and no longer read or written; kept for rollback safety.
     @Column(name = "logo_url")
     @JsonProperty
     private String logoUrl;
