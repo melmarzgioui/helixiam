@@ -171,3 +171,14 @@ No security check depends on this value.
 | #260 | sensitive-log | an unreadable `HELIX_BOOTSTRAP_CLIENT_SECRET_FILE` is reported without its path | `BootstrapServiceAccountServiceTest.anUnreadableSecretFile_isReported_withoutLoggingItsPath` |
 | #261–#264 | log-injection | `FederatedLoginCompleter` and `QueueSpringSessionStore` wrap the user id / principal name and exception messages in `LogSafe.sanitize` | (`LogSafeTest`) |
 | #255 | unvalidated-url-redirection | Hardening. The target was the authorize request saved in the user's own session, so it was always this server. `InFlightClientResolver.pendingAuthorizeUrl` now returns only its path and query, never its scheme and host, and refuses a path starting with `//` | `InFlightClientResolverTest.pendingAuthorizeUrl_*` |
+
+## rc.6 scan (`47f4b4f`)
+
+### #272–#278: `java/sensitive-log` (RealmSettingsResolver:66, ThemeService:222 ×2/509/571, FileThemeRegistry:215, ThemePageResolver:80)
+All seven share one source and one path (from the SARIF code flow): the email-verification token at
+`EmailVerificationService:172` → `EmailVerificationMessage.link` → `RealmEmailVerificationSender` puts it in the
+notification's `additionalData` map under the key `"link"`, and the realm id under `"realm"` → `AccountEmails:134`
+reads `additionalData.get("realm")` → that realm id reaches the flagged log lines (through `LogSafe.sanitize`).
+CodeQL models the map as one `<map.value>` and cannot tell the keys apart, so every value read from the map looks
+like the token. What is logged is the realm id (and exception messages / theme names), never the link: nothing in
+`notification`, `messaging` or `emailverification` logs the link, the token or `additionalData`.
