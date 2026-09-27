@@ -85,4 +85,15 @@ class AuditEventMapperTest {
         assertEquals("widgets", a.resourceType());
         assertEquals("w-1", a.resourceId());
     }
+
+    @Test
+    void mapsThemeUpdates() {
+        final AuditEventMapper.AdminAudit realm = map("PUT", "/admin/realms/gov/theme", 200);
+        assertEquals("THEME_UPDATE", realm.type());
+        assertEquals("theme", realm.resourceType());
+        final AuditEventMapper.AdminAudit org = map("PUT", "/admin/realms/gov/organizations/o-1/theme", 200);
+        assertEquals("ORGANIZATION_THEME_UPDATE", org.type());
+        assertEquals("o-1", org.resourceId());
+        assertEquals("ORGANIZATION_THEME_UPDATE", map("PUT", "/admin/realms/gov/organizations/o-1/branding", 200).type());
+    }
 }

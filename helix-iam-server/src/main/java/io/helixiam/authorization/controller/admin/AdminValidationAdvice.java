@@ -53,10 +53,34 @@ public class AdminValidationAdvice {
         return body(first, fieldErrors);
     }
 
+    /** Structured theming: a theme (or a legacy branding field mapped onto it) failed validation. */
+    @ExceptionHandler(io.helixiam.authorization.theme.ThemeValidationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, Object> onThemeInvalid(final io.helixiam.authorization.theme.ThemeValidationException ex) {
+        final Map<String, String> fieldErrors = ex.fieldErrors();
+        final String first = fieldErrors.isEmpty() ? "The theme is not valid."
+                : fieldErrors.values().iterator().next();
+        return body(first, fieldErrors);
+    }
+
     /** Malformed / unparseable JSON body. */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, Object> onUnreadable(final HttpMessageNotReadableException ex) {
+        // Name the offending field when Jackson can tell (e.g. "colors.primary" given a string), never the input.
+        if (ex.getCause() instanceof com.fasterxml.jackson.databind.JsonMappingException jme && !jme.getPath().isEmpty()) {
+            final StringBuilder path = new StringBuilder();
+            for (final com.fasterxml.jackson.databind.JsonMappingException.Reference ref : jme.getPath()) {
+                if (ref.getFieldName() != null) {
+                    path.append(path.isEmpty() ? "" : ".").append(ref.getFieldName());
+                } else if (ref.getIndex() >= 0) {
+                    path.append('[').append(ref.getIndex()).append(']');
+                }
+            }
+            if (!path.isEmpty()) {
+                return body("Request body is malformed at " + path + ".", Map.of(path.toString(), "Invalid value."));
+            }
+        }
         return body("Request body is missing or malformed.", Map.of());
     }
 

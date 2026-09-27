@@ -82,4 +82,13 @@ class AdminRoutePermissionsTest {
     void unknownRealmScopedGroup_fallsBackToManageRealm() {
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/something-new", "POST")).contains("manage-realm");
     }
+
+    @Test
+    void themes_realmNeedsManageRealm_organizationNeedsManageOrganizations() {
+        for (final String method : new String[] {"GET", "PUT"}) {
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov/theme", method)).contains("manage-realm");
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov/organizations/o-1/theme", method))
+                    .contains("manage-organizations");
+        }
+    }
 }

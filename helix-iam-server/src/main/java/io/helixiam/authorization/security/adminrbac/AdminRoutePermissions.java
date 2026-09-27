@@ -69,7 +69,9 @@ public final class AdminRoutePermissions {
             case "groups", "organizations" -> MANAGE_ORGANIZATIONS;
             case "flows", "authenticators", "authorization" -> MANAGE_AUTHORIZATION;
             case "sessions" -> read ? VIEW_EVENTS : MANAGE_EVENTS;
-            case "settings", "messaging", "provisioning", "endpoints", "health", "subject-claim" -> MANAGE_REALM;
+            // Structured theming: the realm theme (read and write) is realm configuration; organization themes
+            // (/organizations/{id}/theme) fall under the "organizations" group → manage-organizations.
+            case "settings", "theme", "messaging", "provisioning", "endpoints", "health", "subject-claim" -> MANAGE_REALM;
             // roles + per-user role mappings (RoleAdminController is mapped at /admin/realms/{realmId})
             case "roles" -> MANAGE_ROLES;
             // /admin/realms/{realmId}/users/{userId}/roles is covered by the "users" case above.

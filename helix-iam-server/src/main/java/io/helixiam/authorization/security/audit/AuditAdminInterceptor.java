@@ -39,6 +39,7 @@ public class AuditAdminInterceptor implements HandlerInterceptor {
         final AuditEventMapper.AdminAudit a = AuditEventMapper.map(request.getMethod().toUpperCase(),
                 request.getRequestURI(), status);
         auditLog.emit(AuditEvent.admin(AuditContext.nowIso(), a.type(), a.realm(), AuditContext.adminActor(),
-                AuditContext.clientIp(request), a.resourceType(), a.resourceId(), a.outcome()));
+                AuditContext.clientIp(request), a.resourceType(), a.resourceId(), a.outcome(),
+                AuditContext.detail(request)));
     }
 }
