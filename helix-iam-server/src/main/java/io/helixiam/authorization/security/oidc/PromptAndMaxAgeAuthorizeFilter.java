@@ -38,7 +38,8 @@ import java.util.function.LongSupplier;
  *       (validated first — never an open redirect).</li>
  *   <li>{@code prompt=login} or an expired {@code max_age} — force re-authentication by clearing the
  *       session authentication, so the SAS entry point bounces the user to {@code /login} (saving the
- *       authorize request, which P1 then resumes).</li>
+ *       authorize request, which P1 then resumes). {@code prompt=login} forces once per request: the
+ *       resumed request, whose {@code auth_time} is newer than when the prompt was first seen, passes.</li>
  * </ul>
  */
 public class PromptAndMaxAgeAuthorizeFilter extends OncePerRequestFilter {
@@ -46,6 +47,8 @@ public class PromptAndMaxAgeAuthorizeFilter extends OncePerRequestFilter {
     /** Default session key Spring Security uses to persist the {@code SecurityContext}. */
     private static final String SPRING_SECURITY_CONTEXT_KEY = "SPRING_SECURITY_CONTEXT";
     private static final String AUTHORIZE_PATH = "/oauth2/authorize";
+    /** Session attribute: epoch second a {@code prompt=login} request was first seen and not yet satisfied. */
+    static final String PROMPT_LOGIN_SINCE = "HELIX_PROMPT_LOGIN_SINCE";
 
     private final RegisteredClientRepository clients;
     private final AuthTimeStamper authTimeStamper;
@@ -89,10 +92,33 @@ public class PromptAndMaxAgeAuthorizeFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (authed && ("login".equals(prompt) || tooOld)) {
+        if ("login".equals(prompt)) {
+            handlePromptLogin(request, authed);
+        } else if (tooOld) {
             forceReauth(request); // SAS entry point will redirect to /login and save the request
         }
         chain.doFilter(request, response);
+    }
+
+    /**
+     * A2: {@code prompt=login} forces ONE interactive login per authorization request. The first time the
+     * request is seen we note the moment ({@link #PROMPT_LOGIN_SINCE}) and drop any session authentication, so
+     * the user signs in. When the login success handler resumes the saved request (which still carries
+     * {@code prompt=login}), the session's {@code auth_time} is at or after that moment: the user re-authenticated
+     * for this request, so it passes through (and the marker is consumed) instead of being forced again — which
+     * used to send the user back to {@code /login} forever.
+     */
+    private void handlePromptLogin(final HttpServletRequest request, final boolean authed) {
+        final HttpSession session = request.getSession(false);
+        final Object since = session == null ? null : session.getAttribute(PROMPT_LOGIN_SINCE);
+        final Long authTime = authTimeStamper.read(request);
+        if (authed && since instanceof Long sinceSeconds && authTime != null && authTime >= sinceSeconds) {
+            session.removeAttribute(PROMPT_LOGIN_SINCE); // re-authenticated for this request: honour it once
+            return;
+        }
+        // Not yet re-authenticated for this request: note when it was seen, then make the user sign in.
+        forceReauth(request);
+        request.getSession(true).setAttribute(PROMPT_LOGIN_SINCE, nowEpochSeconds.getAsLong());
     }
 
     private boolean isFullyAuthenticated(final HttpServletRequest request) {
