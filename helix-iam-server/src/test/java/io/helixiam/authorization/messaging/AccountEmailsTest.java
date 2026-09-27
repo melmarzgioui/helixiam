@@ -90,4 +90,67 @@ class AccountEmailsTest {
                 .isEqualTo("Bevestig je e-mailadres voor Monthfold");
         assertThat(emails.compose(new NotificationRequest("NEW_REGISTERED_USER"))).isEmpty();
     }
+
+    @Test
+    void theTextPart_ofTheVerificationEmail_hasTheLink_theCode_andTheCodePage() {
+        final EmailComposer.ComposedEmail mail = emails.compose("USER_SIGNUP", "monthfold", "0b7c-42", Locale.ENGLISH, MONTHFOLD);
+
+        assertThat(mail.text()).isEqualTo("""
+                Thanks for creating your Monthfold account. Confirm your email address to finish.
+
+                Confirm email address:
+                https://auth.monthfold.example/realms/monthfold/register/verify/0b7c-42
+
+                Or enter this code on the confirmation page:
+                0b7c-42
+                https://auth.monthfold.example/realms/monthfold/register/verify
+
+                If you did not create this account, you can ignore this email.
+
+                --\s
+                Sent by Monthfold.""");
+        assertThat(mail.text()).doesNotContain("<").doesNotContain("HTML");
+    }
+
+    @Test
+    void theTextPart_isDutch_inDutch() {
+        final EmailComposer.ComposedEmail mail = emails.compose("USER_SIGNUP", "monthfold", "c0de", Locale.forLanguageTag("nl"),
+                MONTHFOLD);
+        assertThat(mail.text()).contains("E-mailadres bevestigen:\nhttps://auth.monthfold.example/realms/monthfold/register/verify/c0de")
+                .contains("Of vul deze code in op de bevestigingspagina:\nc0de").contains("Verstuurd door Monthfold.")
+                .doesNotContain("Confirm");
+    }
+
+    @Test
+    void theTextPart_ofTheResetEmail_hasTheLinkAndTheCode() {
+        final EmailComposer.ComposedEmail mail = emails.compose("USER_RESET_PASSWORD", "monthfold", "r-1", Locale.ENGLISH,
+                MONTHFOLD);
+        assertThat(mail.text()).contains("Choose a new password:\nhttps://auth.monthfold.example/realms/monthfold/reset/password/r-1")
+                .contains("Your reset code:\nr-1");
+    }
+
+    @Test
+    void withoutABaseUrl_theTextPartCarriesTheCode() {
+        final AccountEmails noBase = new AccountEmails(new I18nConfig().messageSource(), realm -> MONTHFOLD, "");
+        assertThat(noBase.compose("USER_SIGNUP", "monthfold", "c0de", Locale.ENGLISH, MONTHFOLD).text())
+                .contains("Or enter this code on the confirmation page:\nc0de").doesNotContain("http");
+    }
+
+    @Test
+    void theGlobalSmtpVerifyLinkEmail_isBranded_localised_andHasATextPart() {
+        final NotificationRequest verify = new NotificationRequest("VERIFY_EMAIL");
+        verify.getAdditionalData().put("realm", "monthfold");
+        verify.getAdditionalData().put("link", "https://auth.monthfold.example/realms/monthfold/verify-email?token=t0k");
+        verify.getAdditionalData().put("ttlHours", "24");
+        LocaleContextHolder.setLocale(Locale.forLanguageTag("nl"));
+
+        final EmailComposer.ComposedEmail mail = emails.compose(verify).orElseThrow();
+
+        assertThat(mail.html()).isTrue();
+        assertThat(mail.subject()).isEqualTo("Bevestig je e-mailadres voor Monthfold");
+        assertThat(mail.body()).contains("href=\"https://auth.monthfold.example/realms/monthfold/verify-email?token=t0k\"")
+                .contains("<html lang=\"nl\">");
+        assertThat(mail.text()).contains("https://auth.monthfold.example/realms/monthfold/verify-email?token=t0k")
+                .contains("24 uur").doesNotContain("<");
+    }
 }

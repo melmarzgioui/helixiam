@@ -77,7 +77,7 @@ public class MessagingService {
             return false;
         }
         final Rendered r = render(realm, templateKey, vars);
-        driver.send(provider, to, r.subject(), r.body(), r.html());
+        driver.send(provider, to, r.subject(), r.body(), r.html(), r.text());
         return true;
     }
 
@@ -133,18 +133,27 @@ public class MessagingService {
         }
     }
 
+    /**
+     * The message of {@code templateKey} in the user's language: an unedited default template is sent in Dutch to a
+     * Dutch user ({@link DefaultMessageTemplates#localise}). An HTML template is rendered with escaped values inside
+     * the branded layout, with a plain-text part derived from it (every link and code kept, item 3).
+     */
     private Rendered render(final String realm, final String templateKey, final Map<String, String> vars) {
         final Map<String, String> v = vars == null ? Map.of() : vars;
-        final MessageTemplateDto template = template(realm, templateKey);
+        final java.util.Locale locale = org.springframework.context.i18n.LocaleContextHolder.getLocale();
+        final MessageTemplateDto stored = template(realm, templateKey);
+        final DefaultMessageTemplates.Template template = stored == null ? null
+                : DefaultMessageTemplates.localise(templateKey, stored.subject(), stored.body(), stored.html(), locale);
         final String subject = template == null ? "" : TemplateRenderer.render(template.subject(), v);
         if (template != null && template.html()) {
             // HTML email: escaped values, inside the shared branded layout (organization in context, else realm).
             final EmailBranding branding = emailBranding == null ? EmailBranding.helixIam() : emailBranding.brandingFor(realm);
-            return new Rendered(subject, EmailLayout.wrap(branding, subject, TemplateRenderer.renderHtml(template.body(), v),
-                    org.springframework.context.i18n.LocaleContextHolder.getLocale()), true);
+            final String bodyHtml = TemplateRenderer.renderHtml(template.body(), v);
+            return new Rendered(subject, EmailLayout.wrap(branding, subject, bodyHtml, locale), true,
+                    EmailLayout.text(branding, EmailText.fromHtml(bodyHtml), locale));
         }
         final String body = template == null ? v.getOrDefault("code", "") : TemplateRenderer.render(template.body(), v);
-        return new Rendered(subject, body, false);
+        return new Rendered(subject, body, false, body);
     }
 
     /** The brand HTML emails are sent under; without one, HelixIAM's. */
@@ -159,6 +168,6 @@ public class MessagingService {
                 : templates.stream().filter(t -> key.equals(t.templateKey()) && t.enabled()).findFirst().orElse(null);
     }
 
-    private record Rendered(String subject, String body, boolean html) {
+    private record Rendered(String subject, String body, boolean html, String text) {
     }
 }

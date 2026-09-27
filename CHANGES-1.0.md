@@ -23,6 +23,16 @@ CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven
   path only, never by the saved request's scheme and host, and a path that starts with `//` is refused (CodeQL #255,
   hardening: the saved request always came from the user's own session on this server).
 
+Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthfold-open-issues.md`):
+
+- **Item 3** — Every email has a plain-text part with its link and, for registration and reset, its code. The HTML
+  emails were sent as HTML only, so a provider or app that shows the text part showed "Open this email in an email
+  app that shows HTML". SMTP now sends `multipart/alternative`, and the HTTP email driver adds a `text` field to its
+  payload. The account emails (registration, reset, and the global-SMTP verification link) build their text part in
+  the user's language; realm templates derive it from the HTML (`Label: URL` for links). The unedited default
+  templates (code, magic link, verify email, email change) are sent in Dutch to Dutch users, with the expiry
+  (`{{ttl}}`) in Dutch too.
+
 ## Next release (after `v1.0.0-rc.4`)
 
 Open issues found when Monthfold moved its production sign-in to rc.4

@@ -46,7 +46,7 @@ public class RealmEmailVerificationSender implements EmailVerificationSender {
             final Map<String, String> vars = new LinkedHashMap<>();
             vars.put("realm", message.realmId());
             vars.put("link", message.link());
-            vars.put("ttl", message.ttlHours() + " hours");
+            vars.put("ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.hours(message.ttlHours(), org.springframework.context.i18n.LocaleContextHolder.getLocale()));
             vars.put("user", message.email());
             if (messaging.sendEmail(message.realmId(), message.email(), TEMPLATE, vars)) {
                 LOG.info("Verification email sent to user {} in realm {}",
@@ -58,6 +58,7 @@ public class RealmEmailVerificationSender implements EmailVerificationSender {
             fallback.getAdditionalData().put("link", message.link());
             fallback.getAdditionalData().put("realm", message.realmId());
             fallback.getAdditionalData().put("ttl", message.ttlHours() + " hours");
+            fallback.getAdditionalData().put("ttlHours", String.valueOf(message.ttlHours()));
             notifier.sendEmailNotification(fallback); // never throws; logs when no global SMTP is configured
             return true;
         } catch (final RuntimeException e) {

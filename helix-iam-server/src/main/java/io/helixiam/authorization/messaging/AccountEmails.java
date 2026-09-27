@@ -28,8 +28,11 @@ import java.util.Optional;
  * <ul>
  *   <li>{@code USER_SIGNUP} (item A7): a button linking to {@code /realms/{realm}/register/verify/{code}}, the code
  *       itself, and a link to the page where it can be typed ({@code /realms/{realm}/register/verify});</li>
- *   <li>{@code USER_RESET_PASSWORD}: a button linking to {@code /realms/{realm}/reset/password/{code}} and the code.</li>
+ *   <li>{@code USER_RESET_PASSWORD}: a button linking to {@code /realms/{realm}/reset/password/{code}} and the code;</li>
+ *   <li>{@code VERIFY_EMAIL}: the email-verification link of a realm without an email provider (sent over global
+ *       SMTP).</li>
  * </ul>
+ * Each has a plain-text part with the same links and code (item 3), so it works in a client that shows only text.
  * Links are absolute on {@code idp.base.url} (never the request's host: a forged {@code Host} header must not
  * send a user a valid code on another domain); without it the email carries the code only. Every value is
  * HTML-escaped. Other notification types, and notifications outside a realm, are left to the plain-text fallback.
@@ -39,6 +42,9 @@ public class AccountEmails implements EmailComposer {
 
     static final String SIGNUP = "USER_SIGNUP";
     static final String RESET = "USER_RESET_PASSWORD";
+    /** The email-verification link on the global-SMTP fallback path (a realm without an email provider). */
+    static final String VERIFY_EMAIL = "VERIFY_EMAIL";
+    private static final long DEFAULT_VERIFY_TTL_HOURS = 24;
     private static final Logger LOG = LogManager.getLogger(AccountEmails.class);
 
     private final MessageSource messages;
@@ -55,6 +61,9 @@ public class AccountEmails implements EmailComposer {
     @Override
     public Optional<ComposedEmail> compose(final NotificationRequest notification) {
         final String type = notification == null ? null : notification.getType();
+        if (VERIFY_EMAIL.equals(type)) {
+            return composeVerifyLink(notification);
+        }
         final String realm = RealmContextHolder.get();
         final String code = notification == null || notification.getNotificationCode() == null ? null
                 : notification.getNotificationCode().getCode();
@@ -77,31 +86,92 @@ public class AccountEmails implements EmailComposer {
         final String prefix = signup ? "email.verify." : "email.reset.";
         final String link = realmUrl == null ? null
                 : realmUrl + (signup ? "/register/verify/" : "/reset/password/") + enc(code);
+        final String codePage = signup && realmUrl != null ? realmUrl + "/register/verify" : null;
         final String subject = text(prefix + "subject", locale, b.name());
+        final String intro = text(prefix + "intro", locale, b.name());
+        final String button = text(prefix + "button", locale);
+        final String codeLabel = text(prefix + "code", locale);
+        final String ignore = text(prefix + "ignore", locale);
 
         final StringBuilder body = new StringBuilder();
-        body.append("<p>").append(esc(text(prefix + "intro", locale, b.name()))).append("</p>\n");
+        body.append("<p>").append(esc(intro)).append("</p>\n");
         if (link != null) {
-            body.append("<p><a href=\"").append(esc(link)).append("\" data-button>")
-                    .append(esc(text(prefix + "button", locale))).append("</a></p>\n");
+            body.append("<p><a href=\"").append(esc(link)).append("\" data-button>").append(esc(button)).append("</a></p>\n");
         }
-        body.append("<p>").append(esc(text(prefix + "code", locale))).append("<br><strong style=\"font-family:")
+        body.append("<p>").append(esc(codeLabel)).append("<br><strong style=\"font-family:")
                 .append(EmailLayout.MONO).append(";font-size:16px;letter-spacing:1px;word-break:break-all;\">")
                 .append(esc(code)).append("</strong>");
-        if (signup && realmUrl != null) {
-            body.append("<br><a href=\"").append(esc(realmUrl + "/register/verify")).append("\" style=\"color:")
+        if (codePage != null) {
+            body.append("<br><a href=\"").append(esc(codePage)).append("\" style=\"color:")
                     .append(b.color()).append(";\">").append(esc(text("email.verify.codePage", locale))).append("</a>");
         }
         body.append("</p>\n");
         if (link != null) {
-            body.append("<p style=\"color:").append(b.inkMuted()).append(";font-size:13px;\">")
-                    .append(esc(text("email.linkFallback", locale))).append("<br><a href=\"").append(esc(link))
-                    .append("\" style=\"color:").append(b.inkMuted()).append(";word-break:break-all;\">")
-                    .append(esc(link)).append("</a></p>\n");
+            linkFallback(body, b, link, locale);
         }
+        body.append("<p style=\"color:").append(b.inkMuted()).append(";font-size:13px;\">").append(esc(ignore)).append("</p>");
+
+        // Item 3: the plain-text part carries the link and the code as well.
+        final StringBuilder plain = new StringBuilder(intro).append("\n\n");
+        if (link != null) {
+            plain.append(button).append(":\n").append(link).append("\n\n");
+        }
+        plain.append(codeLabel).append('\n').append(code);
+        if (codePage != null) {
+            plain.append('\n').append(codePage);
+        }
+        plain.append("\n\n").append(ignore);
+        return new ComposedEmail(subject, EmailLayout.wrap(b, subject, body.toString(), locale), true,
+                EmailLayout.text(b, plain.toString(), locale));
+    }
+
+    /**
+     * The global-SMTP fallback of the email-verification link (C3; a realm with an email provider sends its own
+     * {@code verify-email} template): the realm from the notification, a button, the link written out, its expiry.
+     */
+    private Optional<ComposedEmail> composeVerifyLink(final NotificationRequest notification) {
+        final String realm = notification.getAdditionalData().get("realm");
+        final String link = notification.getAdditionalData().get("link");
+        if (realm == null || link == null) {
+            return Optional.empty();
+        }
+        return Optional.of(composeVerifyLink(realm, link, parseHours(notification.getAdditionalData().get("ttlHours")),
+                LocaleContextHolder.getLocale(), branding.brandingFor(realm)));
+    }
+
+    /** The verification-link email (package-visible for tests). */
+    ComposedEmail composeVerifyLink(final String realm, final String link, final long ttlHours, final Locale locale,
+                                    final EmailBranding brand) {
+        final EmailBranding b = brand == null ? EmailBranding.helixIam() : brand;
+        final String subject = text("email.verify.subject", locale, b.name());
+        final String intro = text("email.verifyLink.intro", locale, b.name());
+        final String button = text("email.verify.button", locale);
+        final String expiry = text("email.verifyLink.expiry", locale, DefaultMessageTemplates.hours(ttlHours, locale));
+        final String ignore = text("email.verifyLink.ignore", locale);
+        final StringBuilder body = new StringBuilder();
+        body.append("<p>").append(esc(intro)).append("</p>\n");
+        body.append("<p><a href=\"").append(esc(link)).append("\" data-button>").append(esc(button)).append("</a></p>\n");
+        linkFallback(body, b, link, locale);
+        body.append("<p style=\"color:").append(b.inkMuted()).append(";font-size:13px;\">").append(esc(expiry))
+                .append(' ').append(esc(ignore)).append("</p>");
+        final String plain = intro + "\n\n" + button + ":\n" + link + "\n\n" + expiry + " " + ignore;
+        return new ComposedEmail(subject, EmailLayout.wrap(b, subject, body.toString(), locale), true,
+                EmailLayout.text(b, plain, locale));
+    }
+
+    private void linkFallback(final StringBuilder body, final EmailBranding b, final String link, final Locale locale) {
         body.append("<p style=\"color:").append(b.inkMuted()).append(";font-size:13px;\">")
-                .append(esc(text(prefix + "ignore", locale))).append("</p>");
-        return new ComposedEmail(subject, EmailLayout.wrap(b, subject, body.toString(), locale), true);
+                .append(esc(text("email.linkFallback", locale))).append("<br><a href=\"").append(esc(link))
+                .append("\" style=\"color:").append(b.inkMuted()).append(";word-break:break-all;\">")
+                .append(esc(link)).append("</a></p>\n");
+    }
+
+    private static long parseHours(final String value) {
+        try {
+            return value == null ? DEFAULT_VERIFY_TTL_HOURS : Long.parseLong(value.trim());
+        } catch (final NumberFormatException e) {
+            return DEFAULT_VERIFY_TTL_HOURS;
+        }
     }
 
     private String text(final String key, final Locale locale, final Object... args) {

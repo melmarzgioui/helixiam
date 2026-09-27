@@ -867,7 +867,11 @@ organization in context for that sign-in layered on top:
   `surfaceRaised`, text `ink`, muted text `inkMuted`, borders `border`.
 - **Footer:** `texts.footerText` in the user's language, and the `privacyUrl`, `termsUrl` and `supportUrl` links.
 - The email is in the user's language. An email sent while handling a request resolves its language like a page
-  does, so it is limited to `supportedLocales` too.
+  does, so it is limited to `supportedLocales` too. A realm message template that was not edited (still the English
+  default) is sent in Dutch to a Dutch user; an edited template is sent as written.
+- Every HTML email has a plain-text part with the same links and codes, for email apps that show only text. Over SMTP
+  the email is `multipart/alternative`; the HTTP email driver adds a `text` field to its JSON payload
+  (`{from, fromName, to, subject, body, html, contentType, text}`). A link becomes `Label: URL` in the text part.
 
 Branding never blocks a message: if the theme cannot be resolved, the email uses the HelixIAM look.
 

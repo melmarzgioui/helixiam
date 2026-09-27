@@ -42,7 +42,7 @@ public class RealmMagicLinkSender implements MagicLinkSender {
             final Map<String, String> base = new LinkedHashMap<>();
             base.put("realm", message.realmId());
             base.put("link", message.link());
-            base.put("ttl", message.ttlMinutes() + " minutes");
+            base.put("ttl", io.helixiam.authorization.messaging.DefaultMessageTemplates.minutes(message.ttlMinutes(), org.springframework.context.i18n.LocaleContextHolder.getLocale()));
             base.put("user", firstNonBlank(profile.get("name"), profile.get("given_name"), message.email(), "there"));
             if (messaging.sendEmail(message.realmId(), message.email(), "magic-link-email",
                     MessageVariables.withUserClaims(base, profile))) {

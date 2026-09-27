@@ -6,11 +6,14 @@
 package io.helixiam.authorization.messaging.driver;
 
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
+import io.helixiam.authorization.messaging.EmailText;
 import jakarta.mail.Message;
 import jakarta.mail.Session;
 import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -48,6 +51,16 @@ public class SmtpEmailDriver implements EmailDriver {
     @Override
     public void send(final ResolvedProviderDto provider, final String to, final String subject, final String body,
                      final boolean html) {
+        send(provider, to, subject, body, html, null);
+    }
+
+    /**
+     * An HTML email goes out as {@code multipart/alternative}: the plain-text part first ({@code text}, else derived
+     * from the HTML), then the HTML, so a client that shows only text still gets every link and code (item 3).
+     */
+    @Override
+    public void send(final ResolvedProviderDto provider, final String to, final String subject, final String body,
+                     final boolean html, final String text) {
         final Map<String, String> config = provider.config() == null ? Map.of() : provider.config();
         final String host = config.get("host");
         if (host == null || host.isBlank()) {
@@ -72,7 +85,15 @@ public class SmtpEmailDriver implements EmailDriver {
             message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(to));
             message.setSubject(subject == null ? "" : subject);
             if (html) {
-                message.setContent(body == null ? "" : body, "text/html; charset=UTF-8");
+                final String plain = text != null ? text : EmailText.fromHtml(body);
+                final MimeBodyPart textPart = new MimeBodyPart();
+                textPart.setText(plain, "UTF-8");
+                final MimeBodyPart htmlPart = new MimeBodyPart();
+                htmlPart.setContent(body == null ? "" : body, "text/html; charset=UTF-8");
+                final MimeMultipart alternative = new MimeMultipart("alternative");
+                alternative.addBodyPart(textPart);
+                alternative.addBodyPart(htmlPart);
+                message.setContent(alternative);
             } else {
                 message.setText(body == null ? "" : body, "UTF-8");
             }

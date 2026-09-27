@@ -66,11 +66,24 @@ public final class EmailLayout {
                 + "</table></td></tr></table></body></html>\n";
     }
 
+    /**
+     * Item 3: the plain-text part of an email: {@code bodyText}, then the signature separator ({@code "-- "}) and the
+     * footer line (the theme's footer text, else "Sent by {name}." in {@code locale}'s language).
+     */
+    public static String text(final EmailBranding branding, final String bodyText, final Locale locale) {
+        final EmailBranding b = branding == null ? EmailBranding.helixIam() : branding;
+        final String body = bodyText == null ? "" : bodyText.strip();
+        return (body.isEmpty() ? "" : body + "\n\n") + "-- \n" + footerLine(b, locale == null ? Locale.ENGLISH : locale);
+    }
+
+    private static String footerLine(final EmailBranding b, final Locale locale) {
+        return b.footerText() != null ? b.footerText()
+                : ("nl".equals(locale.getLanguage()) ? "Verstuurd door " : "Sent by ") + b.name() + ".";
+    }
+
     /** The footer: the theme's footer text (else "Sent by {name}.") and its legal links, escaped. */
     private static String footer(final EmailBranding b, final Locale locale) {
-        final String line = b.footerText() != null ? b.footerText()
-                : ("nl".equals(locale.getLanguage()) ? "Verstuurd door " : "Sent by ") + b.name() + ".";
-        final StringBuilder out = new StringBuilder(esc(line));
+        final StringBuilder out = new StringBuilder(esc(footerLine(b, locale)));
         final StringBuilder links = new StringBuilder();
         link(links, b.privacyUrl(), "Privacy", b.inkMuted());
         link(links, b.termsUrl(), "nl".equals(locale.getLanguage()) ? "Voorwaarden" : "Terms", b.inkMuted());

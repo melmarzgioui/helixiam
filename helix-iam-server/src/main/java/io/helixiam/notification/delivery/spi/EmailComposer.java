@@ -21,7 +21,14 @@ public interface EmailComposer {
 
     Optional<ComposedEmail> compose(NotificationRequest notification);
 
-    /** One rendered email: subject, body, and whether the body is HTML. */
-    record ComposedEmail(String subject, String body, boolean html) {
+    /**
+     * One rendered email: subject, body, whether the body is HTML, and the plain-text part (for an HTML body, its text
+     * alternative with every link and code; null lets the driver derive it from the HTML).
+     */
+    record ComposedEmail(String subject, String body, boolean html, String text) {
+
+        public ComposedEmail(final String subject, final String body, final boolean html) {
+            this(subject, body, html, html ? null : body);
+        }
     }
 }
