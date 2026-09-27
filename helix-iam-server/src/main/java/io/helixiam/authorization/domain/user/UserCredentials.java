@@ -84,6 +84,11 @@ public class UserCredentials implements UserDetails {
     @Column(name = "mfa_secret")
     private String mfaSecret;
 
+    // Review rc.3 #4: whether the email address was verified; cleared whenever the address changes.
+    @JsonProperty
+    @Column(name = "email_verified")
+    private boolean emailVerified;
+
     // 1.0 item 6: last accepted TOTP time step; a code for the same or an earlier step is a replay.
     @JsonProperty
     @Column(name = "mfa_last_step")
@@ -268,6 +273,14 @@ public class UserCredentials implements UserDetails {
 
     public Date getCreationDate() {
         return creationDate;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public void setEmailVerified(final boolean emailVerified) {
+        this.emailVerified = emailVerified;
     }
 
     public Long getMfaLastStep() {

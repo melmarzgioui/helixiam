@@ -35,6 +35,19 @@ public class UserInfoService {
 
 
     @Autowired
+    private io.helixiam.authorization.repository.UserCredentialsRepository users;
+
+    @Autowired(required = false)
+    public void setUsers(final io.helixiam.authorization.repository.UserCredentialsRepository users) {
+        this.users = users;
+    }
+
+    /** Review rc.3 #4: whether the user's current email address is verified. */
+    public boolean emailVerified(final String userId) {
+        return users != null && userId != null && users.findByUserId(userId).map(
+                io.helixiam.authorization.domain.user.UserCredentials::isEmailVerified).orElse(false);
+    }
+
     public UserInfoService(final UserPublisher userPublisher, @Value("${mapping.oidc.file}") final String oidcMappingFile) {
         this.userPublisher = userPublisher;
         loadOidcClaimMapping(oidcMappingFile);

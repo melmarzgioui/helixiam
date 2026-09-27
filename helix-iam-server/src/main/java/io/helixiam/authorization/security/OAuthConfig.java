@@ -131,6 +131,11 @@ public class OAuthConfig {
                 // Security (1.0 item 1): never copy the profile wholesale — only the standard OIDC profile claims.
                 // Custom attributes are emitted solely through explicitly configured protocol mappers.
                 context.getClaims().claims(claims -> claims.putAll(userInfoService.standardClaims(profile)));
+                // Review rc.3 #4: tell relying parties whether the email address is verified (OIDC email_verified).
+                final Map<String, String> standard = userInfoService.standardClaims(profile);
+                if (standard.containsKey("email")) {
+                    context.getClaims().claim("email_verified", userInfoService.emailVerified(context.getPrincipal().getName()));
+                }
                 applySubjectOverride(context, profile, claimScopePublisher);
                 applyProtocolMappers(context, profile, resolved.flat(), clientMapperPublisher);
                 // (#9) B2B Organizations: the principal's org memberships as the `organizations` claim.

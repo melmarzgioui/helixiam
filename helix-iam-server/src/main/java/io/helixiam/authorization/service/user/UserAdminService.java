@@ -152,7 +152,11 @@ public class UserAdminService {
         return userCredentialsRepository.findByUserId(write.userId()).map(user -> {
             user.setDisabled(!write.enabled());
             user.setAccountLocked(write.locked());
-            user.setEmail(normaliseEmail(write.email()));
+            final String email = normaliseEmail(write.email());
+            if (!java.util.Objects.equals(email, user.getEmail())) {
+                user.setEmailVerified(false); // review rc.3 #4: a new address is unverified until proven
+            }
+            user.setEmail(email);
             if (write.attributes() != null) {
                 user.getUserAttributes().clear();
                 user.getUserAttributes().putAll(write.attributes());

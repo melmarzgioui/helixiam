@@ -66,4 +66,15 @@ public class AdminValidationAdvice {
         out.put("fieldErrors", fieldErrors);
         return out;
     }
+
+    /**
+     * Review rc.3 #4: a unique value already in use (an email address, a username, a name) is a {@code 409} — never
+     * a 500 that exposes the database constraint.
+     */
+    @ExceptionHandler({io.helixiam.common.exception.DuplicateException.class,
+            org.springframework.dao.DataIntegrityViolationException.class})
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, Object> onConflict(final RuntimeException ex) {
+        return Map.of("error", "conflict", "message", "This value is already in use (for example the email address or name).");
+    }
 }
