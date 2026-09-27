@@ -85,7 +85,10 @@ public class SsoLogoutResponseHandler implements AuthenticationSuccessHandler {
             }
         }
 
-        final String redirectTarget = withState(postLogoutRedirectUri, state);
+        // Without a post-logout URI the user ends on the realm's own "You're signed out" page, never the server root.
+        final String redirectTarget = postLogoutRedirectUri == null || postLogoutRedirectUri.isBlank()
+                ? request.getContextPath() + io.helixiam.authorization.controller.SignedOutController.PATH
+                : withState(postLogoutRedirectUri, state);
 
         final HttpSession session = request.getSession(false);
         // SSO P9: if this browser session was brokered through an upstream IdP, propagate the logout there

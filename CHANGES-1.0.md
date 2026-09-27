@@ -79,6 +79,14 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   clients' front-channel logout origins, which the pages' `frame-src 'none'` used to block, so the iframes never
   loaded.
 
+- **Item 6, UI/UX review** — Every error page has a way back to a page of the realm ("Back to sign in" or "Go to
+  your account", never the request's `redirect_uri`), its own title, message and hint per kind (unknown client,
+  unregistered return address, incomplete request, sign-out link, 404, 403) in English and Dutch, the reference small
+  and monospace, and the OAuth code under "Technical details"; the card no longer adds paragraph margins. The
+  front-channel logout page states its two-second redirect in a `role="status"` line and explains its Continue
+  button. An RP-initiated logout without a `post_logout_redirect_uri` now ends on the realm's themed "You're signed
+  out" page (`/realms/{realm}/signed-out`) instead of the plain-text 404 at the server root.
+
 - **Item 7a** — The theme validator checks muted text: `inkMuted` on `surface` and on `surfaceRaised`, light and
   dark, at least 4.5:1 (`contrast.inkMutedOnSurface.*`, `contrast.inkMutedOnSurfaceRaised.*`, same message format).
   So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's

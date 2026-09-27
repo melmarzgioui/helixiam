@@ -266,6 +266,9 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.HEAD, THEME_ASSET_PATTERN, THEME_CSS_PATH).permitAll());
         // 1.0 item 6: magic-link sign-in pages (each answers 404 unless the realm enabled magic links).
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/login/magic", "/login/magic/verify").permitAll());
+        // Where an RP-initiated logout without a post_logout_redirect_uri ends (a themed page, no session needed).
+        http.authorizeHttpRequests(requests -> requests.requestMatchers(org.springframework.http.HttpMethod.GET,
+                io.helixiam.authorization.controller.SignedOutController.PATH).permitAll());
         // C3: the emailed verification link (a confirmation page, then a single-use POST) works without a session.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/verify-email").permitAll());
         // B1: the link that confirms a changed email address works in any browser (it carries a single-use token): a
