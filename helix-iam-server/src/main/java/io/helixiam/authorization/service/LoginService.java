@@ -7,6 +7,7 @@ package io.helixiam.authorization.service;
 
 import io.helixiam.authorization.domain.LoginCredentials;
 import io.helixiam.authorization.domain.realm.RealmConfig;
+import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.domain.tenant.TenantUser;
 import io.helixiam.authorization.domain.user.UserCredentials;
 import io.helixiam.authorization.repository.UserCredentialsRepository;
@@ -69,9 +70,13 @@ public class LoginService {
         // "login with email": the submitted identifier resolves an account by username
         // first, then falls back to email — so a user may sign in with either. Username wins on the rare
         // chance one account's email equals another's username.
+        // A user signs in only in their own realm: the lookup is by (realm, username) then (realm, email), so a
+        // user of another realm — even with the same username — is never found here.
+        final String loginRealm = RealmContextHolder.get() == null ? RealmConfig.ADMIN_REALM_ID : RealmContextHolder.get();
+        final String identifier = loginCredentials.getUsername().trim().toLowerCase();
         final UserCredentials userCredentials = userCredentialsRepository
-                .findByUsername(loginCredentials.getUsername())
-                .or(() -> userCredentialsRepository.findByEmail(loginCredentials.getUsername()))
+                .findByRealmIdAndUsername(loginRealm, identifier)
+                .or(() -> userCredentialsRepository.findByRealmIdAndEmail(loginRealm, identifier))
                 .orElse(null);
 
         if (userCredentials == null) {

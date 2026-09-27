@@ -357,13 +357,13 @@ CREATE TABLE IF NOT EXISTS user_credentials (
     account_disabled boolean default true,
     deleted boolean default false,
     mfa_enabled boolean default false,
-    mfa_secret character varying(255),
-    UNIQUE (username)
+    mfa_secret character varying(255)
+    -- usernames are unique per realm: see ux_user_credentials_realm_username below (realm_id added later)
 );
 -- Helix IAM "login with email": optional email identifier on existing deployments. Nullable + unique
 -- (NULLs are not constrained), so accounts without an email coexist while emails stay one-per-account.
 ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email character varying(255);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_user_credentials_email ON user_credentials (email);
+-- (emails are unique per realm: ux_user_credentials_realm_email, below)
 -- 1.0 item 6: last accepted TOTP time step (replay protection).
 ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS mfa_last_step bigint;
 
@@ -923,3 +923,32 @@ CREATE INDEX IF NOT EXISTS magic_link_token_expiry_idx ON magic_link_token (expi
 
 -- Review rc.3 #1 (security): drop role grants whose user is not a member of the role's realm (same as Flyway V16).
 DELETE FROM user_in_role uir WHERE NOT EXISTS (SELECT 1 FROM user_roles r JOIN tenant_user tu ON tu.tenant_id = r.tenant_id WHERE r.role_id = uir.role_id AND tu.user_id = uir.user_id);
+
+-- Usernames and emails unique per realm; every user has a home realm (same as Flyway V17).
+ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS realm_id character varying(255);
+
+UPDATE user_credentials u SET realm_id = COALESCE(
+        (SELECT tu.tenant_id FROM tenant_user tu WHERE tu.user_id = u.user_id AND tu.tenant_id = 'master' LIMIT 1),
+        (SELECT min(tu.tenant_id) FROM tenant_user tu WHERE tu.user_id = u.user_id AND tu.tenant_id <> '-1234'),
+        CASE WHEN u.password IS NOT NULL THEN 'master' END)
+ WHERE u.realm_id IS NULL;
+
+INSERT INTO tenant_user (tenant_user_id, tenant_id, user_id)
+SELECT gen_random_uuid()::text, 'master', u.user_id FROM user_credentials u
+ WHERE u.realm_id = 'master'
+   AND NOT EXISTS (SELECT 1 FROM tenant_user tu WHERE tu.user_id = u.user_id AND tu.tenant_id = 'master')
+   AND EXISTS (SELECT 1 FROM tenant t WHERE t.tenant_id = 'master');
+
+ALTER TABLE user_credentials DROP CONSTRAINT IF EXISTS user_credentials_username_key;
+DROP INDEX IF EXISTS ux_user_credentials_email;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_user_credentials_realm_username ON user_credentials (realm_id, username);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_user_credentials_realm_email ON user_credentials (realm_id, email) WHERE email IS NOT NULL;
+
+-- One-time email codes (sign-up verification, password reset) — same as Flyway V18.
+CREATE TABLE IF NOT EXISTS notification_code (
+    code          character varying(255) NOT NULL PRIMARY KEY,
+    identifier    character varying(255) NOT NULL,
+    type          character varying(64)  NOT NULL,
+    creation_date timestamp DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS notification_code_identifier_idx ON notification_code (identifier, type);

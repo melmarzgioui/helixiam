@@ -105,6 +105,7 @@ public class UserAdminService {
         final UserCredentials user = new UserCredentials();
         user.setUsername(write.username() == null ? null : write.username().toLowerCase());
         user.setEmail(normaliseEmail(write.email()));
+        user.setRealmId(write.realmId()); // usernames/emails are unique per realm; the user signs in only here
         String encoded = null;
         if (hasPassword) {
             // Auth-hardening: enforce the realm's password policy (length/character class/not-username/HIBP).

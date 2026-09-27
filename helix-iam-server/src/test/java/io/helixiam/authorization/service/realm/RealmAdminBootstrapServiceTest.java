@@ -58,7 +58,7 @@ class RealmAdminBootstrapServiceTest {
     private void freshRealm(final String realm, final String adminUsername) {
         when(tenants.findById(realm)).thenReturn(Optional.empty());
         when(roles.findByTenantIdAndName(realm, "admin")).thenReturn(Optional.empty());
-        when(users.findByUsername(adminUsername)).thenReturn(Optional.empty());
+        when(users.findByRealmIdAndUsername(realm, adminUsername)).thenReturn(Optional.empty());
         when(users.save(any(UserCredentials.class))).thenAnswer(i -> { UserCredentials u = i.getArgument(0); u.setUserId("uid-" + realm); return u; });
         when(links.findByTenantIdAndUserId(realm, "uid-" + realm)).thenReturn(Optional.of(link(realm, "uid-" + realm)));
         when(userRoles.findByRoleIdAndUserId(any(), any())).thenReturn(Optional.empty());
@@ -100,7 +100,7 @@ class RealmAdminBootstrapServiceTest {
         when(tenants.findById("master")).thenReturn(Optional.of(new Tenant()));
         when(roles.findByTenantIdAndName("master", "admin")).thenReturn(Optional.of(new UserRoles("admin", "master")));
         final UserCredentials existing = new UserCredentials(); existing.setUserId("uid-master"); existing.setUsername("admin");
-        when(users.findByUsername("admin")).thenReturn(Optional.of(existing));
+        when(users.findByRealmIdAndUsername("master", "admin")).thenReturn(Optional.of(existing));
         when(links.findByTenantIdAndUserId("master", "uid-master")).thenReturn(Optional.of(link("master", "uid-master")));
         when(userRoles.findByRoleIdAndUserId(any(), any())).thenReturn(Optional.of(new UserInRole()));
 
@@ -116,7 +116,7 @@ class RealmAdminBootstrapServiceTest {
         when(tenants.findById("master")).thenReturn(Optional.of(new Tenant()));
         when(roles.findByTenantIdAndName("master", "admin")).thenReturn(Optional.of(new UserRoles("admin", "master")));
         final UserCredentials existing = new UserCredentials(); existing.setUserId("uid-master"); existing.setUsername("admin");
-        when(users.findByUsername("admin")).thenReturn(Optional.of(existing));
+        when(users.findByRealmIdAndUsername("master", "admin")).thenReturn(Optional.of(existing));
         when(links.findByTenantIdAndUserId("master", "uid-master")).thenReturn(Optional.of(link("master", "uid-master")));
         when(userRoles.findByRoleIdAndUserId(any(), any())).thenReturn(Optional.empty());
 

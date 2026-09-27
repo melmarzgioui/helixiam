@@ -57,7 +57,7 @@ class LoginServiceTest {
         user.setUsername("alice");
         user.setPassword(PasswordUtils.preparePassword("pw", salt));
         user.setPasswordSaltValue(salt);
-        when(repository.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(repository.findByRealmIdAndUsername("master", "alice")).thenReturn(Optional.of(user));
 
         final UserCredentials result = service.loginUser(credentials("alice", "pw"));
 
@@ -74,7 +74,7 @@ class LoginServiceTest {
         user.setUsername("bob");
         user.setPassword(passwordEncoderService.encode("pw"));
         user.setPasswordSaltValue(null);
-        when(repository.findByUsername("bob")).thenReturn(Optional.of(user));
+        when(repository.findByRealmIdAndUsername("master", "bob")).thenReturn(Optional.of(user));
 
         final UserCredentials result = service.loginUser(credentials("bob", "pw"));
 
@@ -89,7 +89,7 @@ class LoginServiceTest {
         user.setUsername("alice");
         user.setPassword(PasswordUtils.preparePassword("pw", salt));
         user.setPasswordSaltValue(salt);
-        when(repository.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(repository.findByRealmIdAndUsername("master", "alice")).thenReturn(Optional.of(user));
 
         assertNull(service.loginUser(credentials("alice", "WRONG")));
         verify(repository, never()).save(user);
@@ -97,8 +97,8 @@ class LoginServiceTest {
 
     @Test
     void unknownUser_returnsNull() {
-        when(repository.findByUsername("ghost")).thenReturn(Optional.empty());
-        when(repository.findByEmail("ghost")).thenReturn(Optional.empty());
+        when(repository.findByRealmIdAndUsername("master", "ghost")).thenReturn(Optional.empty());
+        when(repository.findByRealmIdAndEmail("master", "ghost")).thenReturn(Optional.empty());
         assertNull(service.loginUser(credentials("ghost", "pw")));
     }
 
@@ -110,8 +110,8 @@ class LoginServiceTest {
         user.setPassword(passwordEncoderService.encode("pw"));
         user.setPasswordSaltValue(null);
         // The submitted identifier is the email, so username lookup misses and email lookup hits.
-        when(repository.findByUsername("carol@example.com")).thenReturn(Optional.empty());
-        when(repository.findByEmail("carol@example.com")).thenReturn(Optional.of(user));
+        when(repository.findByRealmIdAndUsername("master", "carol@example.com")).thenReturn(Optional.empty());
+        when(repository.findByRealmIdAndEmail("master", "carol@example.com")).thenReturn(Optional.of(user));
 
         final UserCredentials result = service.loginUser(credentials("carol@example.com", "pw"));
 
@@ -139,7 +139,7 @@ class LoginServiceTest {
         final UserCredentials user = new UserCredentials();
         user.setUsername("alice");
         user.setPassword(passwordEncoderService.encode("pw"));
-        when(repository.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(repository.findByRealmIdAndUsername("master", "alice")).thenReturn(Optional.of(user));
 
         // Even with the WRONG password, a locked account surfaces the lock (no enumeration), never null.
         final UserCredentials result = locking.loginUser(credentials("alice", "WRONG"));
@@ -153,12 +153,12 @@ class LoginServiceTest {
         final UserCredentials byUsername = new UserCredentials();
         byUsername.setUsername("dave");
         byUsername.setPassword(passwordEncoderService.encode("pw"));
-        when(repository.findByUsername("dave")).thenReturn(Optional.of(byUsername));
+        when(repository.findByRealmIdAndUsername("master", "dave")).thenReturn(Optional.of(byUsername));
 
         final UserCredentials result = service.loginUser(credentials("dave", "pw"));
 
         assertSame(byUsername, result);
         // Username matched, so the email fallback must never be consulted.
-        verify(repository, never()).findByEmail("dave");
+        verify(repository, never()).findByRealmIdAndEmail("master", "dave");
     }
 }

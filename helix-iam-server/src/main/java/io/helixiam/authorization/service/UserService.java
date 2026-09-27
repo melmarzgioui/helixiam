@@ -97,8 +97,21 @@ public class UserService {
             userCredentials.setAccountLocked(true);
             userCredentials.setPassword(password);
             userCredentials.setPasswordSaltValue(null);
-
-            return userCredentialsRepository.save(userCredentials);
+            // Self-registration belongs to the realm whose register page was used: its home realm, its realm link
+            // and the realm's default role (it used to get no realm at all).
+            final String realm = currentRealm();
+            userCredentials.setRealmId(realm);
+            final UserCredentials saved = userCredentialsRepository.save(userCredentials);
+            if (tenantUsers != null) {
+                final io.helixiam.authorization.domain.tenant.TenantUser link = new io.helixiam.authorization.domain.tenant.TenantUser();
+                link.setTenantId(realm);
+                link.setUserId(saved.getUserId());
+                final io.helixiam.authorization.domain.tenant.TenantUser savedLink = tenantUsers.save(link);
+                if (defaultRoles != null) {
+                    defaultRoles.assignDefaultRole(realm, saved.getUserId(), savedLink.getTenantUserId());
+                }
+            }
+            return saved;
         }
 
         return null;
@@ -109,7 +122,9 @@ public class UserService {
      */
     @Notification(mediaType = NotificationMediaType.EMAIL, type = "USER_RESET_PASSWORD", generateCode = true)
     public UserCredentials resetPasswordRequest(@NotificationEmail final String username) {
-        return userCredentialsRepository.findByUsername(username).orElse(null);
+        final String identifier = username == null ? "" : username.trim().toLowerCase();
+        return userCredentialsRepository.findByRealmIdAndUsername(currentRealm(), identifier)
+                .or(() -> userCredentialsRepository.findByRealmIdAndEmail(currentRealm(), identifier)).orElse(null);
     }
 
     /**
@@ -216,5 +231,23 @@ public class UserService {
         }
 
         return Collections.emptySet();
+    }
+
+    private io.helixiam.authorization.repository.tenant.TenantUserRepository tenantUsers;
+    private io.helixiam.authorization.service.role.DefaultRoleAssignmentService defaultRoles;
+
+    @Autowired(required = false)
+    public void setTenantUsers(final io.helixiam.authorization.repository.tenant.TenantUserRepository tenantUsers) {
+        this.tenantUsers = tenantUsers;
+    }
+
+    @Autowired(required = false)
+    public void setDefaultRoles(final io.helixiam.authorization.service.role.DefaultRoleAssignmentService defaultRoles) {
+        this.defaultRoles = defaultRoles;
+    }
+
+    private static String currentRealm() {
+        final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+        return realm == null ? RealmConfig.ADMIN_REALM_ID : realm;
     }
 }

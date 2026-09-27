@@ -107,7 +107,7 @@ public class MagicLinkService {
             LOG.warn("Magic-link request rate limited in realm {} (ip {})", realmId, clientIp);
             return;
         }
-        final Optional<UserCredentials> user = users.findByEmail(address)
+        final Optional<UserCredentials> user = users.findByRealmIdAndEmail(realmId, address)
                 .filter(u -> memberships.findByTenantIdAndUserId(realmId, u.getUserId()).isPresent())
                 .filter(u -> !u.isDisabled() && !u.isLocked()); // same meaning as the admin API
         if (user.isEmpty()) {

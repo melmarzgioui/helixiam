@@ -62,7 +62,13 @@ public class FederatedIdentityService {
         if (email == null || email.isBlank()) {
             return Optional.empty();
         }
-        return users.findByUsername(email.toLowerCase()).map(UserCredentials::getUserId).filter(this::eligibleInCurrentRealm);
+        final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+        if (realm == null) {
+            return Optional.empty();
+        }
+        final String address = email.trim().toLowerCase();
+        return users.findByRealmIdAndUsername(realm, address).or(() -> users.findByRealmIdAndEmail(realm, address))
+                .map(UserCredentials::getUserId).filter(this::eligibleInCurrentRealm);
     }
 
     /**
@@ -99,6 +105,7 @@ public class FederatedIdentityService {
                 ? email : (attributes != null ? attributes.get("username") : null);
         final UserCredentials user = new UserCredentials();
         user.setUsername(username);       // username == email, or the subject id for eID
+        user.setRealmId(io.helixiam.authorization.security.realm.RealmContextHolder.get());
         user.setPassword(null);           // federated: no local password
         user.setAccountLocked(true);      // true == non-locked == usable (per isAccountNonLocked)
         if (attributes != null) {

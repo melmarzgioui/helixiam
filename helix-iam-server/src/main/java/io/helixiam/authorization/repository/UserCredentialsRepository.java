@@ -12,11 +12,18 @@ import java.util.Optional;
 
 public interface UserCredentialsRepository extends JpaRepository<UserCredentials, String> {
 
-    Optional<UserCredentials> findByUsername(final String username);
 
-    Optional<UserCredentials> findByEmail(final String email);
 
     Optional<UserCredentials> findByUserId(final String userId);
+
+    // No global findByUsername/findByEmail: usernames and emails are unique per realm only, so every lookup by
+    // name must name the realm (a global lookup would let one realm's user sign in at another realm).
+
+    /** A user of {@code realmId} by username (usernames are unique per realm). */
+    Optional<UserCredentials> findByRealmIdAndUsername(final String realmId, final String username);
+
+    /** A user of {@code realmId} by email address (emails are unique per realm). */
+    Optional<UserCredentials> findByRealmIdAndEmail(final String realmId, final String email);
 
     /**
      * 1.0 item 6: atomically records an accepted TOTP time step, only if it is later than the last one.

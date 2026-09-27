@@ -49,14 +49,19 @@ class FederatedIdentityServiceTest {
     }
 
     @Test
-    void findUserByEmail_resolvesViaUsername() throws Exception {
-        when(users.findByUsername("ada@corp")).thenReturn(Optional.of(userWithId("user-7")));
-        assertThat(service.findUserByEmail("Ada@Corp")).contains("user-7"); // case-insensitive
+    void findUserByEmail_resolvesViaUsername_withinTheLoginRealm() throws Exception {
+        io.helixiam.authorization.security.realm.RealmContextHolder.set("corp");
+        try {
+            when(users.findByRealmIdAndUsername("corp", "ada@corp")).thenReturn(Optional.of(userWithId("user-7")));
+            assertThat(service.findUserByEmail("Ada@Corp")).contains("user-7"); // case-insensitive
+        } finally {
+            io.helixiam.authorization.security.realm.RealmContextHolder.clear();
+        }
     }
 
     @Test
     void findUserByEmail_isEmptyWhenUnknown() {
-        when(users.findByUsername(any())).thenReturn(Optional.empty());
+        when(users.findByRealmIdAndUsername(any(), any())).thenReturn(Optional.empty());
         assertThat(service.findUserByEmail("nobody@corp")).isEmpty();
     }
 

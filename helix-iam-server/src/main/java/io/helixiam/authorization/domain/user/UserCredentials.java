@@ -84,6 +84,11 @@ public class UserCredentials implements UserDetails {
     @Column(name = "mfa_secret")
     private String mfaSecret;
 
+    /** The user's home realm: usernames and emails are unique per realm, and a user signs in only there. */
+    @JsonProperty
+    @Column(name = "realm_id")
+    private String realmId;
+
     // Review rc.3 #4: whether the email address was verified; cleared whenever the address changes.
     @JsonProperty
     @Column(name = "email_verified")
@@ -273,6 +278,14 @@ public class UserCredentials implements UserDetails {
 
     public Date getCreationDate() {
         return creationDate;
+    }
+
+    public String getRealmId() {
+        return realmId;
+    }
+
+    public void setRealmId(final String realmId) {
+        this.realmId = realmId;
     }
 
     public boolean isEmailVerified() {

@@ -54,7 +54,7 @@ class FederatedIdentityRealmScopeTest {
     private void userWithEmail(final String email, final String id) {
         final UserCredentials u = new UserCredentials();
         u.setUserId(id);
-        when(users.findByUsername(email)).thenReturn(Optional.of(u));
+        when(users.findByRealmIdAndUsername("monthfold", email)).thenReturn(Optional.of(u));
     }
 
     @Test

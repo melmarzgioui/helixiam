@@ -173,9 +173,10 @@ public class RealmAdminBootstrapService {
                 .orElseGet(() -> userRolesRepository.save(new UserRoles(ADMIN_ROLE, realmId)));
 
         final String username = adminUsernameFor(realmId).toLowerCase();
-        final UserCredentials admin = userCredentialsRepository.findByUsername(username).orElseGet(() -> {
+        final UserCredentials admin = userCredentialsRepository.findByRealmIdAndUsername(realmId, username).orElseGet(() -> {
             final UserCredentials u = new UserCredentials();
             u.setUsername(username);
+            u.setRealmId(realmId);
             u.setPassword(passwordEncoderService.encode(resolveBootstrapPassword()));
             u.setPasswordSaltValue(null);
             u.setDisabled(false);

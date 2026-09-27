@@ -64,8 +64,8 @@ class MagicLinkServiceTest {
         final UserCredentials joe = new UserCredentials();
         joe.setUserId("u-1");
         joe.setEmail("joe@example.com");
-        when(users.findByEmail("joe@example.com")).thenReturn(Optional.of(joe));
-        when(users.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+        when(users.findByRealmIdAndEmail("mf", "joe@example.com")).thenReturn(Optional.of(joe));
+        when(users.findByRealmIdAndEmail("mf", "nobody@example.com")).thenReturn(Optional.empty());
         final TenantUserRepository memberships = mock(TenantUserRepository.class);
         when(memberships.findByTenantIdAndUserId(anyString(), anyString())).thenReturn(Optional.empty());
         when(memberships.findByTenantIdAndUserId("mf", "u-1")).thenReturn(Optional.of(new TenantUser()));
