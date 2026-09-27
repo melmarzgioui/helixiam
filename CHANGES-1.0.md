@@ -24,6 +24,12 @@ Open issues found when Monthfold moved its production sign-in to rc.4
 - **A9 — security** — `2414be0` Logout tokens expire after 120 s (`HELIX_LOGOUT_TOKEN_TTL_SECONDS`, 1–600) and every
   token has its own `jti`. `docs/oidc-sessions-and-logout.md` tells relying parties how to validate a logout token,
   including rejecting a `jti` they have already seen until its `exp`.
+- **E5** — `PUT /admin/realms/{r}/organizations/{org}/members/{user}` changes a member's role in place: 201 with the
+  membership when it adds the member, 200 when it changes (or keeps) the role; a body without `role` keeps the current
+  role instead of resetting it to `member`. An organization or user outside the path realm is now a 404 (it was a 409,
+  which read as "already a member"). Roles are validated (at most 64 characters: letters, digits, `.`, `_`, `:`, `-`;
+  400 `fieldErrors.role`). Audited as `ORGANIZATION_MEMBER_PUT` (detail: added or role change) and
+  `ORGANIZATION_MEMBER_REMOVE`.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 

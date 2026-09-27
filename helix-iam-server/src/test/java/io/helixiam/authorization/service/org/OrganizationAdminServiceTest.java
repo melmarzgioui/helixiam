@@ -135,6 +135,33 @@ class OrganizationAdminServiceTest {
     }
 
     @Test
+    void putMember_changesTheRoleInPlace_andKeepsItWhenNoneIsGiven() {
+        final Organization o = new Organization("gov", "acme", null, null, true);
+        when(organizations.findById(o.getOrgId())).thenReturn(Optional.of(o));
+        when(tenantUsers.findByTenantIdAndUserId("gov", "u1")).thenReturn(Optional.of(new TenantUser()));
+        final OrganizationMember existing = new OrganizationMember(o.getOrgId(), "u1", "owner");
+        when(members.findByOrgIdAndUserId(o.getOrgId(), "u1")).thenReturn(Optional.of(existing));
+
+        final var changed = service.putMember(new OrgRef("gov", o.getOrgId(), "u1", "client")).orElseThrow();
+        assertFalse(changed.created());
+        assertEquals("client", changed.member().role());
+        assertEquals("client", existing.getRole());
+        verify(members).save(existing);
+
+        final var kept = service.putMember(new OrgRef("gov", o.getOrgId(), "u1", null)).orElseThrow();
+        assertEquals("client", kept.member().role());
+        verify(members, never()).delete(any());
+    }
+
+    @Test
+    void putMember_isEmptyForAnotherRealmsOrganization() {
+        final Organization o = new Organization("other", "acme", null, null, true);
+        when(organizations.findById(o.getOrgId())).thenReturn(Optional.of(o));
+        assertTrue(service.putMember(new OrgRef("gov", o.getOrgId(), "u1", "owner")).isEmpty());
+        verify(members, never()).save(any());
+    }
+
+    @Test
     void membershipsForUser_skipsDisabledOrgs_andUsesMutableLists() {
         final Organization enabled = new Organization("gov", "acme", null, null, true);
         final Organization disabled = new Organization("gov", "globex", null, null, false);

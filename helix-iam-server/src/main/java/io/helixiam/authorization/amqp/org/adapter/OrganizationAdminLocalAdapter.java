@@ -7,6 +7,7 @@ package io.helixiam.authorization.amqp.org.adapter;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.org.OrgDto;
+import io.helixiam.authorization.amqp.org.OrgMemberChange;
 import io.helixiam.authorization.amqp.org.OrgMemberDto;
 import io.helixiam.authorization.amqp.org.OrgMembershipDto;
 import io.helixiam.authorization.amqp.org.OrgRef;
@@ -70,8 +71,8 @@ public class OrganizationAdminLocalAdapter implements OrganizationAdminPublisher
     }
 
     @Override
-    public Boolean addMember(final OrgRef ref) {
-        return service.addMember(ref(ref));
+    public OrgMemberChange putMember(final OrgRef ref) {
+        return bridge.to(service.putMember(ref(ref)).orElse(null), OrgMemberChange.class);
     }
 
     @Override

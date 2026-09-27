@@ -46,8 +46,11 @@ public interface OrganizationAdminPublisher {
     /** The members of an organization. */
     List<OrgMemberDto> members(final OrgRef ref);
 
-    /** Add (or re-role) a user in an organization; {@code false} if the user is not in the realm or the org is absent. */
-    Boolean addMember(final OrgRef ref);
+    /**
+     * Put a user's membership (open issue E5): adds the member or changes its role in place; {@code null} when the user
+     * or the organization is not in the realm.
+     */
+    OrgMemberChange putMember(final OrgRef ref);
 
     /** Remove a user from an organization; {@code false} if they weren't a member. */
     Boolean removeMember(final OrgRef ref);

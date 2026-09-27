@@ -61,8 +61,15 @@ public final class AuditEventMapper {
             case "clients" -> "secret".equals(sub) ? "CLIENT_SECRET_ROTATE" : crud(method, "CLIENT");
             case "settings" -> "PUT".equals(method) ? "REALM_UPDATE" : null;
             case "theme" -> "PUT".equals(method) ? "THEME_UPDATE" : null;
-            case "organizations" -> ("theme".equals(sub) || "branding".equals(sub)) && "PUT".equals(method)
-                    ? "ORGANIZATION_THEME_UPDATE" : null;
+            case "organizations" -> {
+                if ("members".equals(sub)) {
+                    // Open issue E5: PUT adds a member or changes its role in place (the detail says which).
+                    yield "PUT".equals(method) ? "ORGANIZATION_MEMBER_PUT"
+                            : "DELETE".equals(method) ? "ORGANIZATION_MEMBER_REMOVE" : null;
+                }
+                yield ("theme".equals(sub) || "branding".equals(sub)) && "PUT".equals(method)
+                        ? "ORGANIZATION_THEME_UPDATE" : null;
+            }
             case "sessions" -> "DELETE".equals(method) ? "SESSION_REVOKE" : null;
             case "flow" -> "PUT".equals(method) ? "FLOW_UPDATE" : null;
             case "groups" -> {
