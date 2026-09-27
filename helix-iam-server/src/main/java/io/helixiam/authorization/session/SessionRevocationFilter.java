@@ -27,16 +27,24 @@ import java.io.IOException;
  * B1: ends a browser session that "sign out everywhere else" or an account deletion revoked
  * ({@link SessionRevocation}) on its next request — the page, {@code /oauth2/authorize} (so no silent sign-in), the
  * admin console. The request then continues anonymously, which sends a page to the sign-in form. Static files are not
- * checked. Runs early in both browser filter chains; it reads the authentication from the session itself.
+ * checked. Runs early in both browser filter chains; it reads the authentication from the session itself. A session
+ * that stays signed in is recorded in the {@link BrowserSessionRegistry} (rc.6 item 7b: the account console's session
+ * list).
  */
 public class SessionRevocationFilter extends OncePerRequestFilter {
 
     private static final Logger LOG = LogManager.getLogger(SessionRevocationFilter.class);
 
     private final SessionRevocation revocation;
+    private final BrowserSessionRegistry browserSessions;
 
-    public SessionRevocationFilter(final SessionRevocation revocation) {
+    /**
+     * @param browserSessions records each signed-in browser that stays signed in, for the account console's session
+     *                        list (rc.6 item 7b); null records nothing
+     */
+    public SessionRevocationFilter(final SessionRevocation revocation, final BrowserSessionRegistry browserSessions) {
         this.revocation = revocation;
+        this.browserSessions = browserSessions;
     }
 
     /**
@@ -74,6 +82,8 @@ public class SessionRevocationFilter extends OncePerRequestFilter {
                 LOG.info("Ending a revoked browser session of user {}", LogSafe.sanitize(user.getUserId()));
                 session.invalidate();
                 SecurityContextHolder.clearContext();
+            } else if (browserSessions != null) {
+                browserSessions.touch(request, session, user.getUserId());
             }
         }
         chain.doFilter(request, response);

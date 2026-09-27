@@ -329,6 +329,87 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         assertLandedOnRpCallback();
     }
 
+    static final String IPHONE_SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15"
+            + " (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+    static final String WINDOWS_FIREFOX = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101"
+            + " Firefox/128.0";
+
+    @Test
+    void theSessionList_showsEveryBrowser_withItsDevice_andSignsThemOutOneByOne() throws Exception {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe"), PASSWORD);
+        final E2eSeed.SeededUser bob = seed().user(realm.realm(), E2eSeed.unique("bob"), PASSWORD);
+
+        // A phone signs in to the account console only (no app, so no tokens and no SSO session of an app).
+        final com.microsoft.playwright.Page phone = otherBrowser(IPHONE_SAFARI);
+        signInToTheConsole(phone, realm, joe);
+        // A laptop signs in to the app.
+        final com.microsoft.playwright.Page laptop = otherBrowser(WINDOWS_FIREFOX);
+        signInToTheApp(laptop, realm, joe);
+        final String laptopSid = rp().lastCallback().orElseThrow().idTokenClaims().getStringClaim("sid");
+        // Bob signs in too: his session is never Joe's to see or end.
+        final com.microsoft.playwright.Page bobs = otherBrowser();
+        signInToTheApp(bobs, realm, bob);
+        final String bobSid = rp().lastCallback().orElseThrow().idTokenClaims().getStringClaim("sid");
+        // This browser opens the console.
+        openAccount(realm, joe);
+
+        final Locator rows = page().locator("#session-list li");
+        assertThat(rows).hasCount(3);
+        final String here = rows.nth(0).innerText();
+        assertThat(here).contains("This browser").contains("You're here").contains("Chrome").contains("Signed in")
+                .contains("Last used");
+        assertThat(rows.nth(0).locator("button")).hasCount(0);
+        final Locator phoneRow = rows.filter(new Locator.FilterOptions().setHasText("Safari on iPhone"));
+        assertThat(phoneRow).hasCount(1);
+        assertThat(phoneRow.innerText()).contains("Signed in").contains("Last used").doesNotContain("Apps:");
+        final Locator laptopRow = rows.filter(new Locator.FilterOptions().setHasText("Firefox on Windows"));
+        assertThat(laptopRow).hasCount(1);
+        assertThat(laptopRow.innerText()).contains("Apps: web");
+
+        // Sign out the phone only.
+        submit(phoneRow.locator("button.hx-session-sign-out"));
+        assertOnIdpPath("/account");
+        assertThat(page().locator("#account-status").innerText()).isEqualTo("That session is signed out.");
+        assertThat(rows).hasCount(2);
+        assertThat(rows.filter(new Locator.FilterOptions().setHasText("Safari on iPhone"))).hasCount(0);
+        awaitAudit(realm, "ACCOUNT_SESSION_SIGN_OUT", "SUCCESS");
+        phone.navigate(accountUrl(realm, null));
+        assertThat(URI.create(phone.url()).getPath()).isEqualTo(realm.path() + "/login");
+        laptop.navigate(accountUrl(realm, null));
+        assertThat(URI.create(laptop.url()).getPath()).as("the laptop is still signed in")
+                .isEqualTo(realm.path() + "/account");
+
+        // Signing out the laptop also tells its app.
+        page().navigate(accountUrl(realm, null));
+        submit(rows.filter(new Locator.FilterOptions().setHasText("Firefox on Windows"))
+                .locator("button.hx-session-sign-out"));
+        assertThat(rows).hasCount(1);
+        rp().awaitBackchannelLogout(l -> laptopSid.equals(l.claims().get("sid")), WAIT);
+        laptop.navigate(rp().loginUrl(realm.web()));
+        laptop.waitForLoadState(LoadState.LOAD);
+        assertThat(URI.create(laptop.url()).getPath()).isEqualTo(realm.path() + "/login");
+
+        // A forged form cannot sign out someone else's session.
+        page().waitForNavigation(() -> page().evaluate("sid => {"
+                + " const f = document.getElementById('sign-out-others-form');"
+                + " const g = f.cloneNode(true); g.id = 'forged';"
+                + " g.action = f.action.replace('sign-out-others', 'sign-out');"
+                + " const i = document.createElement('input'); i.type = 'hidden'; i.name = 'sid'; i.value = sid;"
+                + " g.appendChild(i); document.body.appendChild(g); g.submit(); }", bobSid));
+        page().waitForLoadState(LoadState.LOAD);
+        assertOnIdpPath("/account");
+        assertThat(page().locator("#account-error").innerText()).isEqualTo("That session is already signed out.");
+        assertThat(rp().backchannelLogouts()).noneMatch(l -> bobSid.equals(l.claims().get("sid")));
+        bobs.navigate(rp().loginUrl(realm.web()));
+        bobs.waitForLoadState(LoadState.LOAD);
+        assertThat(bobs.url()).as("Bob is still signed in").startsWith(rp().callbackUri());
+        // And this browser is still signed in, to the console and to the app.
+        page().navigate(accountUrl(realm, null));
+        assertOnIdpPath("/account");
+        assertThat(rows).hasCount(1);
+    }
+
     // --------------------------------------------------------------------------------------------------- email
 
     @Test
@@ -554,6 +635,18 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         tab.navigate(rp().loginUrl(realm.web()));
         tab.waitForLoadState(LoadState.LOAD);
         assertThat(tab.url()).startsWith(rp().callbackUri());
+    }
+
+    /** Signs {@code user} in to the realm's account console in {@code tab} (no app involved). */
+    void signInToTheConsole(final com.microsoft.playwright.Page tab, final ReferenceSetup.Realm realm,
+                            final E2eSeed.SeededUser user) {
+        tab.navigate(accountUrl(realm, null));
+        tab.waitForLoadState(LoadState.LOAD);
+        tab.locator("#username").fill(user.username());
+        tab.locator("#password").fill(user.password());
+        tab.locator("#loginForm button[type=submit]").click();
+        tab.waitForLoadState(LoadState.LOAD);
+        assertThat(URI.create(tab.url()).getPath()).isEqualTo(realm.path() + "/account");
     }
 
     /** Marks the user's email verified directly in the database (auto-commit is off: commit explicitly). */

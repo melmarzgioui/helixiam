@@ -1037,3 +1037,15 @@ CREATE TABLE IF NOT EXISTS email_change_token (
 );
 CREATE INDEX IF NOT EXISTS email_change_token_user_idx ON email_change_token (user_id);
 ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS sessions_revoked_at bigint;
+
+-- rc.6 item 7b (same as Flyway V71): the browsers a user is signed in with, for the account console's session list.
+CREATE TABLE IF NOT EXISTS browser_session (
+    sid              character varying(64)  NOT NULL PRIMARY KEY,
+    user_id          character varying(255) NOT NULL,
+    http_session_id  character varying(255) NOT NULL,
+    browser          character varying(32),
+    os               character varying(32),
+    signed_in_at     bigint                 NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES user_credentials(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS browser_session_user_idx ON browser_session (user_id);

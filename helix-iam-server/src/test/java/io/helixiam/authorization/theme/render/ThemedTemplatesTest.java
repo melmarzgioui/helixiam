@@ -226,10 +226,14 @@ class ThemedTemplatesTest {
                 new io.helixiam.authorization.controller.account.console.AccountOverview.Profile("ada", "ada@example.com",
                         false, "Ada", null, null),
                 new io.helixiam.authorization.controller.account.console.AccountOverview.TwoStep(true, false, true, 8),
-                List.of(new io.helixiam.authorization.controller.account.console.AccountOverview.SessionRow(true,
-                                "27 Sep 2026, 14:03 UTC", List.of("web")),
-                        new io.helixiam.authorization.controller.account.console.AccountOverview.SessionRow(false,
-                                "26 Sep 2026, 09:12 UTC", List.of())),
+                List.of(new io.helixiam.authorization.controller.account.console.AccountOverview.SessionRow("sid-here",
+                                true, "Chrome", "macOS", "27 Sep 2026, 14:03 UTC", "27 Sep 2026, 14:05 UTC",
+                                List.of("web")),
+                        new io.helixiam.authorization.controller.account.console.AccountOverview.SessionRow("sid-phone",
+                                false, "Safari", "iPhone", "26 Sep 2026, 09:12 UTC", "26 Sep 2026, 10:00 UTC",
+                                List.of()),
+                        new io.helixiam.authorization.controller.account.console.AccountOverview.SessionRow("sid-other",
+                                false, null, null, null, null, List.of("web"))),
                 true, true));
         m.put("referrer", new io.helixiam.authorization.service.account.AccountReferrer.Link("web", "Client Portal",
                 "https://app.monthfold.example/settings"));

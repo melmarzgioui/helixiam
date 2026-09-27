@@ -15,13 +15,12 @@ import io.helixiam.authorization.service.account.AccountConsoleSettingsService;
 import io.helixiam.authorization.service.mfa.MfaPolicyService;
 import io.helixiam.authorization.service.mfa.TotpService;
 import io.helixiam.authorization.session.AccountSessionService;
-import io.helixiam.authorization.session.SsoSessionView;
+import io.helixiam.authorization.session.DeviceLabel;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -60,14 +59,19 @@ public class AccountOverviewService {
         return Optional.ofNullable(users.get(new UserAdminRef(realm, userId)));
     }
 
+    /**
+     * @param currentSid     this browser's {@code sid}
+     * @param currentDevice  this browser's device (from this request's {@code User-Agent})
+     * @param authTimeMillis this browser's sign-in time (epoch millis), or null
+     */
     public AccountOverview build(final String realm, final UserAdminDto user, final String currentSid,
-                                 final Long authTime, final Locale locale) {
+                                 final DeviceLabel currentDevice, final Long authTimeMillis, final Locale locale) {
         final Map<String, String> a = user.attributes() == null ? Map.of() : user.attributes();
         final boolean verified = credentials.findByUserId(user.userId()).map(u -> u.isEmailVerified()).orElse(false);
         final AccountOverview.Profile profile = new AccountOverview.Profile(blank(user.username()), blank(user.email()),
                 verified, blank(a.get("given_name")), blank(a.get("family_name")), blank(a.get("phone_number")));
         return new AccountOverview(profile, twoStep(realm, user.userId()),
-                sessionRows(realm, user.userId(), currentSid, authTime, locale),
+                sessionRows(realm, user.userId(), currentSid, currentDevice, authTimeMillis, locale),
                 settings.get(realm).dataExport(), settings.get(realm).accountDeletion());
     }
 
@@ -80,23 +84,12 @@ public class AccountOverviewService {
     }
 
     private List<AccountOverview.SessionRow> sessionRows(final String realm, final String userId, final String currentSid,
-                                                         final Long authTime, final Locale locale) {
-        final List<AccountOverview.SessionRow> rows = new ArrayList<>();
-        AccountOverview.SessionRow current = new AccountOverview.SessionRow(true,
-                authTime == null ? null : format(Instant.ofEpochSecond(authTime), locale), List.of());
-        for (final SsoSessionView s : sessions.listSessions(realm, userId)) {
-            final List<String> apps = s.clients().stream().map(SsoSessionView.ClientView::clientId).distinct().toList();
-            if (currentSid != null && currentSid.equals(s.ssoSessionId())) {
-                current = new AccountOverview.SessionRow(true, current.signedIn() != null ? current.signedIn()
-                        : format(s.issuedAt(), locale), apps);
-            } else if (s.issuedAt() != null) {
-                // A row without any issued token is an authorization code nobody redeemed (an abandoned or blocked
-                // sign-in), not a place the user is signed in; "sign out everywhere else" still revokes it.
-                rows.add(new AccountOverview.SessionRow(false, format(s.issuedAt(), locale), apps));
-            }
-        }
-        rows.add(0, current);
-        return rows;
+                                                         final DeviceLabel currentDevice, final Long authTimeMillis,
+                                                         final Locale locale) {
+        return sessions.listBrowserSessions(realm, userId, currentSid, currentDevice, authTimeMillis).stream()
+                .map(s -> new AccountOverview.SessionRow(s.sid(), s.current(), s.device().browser(), s.device().os(),
+                        format(s.signedIn(), locale), format(s.lastUsed(), locale), s.apps()))
+                .toList();
     }
 
     static String format(final Instant instant, final Locale locale) {

@@ -40,12 +40,17 @@ public record AccountOverview(Profile profile, TwoStep twoStep, List<SessionRow>
     }
 
     /**
-     * One browser sign-in.
+     * One browser sign-in (rc.6 item 7b: every browser, not only the ones signed in to an app).
      *
+     * @param sid      the handle to sign it out (its OIDC {@code sid}); null for this browser before it has one
      * @param current  this browser
+     * @param browser  the browser it signed in with (Firefox, Safari, …), or null when unknown
+     * @param os       the system it runs on (Windows, iPhone, …), or null when unknown
      * @param signedIn when it signed in, formatted (UTC), or null
+     * @param lastUsed when it was last used, formatted (UTC), or null
      * @param apps     the applications it signed in to (client ids)
      */
-    public record SessionRow(boolean current, String signedIn, List<String> apps) {
+    public record SessionRow(String sid, boolean current, String browser, String os, String signedIn, String lastUsed,
+                             List<String> apps) {
     }
 }

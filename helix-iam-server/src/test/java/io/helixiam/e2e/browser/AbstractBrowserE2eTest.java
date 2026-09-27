@@ -207,8 +207,17 @@ public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
      * sign-in; closed after the test.
      */
     protected Page otherBrowser() {
-        final BrowserContext other = browser.newContext(new Browser.NewContextOptions().setLocale("en-GB")
-                .setViewportSize(1280, 900));
+        return otherBrowser(null);
+    }
+
+    /** As {@link #otherBrowser()}, sending {@code userAgent} (another kind of device); null keeps Chromium's own. */
+    protected Page otherBrowser(final String userAgent) {
+        final Browser.NewContextOptions options = new Browser.NewContextOptions().setLocale("en-GB")
+                .setViewportSize(1280, 900);
+        if (userAgent != null) {
+            options.setUserAgent(userAgent);
+        }
+        final BrowserContext other = browser.newContext(options);
         otherBrowsers.add(other);
         final Page tab = other.newPage();
         tab.setDefaultTimeout(15_000);

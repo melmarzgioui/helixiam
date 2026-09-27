@@ -9,7 +9,9 @@ import io.helixiam.authorization.amqp.user.UserAdminDto;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.security.session.AuthTimeStamper;
+import io.helixiam.authorization.session.DeviceLabel;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -42,8 +44,12 @@ public class AccountConsoleController {
         if (user.isEmpty()) {
             return "redirect:/login";
         }
+        final Long authSeconds = new AuthTimeStamper().read(request);
+        final Long authMillis = AuthTimeStamper.readMillis(request);
         model.addAttribute("account", overview.build(RealmContextHolder.get(), user.get(),
-                AuthTimeStamper.readSid(request), new AuthTimeStamper().read(request), org.springframework.context.i18n.LocaleContextHolder.getLocale()));
+                AuthTimeStamper.readSid(request), DeviceLabel.parse(request.getHeader(HttpHeaders.USER_AGENT)),
+                authMillis != null ? authMillis : authSeconds == null ? null : authSeconds * 1000L,
+                org.springframework.context.i18n.LocaleContextHolder.getLocale()));
         return "account/index";
     }
 

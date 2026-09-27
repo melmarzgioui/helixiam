@@ -110,10 +110,19 @@
                     <li th:each="s : ${account.sessions()}" th:classappend="${s.current()} ? 'hx-session-current'">
                         <div class="hx-session-what">
                             <strong th:text="${s.current()} ? #{account.sessions.current} : #{account.sessions.other}">This browser</strong>
+                            <span class="hx-session-device"
+                                  th:text="${s.browser() != null and s.os() != null} ? #{account.sessions.device(${s.browser()}, ${s.os()})}
+                                          : (${s.browser() != null} ? ${s.browser()} : (${s.os() != null} ? ${s.os()} : #{account.sessions.unknownDevice}))">Firefox on Windows</span>
                             <span th:if="${s.signedIn() != null}" th:text="#{account.sessions.signedIn(${s.signedIn()})}">Signed in 27 Sep 2026, 14:03 UTC</span>
+                            <span th:if="${s.lastUsed() != null}" th:text="#{account.sessions.lastUsed(${s.lastUsed()})}">Last used 27 Sep 2026, 15:40 UTC</span>
                             <span th:if="${!s.apps().isEmpty()}" th:text="#{account.sessions.apps(${#strings.listJoin(s.apps(), ', ')})}">Apps: web</span>
                         </div>
                         <span th:if="${s.current()}" class="hx-badge hx-badge-ok" th:text="#{account.sessions.here}">You're here</span>
+                        <form th:unless="${s.current()}" th:action="@{/account/sessions/sign-out}" method="post" class="hx-session-sign-out-form">
+                            <input th:replace="~{fragments/account :: csrfField}">
+                            <input type="hidden" name="sid" th:value="${s.sid()}">
+                            <button type="submit" class="hx-btn hx-btn-secondary hx-session-sign-out" th:text="#{account.sessions.signOut}">Sign out</button>
+                        </form>
                     </li>
                 </ul>
                 <form th:action="@{/account/sessions/sign-out-others}" method="post" class="hx-account-actions" id="sign-out-others-form">

@@ -18,7 +18,8 @@ import java.util.Map;
  * {@code user/<userId>}, actor = the username), so it reaches the log, the SIEM webhook, the searchable audit store and
  * the realm's webhooks like sign-ins do. Event types: {@code ACCOUNT_PASSWORD_CHANGE}, {@code ACCOUNT_STEP_UP},
  * {@code ACCOUNT_TOTP_ENROL}, {@code ACCOUNT_TOTP_REMOVE}, {@code ACCOUNT_RECOVERY_CODES_REGENERATE},
- * {@code ACCOUNT_SESSIONS_SIGN_OUT_OTHERS}, {@code ACCOUNT_EMAIL_CHANGE}, {@code ACCOUNT_EMAIL_VERIFY},
+ * {@code ACCOUNT_SESSIONS_SIGN_OUT_OTHERS}, {@code ACCOUNT_SESSION_SIGN_OUT}, {@code ACCOUNT_EMAIL_CHANGE},
+ * {@code ACCOUNT_EMAIL_VERIFY},
  * {@code ACCOUNT_DATA_EXPORT} and {@code ACCOUNT_DELETE}; outcome {@code SUCCESS}, {@code FAILURE} or {@code DENIED}.
  * Secrets (passwords, codes, links) are never part of an event.
  */

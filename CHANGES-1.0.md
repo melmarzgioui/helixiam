@@ -31,6 +31,15 @@ CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven
   name only, never its contents. The account-console and sign-in browser tests (password + TOTP to the relying party,
   MFA gate, registration) now also run on the queue store in CI (a second surefire run); the whole browser package
   passes on it with no dropped session.
+- **rc.6 item 7b** — The account console lists every browser the user is signed in with in the realm, not only the
+  ones that signed in to an application: browser and system ("Firefox on Windows"), when it signed in, when it was last
+  used, and which apps it signed in to, with this browser first and marked. Each other browser has its own "Sign out"
+  (its apps' tokens are revoked with a back-channel logout and its browser session ends; audit event
+  `ACCOUNT_SESSION_SIGN_OUT`); "Sign out everywhere else" now also ends the other browser sessions at once. It works
+  on both session stores: a new table `browser_session` (Flyway `V71`, and `schema.sql`) records each browser sign-in
+  by its `sid` with its current HTTP session and a short device name (never the raw `User-Agent`), and the list checks
+  every row against the session store. Only the user's own sessions can be signed out; any other `sid` gets "That
+  session is already signed out." A browser test with four browsers covers it on Redis and on the queue store.
 
 ## Next release (after `v1.0.0-rc.4`)
 
