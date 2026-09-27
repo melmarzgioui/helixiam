@@ -8,6 +8,7 @@ package io.helixiam.authorization.service.org;
 import io.helixiam.authorization.domain.org.Organization;
 import io.helixiam.authorization.domain.org.OrganizationMember;
 import io.helixiam.authorization.domain.org.admin.OrgDto;
+import io.helixiam.authorization.domain.org.admin.OrgMemberChange;
 import io.helixiam.authorization.domain.org.admin.OrgMemberDto;
 import io.helixiam.authorization.domain.org.admin.OrgMembershipDto;
 import io.helixiam.authorization.domain.org.admin.OrgRef;
@@ -141,31 +142,52 @@ public class OrganizationAdminService {
                 .toList();
     }
 
-    /**
-     * Adds a user to an organization with a role (defaults to {@code member}); idempotent — updates the
-     * role if already a member. {@code false} if the user is not a member of the realm or the org is absent.
-     */
-    @Transactional
     private boolean orgInRealm(final OrgRef ref) {
         return ref.orgId() != null && organizations.findById(ref.orgId()).filter(o -> ref.realmId().equals(o.getTenantId())).isPresent();
     }
 
-    public boolean addMember(final OrgRef ref) {
-        if (organizations.findById(ref.orgId()).filter(o -> ref.realmId().equals(o.getTenantId())).isEmpty()) {
-            return false;
+    /**
+     * Open issue E5: puts a user's membership of an organization. A new member gets the given role (default
+     * {@code member}); an existing member's role is changed in place ({@code role} null keeps the current role).
+     * Empty when the organization or the user is not in the realm (the path realm scopes both).
+     */
+    @Transactional
+    public Optional<OrgMemberChange> putMember(final OrgRef ref) {
+        if (!orgInRealm(ref) || ref.userId() == null) {
+            return Optional.empty();
         }
         if (tenantUsers.findByTenantIdAndUserId(ref.realmId(), ref.userId()).isEmpty()) {
-            return false;
+            return Optional.empty();
         }
-        final String role = ref.role() == null || ref.role().isBlank() ? DEFAULT_MEMBER_ROLE : ref.role().trim();
-        members.findByOrgIdAndUserId(ref.orgId(), ref.userId()).ifPresentOrElse(existing -> {
-            existing.setRole(role);
-            members.save(existing);
-        }, () -> {
-            members.save(new OrganizationMember(ref.orgId(), ref.userId(), role));
-            LOG.debug("Added user {} to organization {} as {}", ref.userId(), ref.orgId(), role);
-        });
-        return true;
+        final String requested = ref.role() == null || ref.role().isBlank() ? null : ref.role().trim();
+        final Optional<OrganizationMember> existing = members.findByOrgIdAndUserId(ref.orgId(), ref.userId());
+        final OrganizationMember member;
+        if (existing.isPresent()) {
+            member = existing.get();
+            if (requested != null && !requested.equals(member.getRole())) {
+                member.setRole(requested);
+                members.save(member);
+                LOG.debug("Changed the role of user {} in organization {} to {}", LogSafe.sanitize(ref.userId()),
+                        LogSafe.sanitize(ref.orgId()), LogSafe.sanitize(requested));
+            }
+        } else {
+            member = new OrganizationMember(ref.orgId(), ref.userId(),
+                    requested == null ? DEFAULT_MEMBER_ROLE : requested);
+            members.save(member);
+            LOG.debug("Added user {} to organization {} as {}", LogSafe.sanitize(ref.userId()),
+                    LogSafe.sanitize(ref.orgId()), LogSafe.sanitize(member.getRole()));
+        }
+        final String username = users.findByUserId(ref.userId()).map(u -> u.getUsername()).orElse(ref.userId());
+        return Optional.of(new OrgMemberChange(existing.isEmpty(),
+                new OrgMemberDto(ref.userId(), username, member.getRole())));
+    }
+
+    /**
+     * Adds a user to an organization with a role (defaults to {@code member}), or changes an existing member's role.
+     * {@code false} if the user is not a member of the realm or the org is absent.
+     */
+    public boolean addMember(final OrgRef ref) {
+        return putMember(ref).isPresent();
     }
 
     /** Removes a user from an organization; {@code false} if they weren't a member. */

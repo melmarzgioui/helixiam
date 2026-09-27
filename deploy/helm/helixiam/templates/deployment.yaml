@@ -3,6 +3,9 @@
 {{- include "helixiam.require" (dict "name" "database.host" "val" .Values.database.host) -}}
 {{- include "helixiam.require" (dict "name" "redis.host" "val" .Values.redis.host) -}}
 {{- include "helixiam.require" (dict "name" "secrets.existingSecret" "val" .Values.secrets.existingSecret) -}}
+{{- if .Values.themes.enabled }}
+{{- include "helixiam.require" (dict "name" "themes.configMap.name or themes.existingVolume" "val" (or .Values.themes.configMap.name .Values.themes.existingVolume)) -}}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -95,6 +98,11 @@ spec:
               mountPath: /etc/helixiam/bootstrap
               readOnly: true
             {{- end }}
+            {{- if .Values.themes.enabled }}
+            - name: themes
+              mountPath: {{ .Values.themes.mountPath }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -107,6 +115,18 @@ spec:
             items:
               - key: {{ .Values.secrets.bootstrapClientSecretKey }}
                 path: client-secret
+        {{- end }}
+        {{- if .Values.themes.enabled }}
+        - name: themes
+          {{- if .Values.themes.configMap.name }}
+          configMap:
+            name: {{ .Values.themes.configMap.name }}
+            {{- with .Values.themes.configMap.items }}
+            items: {{- toYaml . | nindent 14 }}
+            {{- end }}
+          {{- else }}
+          {{- toYaml .Values.themes.existingVolume | nindent 10 }}
+          {{- end }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}

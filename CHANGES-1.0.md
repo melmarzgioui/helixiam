@@ -37,6 +37,34 @@ Open issues found when Monthfold moved its production sign-in to rc.4
 - **C4** — `/actuator/health` is UP without Redis when Redis is not used (dev profile, `sessionStore: queue`). Cause: the environment post-processor that switches the Redis health indicators off was registered in `META-INF/spring/…EnvironmentPostProcessor.imports`, which Spring Boot 3 never reads, so it never ran (rc.3 #6 only tested it on a mock environment). It is now registered in `META-INF/spring.factories`, turns off both the imperative and the reactive Redis indicator (`management.health.redis.enabled=false`) whenever Redis is neither the session store nor the token store (`HELIX_TOKEN_STORE=redis` keeps it), and never overrides an explicit setting. Real boot tests call `/actuator/health` with Redis unreachable, for `HELIX_SESSION_STORE=queue` and for the dev profile.
 - **C5** — Provisioning no longer needs MFA switched off globally. `HELIX_BOOTSTRAP_CLIENT_ID` plus `HELIX_BOOTSTRAP_CLIENT_SECRET_FILE` (or `HELIX_BOOTSTRAP_CLIENT_SECRET`; 32–120 characters) create, on first boot and only once, a master-realm `client_credentials` service account with the master `admin` role; it administers every realm through the admin API with a bearer token while `MFA_ENABLED` stays on. Helm: `secrets.bootstrapClientId` + `secrets.bootstrapClientSecretKey` (mounted as a file, `0440`), and `config.mfaEnabled` (`MFA_ENABLED`, default `true`). README and chart README document how the global switch and per-realm `requireMfa` interact.
 - **C6 — security** — Private-address egress is an explicit allowlist instead of all-or-nothing. `helix.egress.allowed-private-hosts` (`HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`; Helm `config.egressAllowedPrivateHosts`) lists exact host names or IP literals, optionally with a port (`mailer.mail.svc.cluster.local`, `sms-gateway.internal:8080`). Only a URL whose host is a listed *name* (on the listed port, 80/443 by default) may reach private, site-local, unique-local, CGNAT or loopback addresses; another name resolving to the same private address, or the address itself, is still refused; link-local/cloud-metadata, multicast and wildcard addresses stay blocked even for listed hosts. It applies to every outbound call through the SSRF guard, including the email/SMS HTTP drivers, and is global rather than per realm because realm admins configure those URLs. `HELIX_EGRESS_ALLOW_PRIVATE=true` still works but is deprecated (startup warning; flagged by the production-readiness check).
+- **File themes (structured theming, spec §5)** — Operators can keep themes in version control: set
+  `helix.theme.directory` (`HELIX_THEME_DIRECTORY`; Helm `themes.enabled` with a ConfigMap or an existing volume) to a
+  directory of `{name}/theme.json` (same schema and validation as `PUT /admin/realms/{r}/theme`), an optional
+  `fonts.json` and `assets/` (fonts and images checked with the same type, size, count and SVG rules as uploads;
+  referenced as `assets/<file>`). A realm selects one with `PUT /admin/realms/{r}/theme/base {"themeName": ...}`
+  (`manage-realm`, audited as `THEME_UPDATE`); it becomes the layer between the default and the realm's database theme,
+  so database fields override file values. Themes are validated at startup and whenever the files change (polled
+  every `helix.theme.reload-interval-seconds`, default 30); an invalid theme is refused with an error log listing
+  every problem, and realms that select it fall back to their database theme or the default. File assets are served
+  under the selecting realm's own `/realms/{r}/theme/assets/` path with the same headers as uploads. Deleting an
+  uploaded asset now also checks base layers, and a font family the file theme provides keeps resolving. Schema:
+  `realm_theme.theme_name` (Flyway `V70`, and `schema.sql`).
+- **E5** — `PUT /admin/realms/{r}/organizations/{org}/members/{user}` changes a member's role in place: 201 with the
+  membership when it adds the member, 200 when it changes (or keeps) the role; a body without `role` keeps the current
+  role instead of resetting it to `member`. An organization or user outside the path realm is now a 404 (it was a 409,
+  which read as "already a member"). Roles are validated (at most 64 characters: letters, digits, `.`, `_`, `:`, `-`;
+  400 `fieldErrors.role`). Audited as `ORGANIZATION_MEMBER_PUT` (detail: added or role change) and
+  `ORGANIZATION_MEMBER_REMOVE`.
+- **E7** — `DELETE /admin/realms/{r}/users/{userId}/sessions` revokes every session of a user in one call: browser
+  sessions, every SSO session (back-channel logout with the session's `sid`, realm-signed, to each of its clients),
+  and every remaining authorization with its refresh token (those clients get a `sub`-only logout token). Answers the
+  counts; 404 for a user outside the path realm; needs `manage-users`; audited as `USER_SESSIONS_REVOKE`.
+  See `docs/oidc-sessions-and-logout.md`.
+- **E8** — Documented how role names appear in tokens (`docs/role-names-in-tokens.md`): a user's realm roles are
+  `<role>_<realm>` in `realm_access.roles` (for example `user_monthfold`), service-account and agent roles are plain.
+  The suffix is not made configurable per realm in this release; the page gives the reasons (delegation and mapper
+  consumers depend on today's strings, the realm-settings change is cross-cutting, and RPs need a migration path) and
+  the recommended follow-up. `RealmRoleNamesInTokensE2eTest` pins the documented behaviour.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 

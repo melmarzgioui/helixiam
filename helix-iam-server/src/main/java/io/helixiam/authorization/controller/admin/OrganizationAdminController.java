@@ -6,14 +6,19 @@
 package io.helixiam.authorization.controller.admin;
 
 import io.helixiam.authorization.amqp.org.OrgDto;
+import io.helixiam.authorization.amqp.org.OrgMemberChange;
 import io.helixiam.authorization.amqp.org.OrgMemberDto;
 import io.helixiam.authorization.amqp.org.OrgRef;
 import io.helixiam.authorization.amqp.org.OrgWriteDto;
 import io.helixiam.authorization.amqp.org.OrganizationAdminPublisher;
+import io.helixiam.authorization.security.audit.AuditContext;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.servlet.http.HttpServletRequest;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -26,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Helix IAM Organizations: admin REST API for a realm's B2B organizations (Keycloak Organizations /
@@ -94,12 +100,24 @@ public class OrganizationAdminController {
     }
 
     @PutMapping("/{orgId}/members/{userId}")
-    @Operation(summary = "Add a member", description = "Add a user to the organization (optional role); 409 if already a member.")
-    public ResponseEntity<Void> addMember(@PathVariable final String realmId, @PathVariable final String orgId,
-                                          @PathVariable final String userId, @Valid @RequestBody(required = false) final MemberRequest request) {
+    @Operation(summary = "Add a member or change its role",
+            description = "Adds the user to the organization (201, default role member) or changes an existing member's "
+                    + "role in place (200; no role keeps the current one). Answers the membership. 404 when the "
+                    + "organization or the user is not in this realm.")
+    public ResponseEntity<OrgMemberDto> putMember(@PathVariable final String realmId, @PathVariable final String orgId,
+                                                  @PathVariable final String userId,
+                                                  @Valid @RequestBody(required = false) final MemberRequest request,
+                                                  final HttpServletRequest http) {
         final String role = request == null ? null : blankToNull(request.role());
-        return Boolean.TRUE.equals(publisher.addMember(new OrgRef(realmId, orgId, userId, role)))
-                ? ResponseEntity.noContent().build() : ResponseEntity.status(HttpStatus.CONFLICT).build();
+        final OrgMemberChange change = publisher.putMember(new OrgRef(realmId, orgId, userId, role));
+        if (change == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (http != null) {
+            AuditContext.attachDetail(http, Map.of("change", change.created() ? "added" : "role",
+                    "userId", userId, "role", change.member().role()));
+        }
+        return ResponseEntity.status(change.created() ? HttpStatus.CREATED : HttpStatus.OK).body(change.member());
     }
 
     @DeleteMapping("/{orgId}/members/{userId}")
@@ -119,7 +137,13 @@ public class OrganizationAdminController {
                              String displayName, List<String> domains, Boolean enabled) {
     }
 
-    /** Add-member body: the role within the org (defaults to {@code member}). */
-    public record MemberRequest(String role) {
+    /**
+     * Put-member body: the role within the org (a new member defaults to {@code member}; an existing member keeps its
+     * role when none is given). A short token: letters, digits, {@code . _ : -}.
+     */
+    public record MemberRequest(@Size(max = 64, message = "Role must be at most 64 characters.")
+                                @Pattern(regexp = "\\s*|[A-Za-z0-9][A-Za-z0-9._:-]*",
+                                        message = "Role may only contain letters, digits, '.', '_', ':' and '-'.")
+                                String role) {
     }
 }

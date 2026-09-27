@@ -72,6 +72,24 @@ class AuditEventMapperTest {
     }
 
     @Test
+    void mapsOrganizationMembershipChanges() {
+        assertEquals("ORGANIZATION_MEMBER_PUT", map("PUT", "/admin/realms/gov/organizations/o-1/members/u-1", 200).type());
+        assertEquals("ORGANIZATION_MEMBER_PUT", map("PUT", "/admin/realms/gov/organizations/o-1/members/u-1", 201).type());
+        assertEquals("ORGANIZATION_MEMBER_REMOVE",
+                map("DELETE", "/admin/realms/gov/organizations/o-1/members/u-1", 204).type());
+        final AuditEventMapper.AdminAudit m = map("PUT", "/admin/realms/gov/organizations/o-1/members/u-1", 200);
+        assertEquals("organizations", m.resourceType());
+        assertEquals("o-1", m.resourceId());
+    }
+
+    @Test
+    void mapsRevokingAllSessionsOfAUser() {
+        assertEquals("USER_SESSIONS_REVOKE", map("DELETE", "/admin/realms/gov/users/u-1/sessions", 200).type());
+        assertEquals("user", map("DELETE", "/admin/realms/gov/users/u-1/sessions", 200).resourceType());
+        assertEquals("u-1", map("DELETE", "/admin/realms/gov/users/u-1/sessions", 200).resourceId());
+    }
+
+    @Test
     void deniedAndFailureOutcomesFromStatus() {
         assertEquals("DENIED", map("DELETE", "/admin/realms/gov/sessions/missing", 404).outcome());
         assertEquals("DENIED", map("POST", "/admin/realms/gov/users", 403).outcome());

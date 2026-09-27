@@ -54,5 +54,25 @@ afterwards; rotate its secret with `POST /admin/realms/master/clients/{id}/secre
 `config.mfaEnabled: true` (default) requires TOTP for every password sign-in in every realm; `false` leaves it to
 each realm's `requireMfa`. Neither affects `client_credentials` tokens.
 
+## File themes
+Set `themes.enabled=true` and point `themes.configMap.name` (with `items` mapping keys to
+`{theme}/theme.json`, `{theme}/fonts.json` and `{theme}/assets/<file>`) or `themes.existingVolume` at your theme
+files. They are mounted read-only at `themes.mountPath` (`HELIX_THEME_DIRECTORY`), validated at startup and
+whenever they change, and a realm uses one after `PUT /admin/realms/{realm}/theme/base {"themeName": "<theme>"}`.
+An invalid theme is refused (see the server log and `GET /admin/realms/{realm}/theme/base`) and realms fall back to
+their database theme or the default.
+
+```bash
+kubectl create configmap helixiam-themes \
+  --from-file=monthfold.theme.json=themes/monthfold/theme.json \
+  --from-file=monthfold.logo.svg=themes/monthfold/assets/logo.svg
+helm upgrade helixiam deploy/helm/helixiam --reuse-values \
+  --set themes.enabled=true --set themes.configMap.name=helixiam-themes \
+  --set 'themes.configMap.items[0].key=monthfold.theme.json' \
+  --set 'themes.configMap.items[0].path=monthfold/theme.json' \
+  --set 'themes.configMap.items[1].key=monthfold.logo.svg' \
+  --set 'themes.configMap.items[1].path=monthfold/assets/logo.svg'
+```
+
 See [`values.yaml`](values.yaml) for the full set of options (ingress, resources, probes,
 NetworkPolicy selectors, extra env).

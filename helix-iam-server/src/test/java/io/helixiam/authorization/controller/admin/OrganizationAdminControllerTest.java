@@ -6,6 +6,8 @@
 package io.helixiam.authorization.controller.admin;
 
 import io.helixiam.authorization.amqp.org.OrgDto;
+import io.helixiam.authorization.amqp.org.OrgMemberChange;
+import io.helixiam.authorization.amqp.org.OrgMemberDto;
 import io.helixiam.authorization.amqp.org.OrgRef;
 import io.helixiam.authorization.amqp.org.OrgWriteDto;
 import io.helixiam.authorization.amqp.org.OrganizationAdminPublisher;
@@ -77,18 +79,23 @@ class OrganizationAdminControllerTest {
     }
 
     @Test
-    void addMember_passesRole_andReturns204_or409() {
-        when(publisher.addMember(any())).thenReturn(true);
-        final ResponseEntity<Void> ok = controller.addMember("gov", "o1", "u1", new MemberRequest("admin"));
-        assertThat(ok.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    void putMember_passesRole_andAnswers201WhenAdded_200WhenChanged_404WhenNotInTheRealm() {
+        when(publisher.putMember(any())).thenReturn(new OrgMemberChange(true, new OrgMemberDto("u1", "joe", "admin")));
+        final ResponseEntity<OrgMemberDto> added = controller.putMember("gov", "o1", "u1", new MemberRequest("admin"), null);
+        assertThat(added.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(added.getBody().role()).isEqualTo("admin");
 
         final ArgumentCaptor<OrgRef> captor = ArgumentCaptor.forClass(OrgRef.class);
-        verify(publisher).addMember(captor.capture());
+        verify(publisher).putMember(captor.capture());
         assertThat(captor.getValue().userId()).isEqualTo("u1");
         assertThat(captor.getValue().role()).isEqualTo("admin");
 
-        when(publisher.addMember(any())).thenReturn(false);
-        assertThat(controller.addMember("gov", "o1", "u1", null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        when(publisher.putMember(any())).thenReturn(new OrgMemberChange(false, new OrgMemberDto("u1", "joe", "client")));
+        assertThat(controller.putMember("gov", "o1", "u1", new MemberRequest("client"), null).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        when(publisher.putMember(any())).thenReturn(null);
+        assertThat(controller.putMember("gov", "o1", "u1", null, null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

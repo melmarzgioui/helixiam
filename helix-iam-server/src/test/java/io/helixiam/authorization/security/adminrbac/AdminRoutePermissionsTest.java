@@ -18,6 +18,9 @@ class AdminRoutePermissionsTest {
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/users", "POST")).contains("manage-users");
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/users/u-1/credentials", "DELETE"))
                 .contains("manage-users");
+        // Open issue E7: revoking every session of a user is a users write.
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/users/u-1/sessions", "DELETE"))
+                .contains("manage-users");
     }
 
     @Test
@@ -87,6 +90,8 @@ class AdminRoutePermissionsTest {
     void themes_realmNeedsManageRealm_organizationNeedsManageOrganizations() {
         for (final String method : new String[] {"GET", "PUT"}) {
             assertThat(AdminRoutePermissions.required("/admin/realms/gov/theme", method)).contains("manage-realm");
+            // File themes (spec §5): selecting the realm's file theme is realm configuration too.
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov/theme/base", method)).contains("manage-realm");
             assertThat(AdminRoutePermissions.required("/admin/realms/gov/organizations/o-1/theme", method))
                     .contains("manage-organizations");
         }

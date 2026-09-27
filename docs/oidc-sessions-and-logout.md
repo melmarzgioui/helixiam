@@ -27,6 +27,22 @@ The user's other browser sessions are not affected.
 An administrator revoking the session (console or `DELETE /admin/realms/{realm}/sessions/{sid}`) and a user
 ending it from the account page cause the same back-channel logout.
 
+### Revoking every session of a user
+
+`DELETE /admin/realms/{realm}/users/{userId}/sessions` (`manage-users`) signs a user out everywhere in the realm in
+one call, for example after a suspected account compromise:
+
+1. the user's browser sessions are deleted;
+2. every SSO session of the user is ended as above: all its authorizations and refresh tokens are removed, and each
+   of its clients with a `backchannel_logout_uri` gets a logout token with that session's `sid`;
+3. every remaining authorization of the user at a client of the realm (one that was not part of an SSO session) is
+   removed too, and each such client gets one logout token with `sub` and no `sid`, which means "every session of
+   this user at your application".
+
+The answer is `200 {"ssoSessions": n, "authorizations": n, "browserSessions": n}`; an unknown user, or a user of
+another realm, is a 404. The call is audited as `USER_SESSIONS_REVOKE`. An RP must therefore also accept a logout token
+without `sid` (OIDC Back-Channel Logout 1.0 §2.4 allows either claim) and then end all of that user's sessions.
+
 ## Back-channel logout: validating the `logout_token`
 
 HelixIAM POSTs `logout_token=<JWT>` (form-encoded) to your `backchannel_logout_uri`. Validate it as

@@ -72,6 +72,7 @@ public class ThemeService {
     private final LongSupplier clock = System::currentTimeMillis;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
     private final Map<String, Resolved> orgResolution = new ConcurrentHashMap<>();
+    private final Map<String, Resolved> themeNames = new ConcurrentHashMap<>();
     private int maxCacheEntries = 10_000;
 
     @Autowired
@@ -183,7 +184,7 @@ public class ThemeService {
         final String key = realmId + "|" + orgId;
         final Resolved hit = orgResolution.get(key);
         if (hit != null && clock.getAsLong() - hit.at() < CACHE_TTL_MILLIS) {
-            return hit.orgId();
+            return hit.value();
         }
         final Optional<String> resolved = organizationInRealm(realmId, orgId).map(Organization::getOrgId);
         if (orgResolution.size() >= maxCacheEntries) {
@@ -247,6 +248,49 @@ public class ThemeService {
     /** The custom-CSS caveat for a layer that sets custom CSS (spec §4: it depends on internal markup). */
     public List<String> notices(final Theme theme) {
         return theme != null && theme.customCss() != null ? List.of(CustomCssValidator.NOTICE) : List.of();
+    }
+
+    /**
+     * The file theme (spec §5) the realm uses as its base layer, if any. Cached like the effective theme (30 s,
+     * dropped by {@link #invalidate}), because the public asset and stylesheet endpoints ask for it.
+     */
+    public Optional<String> themeName(final String realmId) {
+        if (realmId == null) {
+            return Optional.empty();
+        }
+        final Resolved hit = themeNames.get(realmId);
+        if (hit != null && clock.getAsLong() - hit.at() < CACHE_TTL_MILLIS) {
+            return hit.value();
+        }
+        final Optional<String> name = realmThemes.findById(realmId).map(RealmThemeRecord::getThemeName)
+                .filter(n -> !n.isBlank());
+        if (themeNames.size() >= maxCacheEntries) {
+            themeNames.clear();
+        }
+        themeNames.put(realmId, new Resolved(name, clock.getAsLong()));
+        return name;
+    }
+
+    /**
+     * Selects (or with null clears) the file theme the realm uses as its base layer. The caller has checked that the
+     * theme exists and is valid. Returns the previous selection.
+     */
+    @Transactional
+    public Optional<String> selectThemeName(final String realmId, final String themeName) {
+        realmLock.lockRealm(realmId);
+        final Optional<RealmThemeRecord> row = realmThemes.findById(realmId);
+        final Optional<String> before = row.map(RealmThemeRecord::getThemeName);
+        final RealmThemeRecord record = row.orElseGet(() -> new RealmThemeRecord(realmId, ThemeJson.write(Theme.EMPTY)));
+        record.setThemeName(themeName);
+        realmThemes.save(record);
+        invalidateAfterCommit(realmId);
+        return before;
+    }
+
+    /** The base layers (e.g. the realm's file theme) between the default and the realm layer, bottom first. */
+    public List<Theme> baseLayers(final String realmId) {
+        final List<Theme> below = belowRealm(realmId);
+        return List.copyOf(below.subList(1, below.size()));
     }
 
     // ---------------------------------------------------------------- writes
@@ -510,12 +554,14 @@ public class ThemeService {
     public void invalidate(final String realmId) {
         cache.keySet().removeIf(k -> k.startsWith(realmId + "|"));
         orgResolution.keySet().removeIf(k -> k.startsWith(realmId + "|"));
+        themeNames.remove(realmId);
     }
 
     /** Drops every cached effective theme (e.g. after file themes were reloaded). */
     public void invalidateAll() {
         cache.clear();
         orgResolution.clear();
+        themeNames.clear();
     }
 
     private static Theme read(final String json, final String owner) {
@@ -543,6 +589,6 @@ public class ThemeService {
     private record Cached(EffectiveTheme value, long at) {
     }
 
-    private record Resolved(Optional<String> orgId, long at) {
+    private record Resolved(Optional<String> value, long at) {
     }
 }

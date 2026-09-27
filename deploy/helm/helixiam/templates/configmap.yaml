@@ -30,3 +30,7 @@ data:
   HELIX_BOOTSTRAP_CLIENT_ID: {{ .Values.secrets.bootstrapClientId | quote }}
   HELIX_BOOTSTRAP_CLIENT_SECRET_FILE: "/etc/helixiam/bootstrap/client-secret"
   {{- end }}
+  {{- if .Values.themes.enabled }}
+  HELIX_THEME_DIRECTORY: {{ .Values.themes.mountPath | quote }}
+  HELIX_THEME_RELOAD_INTERVAL_SECONDS: {{ .Values.themes.reloadIntervalSeconds | quote }}
+  {{- end }}

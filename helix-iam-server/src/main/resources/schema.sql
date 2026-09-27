@@ -962,6 +962,9 @@ CREATE TABLE IF NOT EXISTS realm_theme (
     FOREIGN KEY (realm_id) REFERENCES realm_config(realm_id) ON DELETE CASCADE
 );
 
+-- File themes (spec §5): the file theme a realm uses as its base layer (V70).
+ALTER TABLE realm_theme ADD COLUMN IF NOT EXISTS theme_name character varying(64);
+
 CREATE TABLE IF NOT EXISTS organization_theme (
     org_id     character varying(255) NOT NULL PRIMARY KEY,
     realm_id   character varying(255) NOT NULL,

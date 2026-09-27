@@ -21,14 +21,30 @@ public class StoredThemeAssetCatalog implements ThemeAssetCatalog {
         this.store = store;
     }
 
+    private MountedThemeAssets mounted;
+
+    /** File-theme assets (spec §5): a realm may also use the fonts and images of the file theme it selected. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMountedThemeAssets(final MountedThemeAssets mounted) {
+        this.mounted = mounted;
+    }
+
     @Override
     public boolean hasFont(final String realmId, final String fontName) {
-        return realmId != null && fontName != null && store.hasFont(realmId, fontName);
+        if (realmId == null || fontName == null) {
+            return false;
+        }
+        return store.hasFont(realmId, fontName)
+                || mounted != null && mounted.fonts(realmId).stream().anyMatch(m -> m.name().equals(fontName));
     }
 
     @Override
     public boolean hasAsset(final String realmId, final String assetId, final String extension) {
-        return realmId != null && assetId != null && extension != null
-                && store.find(realmId, assetId).filter(m -> m.ext().equals(extension)).isPresent();
+        if (realmId == null || assetId == null || extension == null) {
+            return false;
+        }
+        return store.find(realmId, assetId).filter(m -> m.ext().equals(extension)).isPresent()
+                || mounted != null && mounted.find(realmId, assetId)
+                        .filter(a -> a.metadata().ext().equals(extension)).isPresent();
     }
 }

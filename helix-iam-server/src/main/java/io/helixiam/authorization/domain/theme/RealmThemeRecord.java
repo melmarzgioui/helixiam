@@ -31,6 +31,10 @@ public class RealmThemeRecord {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    /** The file theme (spec §5) this realm uses as its base layer; null for none. */
+    @Column(name = "theme_name")
+    private String themeName;
+
     protected RealmThemeRecord() {
     }
 
@@ -50,6 +54,15 @@ public class RealmThemeRecord {
 
     public void setThemeJson(final String themeJson) {
         this.themeJson = themeJson;
+        this.updatedAt = Instant.now();
+    }
+
+    public String getThemeName() {
+        return themeName;
+    }
+
+    public void setThemeName(final String themeName) {
+        this.themeName = themeName;
         this.updatedAt = Instant.now();
     }
 

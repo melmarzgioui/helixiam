@@ -16,6 +16,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Base class for end-to-end tests that drive the REAL HTTP endpoints of a fully booted HelixIAM server
@@ -83,10 +85,21 @@ public abstract class AbstractE2eTest {
     /** The server's port, chosen once per JVM before the (single, cached) context starts. */
     static final int PORT;
 
+    /**
+     * {@code helix.theme.directory} of the shared server (file themes, spec §5): empty until a test writes a theme
+     * into it; tests reload explicitly ({@code FileThemeRegistry.reload()}), the poll is off.
+     */
+    public static final Path THEMES_DIR;
+
     static {
         POSTGRES.start();
         REDIS.start();
         PORT = freePort();
+        try {
+            THEMES_DIR = Files.createTempDirectory("helix-e2e-themes");
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     @DynamicPropertySource
@@ -124,6 +137,8 @@ public abstract class AbstractE2eTest {
         registry.add("user.register.enabled", () -> "true"); // global switch on; each realm still decides
         registry.add("helix.admin.username", () -> ADMIN_USERNAME);
         registry.add("helix.admin.password", () -> ADMIN_PASSWORD);
+        registry.add("helix.theme.directory", THEMES_DIR::toString);
+        registry.add("helix.theme.reload-interval-seconds", () -> "0");
     }
 
     @Autowired

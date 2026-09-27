@@ -252,7 +252,7 @@ def main():
         check(r.status == 201, f"user {uname} (admin-created)")
         users[name] = (uname, r.json()["userId"])
         r = api.request("PUT", f"/admin/realms/{realm}/organizations/{org}/members/{users[name][1]}", headers=bearer, body={"role": role})
-        check(r.status in (200, 204), f"{uname} is {role} of harbor-pine")
+        check(r.status in (200, 201, 204), f"{uname} is {role} of harbor-pine")
 
     # --- joe: authorization code + PKCE, TOTP enrolment enforced on first sign-in ---
     state = {}
