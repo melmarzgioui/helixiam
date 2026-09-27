@@ -15,7 +15,9 @@ import { UserApi, UserSummary, UserWrite, REQUIRED_ACTION_OPTIONS, parseRequired
 import { RoleApi } from "../api/roles";
 import { CredentialApi } from "../api/credentials";
 import { SessionApi, IdentitySession } from "../api/sessions";
-import { Avatar, StatusBadge, UserForm, ResetForm, RolesManager, Note } from "./UsersPage";
+import { Avatar, StatusBadge, BounceBadge, UserForm, ResetForm, RolesManager, Note } from "./UsersPage";
+import { emailBounce } from "./userBounce";
+import { Alert } from "../components/Alert";
 import { UserCredentials } from "./userCredentials";
 import { useT } from "../i18n/LocaleContext";
 
@@ -35,7 +37,7 @@ export interface UserDetailPageProps {
  * a row on the Users screen; the per-user credential/session views live here rather than as standalone pages.
  */
 export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmId, userId, onBack }: UserDetailPageProps) {
-  const { t } = useT();
+  const { t, locale } = useT();
 
   const TABS = [
     { id: "details", label: t("userDetail.tab.details") },
@@ -110,17 +112,20 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
     return <div className="hx-loadwrap"><Spinner size={28} label={t("userDetail.loading")} /></div>;
   }
 
+  const bounce = emailBounce(user, locale);
+
   return (
     <Page>
       <button type="button" onClick={onBack} className="hx-backlink">{t("userDetail.back")}</button>
 
       <PageHeader
         title={<span className="hx-namecell"><Avatar name={user.username} size={46} />{user.username}</span>}
-        description={user.email ?? user.userId}
+        description={user.email ?? t("userDetail.noEmail")}
         actions={
           <span className="hx-badges">
             <StatusBadge enabled={user.enabled} locked={user.locked} />
             {user.mfaEnabled ? <Badge tone="success">{t("userDetail.mfa.on")}</Badge> : <Badge tone="warning">{t("userDetail.mfa.off")}</Badge>}
+            <BounceBadge user={user} />
           </span>
         }
       />
@@ -130,6 +135,11 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
 
         {tab === "details" && (
           <>
+            {bounce && (
+              <Alert tone="warning" title={user.email ? t("userDetail.bounce.title", { email: user.email }) : t("userDetail.bounce.titleNoEmail")}>
+                {bounce.when ? t("userDetail.bounce.when", { when: bounce.when }) : t("userDetail.bounce.whenUnknown")} {t("userDetail.bounce.body")}
+              </Alert>
+            )}
             <Section title={t("userDetail.section.profile")}>
               <UserForm key={user.userId} initial={user} onSubmit={save} onCancel={reload} />
               <div className="hx-formactions">
