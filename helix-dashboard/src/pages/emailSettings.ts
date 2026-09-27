@@ -79,11 +79,16 @@ export function defaultPort(mode: TlsMode): number {
   return mode === "IMPLICIT" ? 465 : 587;
 }
 
-/** The form for one EMAIL provider row, or a new one (carrying the from address/name across drivers). */
+/**
+ * The form for one EMAIL provider row, or a new one (carrying the from address/name across drivers). A new row is
+ * on by default, except when another provider is already on (pass defaultEnabled=false), so browsing drivers never
+ * proposes a second active provider.
+ */
 export function formFromProvider(
   driver: EmailDriver,
   existing?: MessagingProvider,
   carry?: { fromAddress: string; fromName: string },
+  defaultEnabled = true,
 ): EmailForm {
   const config: Record<string, string> = {};
   for (const [k, v] of Object.entries(existing?.config ?? {})) {
@@ -99,7 +104,7 @@ export function formFromProvider(
   }
   return {
     driver,
-    enabled: existing ? existing.enabled : true,
+    enabled: existing ? existing.enabled : defaultEnabled,
     fromAddress: existing ? existing.fromAddress ?? "" : carry?.fromAddress ?? "",
     fromName: existing ? existing.fromName ?? "" : carry?.fromName ?? "",
     config,
@@ -110,7 +115,7 @@ export function formFromProvider(
 
 /** Change the TLS mode; the port follows (587/465) unless the user typed one. */
 export function setTlsMode(form: EmailForm, mode: TlsMode): EmailForm {
-  const config = { ...form.config, tlsMode: mode };
+  const config: Record<string, string> = { ...form.config, tlsMode: mode };
   if (!form.portTouched) config.port = String(defaultPort(mode));
   return { ...form, config };
 }
@@ -140,9 +145,9 @@ export function toWrite(form: EmailForm): MessagingProviderWrite {
   };
 }
 
-/** True when saving would change what is stored. */
+/** True when saving would change what is stored, or the user started replacing the secret. */
 export function isDirty(form: EmailForm, baseline: EmailForm): boolean {
-  return JSON.stringify(toWrite(form)) !== JSON.stringify(toWrite(baseline));
+  return form.secret.replacing !== baseline.secret.replacing || JSON.stringify(toWrite(form)) !== JSON.stringify(toWrite(baseline));
 }
 
 /**

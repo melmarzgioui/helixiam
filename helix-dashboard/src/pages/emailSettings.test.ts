@@ -96,6 +96,11 @@ describe("formFromProvider", () => {
     expect(f.secret.stored).toBe(false);
   });
 
+  it("starts a new provider off when asked (another provider is already on)", () => {
+    expect(formFromProvider("LOG", undefined, undefined, false).enabled).toBe(false);
+    expect(formFromProvider("LOG", provider({ driver: "LOG", enabled: true }), undefined, false).enabled).toBe(true);
+  });
+
   it("starts a new SMTP provider on STARTTLS_REQUIRED and port 587", () => {
     const f = formFromProvider("SMTP");
     expect(f.config.tlsMode).toBe("STARTTLS_REQUIRED");
@@ -267,7 +272,7 @@ describe("validateEmailForm — Cloudflare", () => {
 });
 
 describe("validateEmailForm — HTTP relay", () => {
-  const http = (url?: string) => ({ ...formFromProvider("HTTP"), fromAddress: "a@b.co", config: url === undefined ? {} : { url } });
+  const http = (url?: string): EmailForm => ({ ...formFromProvider("HTTP"), fromAddress: "a@b.co", config: url === undefined ? {} : { url } });
   it("requires an absolute http(s) URL", () => {
     expect(validateEmailForm(http())["config.url"]).toBe("email.err.urlRequired");
     expect(validateEmailForm(http("ftp://relay"))["config.url"]).toBe("email.err.urlInvalid");
@@ -328,6 +333,8 @@ describe("isDirty", () => {
     expect(isDirty({ ...base, config: { ...base.config, host: "h2" } }, base)).toBe(true);
     expect(isDirty({ ...base, enabled: !base.enabled }, base)).toBe(true);
     expect(isDirty({ ...base, secret: { stored: false, replacing: false, value: "x" } }, base)).toBe(true);
+    // Replace chosen but nothing typed yet: still unsaved, so Save validates and asks for the value.
+    expect(isDirty({ ...base, secret: { stored: true, replacing: true, value: "" } }, { ...base, secret: { stored: true, replacing: false, value: "" } })).toBe(true);
   });
 });
 
