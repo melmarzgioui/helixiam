@@ -27,8 +27,10 @@ import java.util.regex.Pattern;
  *   <li>Shape: {@code radius} 0–16, {@code density} {@code comfortable}|{@code compact}.</li>
  *   <li>Assets: {@code https} URL or one of the realm's own uploaded images; links: {@code https} only.</li>
  *   <li>Layout: {@code split}|{@code centered}; 1–20 distinct BCP-47 locales.</li>
- *   <li>Texts: plain text (no {@code <} or {@code >}, no control characters), length limits, locale keys.</li>
- *   <li>Custom CSS: realm layer only, {@link CustomCssValidator}.</li>
+ *   <li>Texts: plain text (no {@code <} or {@code >}, no control, bidi-override/isolate or zero-width
+ *       characters), length limits, locale keys.</li>
+ *   <li>Custom CSS: realm layer only, {@link CustomCssValidator}; {@code url()} may use only the operator
+ *       allowlist and the realm's own uploaded assets — never origins the theme itself introduces.</li>
  *   <li>Contrast: on the effective theme ({@code below} + candidate, dark values derived), WCAG AA 4.5:1 for
  *       {@code contrast.inkOnSurface.*} (ink on surface) and {@code contrast.textOnPrimary.*} (surfaceRaised text
  *       on primary), light and dark — but only for pairs whose colours the candidate layer sets, so a layer that does
@@ -46,7 +48,9 @@ public class ThemeValidator {
 
     private static final Pattern FONT_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}");
     private static final Pattern LOCALE = Pattern.compile("[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}");
-    private static final Pattern CONTROL = Pattern.compile("[\\p{Cntrl}&&[^\\n]]");
+    /** Control characters (except LF), bidi embeddings/overrides/isolates, and invisible zero-width characters. */
+    private static final Pattern CONTROL =
+            Pattern.compile("[\\p{Cc}&&[^\\n]]|[\\u202A-\\u202E\\u2066-\\u2069\\u200B\\uFEFF]");
     private static final Map<String, Integer> TEXT_LIMITS = Map.of("brandHeadline", 120, "brandSubhead", 240,
             "brandByline", 120, "welcomeText", 500, "footerText", 500);
 
@@ -80,8 +84,8 @@ public class ThemeValidator {
             if (scope == Scope.ORGANIZATION) {
                 errors.put("customCss", "Custom CSS can only be set on the realm theme.");
             } else {
-                CustomCssValidator.validate(candidate.customCss(), realmId, imageOrigins(merged))
-                        .ifPresent(m -> errors.put("customCss", m));
+                CustomCssValidator.problems(candidate.customCss(), realmId, allowedImageOrigins, catalog)
+                        .stream().findFirst().ifPresent(m -> errors.put("customCss", m));
             }
         }
         if (coloursOk && candidate.colors() != null) {
@@ -90,7 +94,15 @@ public class ThemeValidator {
         return errors;
     }
 
-    /** The image origins a theme may load from: the configured allowlist plus the theme's own https asset origins. */
+    /** The origins custom CSS {@code url()} may fetch from: the operator allowlist only (review C2). */
+    public Set<String> cssUrlOrigins() {
+        return allowedImageOrigins;
+    }
+
+    /**
+     * The origins images may load from, for the per-realm {@code img-src}: the operator allowlist plus the origins of
+     * the theme's own https image URLs. Never used for custom CSS {@code url()}.
+     */
     public Set<String> imageOrigins(final Theme merged) {
         final Set<String> out = new LinkedHashSet<>(allowedImageOrigins);
         final ThemeAssets a = merged == null ? null : merged.assets();
@@ -260,8 +272,8 @@ public class ThemeValidator {
                 && keys.stream().allMatch(k -> LocalizedText.DEFAULT.equals(k) || (k != null && LOCALE.matcher(k).matches()));
     }
 
-    /** Null when {@code v} is acceptable plain text of at most {@code max} characters. */
-    static String plainText(final String v, final int max) {
+    /** Null when {@code v} is acceptable plain text of at most {@code max} characters; otherwise the reason. */
+    public static String plainText(final String v, final int max) {
         if (v == null) {
             return "Text must not be null.";
         }
@@ -272,7 +284,7 @@ public class ThemeValidator {
             return "Text is plain text and cannot contain < or >.";
         }
         if (CONTROL.matcher(v).find()) {
-            return "Text cannot contain control characters.";
+            return "Text cannot contain control, bidirectional-override or invisible characters.";
         }
         return null;
     }

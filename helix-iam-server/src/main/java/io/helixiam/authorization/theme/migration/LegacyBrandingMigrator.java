@@ -16,6 +16,7 @@ import io.helixiam.authorization.theme.ThemeJson;
 import io.helixiam.authorization.theme.ThemeMerger;
 import io.helixiam.authorization.theme.ThemeTexts;
 import io.helixiam.authorization.theme.ThemeUrls;
+import io.helixiam.authorization.theme.ThemeValidator;
 import io.helixiam.common.log.LogSafe;
 
 import java.sql.Connection;
@@ -23,7 +24,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -36,8 +36,7 @@ import java.util.function.Consumer;
  *   <li>{@code realm_config}: {@code primary_color} → {@code colors.primary.light}, {@code background_color} →
  *       {@code colors.surface.light}, {@code logo_url} → {@code assets.logoUrl}, {@code welcome_text} →
  *       {@code texts.welcomeText}, {@code custom_css} → {@code customCss} (kept only if it passes
- *       {@link CustomCssValidator}; its {@code url()}s may use the configured image origins and the logo's own
- *       origin).</li>
+ *       {@link CustomCssValidator}; its {@code url()}s may use only the operator-configured image origins).</li>
  *   <li>{@code organization}: {@code logo_url}, {@code primary_color} → the organization layer.</li>
  * </ul>
  *
@@ -89,7 +88,7 @@ public final class LegacyBrandingMigrator {
             final String primary = colour(owner, "primaryColor", r[2]);
             final String background = colour(owner, "backgroundColor", r[3]);
             final String welcome = text(owner, "welcomeText", r[4]);
-            final String css = css(realm, r[5], logo);
+            final String css = css(realm, r[5]);
             final Theme legacy = layer(logo, primary, background, welcome, css);
             if (!legacy.isEmpty()) {
                 final Theme existing = ThemeJson.read(select(c, "SELECT theme_json FROM realm_theme WHERE realm_id = ?", realm));
@@ -181,24 +180,20 @@ public final class LegacyBrandingMigrator {
         if (value == null || value.isBlank()) {
             return null;
         }
-        if (value.length() > 500 || value.indexOf('<') >= 0 || value.indexOf('>') >= 0
-                || value.chars().anyMatch(ch -> Character.isISOControl(ch) && ch != '\n')) {
-            drop(owner, field, "not plain text of at most 500 characters");
+        final String problem = ThemeValidator.plainText(value, 500);
+        if (problem != null) {
+            drop(owner, field, problem);
             return null;
         }
         return value;
     }
 
-    private String css(final String realm, final String value, final String logo) {
+    /** Legacy CSS is kept only if it passes the validator; url() may use the OPERATOR allowlist only. */
+    private String css(final String realm, final String value) {
         if (blank(value)) {
             return null;
         }
-        final Set<String> origins = new LinkedHashSet<>(allowedImageOrigins);
-        final String logoOrigin = ThemeUrls.httpsOrigin(logo);
-        if (logoOrigin != null) {
-            origins.add(logoOrigin);
-        }
-        final List<String> problems = CustomCssValidator.problems(value, realm, origins);
+        final List<String> problems = CustomCssValidator.problems(value, realm, allowedImageOrigins);
         if (!problems.isEmpty()) {
             warnings.accept("Realm " + realm + ": legacy custom CSS dropped during the theme migration and will not be "
                     + "served: " + problems.get(0));

