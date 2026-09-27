@@ -70,11 +70,23 @@ public class I18nConfig implements WebMvcConfigurer {
      * {@link #SUPPORTED} (default {@code en}).
      */
     @Bean
-    public LocaleResolver localeResolver() {
+    public LocaleResolver localeResolver(
+            final org.springframework.beans.factory.ObjectProvider<io.helixiam.authorization.theme.ThemeService> themes) {
         // Accept-Language negotiation (the no-cookie fallback) and the en degrade live inside the
         // resolver itself via its defaultLocaleFunction — see AcceptHeaderCookieLocaleResolver.
         final AcceptHeaderCookieLocaleResolver resolver = new AcceptHeaderCookieLocaleResolver();
         resolver.setCookiePath("/");
+        // Structured theming: inside a realm, the realm's (or the organization's) theme decides the offered languages.
+        resolver.setRealmLocales(request -> {
+            final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+            final io.helixiam.authorization.theme.ThemeService service = themes.getIfAvailable();
+            if (realm == null || service == null) {
+                return null;
+            }
+            final io.helixiam.authorization.theme.Theme theme = service.effectiveTheme(realm,
+                    io.helixiam.authorization.security.realm.OrganizationContext.current(request, realm)).theme();
+            return theme.layout() == null ? null : theme.layout().supportedLocales();
+        });
         return resolver;
     }
 
