@@ -139,4 +139,21 @@ class MessagingProviderValidatorTest {
         prod.validate(email("SMTP", Map.of("host", "smtp.example.com", "sendLimitPerMinute", "30"), null), false);
         prod.validate(email("LOG", Map.of("sendLimitPerMinute", "1000000"), null), false);
     }
+
+    @Test
+    void clearSecret_isRefusedTogetherWithANewSecret_andForAnEnabledProviderThatNeedsOne() {
+        assertThat(errors(() -> prod.validate(new MessagingProviderWriteDto("acme", "EMAIL", "SMTP", true,
+                "no-reply@example.com", null, Map.of("host", "smtp.example.com"), "pw", true), true)))
+                .containsOnlyKeys("clearSecret");
+        assertThat(errors(() -> prod.validate(new MessagingProviderWriteDto("acme", "EMAIL", "CLOUDFLARE", true,
+                "no-reply@example.com", null, Map.of("accountId", "acme1"), null, true), true)))
+                .containsOnlyKeys("secret");
+        // Disabled, or a driver whose secret is optional: fine.
+        assertThat(prod.validate(new MessagingProviderWriteDto("acme", "EMAIL", "CLOUDFLARE", false,
+                "no-reply@example.com", null, Map.of("accountId", "acme1"), null, true), true).clearSecret()).isTrue();
+        prod.validate(new MessagingProviderWriteDto("acme", "EMAIL", "SMTP", true, "no-reply@example.com", null,
+                Map.of("host", "smtp.example.com"), null, true), true);
+        assertThat(errors(() -> prod.validate(new MessagingProviderWriteDto("acme", "SMS", "TWILIO", true, null, null,
+                Map.of(), "tok", true), true))).containsOnlyKeys("clearSecret");
+    }
 }

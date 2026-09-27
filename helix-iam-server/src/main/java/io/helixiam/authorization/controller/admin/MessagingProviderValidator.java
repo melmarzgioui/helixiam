@@ -68,6 +68,11 @@ public class MessagingProviderValidator {
                     + ".");
             throw new ProviderValidationException(errors);
         }
+        final boolean clear = write.clearsSecret();
+        if (clear && write.secret() != null && !write.secret().isBlank()) {
+            errors.put("clearSecret", "Give a new secret or clear the stored one, not both.");
+            throw new ProviderValidationException(errors);
+        }
         if (!"EMAIL".equals(channel)) {
             return write;
         }
@@ -83,6 +88,10 @@ public class MessagingProviderValidator {
         final String alias = "SMTP".equals(driver) ? "password" : "CLOUDFLARE".equals(driver) ? "apiToken" : null;
         if (alias != null && config.containsKey(alias)) {
             final String moved = config.remove(alias);
+            if (clear) {
+                errors.put("clearSecret", "Give a new secret or clear the stored one, not both.");
+                throw new ProviderValidationException(errors);
+            }
             if (secret == null || secret.isBlank()) {
                 secret = moved;
             }
@@ -98,10 +107,10 @@ public class MessagingProviderValidator {
         // The realm's own send rate cap (emails per minute), instead of helix.notification.email.rate-limit.realm-per-minute.
         checkInt(config, "sendLimitPerMinute", 1, 1_000_000, "Enter a limit between 1 and 1000000 emails per minute.",
                 errors);
-        final boolean hasSecret = (secret != null && !secret.isBlank()) || secretStored;
+        final boolean hasSecret = (secret != null && !secret.isBlank()) || (secretStored && !clear);
         switch (driver) {
             case "SMTP" -> checkSmtp(config, errors);
-            case "CLOUDFLARE" -> checkCloudflare(config, hasSecret, errors);
+            case "CLOUDFLARE" -> checkCloudflare(config, hasSecret || !write.enabled(), errors);
             case "HTTP" -> checkUrl(config.get("url"), "config.url", false, errors);
             default -> { }
         }
@@ -109,7 +118,7 @@ public class MessagingProviderValidator {
             throw new ProviderValidationException(errors);
         }
         return new MessagingProviderWriteDto(write.realmId(), write.channel(), write.driver(), write.enabled(),
-                write.fromAddress(), write.fromName(), config, secret);
+                write.fromAddress(), write.fromName(), config, secret, write.clearSecret());
     }
 
     private void checkSmtp(final Map<String, String> config, final Map<String, String> errors) {
@@ -147,7 +156,7 @@ public class MessagingProviderValidator {
             errors.put("config.accountId", "The account id is letters and digits.");
         }
         if (!hasSecret) {
-            errors.put("secret", "The Cloudflare API token is required.");
+            errors.put("secret", "The Cloudflare API token is required to enable this provider.");
         }
         if (config.containsKey("baseUrl")) {
             checkUrl(config.get("baseUrl"), "config.baseUrl", true, errors);

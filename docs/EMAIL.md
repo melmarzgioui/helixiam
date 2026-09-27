@@ -211,13 +211,38 @@ curl -s -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
 
 Fields of an `EMAIL` provider: `channel` (`EMAIL`), `driver` (`SMTP`, `CLOUDFLARE`, `HTTP` or `LOG`), `enabled`,
 `fromAddress` (required except for `LOG`), `fromName`, `config` (the driver's settings, above, plus the optional
-`sendLimitPerMinute` of [section 10](#10-the-send-rate-cap)) and `secret` (write-only).
+`sendLimitPerMinute` of [section 10](#10-the-send-rate-cap)), `secret` (write-only) and `clearSecret`.
+
+**The secret** (the SMTP password, the Cloudflare API token, the HTTP relay token) is write-only; `GET` shows only
+`secretSet`. On `PUT`:
+
+| You send | Effect |
+|---|---|
+| no `secret`, `"secret": null` or `"secret": ""` | The stored secret is **kept**. |
+| `"secret": "<value>"` | The stored secret is **replaced**. |
+| `"clearSecret": true` (and no `secret`) | The stored secret is **removed**; the provider stays. |
+| `"clearSecret": true` with a `secret` | 400, `fieldErrors.clearSecret`: ambiguous. |
+
+A credential typed into `config` (`password`, `apiToken`) counts as a `secret`. A provider that needs its secret to
+work cannot be enabled without one: clearing the token of an enabled `CLOUDFLARE` provider, or enabling one that has
+none, is a 400 (`fieldErrors.secret`); disable it first, or give a new token. To remove a provider altogether, use
+`DELETE`.
+
+```bash
+curl -s -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
+  "$HX/admin/realms/acme/messaging/providers" -d '{
+    "channel": "EMAIL", "driver": "SMTP", "enabled": true, "fromAddress": "no-reply@example.com",
+    "config": {"host": "smtp.example.com"},
+    "clearSecret": true
+  }'
+# {"driver": "SMTP", "enabled": true, "secretSet": false, ...}
+```
 
 Everything is validated on save: an invalid provider is a `400` with one message per field, for example
 
 ```json
 {"message": "The Cloudflare account id is required.",
- "fieldErrors": {"config.accountId": "The Cloudflare account id is required.", "secret": "The Cloudflare API token is required."}}
+ "fieldErrors": {"config.accountId": "The Cloudflare account id is required.", "secret": "The Cloudflare API token is required to enable this provider."}}
 ```
 
 A **realm import** applies the same validation: an invalid provider in the document is not saved, and the import

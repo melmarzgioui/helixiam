@@ -57,7 +57,7 @@ public class MessagingProviderController {
                                      @Valid @RequestBody final MessagingProviderWriteDto body) {
         // The realm is authoritative from the path — never trust the body's realmId.
         final MessagingProviderWriteDto write = new MessagingProviderWriteDto(realmId, body.channel(), body.driver(),
-                body.enabled(), body.fromAddress(), body.fromName(), body.config(), body.secret());
+                body.enabled(), body.fromAddress(), body.fromName(), body.config(), body.secret(), body.clearSecret());
         final boolean secretStored = publisher.listProviders(realmId).stream().anyMatch(p ->
                 p.channel() != null && p.channel().equalsIgnoreCase(body.channel())
                         && p.driver() != null && p.driver().equalsIgnoreCase(body.driver()) && p.secretSet());

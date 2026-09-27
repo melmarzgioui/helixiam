@@ -118,6 +118,8 @@ public class MessagingAdminService {
         // Write-only secret: replace only when a non-blank value is supplied; otherwise keep what's stored.
         if (write.secret() != null && !write.secret().isBlank()) {
             entity.setSecret(write.secret());
+        } else if (write.clearsSecret()) {
+            entity.setSecret(null); // explicit clearSecret: the provider stays, without a secret
         }
         entity.setModifyDate(new java.util.Date());
         final MessagingProvider saved = providers.save(entity);

@@ -990,7 +990,7 @@ public class RealmImportService {
             try {
                 MessagingProviderWriteDto write = new MessagingProviderWriteDto(realmId, p.channel(), p.driver(),
                         p.enabled(), p.fromAddress(), p.fromName(), resolveConfigSecrets(p.config(), opts),
-                        resolveSecret(p.secret(), opts));
+                        resolveSecret(p.secret(), opts), p.clearSecret());
                 if (messagingValidator != null) {
                     final MessagingProviderDto current = existing.get(key);
                     write = messagingValidator.validate(write, current != null && current.secretSet());
