@@ -75,4 +75,27 @@ class EmailLayoutTest {
         assertThat(html).doesNotContain("javascript:").doesNotContain("plain.example").doesNotContain("<script>x")
                 .contains("&lt;script&gt;x&lt;/script&gt;").doesNotContain("url(x)");
     }
+
+    @Test
+    void buttons_areFoundCaseInsensitively_acrossLines_andOtherLinksAreLeftAlone() {
+        final String body = "<p><a href=\"https://a.example/1\" data-button>One</a> and "
+                + "<A\n HREF=\"https://a.example/2\"\tDATA-BUTTON >Two\nlines</a> "
+                + "<a href=\"https://a.example/plain\">plain</a> <a href=\"x\" data-button>no close";
+        final String html = EmailLayout.wrap(new EmailBranding("Monthfold", null, "#B4532A"), "s", body);
+
+        assertThat(html).containsPattern("<a href=\"https://a.example/1\"[^>]*background-color:#B4532A[^>]*>One</a>");
+        assertThat(html).containsPattern("<a href=\"https://a.example/2\"[^>]*background-color:#B4532A[^>]*>Two\nlines</a>");
+        assertThat(html).contains("<a href=\"https://a.example/plain\">plain</a>");
+        assertThat(html).as("an unclosed button link stays as written").contains("<a href=\"x\" data-button>no close");
+    }
+
+    @Test
+    void manyUnclosedButtonLinks_areHandledInLinearTime() {
+        // CodeQL #253 (java/polynomial-redos): the lazy "(.*?)</a>" regex rescanned the rest of the body for every
+        // unclosed opening tag, quadratic in the body length.
+        final String body = "<a href=\"\" data-button>a".repeat(40_000);
+        final String html = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(2),
+                () -> EmailLayout.wrap(EmailBranding.helixIam(), "s", body));
+        assertThat(html).contains(body);
+    }
 }

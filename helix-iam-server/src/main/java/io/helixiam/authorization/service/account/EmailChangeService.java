@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
-import java.util.regex.Pattern;
 
 /**
  * B1: changing the email address in the account console.
@@ -54,7 +53,6 @@ public class EmailChangeService {
 
     static final long TTL_HOURS = 24;
     static final int MAX_LENGTH = 254;
-    private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Logger LOG = LogManager.getLogger(EmailChangeService.class);
 
     /** The outcome of a change request. */
@@ -85,13 +83,33 @@ public class EmailChangeService {
         this.clock = clock;
     }
 
+    /**
+     * {@code local@domain} with exactly one {@code @}, no whitespace, a non-empty local part and a dot inside the
+     * domain (not its first or last character) — what {@code ^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$} accepted, checked in one
+     * pass: that regex backtracks polynomially on a domain of many dots (CodeQL #254).
+     */
+    static boolean isPlausible(final String email) {
+        final int at = email.indexOf('@');
+        if (at < 1 || email.indexOf('@', at + 1) >= 0) {
+            return false;
+        }
+        for (int i = 0; i < email.length(); i++) {
+            final char c = email.charAt(i);
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r') {
+                return false;
+            }
+        }
+        final int dot = email.indexOf('.', at + 2); // the domain's first character may not be the separating dot
+        return dot >= 0 && dot < email.length() - 1;
+    }
+
     /** The address as stored: trimmed and lower-cased; null when it is not a plausible email address. */
     public static String normalise(final String email) {
         if (email == null) {
             return null;
         }
         final String trimmed = email.trim().toLowerCase(Locale.ROOT);
-        return trimmed.length() <= MAX_LENGTH && EMAIL.matcher(trimmed).matches() ? trimmed : null;
+        return trimmed.length() <= MAX_LENGTH && isPlausible(trimmed) ? trimmed : null;
     }
 
     /**
