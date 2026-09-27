@@ -9,7 +9,6 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import io.helixiam.e2e.E2eAdminSession;
 import io.helixiam.e2e.E2eHttp;
 import io.helixiam.e2e.E2eSeed;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
@@ -23,10 +22,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * verifies the ID token against the realm JWKS with the same issuer the browser saw, and the IdP reaches the RP's
  * back channel and the mail sink.
  *
- * <p>Today every redirect chain that starts with a form POST and ends on the RP is blocked by the auth pages'
- * {@code form-action 'self'} (item A1). The passing tests therefore reach the RP through a redirect chain that starts
- * with a GET (the "continue" link after two-step enrolment, or a new authorization request on an existing SSO
- * session); the direct password-only case is kept, disabled, for the A1 fix to enable.
+ * <p>Before item A1 every redirect chain that started with a form POST and ended on the RP was blocked by the auth
+ * pages' {@code form-action 'self'}, so the harness tests reached the RP through a redirect chain that starts with a
+ * GET (the "continue" link after two-step enrolment, or a new authorization request on an existing SSO session). The
+ * direct password-only case covers the POST chain now that the CSP allows the client's redirect origins.
  */
 class TwoOriginHarnessBrowserE2eTest extends AbstractBrowserE2eTest {
 
@@ -119,7 +118,6 @@ class TwoOriginHarnessBrowserE2eTest extends AbstractBrowserE2eTest {
     }
 
     @Test
-    @Disabled("A1: CSP form-action blocks cross-origin redirect after POST — fixed in the A1 commit")
     void passwordOnlySignIn_landsOnTheRpCallback() {
         final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
         final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe"), PASSWORD);
