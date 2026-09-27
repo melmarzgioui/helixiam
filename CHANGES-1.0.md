@@ -8,13 +8,18 @@ question. Newest first within each phase.
 Open issues found when Monthfold moved its production sign-in to rc.4
 (`docs/superpowers/specs/2026-09-27-monthfold-open-issues.md`).
 
-> **SECURITY ADVISORY — second factor bypassed (HIGH, fixed in `cf06160`).** In a realm that requires a second factor
-> (`requireMfa`), rc.1–rc.4 issued authorization codes to browser sessions that had not completed one: a federated
-> (identity-provider) sign-in, and a session that signed in with a password before the realm required a second factor,
-> also with `prompt=none`. The gate in front of `/oauth2/authorize` read the sign-in from a place that is still empty
-> at its position, so it never fired. It now reads the session's sign-in, sends such sessions to enrolment or the code
-> page (or answers `prompt=none` with `interaction_required`), and browser tests cover every sign-in path. Password,
-> magic-link and `prompt=login` sign-ins were not affected: they are gated when the first factor completes.
+> **SECURITY ADVISORY — second factor bypassed (HIGH, fixed in `cf06160` and `3e5275e`).** In a realm that requires a
+> second factor (`requireMfa`), rc.1–rc.4 issued authorization codes **and SAML assertions** to browser sessions that
+> had not completed one: a federated (identity-provider) sign-in, and a session that signed in with a password before
+> the realm required a second factor (OIDC also with `prompt=none`; SAML SP-initiated, IdP-initiated and `IsPassive`).
+> The gate in front of `/oauth2/authorize` read the sign-in from a place that is still empty at its position, so it
+> never fired, and the SAML IdP had no gate at all. Both now send such sessions to enrolment or the code page and
+> resume afterwards; `prompt=none` gets `interaction_required` and SAML `IsPassive` a `NoPassive` status at the SP's
+> ACS. Browser tests cover every sign-in path. Password, magic-link, `prompt=login` and SAML `ForceAuthn` sign-ins were
+> not affected: they are gated when the first factor completes.
+>
+> **SECURITY — consent Cancel approved (fixed in `5030623`).** The consent page's Cancel button submitted the approval
+> form with every scope checked, so consent was recorded and tokens issued (code and device flows). Cancel now denies.
 
 - **A2** — `296aa4e` `prompt=login` no longer loops. The prompt filter used to clear the session again on the saved
   authorize request that the login resumes, so the user was sent back to `/login` forever. It now notes when the

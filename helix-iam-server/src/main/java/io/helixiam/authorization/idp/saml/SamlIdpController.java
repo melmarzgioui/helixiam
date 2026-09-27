@@ -10,7 +10,9 @@ import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.session.SsoLogoutService;
 import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -65,6 +67,10 @@ public class SamlIdpController {
     // Application model: when the calling SP is linked to an Application, the SAML assertion releases the
     // SAME claim profile as the app's OIDC tokens (not just mail), resolved via the shared UserInfoService.
     private final io.helixiam.authorization.service.UserInfoService userInfoService;
+    // Security (MFA gate): the same two-step rule /oauth2/authorize applies — no assertion for a sign-in that has not
+    // passed the second factor its realm (or its enrolment) requires. Null only in unit tests that build the controller.
+    private io.helixiam.authorization.security.mfa.MfaEnforcementFilter mfaGate;
+    private final HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
 
     public SamlIdpController(final SamlIdpProperties properties, final SamlAuthnRequestParser parser,
                             final SamlAssertionIssuer issuer, @Value("${idp.base.url}") final String idpBaseUrl,
@@ -88,6 +94,29 @@ public class SamlIdpController {
         this.userInfoService = userInfoService;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setMfaGate(final io.helixiam.authorization.service.mfa.MfaPolicyService policy,
+                    final io.helixiam.authorization.service.mfa.TotpService totp) {
+        this.mfaGate = new io.helixiam.authorization.security.mfa.MfaEnforcementFilter(policy, totp);
+    }
+
+    /**
+     * The second-step page this browser sign-in must pass before an assertion is issued, if any (the session is then put
+     * behind it and the SSO request saved, so it resumes once the factor passes). Empty when it may have one.
+     */
+    private java.util.Optional<String> holdForSecondFactor(final HttpServletRequest http, final HttpServletResponse response,
+                                                           final boolean passive) {
+        if (mfaGate == null || http == null) {
+            return java.util.Optional.empty();
+        }
+        final java.util.Optional<String> step = mfaGate.pendingSecondStep(http);
+        if (step.isPresent() && !passive && response != null) {
+            mfaGate.holdForSecondStep(http, response);
+            mfaGate.saveRequest(http, response);
+        }
+        return step;
+    }
+
     /**
      * Enforce the {@code helix.idp.saml.enabled} flag: when the SAML IdP role is switched off, every
      * {@code /saml/idp/*} endpoint behaves as if it doesn't exist (404) rather than silently serving.
@@ -102,12 +131,17 @@ public class SamlIdpController {
     public String ssoRedirect(@RequestParam(value = "SAMLRequest", required = false) final String samlRequest,
                               @RequestParam(value = "RelayState", required = false) final String relayState,
                               @RequestParam(value = "sp", required = false) final String spEntityId,
-                              final HttpServletRequest http, final Model model) {
+                              final HttpServletRequest http, final HttpServletResponse response, final Model model) {
         requireSamlIdpEnabled();
         if ((samlRequest == null || samlRequest.isBlank()) && spEntityId != null && !spEntityId.isBlank()) {
+            final java.util.Optional<String> step = holdForSecondFactor(http, response, false);
+            if (step.isPresent()) {
+                return "redirect:" + step.get(); // resumes IdP-initiated SSO after the second factor
+            }
             return idpInitiatedSso(spEntityId, relayState, SecurityContextHolder.getContext().getAuthentication(), model);
         }
-        return processSso(samlRequest, relayState, true, SecurityContextHolder.getContext().getAuthentication(), model, http);
+        return processSso(samlRequest, relayState, true, SecurityContextHolder.getContext().getAuthentication(), model,
+                http, response);
     }
 
     /**
@@ -135,9 +169,10 @@ public class SamlIdpController {
     @PostMapping("/saml/idp/sso")
     public String ssoPost(@RequestParam("SAMLRequest") final String samlRequest,
                           @RequestParam(value = "RelayState", required = false) final String relayState,
-                          final Model model) {
+                          final HttpServletRequest http, final HttpServletResponse response, final Model model) {
         requireSamlIdpEnabled();
-        return processSso(samlRequest, relayState, false, SecurityContextHolder.getContext().getAuthentication(), model, null);
+        return processSso(samlRequest, relayState, false, SecurityContextHolder.getContext().getAuthentication(), model,
+                http, response);
     }
 
     /** Back-compat overload (no servlet request) — used by tests; redirect-binding signature check is skipped. */
@@ -148,6 +183,12 @@ public class SamlIdpController {
 
     String processSso(final String samlRequest, final String relayState, final boolean redirectBinding,
                       final Authentication authentication, final Model model, final HttpServletRequest http) {
+        return processSso(samlRequest, relayState, redirectBinding, authentication, model, http, null);
+    }
+
+    String processSso(final String samlRequest, final String relayState, final boolean redirectBinding,
+                      final Authentication authentication, final Model model, final HttpServletRequest http,
+                      final HttpServletResponse response) {
         // Parse first so we can honour the AuthnRequest's protocol controls (ForceAuthn / IsPassive) even
         // before deciding whether to prompt for login.
         final SamlAuthnRequestParser.AuthnRequestInfo request = parser.parse(samlRequest, redirectBinding);
@@ -186,8 +227,23 @@ public class SamlIdpController {
                 if (session != null) {
                     session.invalidate();
                 }
+                if (response != null) {
+                    // Resume this SSO request after the new sign-in (it used to end on sp.base.url).
+                    requestCache.saveRequest(http, response);
+                }
             }
             return "redirect:/login";
+        }
+        // Security (MFA gate): a sign-in that has not passed the second factor it needs gets no assertion. IsPassive
+        // cannot show the second step, so the SP is told NoPassive; otherwise the browser goes to the second step and
+        // this request resumes once it passes.
+        final java.util.Optional<String> secondStep = holdForSecondFactor(http, response, request.isPassive());
+        if (secondStep.isPresent()) {
+            if (request.isPassive()) {
+                return postBack(model, acsUrl, relayState, issuer.issueStatusResponse(credentialSource.current(),
+                        acsUrl, request.requestId(), "urn:oasis:names:tc:SAML:2.0:status:NoPassive"));
+            }
+            return "redirect:" + secondStep.get();
         }
 
         // RequestedAuthnContext: assert the SP's requested LoA when present, else the registered default.
@@ -195,11 +251,11 @@ public class SamlIdpController {
                 ? request.requestedAuthnContextClassRef() : rp.defaultAuthnContextClassRef();
         final String subjectNameId = subjectForFormat(authentication, rp.opts().nameIdFormatOrDefault());
         final Map<String, String> attributes = attributes(authentication, applicationIdForSp(request.spEntityId()));
-        final String response = issuer.issueResponse(credentialSource.current(), rp.entityId(),
+        final String samlResponse = issuer.issueResponse(credentialSource.current(), rp.entityId(),
                 acsUrl, subjectNameId, attributes, authnCtx, request.requestId(), rp.opts());
 
         LOG.info("SAML IdP: issued assertion for {} to SP {}", subjectNameId, rp.entityId());
-        return postBack(model, acsUrl, relayState, response);
+        return postBack(model, acsUrl, relayState, samlResponse);
     }
 
     /** Render the auto-submitting POST form that delivers a SAMLResponse to an SP endpoint. */

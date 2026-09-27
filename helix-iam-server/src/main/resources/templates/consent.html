@@ -40,9 +40,18 @@
                     <p th:if="${scopes.isEmpty()}" class="hx-muted">No additional permissions requested.</p>
 
                     <div class="buttonHolder">
-                        <button type="submit" name="cancel" value="true" class="secondary"><span>Cancel</span></button>
+                        <!--/* Cancel submits the separate form below, which carries no scope: the authorization server
+                             treats a consent without scopes as denied (access_denied). It used to submit this form, with
+                             every scope still checked, so Cancel approved. */-->
+                        <button type="submit" form="consentCancel" class="secondary"><span>Cancel</span></button>
                         <button type="submit"><span>Approve</span></button>
                     </div>
+                </form>
+                <form id="consentCancel" th:action="@{${requestURI}}" method="post">
+                    <input type="hidden" name="client_id" th:value="${clientId}"/>
+                    <input type="hidden" name="state" th:value="${state}"/>
+                    <input th:if="${userCode != null and !userCode.isEmpty()}" type="hidden" name="user_code" th:value="${userCode}"/>
+                    <input th:if="${_csrf != null}" type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
                 </form>
             </article>
         </div>

@@ -273,4 +273,60 @@ class SamlIdpControllerTest {
                 + Base64.getMimeEncoder(64, new byte[]{'\n'}).encodeToString(key.getEncoded())
                 + "\n-----END PRIVATE KEY-----\n";
     }
+
+    // --------------------------------------------------------------------- Security (MFA gate) on the SAML SSO path
+
+    private static org.springframework.security.core.Authentication passwordOnly(final String userId) {
+        final io.helixiam.authorization.domain.UserCredentials user =
+                org.mockito.Mockito.mock(io.helixiam.authorization.domain.UserCredentials.class);
+        org.mockito.Mockito.when(user.getUsername()).thenReturn(userId);
+        return org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated(user, null,
+                java.util.List.of());
+    }
+
+    private static SamlIdpController gated(final SamlIdpController controller, final boolean enrolled) {
+        final io.helixiam.authorization.service.mfa.MfaPolicyService policy =
+                org.mockito.Mockito.mock(io.helixiam.authorization.service.mfa.MfaPolicyService.class);
+        org.mockito.Mockito.when(policy.required(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        final io.helixiam.authorization.service.mfa.TotpService totp =
+                org.mockito.Mockito.mock(io.helixiam.authorization.service.mfa.TotpService.class);
+        org.mockito.Mockito.when(totp.isEnrolled("u1")).thenReturn(enrolled);
+        controller.setMfaGate(policy, totp);
+        return controller;
+    }
+
+    @Test
+    void postBinding_aSignInWithoutTheSecondFactor_getsNoAssertion_andIsSentToTheSecondStep() {
+        final org.springframework.security.core.Authentication auth = passwordOnly("u1");
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(auth);
+        try {
+            final MockHttpServletRequest http = new MockHttpServletRequest("POST", "/saml/idp/sso");
+            final org.springframework.mock.web.MockHttpServletResponse response =
+                    new org.springframework.mock.web.MockHttpServletResponse();
+            final Model model = new ConcurrentModel();
+            final String view = gated(controller(), true).processSso(authnRequest(SP_ENTITY), "rs", false, auth, model,
+                    http, response);
+            assertThat(view).isEqualTo("redirect:/mfa/totp");
+            assertThat(model.getAttribute("fields")).as("no SAMLResponse").isNull();
+            assertThat(org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())
+                    .isInstanceOf(io.helixiam.authorization.security.mfa.domain.MfaAuthentication.class);
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
+    void aSecondFactorPassedInThisSignIn_getsTheAssertion() {
+        final org.springframework.security.core.Authentication auth = passwordOnly("u1");
+        final MockHttpServletRequest http = new MockHttpServletRequest("POST", "/saml/idp/sso");
+        io.helixiam.authorization.security.mfa.MfaSessionState.markVerified(http, "u1");
+        final Model model = new ConcurrentModel();
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(auth);
+        try {
+            assertThat(gated(controller(), true).processSso(authnRequest(SP_ENTITY), "rs", false, auth, model, http,
+                    new org.springframework.mock.web.MockHttpServletResponse())).isEqualTo("flow/saml-post");
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
 }
