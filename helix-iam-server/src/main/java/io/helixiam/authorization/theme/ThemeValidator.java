@@ -158,8 +158,8 @@ public class ThemeValidator {
             return;
         }
         if (!FONT_NAME.matcher(font).matches() || !catalog.hasFont(realmId, font)) {
-            errors.put(field, "Font must be system-sans, system-serif, system-mono or the name of a font uploaded "
-                    + "to this realm.");
+            errors.put(field, "Font must be " + String.join(", ", ThemeDefaults.BUILT_IN_FONTS)
+                    + " or the name of a font uploaded to this realm.");
         }
     }
 

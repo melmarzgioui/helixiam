@@ -74,13 +74,17 @@ body {
   right: -6%;
   bottom: -14%;
   width: min(64%, 540px);
-  opacity: 0.025;
+  opacity: 0.012;
   pointer-events: none;
 }
 .helix-brand .brand-watermark svg { width: 100%; height: auto; display: block; color: var(--hx-brand-accent); }
 
 /* thin helix-strand hairlines sweeping the panel */
-.helix-brand:not(.has-image)::before {
+/* the lines, glow and watermark are the HelixIAM look: never on a branded panel (review B3) */
+.helix-brand.is-branded {
+  background: var(--hx-brand-bg);
+}
+.helix-brand:not(.has-image):not(.is-branded)::before {
   content: "";
   position: absolute;
   z-index: -1;
@@ -115,10 +119,10 @@ body {
 .brand-mid { max-width: 30rem; }
 .brand-mid h1 {
   font-family: var(--hx-font-display);
-  font-weight: 800;
+  font-weight: var(--hx-font-display-weight);
   font-size: clamp(1.9rem, 3vw, 2.7rem);
   line-height: 1.12;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--hx-font-display-tracking);
   color: var(--hx-brand-fg);
   margin: 0 0 calc(var(--hx-space) * 3);
 }
@@ -195,10 +199,10 @@ body {
 .helix-form .form-head { margin-bottom: calc(var(--hx-space) * 5.25); }
 .helix-form .form-head h2 {
   font-family: var(--hx-font-display);
-  font-weight: 800;
+  font-weight: var(--hx-font-display-weight);
   font-size: 1.85rem;
   line-height: 1.1;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--hx-font-display-tracking);
   color: var(--hx-ink);
   margin: 0 0 calc(var(--hx-space) * 1.2);
 }
@@ -375,17 +379,34 @@ body {
 .helix-form a.federationProvider.idp-eherkenning { border-left: 3px solid #2b3a8c; }
 .helix-form a.federationProvider.idp-eidas { border-left: 3px solid #003399; }
 
+/* ---------------------------------------------------------- dark mode -- */
+/* the panel and the form side must read as two halves in dark mode too (review S8) */
+@media (prefers-color-scheme: dark) {
+  .helix-brand { border-inline-end: 1px solid var(--hx-border); }
+}
+
 /* ---------------------------------------------------------- responsive -- */
+/* On a phone the brand panel collapses to a compact header and the form starts right under it. */
 @media (max-width: 900px) {
+  .helix-auth { min-height: 100vh; grid-template-rows: auto 1fr; align-content: start; }
   .helix-brand {
-    padding: calc(var(--hx-space) * 5.25) calc(var(--hx-space) * 4.5);
-    gap: calc(var(--hx-space) * 3.75);
+    padding: calc(var(--hx-space) * 4) calc(var(--hx-space) * 4.5);
+    gap: calc(var(--hx-space) * 2);
+    justify-content: flex-start;
   }
   .helix-brand .brand-watermark,
   .helix-brand::before { display: none; }
-  .brand-mid h1 { font-size: 1.45rem; margin-bottom: calc(var(--hx-space) * 1.5); }
+  .brand-mid h1 { font-size: 1.3rem; margin: 0; }
   .brand-mid p { display: none; }
   .brand-badges { display: none; }
-  .helix-form { padding: calc(var(--hx-space) * 6) calc(var(--hx-space) * 4.5) calc(var(--hx-space) * 9); }
-  .helix-form .lang { margin-bottom: calc(var(--hx-space) * 4.5); }
+  .brand-bottom { display: none; }
+  .helix-form {
+    align-items: flex-start;
+    padding: calc(var(--hx-space) * 6) calc(var(--hx-space) * 4.5) calc(var(--hx-space) * 9);
+  }
+  .helix-form .lang { margin-bottom: calc(var(--hx-space) * 3); }
+  .helix-form .buttonHolder > button { min-height: 44px; }
+  @media (prefers-color-scheme: dark) {
+    .helix-brand { border-inline-end: 0; border-block-end: 1px solid var(--hx-border); }
+  }
 }

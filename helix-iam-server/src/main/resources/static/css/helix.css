@@ -36,6 +36,8 @@
 }
 
 :root {
+  /* inputs need a visible edge (≥ 3:1 against their surface, WCAG 1.4.11); cards keep the subtle --hx-border */
+  --hxi-input-border: color-mix(in srgb, var(--hx-ink) 58%, var(--hx-surface-raised));
   --hxi-radius-xs: calc(var(--hx-radius) * 0.375);  /* 3px at the default radius */
   --hxi-radius-sm: calc(var(--hx-radius) * 0.625);  /* 5px */
   --hxi-radius-md: calc(var(--hx-radius) * 0.75);   /* 6px */
@@ -83,7 +85,8 @@ summary:focus-visible {
 
 h1, h2, h3, h4 {
   font-family: var(--hx-font-display);
-  letter-spacing: -0.02em;
+  font-weight: var(--hx-font-display-weight);
+  letter-spacing: var(--hx-font-display-tracking);
 }
 
 .hide {
@@ -132,7 +135,6 @@ h1, h2, h3, h4 {
 }
 .mainWrapper > main > div.container.title div {
   padding: calc(var(--hx-space) * 2) 0 var(--hx-space) 0;
-  letter-spacing: 1px;
 }
 .mainWrapper > main > div.container article {
   width: 100%;
@@ -154,23 +156,19 @@ h1, h2, h3, h4 {
   flex-shrink: 1;
   min-height: calc(var(--hx-space) * 6);
 }
-.mainWrapper > main > div.container h4,
-.mainWrapper > main > div.container h3 {
-  font-weight: 600;
-  font-size: 1.1667rem;
-  margin-top: 0;
-  margin-bottom: 0;
-  color: var(--hx-primary-strong);
-  letter-spacing: 2px;
-}
-.mainWrapper > main > div.container h3 > span {
-  font-size: inherit;
-  font-weight: 400;
+/* The page title of a card page: the same voice as the sign-in heading (review S1). */
+.hx-title,
+.mainWrapper > main > div.container h1 {
+  font-family: var(--hx-font-display);
+  font-weight: var(--hx-font-display-weight);
+  font-size: 1.85rem;
+  line-height: 1.15;
+  letter-spacing: var(--hx-font-display-tracking);
   color: var(--hx-ink);
+  margin: 0;
 }
 .mainWrapper > main > div.container div.description {
   padding: calc(var(--hx-space) * 2) 0 var(--hx-space) 0;
-  letter-spacing: 1px;
 }
 .mainWrapper > main > div.container div.qrCode img {
   width: 200px;
@@ -282,15 +280,20 @@ h1, h2, h3, h4 {
 }
 /* Secondary buttons (Cancel / Back): tinted, ink text. */
 .buttonHolder > button.secondary,
+.buttonHolder > a.button.secondary,
 form button.cancel {
   background-color: var(--hx-primary-tint);
-  border: 1px solid var(--hx-border);
+  border: 1px solid var(--hxi-input-border);
   color: var(--hx-ink);
 }
 .buttonHolder > button.secondary:hover,
 form button.cancel:hover {
   background-color: var(--hx-primary-tint);
   border-color: var(--hx-primary);
+}
+/* space between the last field and the actions (review S11) */
+.mainWrapper > main > div.container article .buttonHolder {
+  margin-top: calc(var(--hx-space) * 4);
 }
 .buttonHolder > button.secondary > span {
   color: var(--hx-ink);
@@ -303,7 +306,6 @@ form button.cancel:hover {
   font-weight: 600;
   white-space: break-spaces;
   color: var(--hx-positive);
-  letter-spacing: 1px;
 }
 .actionSuccess,
 .actionError {
@@ -315,9 +317,8 @@ form button.cancel:hover {
 .actionSuccess.actionSuccess {
   flex-direction: column;
 }
-.actionSuccess > h3 {
-  color: var(--hx-primary-strong);
-  letter-spacing: 2px;
+.actionSuccess > h1 {
+  text-align: center;
 }
 .actionSuccess > i {
   font-size: 8.3333rem;
@@ -331,7 +332,6 @@ form button.cancel:hover {
 .actionSuccess > span.addition {
   font-weight: 400;
   margin-top: calc(var(--hx-space) * 4);
-  letter-spacing: 1px;
 }
 .actionError > i {
   font-size: 1.6667rem;
@@ -342,7 +342,6 @@ form button.cancel:hover {
   white-space: break-spaces;
   color: var(--hx-negative);
   font-weight: 600;
-  letter-spacing: 1px;
 }
 .actionError > span a {
   color: var(--hx-negative);
@@ -473,31 +472,31 @@ header .hx-wordmark .hx-spark {
 }
 
 /* -------------------------------------------------------------- footer -- */
-footer.hx-footer {
-  min-height: calc(var(--hx-space) * 5);
-  background: var(--hx-brand-bg);
-}
-footer.hx-footer.has-content {
+/* Footer text and legal links under the content — the same pattern as the split pages' form footer (review S9). */
+.hx-page-footer {
+  width: 100%;
+  max-width: 800px;
+  margin: calc(var(--hx-space) * 4) auto 0;
+  padding: calc(var(--hx-space) * 4) calc(var(--hx-space) * 5) 0;
+  border-top: 1px solid var(--hx-border);
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: calc(var(--hx-space) * 2) calc(var(--hx-space) * 5);
-  padding: calc(var(--hx-space) * 3) calc(var(--hx-space) * 5);
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 2);
 }
-footer.hx-footer * {
-  color: var(--hx-brand-fg);
+.hx-page-footer,
+.hx-page-footer * {
+  font-size: 0.9rem;
+  color: var(--hx-ink-muted);
 }
-footer.hx-footer a {
+.hx-page-footer a,
+.helix-form .form-footer a {
   font-weight: 600;
-  color: var(--hx-brand-fg);
+  color: var(--hx-primary-strong);
+}
+.hx-page-footer a:hover,
+.helix-form .form-footer a:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-@media screen and (max-width: 600px) {
-  footer.hx-footer:not(.has-content) {
-    display: none;
-  }
 }
 .hx-legal {
   display: flex;
@@ -586,15 +585,16 @@ form input.invalid {
   border-color: var(--hx-negative);
 }
 
+/* lighter than real values, so an example is never mistaken for a filled-in field */
 ::placeholder {
-  color: var(--hx-ink-muted);
+  color: color-mix(in srgb, var(--hx-ink-muted) 75%, var(--hx-surface-raised));
   opacity: 1;
 }
 
 input[type=text], input[type=email], input[type=search], input[type=number], input[type=password],
 input[type=date], select, textarea {
   width: 100%;
-  border: 1px solid var(--hx-border);
+  border: 1px solid var(--hxi-input-border);
   border-radius: var(--hxi-radius-sm);
   padding: calc(var(--hx-space) * 1.75) calc(var(--hx-space) * 3.25);
   display: inline-block;
@@ -743,4 +743,88 @@ main .container article.hx-narrow {
 /* ----------------------------------------------------- auto-submit page -- */
 .hx-autosubmit {
   text-align: center;
+}
+
+/* ------------------------------------------------------------- profile -- */
+.hx-profile {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: calc(var(--hx-space) * 3) calc(var(--hx-space) * 6);
+  margin: calc(var(--hx-space) * 2) 0;
+}
+.hx-profile dt {
+  color: var(--hx-ink-muted);
+  font-weight: 600;
+}
+.hx-profile dd {
+  margin: 0;
+  color: var(--hx-ink);
+  overflow-wrap: anywhere;
+}
+.hx-profile dd.hx-muted {
+  color: var(--hx-ink-muted);
+}
+
+/* ------------------------------------------------------- mobile (≤ 600) -- */
+@media (max-width: 600px) {
+  /* one layout on every card page (review S6): full-width actions, centred QR */
+  .buttonHolder > button,
+  .buttonHolder > a.button {
+    width: 100%;
+    flex: 1 1 0;
+  }
+  .mainWrapper > main > div.container div.qrCode {
+    display: flex;
+    justify-content: center;
+  }
+  .mainWrapper > main > div.container.title,
+  .hx-page-footer {
+    padding-left: calc(var(--hx-space) * 2.5);
+    padding-right: calc(var(--hx-space) * 2.5);
+  }
+  .hx-profile {
+    grid-template-columns: 1fr;
+    gap: var(--hx-space) 0;
+  }
+  .hx-profile dd {
+    margin-bottom: calc(var(--hx-space) * 2);
+  }
+  /* tap targets of at least 44 px (review S5) */
+  input:not([type=checkbox]):not([type=radio]):not([type=hidden]),
+  select,
+  .buttonHolder > button,
+  .buttonHolder > a.button,
+  div.skipButton button {
+    min-height: 44px;
+  }
+  input[type=text], input[type=email], input[type=search], input[type=number], input[type=password] {
+    font-size: 16px; /* also stops iOS from zooming into a focused field */
+  }
+  header > div.headerBar a.hx-home {
+    min-height: 44px;
+  }
+}
+/* text links keep their look but get a taller hit area */
+.lang a,
+.hx-legal a,
+.mainWrapper > main div.text a,
+.helix-form .resetPasswordContainer a,
+.helix-form .subtext a,
+.helix-form .description a,
+#showCode {
+  display: inline-block;
+  padding-block: calc(var(--hx-space) * 3);
+  margin-block: calc(var(--hx-space) * -3);
+}
+.consentScopes input[type=checkbox] {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+.consentScopes li {
+  min-height: 44px;
+}
+.consentScopes label {
+  flex: 1;
+  cursor: pointer;
 }
