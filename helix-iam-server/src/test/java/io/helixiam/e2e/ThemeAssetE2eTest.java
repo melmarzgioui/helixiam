@@ -107,13 +107,54 @@ class ThemeAssetE2eTest extends AbstractE2eTest {
         assertThat(r.body()).isEqualTo(bytes);
         assertThat(r.header("Content-Type").orElseThrow()).isEqualTo(contentType);
         assertThat(r.header("X-Content-Type-Options")).hasValue("nosniff");
-        assertThat(r.header("Content-Disposition")).hasValue("inline; filename=\"" + meta.path("id").asText() + "."
-                + meta.path("ext").asText() + "\"");
+        // Review M5: an SVG opened directly is downloaded, never rendered (img/CSS/favicon loads ignore this header).
+        final String disposition = "svg".equals(meta.path("ext").asText()) ? "attachment" : "inline";
+        assertThat(r.header("Content-Disposition")).hasValue(disposition + "; filename=\"" + meta.path("id").asText()
+                + "." + meta.path("ext").asText() + "\"");
         assertThat(r.header("ETag")).hasValue("\"" + meta.path("sha256").asText() + "\"");
         assertThat(r.header("Cache-Control").orElseThrow()).contains("public").contains("max-age=31536000")
                 .contains("immutable");
         assertThat(r.headers().allValues("Set-Cookie")).as("a public, cacheable response sets no cookie").isEmpty();
         return r;
+    }
+
+    @Test
+    void reviewM4_headAnswersHeadersWithoutABody() {
+        final JsonNode m = uploadImage(admin, realm, "mark.png", "image/png", AssetFixtures.png()).json();
+        final E2eHttp.BytesResponse head = newBrowser().head(m.path("url").asText());
+        assertThat(head.status()).isEqualTo(200);
+        assertThat(head.body()).isEmpty();
+        assertThat(head.header("Content-Type")).hasValue("image/png");
+        assertThat(head.header("Content-Length")).hasValue(Integer.toString(AssetFixtures.png().length));
+        assertThat(head.header("ETag")).hasValue("\"" + m.path("sha256").asText() + "\"");
+        assertThat(head.header("X-Content-Type-Options")).hasValue("nosniff");
+        assertThat(head.headers().allValues("Set-Cookie")).isEmpty();
+    }
+
+    @Test
+    void reviewM4_pathVariantsAreRejected_beforeReachingAnythingButTheAsset() {
+        final JsonNode m = uploadImage(admin, realm, "logo.svg", "image/svg+xml", SVG.getBytes(StandardCharsets.UTF_8))
+                .json();
+        final String id = m.path("id").asText();
+        final String base = baseUrl() + "/realms/" + realm + "/theme/assets/";
+        final E2eHttp anonymous = newBrowser();
+        for (final String variant : List.of(
+                base + "../../../admin/realms/" + realm + "/theme/assets",
+                base + "..%2F..%2F..%2Fadmin%2Frealms%2F" + realm + "%2Ftheme",
+                base + id + ".svg;jsessionid=abc",
+                base + ";x=1/" + id + ".svg",
+                base + id + "%2Esvg",
+                base.replace("/theme/assets/", "/theme//assets/") + id + ".svg",
+                base + "/" + id + ".svg",
+                base + id + ".svg/",
+                base + "x%2F" + id + ".svg",
+                base + id + ".svg/..")) {
+            final E2eHttp.BytesResponse r = anonymous.getBytes(variant);
+            assertThat(r.status()).as(variant).isIn(400, 401, 404);
+            assertThat(new String(r.body(), StandardCharsets.UTF_8)).as(variant).doesNotContain("<svg")
+                    .doesNotContain("\"id\"");
+        }
+        assertThat(anonymous.getBytes(m.path("url").asText()).status()).isEqualTo(200);
     }
 
     @Test

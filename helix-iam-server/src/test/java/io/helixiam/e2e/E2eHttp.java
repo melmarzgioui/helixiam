@@ -159,7 +159,16 @@ public final class E2eHttp {
 
     /** GET returning the raw body bytes (for binary resources). */
     public BytesResponse getBytes(final String pathOrUrl, final String... headers) {
-        final HttpRequest request = request(pathOrUrl, headers).GET().build();
+        return sendBytes("GET", pathOrUrl, headers);
+    }
+
+    /** HEAD (the body must be empty). */
+    public BytesResponse head(final String pathOrUrl, final String... headers) {
+        return sendBytes("HEAD", pathOrUrl, headers);
+    }
+
+    private BytesResponse sendBytes(final String method, final String pathOrUrl, final String... headers) {
+        final HttpRequest request = request(pathOrUrl, headers).method(method, HttpRequest.BodyPublishers.noBody()).build();
         try {
             final HttpResponse<byte[]> r = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
             history.add(request.method() + " " + request.uri() + " -> " + r.statusCode());

@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  *
  * <p>An id of another realm, an extension that does not match the stored one, and anything malformed are 404s.
  * Responses carry the stored content type, {@code X-Content-Type-Options: nosniff},
- * {@code Content-Disposition: inline; filename="{id}.{ext}"}, the SHA-256 as a strong {@code ETag} (304 on a match)
+ * {@code Content-Disposition: inline; filename="{id}.{ext}"} ({@code attachment} for SVG), the SHA-256 as a strong {@code ETag} (304 on a match)
  * and a year-long immutable {@code Cache-Control}, since an id's content never changes. An SVG also gets
  * {@code Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox}, so opening it directly
  * can never run anything even if a validator rule were missed.
@@ -84,7 +84,9 @@ public class ThemeAssetController {
         final byte[] bytes = content.get().bytes();
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType(meta.contentType());
-        response.setHeader("Content-Disposition", "inline; filename=\"" + meta.id() + "." + meta.ext() + "\"");
+        // Review M5: an SVG opened directly is a download, never a document; <img>, CSS and favicon loads ignore this.
+        response.setHeader("Content-Disposition", ("svg".equals(meta.ext()) ? "attachment" : "inline")
+                + "; filename=\"" + meta.id() + "." + meta.ext() + "\"");
         response.setContentLength(bytes.length);
         if (!"HEAD".equalsIgnoreCase(request.getMethod())) {
             response.getOutputStream().write(bytes);
