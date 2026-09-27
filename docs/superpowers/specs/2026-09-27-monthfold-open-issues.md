@@ -1,5 +1,27 @@
 # HelixIAM: open issues after the Monthfold production switch (next release after v1.0.0-rc.4)
 
+> **Status after the rc.5 review (2026-09-27):** A1–A9, C1–C6 and D1–D2 are fixed and verified live;
+> B1 is built. Custom domains (E1) are out of scope. Still open for rc.6:
+>
+> 1. **Medium. The account console signs the user out on the `queue` (PostgreSQL) session store.**
+>    - Any console form that redirects ends at `/login` (for example a password change, or a wrong
+>      recovery code). The same flow works on Redis.
+>    - Likely cause: flash attributes contain `org.springframework.util.LinkedMultiValueMap`, which the
+>      store's safe-deserialisation allowlist rejects. The failure is swallowed, so the session comes
+>      back empty.
+>    - Fix: allow the class, log rejected sessions, and run the console browser tests on the `queue`
+>      store.
+> 2. **Ship master's CodeQL fixes (`386f348`) in rc.6**, especially `79b5bf4`: the email-change link in
+>    rc.5 confirms on GET, so mail scanners that prefetch links can confirm it.
+> 3. **The verification email's plain-text part has no link.** It says only "Open this email in an email
+>    app that shows HTML". Include the link.
+> 4. **The verify-email subject uses the realm id** ("for monthfold"). Use the display name.
+> 5. **The Helm chart still requires `redis.host` with `sessionStore: queue`.**
+> 6. **Protocol error pages are unthemed:** an unknown `client_id`, or a bare `GET /connect/logout`,
+>    shows Spring's plain error page.
+> 7. **Minor:** the `inkMuted` contrast isn't checked, and the console's session list shows only the
+>    current browser.
+
 You are working in the HelixIAM repository (github.com/melmarzgioui/helixiam), a Java 21 / Spring Boot
 OAuth2 / OIDC / SAML identity provider with Thymeleaf pages, PostgreSQL (Flyway), an admin REST API and
 a Helm chart. Monthfold, a white-label SaaS for bookkeepers, now runs its production sign-in on rc.4.
