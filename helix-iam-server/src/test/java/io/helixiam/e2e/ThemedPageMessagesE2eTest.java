@@ -78,7 +78,11 @@ class ThemedPageMessagesE2eTest extends AbstractE2eTest {
         final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("ada"), PASSWORD,
                 Map.of("given_name", "Ada", "family_name", "Lovelace", "phone_number", "+31 6 1234 5678"));
         final E2eHttp http = E2eAdminSession.login(newBrowser(), realm, user.username(), PASSWORD).http();
-        final E2eHttp.Response me = http.get("/realms/" + realm + "/me", "Accept", "text/html");
+        // B1: /me is now the account console (/account), which shows the same profile values.
+        final E2eHttp.Response redirect = http.get("/realms/" + realm + "/me", "Accept", "text/html");
+        assertThat(redirect.isRedirect()).as(redirect.toString()).isTrue();
+        assertThat(redirect.location().getPath()).isEqualTo("/realms/" + realm + "/account");
+        final E2eHttp.Response me = http.get("/realms/" + realm + "/account", "Accept", "text/html");
         assertThat(me.status()).as(me.toString()).isEqualTo(200);
         assertThat(me.body()).contains(user.username() + "@e2e.helixiam.test", "Ada", "Lovelace", "+31 6 1234 5678")
                 .contains(user.username()).doesNotContain(">-<");

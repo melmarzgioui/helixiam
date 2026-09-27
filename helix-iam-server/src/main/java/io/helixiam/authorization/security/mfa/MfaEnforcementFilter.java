@@ -54,21 +54,28 @@ public class MfaEnforcementFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(final HttpServletRequest request, final HttpServletResponse response,
                                     final FilterChain chain) throws ServletException, IOException {
+        if (!gate(request, response)) {
+            chain.doFilter(request, response);
+        }
+    }
+
+    /**
+     * B1: the same check for any other page that must not be used before the second factor (the account console).
+     * Returns true when the request was saved and the browser sent to the second step (the caller stops there).
+     */
+    public boolean gate(final HttpServletRequest request, final HttpServletResponse response) throws IOException {
         final Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated() || auth instanceof MfaAuthentication
                 || !(auth.getPrincipal() instanceof UserCredentials user)) {
-            chain.doFilter(request, response); // anonymous / gated / machine: the normal chain handles it
-            return;
+            return false; // anonymous / gated / machine: the normal chain handles it
         }
         final String userId = user.getUsername();
         if (MfaSessionState.isVerified(request, userId)) {
-            chain.doFilter(request, response);
-            return;
+            return false;
         }
         final boolean enrolled = totp.isEnrolled(userId);
         if (!enrolled && !policy.required(RealmContextHolder.get())) {
-            chain.doFilter(request, response);
-            return;
+            return false;
         }
         requestCache.saveRequest(request, response);
         final SecurityContext gated = SecurityContextHolder.createEmptyContext();
@@ -76,5 +83,6 @@ public class MfaEnforcementFilter extends OncePerRequestFilter {
         SecurityContextHolder.setContext(gated);
         contexts.saveContext(gated, request, response);
         response.sendRedirect(request.getContextPath() + (enrolled ? "/mfa/totp" : "/mfa/enable"));
+        return true;
     }
 }

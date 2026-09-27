@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/account :: accountHead(#{account.title})}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header th:replace="~{fragments/theme :: hxHeader(true)}"></header>
+
+    <main>
+        <div class="container title">
+            <div class="hx-account-top" th:if="${referrer != null}">
+                <a th:replace="~{fragments/account :: returnLink}"></a>
+            </div>
+            <h1 class="hx-title" th:text="#{account.title}">Your account</h1>
+            <p class="hx-lead" th:text="#{account.lead(${account.profile().displayName()})}">Signed in as Ada Lovelace.</p>
+        </div>
+
+        <div class="container" th:if="${status != null}">
+            <p class="hx-alert hx-alert-success" role="status" id="account-status" th:text="#{'account.status.' + ${status}}">Saved.</p>
+        </div>
+        <div class="container" th:if="${failure != null}">
+            <p class="hx-alert hx-alert-error" role="alert" id="account-error" th:text="#{'account.error.' + ${failure}}">That did not work.</p>
+        </div>
+
+        <div class="container hx-account">
+
+            <!--/* Profile and email */-->
+            <article id="profile" aria-labelledby="profile-heading">
+                <div class="hx-account-head">
+                    <h2 id="profile-heading" th:text="#{account.profile.heading}">Profile</h2>
+                </div>
+                <dl class="hx-profile">
+                    <dt th:text="#{profile.username}">Username</dt>
+                    <dd id="profile-username" th:text="${account.profile().username()} ?: #{profile.notSet}">ada</dd>
+                    <dt th:text="#{profile.givenName}">First name</dt>
+                    <dd th:text="${account.profile().givenName()} ?: #{profile.notSet}" th:classappend="${account.profile().givenName() == null} ? 'hx-muted'">Ada</dd>
+                    <dt th:text="#{profile.familyName}">Last name</dt>
+                    <dd th:text="${account.profile().familyName()} ?: #{profile.notSet}" th:classappend="${account.profile().familyName() == null} ? 'hx-muted'">Lovelace</dd>
+                    <dt th:text="#{profile.phone}">Phone number</dt>
+                    <dd th:text="${account.profile().phone()} ?: #{profile.notSet}" th:classappend="${account.profile().phone() == null} ? 'hx-muted'">+31 6 1234 5678</dd>
+                    <dt th:text="#{profile.email}">Email address</dt>
+                    <dd id="profile-email">
+                        <span th:text="${account.profile().email()} ?: #{profile.notSet}" th:classappend="${account.profile().email() == null} ? 'hx-muted'">ada@example.com</span>
+                        <th:block th:if="${account.profile().email() != null}">
+                            <span th:if="${account.profile().emailVerified()}" class="hx-badge hx-badge-ok" id="email-verified" th:text="#{account.email.verified}">Verified</span>
+                            <span th:unless="${account.profile().emailVerified()}" class="hx-badge hx-badge-warn" id="email-unverified" th:text="#{account.email.unverified}">Not verified</span>
+                        </th:block>
+                    </dd>
+                </dl>
+                <div class="hx-account-actions">
+                    <a class="hx-btn hx-btn-secondary" id="change-email" th:href="@{/account/email}" th:text="#{account.email.change}">Change email</a>
+                </div>
+            </article>
+
+            <!--/* Password */-->
+            <article id="password" aria-labelledby="password-heading">
+                <div class="hx-account-head">
+                    <h2 id="password-heading" th:text="#{account.password.heading}">Password</h2>
+                </div>
+                <p class="hx-account-note" th:text="#{account.password.note}">Use a password you don't use anywhere else.</p>
+                <div class="hx-account-actions">
+                    <a class="hx-btn hx-btn-secondary" id="change-password" th:href="@{/account/password}" th:text="#{account.password.change}">Change password</a>
+                </div>
+            </article>
+
+            <!--/* Two-step verification */-->
+            <article id="two-step" aria-labelledby="two-step-heading">
+                <div class="hx-account-head">
+                    <h2 id="two-step-heading" th:text="#{account.twoStep.heading}">Two-step verification</h2>
+                    <span th:if="${account.twoStep().enrolled()}" class="hx-badge hx-badge-ok" id="two-step-on" th:text="#{account.twoStep.on}">On</span>
+                    <span th:unless="${account.twoStep().enrolled()}" class="hx-badge hx-badge-neutral" id="two-step-off" th:text="#{account.twoStep.off}">Off</span>
+                </div>
+                <p class="hx-account-note" th:if="${account.twoStep().enrolled()}" th:text="#{account.twoStep.onNote}">An authenticator app gives you a code each time you sign in.</p>
+                <p class="hx-account-note" th:unless="${account.twoStep().enrolled()}" th:text="#{account.twoStep.offNote}">Add an authenticator app for a code each time you sign in.</p>
+                <p class="hx-account-note" th:if="${account.twoStep().required()}" th:text="#{account.twoStep.required}">Your organisation requires two-step verification.</p>
+                <div class="hx-account-actions">
+                    <a class="hx-btn hx-btn-secondary" id="authenticator-setup" th:href="@{/account/authenticator}"
+                       th:text="${account.twoStep().enrolled()} ? #{account.twoStep.replace} : #{account.twoStep.setUp}">Set up again</a>
+                    <a th:if="${account.twoStep().enrolled() and account.twoStep().canRemove()}" class="hx-btn hx-btn-danger"
+                       id="authenticator-remove" th:href="@{/account/authenticator/remove}" th:text="#{account.twoStep.remove}">Remove</a>
+                </div>
+                <th:block th:if="${account.twoStep().enrolled()}">
+                    <div class="hx-account-head">
+                        <h2 id="recovery-heading" th:text="#{account.recovery.heading}">Recovery codes</h2>
+                        <span class="hx-badge hx-badge-neutral" id="recovery-left" th:text="#{account.recovery.left(${account.twoStep().recoveryCodesLeft()})}">8 left</span>
+                    </div>
+                    <p class="hx-account-note" th:text="#{account.recovery.note}">New codes replace the old ones. Enter a code from your authenticator app to confirm.</p>
+                    <form th:action="@{/account/recovery-codes}" method="post" class="hx-account-inline" id="recovery-form" th:classappend="${recoveryError != null} ? 'invalid'">
+                        <input th:replace="~{fragments/account :: csrfField}">
+                        <div>
+                            <label for="recovery-code" th:text="#{mfa.code.label}">Verification code</label>
+                            <input type="text" inputmode="numeric" id="recovery-code" name="code" autocomplete="one-time-code"
+                                   maxlength="6" pattern="[0-9]{6}" required
+                                   th:attr="aria-invalid=${recoveryError != null} ? 'true' : null, aria-describedby=${recoveryError != null} ? 'recovery-error' : null">
+                            <span class="error" id="recovery-error" role="alert" th:if="${recoveryError != null}" th:text="#{'account.error.' + ${recoveryError}}">That code is not valid.</span>
+                        </div>
+                        <button type="submit" class="hx-btn hx-btn-secondary" th:text="#{account.recovery.regenerate}">Get new codes</button>
+                    </form>
+                </th:block>
+            </article>
+
+            <!--/* Sessions */-->
+            <article id="sessions" aria-labelledby="sessions-heading">
+                <div class="hx-account-head">
+                    <h2 id="sessions-heading" th:text="#{account.sessions.heading}">Where you're signed in</h2>
+                </div>
+                <ul class="hx-sessions" id="session-list">
+                    <li th:each="s : ${account.sessions()}" th:classappend="${s.current()} ? 'hx-session-current'">
+                        <div class="hx-session-what">
+                            <strong th:text="${s.current()} ? #{account.sessions.current} : #{account.sessions.other}">This browser</strong>
+                            <span th:if="${s.signedIn() != null}" th:text="#{account.sessions.signedIn(${s.signedIn()})}">Signed in 27 Sep 2026, 14:03 UTC</span>
+                            <span th:if="${!s.apps().isEmpty()}" th:text="#{account.sessions.apps(${#strings.listJoin(s.apps(), ', ')})}">Apps: web</span>
+                        </div>
+                        <span th:if="${s.current()}" class="hx-badge hx-badge-ok" th:text="#{account.sessions.here}">You're here</span>
+                    </li>
+                </ul>
+                <form th:action="@{/account/sessions/sign-out-others}" method="post" class="hx-account-actions" id="sign-out-others-form">
+                    <input th:replace="~{fragments/account :: csrfField}">
+                    <button type="submit" class="hx-btn hx-btn-secondary" id="sign-out-others" th:text="#{account.sessions.signOutOthers}">Sign out everywhere else</button>
+                </form>
+            </article>
+
+            <!--/* Your data */-->
+            <article id="data" th:classappend="${account.canDelete()} ? 'hx-danger'" aria-labelledby="data-heading" th:if="${account.canExport() or account.canDelete()}">
+                <div class="hx-account-head">
+                    <h2 id="data-heading" th:text="#{account.data.heading}">Your data</h2>
+                </div>
+                <p class="hx-account-note" th:if="${account.canExport()}" th:text="#{account.data.exportNote}">Download everything we store about you, as a JSON file.</p>
+                <div class="hx-account-actions">
+                    <form th:if="${account.canExport()}" th:action="@{/account/export}" method="post" id="export-form">
+                        <input th:replace="~{fragments/account :: csrfField}">
+                        <button type="submit" class="hx-btn hx-btn-secondary" id="export" th:text="#{account.data.export}">Download my data</button>
+                    </form>
+                    <a th:if="${account.canDelete()}" class="hx-btn hx-btn-danger" id="delete-account" th:href="@{/account/delete}" th:text="#{account.delete.link}">Delete account</a>
+                </div>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

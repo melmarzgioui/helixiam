@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/*
+  B1: pieces every account console page (templates/account/*) shares, on top of the theme fragment:
+    accountHead:  <head><th:block th:replace="~{fragments/account :: accountHead(#{account.title})}"/></head>
+    returnLink:   the validated "Back to <app>" link (model `referrer`, see AccountConsoleAdvice), or nothing
+    overviewLink: the link back to the console overview on a sub-page
+    csrfField:    the CSRF field of a form
+  No inline styles or scripts (CSP style-src 'self'): styles are in /css/account.css.
+*/-->
+<head>
+<th:block th:fragment="accountHead(title)">
+    <th:block th:replace="~{fragments/theme :: hxHead(${title}, false)}"></th:block>
+    <link rel="stylesheet" th:href="@{/css/account.css}">
+    <script defer th:src="@{/js/App.js}" type="module"></script>
+</th:block>
+</head>
+<body>
+
+<a th:fragment="returnLink" th:if="${referrer != null}" class="hx-account-return" th:href="${referrer.uri()}"
+   id="account-return"><span aria-hidden="true">&larr;</span> <span th:text="#{account.return(${referrer.label()})}">Back to the app</span></a>
+
+<a th:fragment="overviewLink" class="hx-account-return" th:href="@{/account}" id="account-overview"><span aria-hidden="true">&larr;</span>
+    <span th:text="#{account.backToAccount}">Your account</span></a>
+
+<input th:fragment="csrfField" type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+
+</body>
+</html>
