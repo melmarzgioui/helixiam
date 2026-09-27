@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/account :: accountHead(#{account.reauth.title})}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+
+    <main>
+        <div class="container title">
+            <div class="hx-account-top">
+                <a th:replace="~{fragments/account :: overviewLink}"></a>
+                <a th:replace="~{fragments/account :: returnLink}"></a>
+            </div>
+            <h1 class="hx-title" th:text="#{account.reauth.title}">Confirm it's you</h1>
+            <p class="hx-lead" th:text="#{account.reauth.lead}">For your security, enter your password again before you continue.</p>
+        </div>
+
+        <div class="container hx-account-form">
+            <article>
+                <p class="hx-alert hx-alert-error" role="alert" id="reauth-error" th:if="${failure != null}"
+                   th:text="#{'account.error.' + ${failure}}">Your password is not correct.</p>
+                <form th:action="@{/account/reauth}" method="post" id="reauth-form">
+                    <input th:replace="~{fragments/account :: csrfField}">
+                    <input type="hidden" name="next" th:if="${next != null}" th:value="${next}">
+                    <input type="hidden" name="username" autocomplete="username" th:value="${username}">
+                    <label for="reauth-password" th:text="#{account.reauth.password}">Password</label>
+                    <input type="password" id="reauth-password" name="password" autocomplete="current-password" required autofocus
+                           th:attr="aria-invalid=${failure != null} ? 'true' : null, aria-describedby=${failure != null} ? 'reauth-error' : null">
+                    <th:block th:if="${stepUpCode}">
+                        <label for="reauth-code" th:text="#{mfa.code.label}">Verification code</label>
+                        <input type="text" inputmode="numeric" id="reauth-code" name="code" autocomplete="one-time-code"
+                               maxlength="6" pattern="[0-9]{6}" required
+                               th:attr="aria-invalid=${failure != null} ? 'true' : null, aria-describedby=${failure != null} ? 'reauth-error' : null">
+                    </th:block>
+                    <div class="buttonHolder">
+                        <a class="button secondary" th:href="@{/account}" th:text="#{common.cancel}">Cancel</a>
+                        <button type="submit" id="reauth-continue"><span th:text="#{account.reauth.continue}">Continue</span></button>
+                    </div>
+                </form>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

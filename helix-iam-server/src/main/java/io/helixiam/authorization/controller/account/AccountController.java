@@ -48,11 +48,27 @@ public class AccountController {
 
     private final UserAdminPublisher publisher;
     private final io.helixiam.authorization.service.account.SelfEditableAttributesService selfEditable;
+    private io.helixiam.authorization.service.account.AccountConsoleSettingsService consoleSettings;
+    private io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicy;
 
     public AccountController(final UserAdminPublisher publisher,
                              final io.helixiam.authorization.service.account.SelfEditableAttributesService selfEditable) {
         this.publisher = publisher;
         this.selfEditable = selfEditable;
+    }
+
+    /** B1: the realm's account console settings and MFA policy decide whether the second factor may be removed. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSecondFactorPolicy(final io.helixiam.authorization.service.account.AccountConsoleSettingsService consoleSettings,
+                                      final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicy) {
+        this.consoleSettings = consoleSettings;
+        this.mfaPolicy = mfaPolicy;
+    }
+
+    private boolean secondFactorRemovable() {
+        final String realm = realm();
+        return (consoleSettings == null || consoleSettings.get(realm).authenticatorRemoval())
+                && (mfaPolicy == null || !mfaPolicy.required(realm));
     }
 
     /** The signed-in user's own profile (username read-only). 401 when unauthenticated. */
@@ -135,6 +151,11 @@ public class AccountController {
         final UserCredentials user = require(principal);
         if (user == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        // B1: the second factor (authenticator app, recovery codes) can only be removed where the realm allows it and
+        // does not require two-step verification — the same rule as the account console.
+        if (("totp".equals(type) || "recovery-code".equals(type)) && !secondFactorRemovable()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         // The revoke is scoped to the caller's userId in the subscriber, so a forged id for another user's
         // factor simply does not match and yields 404 — a user can never revoke someone else's credential.
