@@ -13,6 +13,7 @@ import io.helixiam.authorization.federation.BrokerResult;
 import io.helixiam.authorization.federation.IdentityBroker;
 import io.helixiam.authorization.federation.IdentityProviderConfigSource;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
@@ -104,7 +105,8 @@ public class LdapSyncService {
                     errors.add(username + ": " + e.getMessage());
                 }
             }
-            LOG.info("LDAP sync: provider {} in realm {} → {} synced, {} failed", cfg.alias(), realm, synced, failed);
+            LOG.info("LDAP sync: provider {} in realm {} → {} synced, {} failed",
+                    LogSafe.sanitize(cfg.alias()), LogSafe.sanitize(realm), synced, failed);
         }
         return new Result(synced, failed, errors);
     }

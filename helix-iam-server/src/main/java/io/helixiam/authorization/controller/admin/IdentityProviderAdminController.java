@@ -9,6 +9,7 @@ import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfigPublisher;
 import io.helixiam.authorization.amqp.federation.IdentityProviderRef;
 import io.helixiam.authorization.federation.FederationStoreRefresher;
+import io.helixiam.common.log.LogSafe;
 import jakarta.validation.Valid;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -107,7 +108,7 @@ public class IdentityProviderAdminController {
             refresher.refresh(realmId);
         } catch (final RuntimeException e) {
             LOG.warn("Identity-provider registry refresh failed for realm {} (change persisted): {}",
-                    realmId, e.getMessage());
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
         }
     }
 

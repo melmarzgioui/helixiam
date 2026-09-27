@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.domain.federation.IdentityProviderConfig;
 import io.helixiam.authorization.domain.federation.IdentityProviderEntity;
 import io.helixiam.authorization.repository.federation.IdentityProviderConfigRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,7 +76,8 @@ public class IdentityProviderConfigService {
             return false;
         }
         repository.deleteByRealmIdAndAlias(realmId, alias);
-        LOG.debug("Deleted identity-provider config {} for realm {}", alias, realmId);
+        LOG.debug("Deleted identity-provider config {} for realm {}",
+                LogSafe.sanitize(alias), LogSafe.sanitize(realmId));
         return true;
     }
 

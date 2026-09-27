@@ -6,6 +6,7 @@
 package io.helixiam.authorization.controller.admin;
 
 import io.helixiam.authorization.amqp.realm.RealmAdminPublisher;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
@@ -74,7 +75,8 @@ public class OidcEndpointsController {
                 return trimSlash(realm.issuer().trim());
             }
         } catch (final Exception e) {
-            LOG.warn("Could not read realm {} issuer, falling back to server issuer/request host: {}", realmId, e.getMessage());
+            LOG.warn("Could not read realm {} issuer, falling back to server issuer/request host: {}",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
         }
         if (settings.getIssuer() != null) {
             return trimSlash(settings.getIssuer());

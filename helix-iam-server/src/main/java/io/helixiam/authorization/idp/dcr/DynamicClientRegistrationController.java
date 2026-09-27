@@ -16,6 +16,7 @@ import io.helixiam.authorization.idp.provisioning.ProvisioningAdminPublisher;
 import io.helixiam.authorization.idp.provisioning.ScimTokenCheck;
 import io.helixiam.authorization.idp.scim.ScimSupport;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -91,7 +92,8 @@ public class DynamicClientRegistrationController {
         final DcrRegistrationDto binding = provisioning.bind(
                 new DcrBindRequest(realm, created.id(), created.clientId()));
         final String registrationClientUri = registrationUri(created.id());
-        LOG.debug("Registered DCR client {} ({}) in realm {}", created.clientId(), created.id(), realm);
+        LOG.debug("Registered DCR client {} ({}) in realm {}",
+                LogSafe.sanitize(created.clientId()), LogSafe.sanitize(created.id()), LogSafe.sanitize(realm));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(DcrMapper.toResponse(created, binding.registrationToken(), registrationClientUri));
     }

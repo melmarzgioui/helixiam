@@ -5,6 +5,7 @@
 
 package io.helixiam.common.net;
 
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -136,8 +137,9 @@ public class OutboundUrlGuard {
         }
         for (final InetAddress address : addresses) {
             if (isBlocked(address)) {
-                LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)", safe(url),
-                        address.getHostAddress());
+                LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)",
+                        LogSafe.sanitize(safe(url)),
+                        LogSafe.sanitize(address.getHostAddress()));
                 throw new SsrfBlockedException("Outbound host " + host + " resolves to a blocked ("
                         + "internal/reserved) address: " + address.getHostAddress());
             }

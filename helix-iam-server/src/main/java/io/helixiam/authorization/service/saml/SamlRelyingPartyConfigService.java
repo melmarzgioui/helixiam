@@ -9,6 +9,7 @@ import io.helixiam.authorization.domain.saml.SamlRelyingPartyConfig;
 import io.helixiam.authorization.domain.saml.SamlRelyingPartyEntity;
 import io.helixiam.authorization.domain.saml.SamlSpOptions;
 import io.helixiam.authorization.repository.saml.SamlRelyingPartyRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -80,7 +81,7 @@ public class SamlRelyingPartyConfigService {
             return false;
         }
         repository.deleteByRealmIdAndEntityId(realmId, entityId);
-        LOG.debug("Deleted SAML relying party {} for realm {}", entityId, realmId);
+        LOG.debug("Deleted SAML relying party {} for realm {}", LogSafe.sanitize(entityId), LogSafe.sanitize(realmId));
         return true;
     }
 

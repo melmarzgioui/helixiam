@@ -9,6 +9,7 @@ import io.helixiam.authorization.domain.ServiceProviderOAuthClient;
 import io.helixiam.authorization.domain.client.admin.ClientDto;
 import io.helixiam.authorization.domain.client.admin.ClientWriteDto;
 import io.helixiam.authorization.repository.ServiceProviderRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -105,12 +106,13 @@ public class ClientAdminService {
             // break the CLI. They self-heal on restart anyway, but refuse the delete so the UI can't remove them.
             if (ConsoleClientBootstrapService.CONSOLE_CLIENT_ID.equals(client.getClientId())
                     || CliClientBootstrapService.CLI_CLIENT_ID.equals(client.getClientId())) {
-                LOG.warn("Refused deletion of protected built-in client {} in realm {}", client.getClientId(), realmId);
+                LOG.warn("Refused deletion of protected built-in client {} in realm {}",
+                        LogSafe.sanitize(client.getClientId()), LogSafe.sanitize(realmId));
                 return false;
             }
             client.setDeleted(true);
             repository.save(client);
-            LOG.debug("Deleted client {} from realm {}", id, realmId);
+            LOG.debug("Deleted client {} from realm {}", LogSafe.sanitize(id), LogSafe.sanitize(realmId));
             return true;
         }).orElse(false);
     }

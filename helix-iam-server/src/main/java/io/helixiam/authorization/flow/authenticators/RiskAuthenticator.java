@@ -18,6 +18,7 @@ import io.helixiam.authorization.flow.risk.RiskSignalGatherer;
 import io.helixiam.authorization.flow.spi.AuthenticationContext;
 import io.helixiam.authorization.flow.spi.Authenticator;
 import io.helixiam.authorization.flow.spi.AuthenticatorMetadata;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -120,8 +121,9 @@ public class RiskAuthenticator implements Authenticator {
         final RiskSignals signals = lookupSignals(context, raw);
         final RiskAssessment assessment = evaluator.evaluate(signals, policy);
         LOG.info("Risk assessment realm={} user={} score={} band={} action={} reasons={}",
-                context.realmId(), context.userId(), assessment.score(), assessment.band(),
-                assessment.action(), assessment.reasons());
+                LogSafe.sanitize(context.realmId()), LogSafe.sanitize(context.userId()), assessment.score(),
+                assessment.band(),
+                assessment.action(), LogSafe.sanitize(assessment.reasons()));
 
         final RiskAction action = assessment.action();
         if (action == RiskAction.DENY) {
@@ -164,7 +166,8 @@ public class RiskAuthenticator implements Authenticator {
             // Fail-open on the signal lookup so a transient subscriber/AMQP hiccup never blocks login.
             // With no signals the score is 0 → LOW → policy's low action (ALLOW by default).
             LOG.warn("Risk-signal lookup failed for realm={} user={}: {} — treating as low risk",
-                    context.realmId(), context.userId(), e.getMessage());
+                    LogSafe.sanitize(context.realmId()), LogSafe.sanitize(context.userId()),
+                    LogSafe.sanitize(e.getMessage()));
             return new RiskSignals();
         }
     }
@@ -188,7 +191,8 @@ public class RiskAuthenticator implements Authenticator {
                     fingerprint, raw.ip(), null, raw.userAgent()));
         } catch (final RuntimeException e) {
             LOG.warn("Failed to record risk login history for realm={} user={}: {}",
-                    context.realmId(), context.userId(), e.getMessage());
+                    LogSafe.sanitize(context.realmId()), LogSafe.sanitize(context.userId()),
+                    LogSafe.sanitize(e.getMessage()));
         }
     }
 

@@ -18,6 +18,7 @@ import io.helixiam.authorization.repository.org.OrganizationMemberRepository;
 import io.helixiam.authorization.repository.org.OrganizationRepository;
 import io.helixiam.authorization.repository.tenant.TenantRepository;
 import io.helixiam.authorization.repository.tenant.TenantUserRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -124,7 +125,7 @@ public class OrganizationAdminService {
             return false;
         }
         organizations.delete(org.get()); // member rows cascade via FK
-        LOG.debug("Deleted organization {} from realm {}", orgId, realmId);
+        LOG.debug("Deleted organization {} from realm {}", LogSafe.sanitize(orgId), LogSafe.sanitize(realmId));
         return true;
     }
 

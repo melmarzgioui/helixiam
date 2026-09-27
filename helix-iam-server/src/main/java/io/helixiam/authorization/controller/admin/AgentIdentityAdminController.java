@@ -9,6 +9,7 @@ import io.helixiam.authorization.amqp.agent.AgentIdentityDto;
 import io.helixiam.authorization.amqp.agent.AgentIdentityPublisher;
 import io.helixiam.authorization.amqp.agent.AgentIdentityRef;
 import io.helixiam.authorization.amqp.agent.AgentOwnerReviewDto;
+import io.helixiam.common.log.LogSafe;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -91,7 +92,8 @@ public class AgentIdentityAdminController {
             final AgentIdentityDto saved = publisher.save(toDto(null, realmId, body));
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
         } catch (final RuntimeException e) {
-            LOG.warn("Agent create failed in realm {}: {}", realmId, e.getMessage());
+            LOG.warn("Agent create failed in realm {}: {}",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
             return ResponseEntity.badRequest().body(Map.of("message", "Could not create the agent (the name may already be in use)."));
         }
     }
@@ -103,7 +105,8 @@ public class AgentIdentityAdminController {
             final Object saved = publisher.save(toDto(id, realmId, body));
             return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(saved);
         } catch (final RuntimeException e) {
-            LOG.warn("Agent update failed for {} in realm {}: {}", id, realmId, e.getMessage());
+            LOG.warn("Agent update failed for {} in realm {}: {}",
+                    LogSafe.sanitize(id), LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
             return ResponseEntity.badRequest().body(Map.of("message", "Could not update the agent (the name may already be in use)."));
         }
     }

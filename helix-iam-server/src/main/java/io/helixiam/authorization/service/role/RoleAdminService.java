@@ -13,6 +13,7 @@ import io.helixiam.authorization.repository.UserInRoleRepository;
 import io.helixiam.authorization.repository.UserRolesRepository;
 import io.helixiam.authorization.repository.tenant.TenantUserRepository;
 import io.helixiam.authorization.security.adminrbac.RealmAdminAuthorities;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,7 +67,7 @@ public class RoleAdminService {
             return userRolesRepository.findByTenantIdAndName(realmId, name).map(r -> toDto(realmId, r)).orElse(null);
         }
         final UserRoles saved = userRolesRepository.save(new UserRoles(name, realmId));
-        LOG.debug("Created realm role {} in {}", name, realmId);
+        LOG.debug("Created realm role {} in {}", LogSafe.sanitize(name), LogSafe.sanitize(realmId));
         return toDto(realmId, saved);
     }
 
@@ -83,7 +84,7 @@ public class RoleAdminService {
         }
         userInRoleRepository.deleteAll(userInRoleRepository.findAllByRoleId(roleId));
         userRolesRepository.delete(role.get());
-        LOG.debug("Deleted realm role {} from {}", roleId, realmId);
+        LOG.debug("Deleted realm role {} from {}", LogSafe.sanitize(roleId), LogSafe.sanitize(realmId));
         return true;
     }
 
@@ -108,7 +109,7 @@ public class RoleAdminService {
             role.setDefaultRole(true);
             userRolesRepository.save(role);
         }
-        LOG.debug("Set default role {} in realm {}", roleId, realmId);
+        LOG.debug("Set default role {} in realm {}", LogSafe.sanitize(roleId), LogSafe.sanitize(realmId));
         return toDto(realmId, role);
     }
 
@@ -130,7 +131,8 @@ public class RoleAdminService {
         }
         if (userInRoleRepository.findByRoleIdAndUserId(roleId, userId).isEmpty()) {
             userInRoleRepository.save(new UserInRole(roleId, userId, link.get().getTenantUserId()));
-            LOG.debug("Assigned role {} to user {} in {}", roleId, userId, realmId);
+            LOG.debug("Assigned role {} to user {} in {}",
+                    LogSafe.sanitize(roleId), LogSafe.sanitize(userId), LogSafe.sanitize(realmId));
         }
         return true;
     }
@@ -143,7 +145,8 @@ public class RoleAdminService {
         }
         return userInRoleRepository.findByRoleIdAndUserId(roleId, userId).map(uir -> {
             userInRoleRepository.delete(uir);
-            LOG.debug("Revoked role {} from user {} in {}", roleId, userId, realmId);
+            LOG.debug("Revoked role {} from user {} in {}",
+                    LogSafe.sanitize(roleId), LogSafe.sanitize(userId), LogSafe.sanitize(realmId));
             return true;
         }).orElse(false);
     }

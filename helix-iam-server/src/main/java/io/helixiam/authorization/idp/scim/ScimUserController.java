@@ -12,6 +12,7 @@ import io.helixiam.authorization.amqp.user.UserWriteDto;
 import io.helixiam.authorization.idp.provisioning.ProvisioningAdminPublisher;
 import io.helixiam.authorization.idp.provisioning.ScimTokenCheck;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -172,7 +173,7 @@ public class ScimUserController {
         }
         final boolean ok = Boolean.TRUE.equals(provisioning.verifyScimToken(new ScimTokenCheck(realm, token)));
         if (!ok) {
-            LOG.debug("Rejected SCIM request for realm {} — invalid token", realm);
+            LOG.debug("Rejected SCIM request for realm {} — invalid token", LogSafe.sanitize(realm));
             return scim(HttpStatus.UNAUTHORIZED, ScimError.of(401, "Invalid SCIM token."));
         }
         return null;

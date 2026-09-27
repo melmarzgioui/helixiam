@@ -6,6 +6,7 @@
 package io.helixiam.authorization.security.realm;
 
 import io.helixiam.authorization.amqp.realm.RealmSettingsDto;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.security.core.session.SessionInformation;
@@ -74,18 +75,20 @@ public class ConcurrentSessionLimiter {
                 return Outcome.ALLOWED;
             }
             if (!settings.concurrentSessionEvictOldest()) {
-                LOG.info("Concurrent-session cap ({}) reached for principal in realm {}, denying new login", max, realmId);
+                LOG.info("Concurrent-session cap ({}) reached for principal in realm {}, denying new login",
+                        max, LogSafe.sanitize(realmId));
                 return Outcome.DENIED;
             }
             existing.stream().limit(overBy).forEach(s -> {
                 s.expireNow();
                 LOG.info("Evicted oldest session {} to honour concurrent-session cap {} in realm {}",
-                        s.getSessionId(), max, realmId);
+                        LogSafe.sanitize(s.getSessionId()), max, LogSafe.sanitize(realmId));
             });
             return Outcome.EVICTED_OLDEST;
         } catch (final RuntimeException e) {
             // Never let concurrent-session enforcement break login.
-            LOG.warn("Concurrent-session enforcement failed for realm {}, allowing: {}", realmId, e.getMessage());
+            LOG.warn("Concurrent-session enforcement failed for realm {}, allowing: {}",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
             return Outcome.ALLOWED;
         }
     }

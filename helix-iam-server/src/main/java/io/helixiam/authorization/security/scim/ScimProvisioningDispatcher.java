@@ -11,6 +11,7 @@ import io.helixiam.authorization.amqp.scim.ScimTargetConfigPublisher;
 import io.helixiam.authorization.amqp.scim.ScimTargetDto;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.ObjectProvider;
@@ -184,7 +185,8 @@ public class ScimProvisioningDispatcher {
             cache.put(realm, new Cached(fresh == null ? List.of() : fresh, nowMillis.getAsLong()));
             return cache.get(realm).value;
         } catch (final RuntimeException e) {
-            LOG.debug("SCIM target lookup failed for realm {}: {}", realm, e.getMessage());
+            LOG.debug("SCIM target lookup failed for realm {}: {}",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             return List.of();
         }
     }

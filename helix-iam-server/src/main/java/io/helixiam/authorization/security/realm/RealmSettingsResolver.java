@@ -7,6 +7,7 @@ package io.helixiam.authorization.security.realm;
 
 import io.helixiam.authorization.amqp.realm.RealmAdminPublisher;
 import io.helixiam.authorization.amqp.realm.RealmSettingsDto;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
@@ -61,7 +62,8 @@ public class RealmSettingsResolver {
                 return fresh;
             }
         } catch (final RuntimeException e) {
-            LOG.warn("Realm-settings lookup failed for {}, using SSO-policy defaults: {}", realmId, e.getMessage());
+            LOG.warn("Realm-settings lookup failed for {}, using SSO-policy defaults: {}",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
         }
         return defaults(realmId);
     }
@@ -83,7 +85,8 @@ public class RealmSettingsResolver {
             final Boolean answer = publisher.exists(realmId);
             present = Boolean.TRUE.equals(answer);
         } catch (final RuntimeException e) {
-            LOG.warn("Realm-existence lookup failed for {}, failing open (treated as existing): {}", realmId, e.getMessage());
+            LOG.warn("Realm-existence lookup failed for {}, failing open (treated as existing): {}",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
             return true; // fail open: never 404 a possibly-valid realm on a lookup error
         }
         existsCache.put(realmId, new ExistsCached(present, nowMillis.getAsLong()));

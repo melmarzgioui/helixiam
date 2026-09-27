@@ -31,6 +31,7 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import io.helixiam.authorization.security.agent.AgentTokenEnricher;
+import io.helixiam.common.log.LogSafe;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
@@ -191,7 +192,8 @@ public class OAuthConfig {
         try {
             agent = agentIdentityPublisher.findByClient(new AgentClientQuery(realm, clientId));
         } catch (final RuntimeException e) {
-            LOG.debug("Agent enrichment skipped for client {} in realm {}: {}", clientId, realm, e.getMessage());
+            LOG.debug("Agent enrichment skipped for client {} in realm {}: {}",
+                    LogSafe.sanitize(clientId), LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             return;
         }
         if (agent == null) {

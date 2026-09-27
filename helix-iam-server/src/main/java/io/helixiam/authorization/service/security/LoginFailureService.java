@@ -8,6 +8,7 @@ package io.helixiam.authorization.service.security;
 import io.helixiam.authorization.domain.realm.RealmConfig;
 import io.helixiam.authorization.domain.security.LoginFailure;
 import io.helixiam.authorization.repository.security.LoginFailureRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -80,7 +81,8 @@ public class LoginFailureService {
         repository.save(failure);
         final boolean locked = isLocked(failure, now);
         if (locked) {
-            LOG.info("Account {} in realm {} locked out after {} failures", userId, realm.getRealmId(),
+            LOG.info("Account {} in realm {} locked out after {} failures",
+                    LogSafe.sanitize(userId), LogSafe.sanitize(realm.getRealmId()),
                     failure.getFailureCount());
         }
         return locked;

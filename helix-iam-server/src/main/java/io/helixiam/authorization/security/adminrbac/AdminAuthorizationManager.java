@@ -8,6 +8,7 @@ package io.helixiam.authorization.security.adminrbac;
 import io.helixiam.authorization.amqp.adminrbac.AdminEffectivePermissionsDto;
 import io.helixiam.authorization.amqp.adminrbac.AdminEffectivePermissionsRef;
 import io.helixiam.authorization.amqp.adminrbac.AdminRbacPublisher;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -112,7 +113,8 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
                 || eff.permissions().contains(required.get());
         if (!granted) {
             LOG.debug("Admin RBAC denied {} {} (needs {}) for roles {} in realm {}",
-                    request.getMethod(), adminPath, required.get(), roleNames, realmId);
+                    LogSafe.sanitize(request.getMethod()), LogSafe.sanitize(adminPath),
+                    LogSafe.sanitize(required.get()), LogSafe.sanitize(roleNames), LogSafe.sanitize(realmId));
         }
         return new AuthorizationDecision(granted);
     }
@@ -130,7 +132,7 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
             cache.put(key, new Cached(value, now));
             return value;
         } catch (final RuntimeException ex) {
-            LOG.warn("Admin RBAC resolution failed for realm {} — failing open", realmId, ex);
+            LOG.warn("Admin RBAC resolution failed for realm {} — failing open", LogSafe.sanitize(realmId), ex);
             return null;
         }
     }

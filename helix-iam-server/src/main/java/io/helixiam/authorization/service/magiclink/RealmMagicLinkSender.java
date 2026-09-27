@@ -8,6 +8,7 @@ package io.helixiam.authorization.service.magiclink;
 import io.helixiam.authorization.messaging.MessageVariables;
 import io.helixiam.authorization.messaging.MessagingService;
 import io.helixiam.authorization.service.UserInfoService;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
@@ -45,11 +46,12 @@ public class RealmMagicLinkSender implements MagicLinkSender {
             base.put("user", firstNonBlank(profile.get("name"), profile.get("given_name"), message.email(), "there"));
             if (messaging.sendEmail(message.realmId(), message.email(), "magic-link-email",
                     MessageVariables.withUserClaims(base, profile))) {
-                LOG.info("Magic link emailed to user {} in realm {}", message.userId(), message.realmId());
+                LOG.info("Magic link emailed to user {} in realm {}",
+                        LogSafe.sanitize(message.userId()), LogSafe.sanitize(message.realmId()));
                 return;
             }
             LOG.warn("Magic link for user {} NOT sent: realm {} has no email provider configured",
-                    message.userId(), message.realmId());
+                    LogSafe.sanitize(message.userId()), LogSafe.sanitize(message.realmId()));
         } catch (final RuntimeException e) {
             LOG.warn("Magic link for user {} NOT sent: {}", message.userId(), e.getMessage());
         }

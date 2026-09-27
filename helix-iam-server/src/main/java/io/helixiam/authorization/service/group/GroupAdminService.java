@@ -22,6 +22,7 @@ import io.helixiam.authorization.repository.group.UserGroupRepository;
 import io.helixiam.authorization.repository.group.UserGroupRoleRepository;
 import io.helixiam.authorization.repository.tenant.TenantRepository;
 import io.helixiam.authorization.repository.tenant.TenantUserRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -107,7 +108,7 @@ public class GroupAdminService {
             return false;
         }
         deleteRecursively(group.get());
-        LOG.debug("Deleted group {} from realm {}", groupId, realmId);
+        LOG.debug("Deleted group {} from realm {}", LogSafe.sanitize(groupId), LogSafe.sanitize(realmId));
         return true;
     }
 

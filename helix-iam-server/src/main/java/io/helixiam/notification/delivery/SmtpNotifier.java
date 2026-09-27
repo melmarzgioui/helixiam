@@ -15,6 +15,7 @@ import io.helixiam.notification.Notifier;
 import io.helixiam.notification.delivery.spi.AppSender;
 import io.helixiam.notification.delivery.spi.SmsSender;
 import io.helixiam.notification.domain.NotificationRequest;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -134,7 +135,7 @@ public class SmtpNotifier implements Notifier {
                     return new ResolvedEmail(driver, MessagingProviderMapper.toResolvedProviderDto(provider));
                 }
                 LOG.warn("Realm {} has an EMAIL provider configured with unknown driver '{}'; falling back to global SMTP",
-                        realm, provider.getDriver());
+                        LogSafe.sanitize(realm), LogSafe.sanitize(provider.getDriver()));
             }
         }
 

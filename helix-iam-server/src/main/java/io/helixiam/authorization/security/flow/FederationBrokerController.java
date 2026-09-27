@@ -17,6 +17,7 @@ import io.helixiam.authorization.federation.saml.Saml2IdentityProvider;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -133,7 +134,8 @@ public class FederationBrokerController {
                 && redirect.parameters().get(Saml2IdentityProvider.REQUEST_ID_PARAM) != null) {
             session.setAttribute(REQUEST_ID_ATTR + alias, redirect.parameters().get(Saml2IdentityProvider.REQUEST_ID_PARAM));
         }
-        LOG.info("Federation: starting login at provider {} ({})", alias, redirect.binding());
+        LOG.info("Federation: starting login at provider {} ({})",
+                LogSafe.sanitize(alias), LogSafe.sanitize(redirect.binding()));
 
         if (redirect.binding() == IdentityProvider.Binding.POST) {
             // SAML HTTP-POST binding (DigiD/eHerkenning): render an auto-submitting form to the IdP.
@@ -176,7 +178,8 @@ public class FederationBrokerController {
                     callbackUri(alias), expectedRequestId);
             identity = provider.callback(context);
         } catch (final RuntimeException e) {
-            LOG.warn("Federation: callback validation failed for provider {}: {}", alias, e.getMessage());
+            LOG.warn("Federation: callback validation failed for provider {}: {}",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
             return LOGIN_ERROR;
         }
 
@@ -184,12 +187,12 @@ public class FederationBrokerController {
         final BrokerResult result = broker.broker(identity, policy, mapperConfigFor(alias));
         if (!result.resolved()) {
             LOG.warn("Federation: identity {}:{} from provider {} was not resolved to a local user",
-                    alias, identity.externalSubject(), alias);
+                    LogSafe.sanitize(alias), LogSafe.sanitize(identity.externalSubject()), LogSafe.sanitize(alias));
             return LOGIN_ERROR;
         }
 
         LOG.info("Federation: provider {} resolved user {} (provisioned={}, linked={}) — completing login",
-                alias, result.userId(), result.provisioned(), result.linked());
+                LogSafe.sanitize(alias), LogSafe.sanitize(result.userId()), result.provisioned(), result.linked());
         // SSO P9: remember which upstream IdP this session was brokered through, plus the subject, so a later
         // logout can propagate a Single Logout to that IdP (FederatedLogoutCoordinator).
         session.setAttribute(IDP_SOURCE_ATTR, alias);
@@ -210,7 +213,8 @@ public class FederationBrokerController {
             final IdentityProviderConfig config = idpConfig.get(new IdentityProviderRef(RealmContextHolder.get(), alias));
             return config == null || config.config() == null ? null : config.config().get("mappers");
         } catch (final RuntimeException e) {
-            LOG.debug("Federation: mapper config lookup failed for provider {}: {}", alias, e.getMessage());
+            LOG.debug("Federation: mapper config lookup failed for provider {}: {}",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
             return null;
         }
     }

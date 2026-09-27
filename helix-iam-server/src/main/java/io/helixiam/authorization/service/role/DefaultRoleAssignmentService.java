@@ -8,6 +8,7 @@ package io.helixiam.authorization.service.role;
 import io.helixiam.authorization.domain.user.UserInRole;
 import io.helixiam.authorization.repository.UserInRoleRepository;
 import io.helixiam.authorization.repository.UserRolesRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +40,8 @@ public class DefaultRoleAssignmentService {
         roles.findFirstByTenantIdAndDefaultRoleTrue(realmId).ifPresent(role -> {
             if (userInRole.findByRoleIdAndUserIdAndTenantUserId(role.getRoleId(), userId, tenantUserId).isEmpty()) {
                 userInRole.save(new UserInRole(role.getRoleId(), userId, tenantUserId));
-                LOG.debug("Assigned default role '{}' to user {} in realm {}", role.getName(), userId, realmId);
+                LOG.debug("Assigned default role '{}' to user {} in realm {}",
+                        LogSafe.sanitize(role.getName()), LogSafe.sanitize(userId), LogSafe.sanitize(realmId));
             }
         });
     }

@@ -13,6 +13,7 @@ import io.helixiam.authorization.domain.realm.AuthFlowEntity;
 import io.helixiam.authorization.domain.realm.AuthFlowExecutionEntity;
 import io.helixiam.authorization.repository.realm.AuthFlowExecutionRepository;
 import io.helixiam.authorization.repository.realm.AuthFlowRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -90,7 +91,7 @@ public class AuthFlowService {
                 // the second factor, required once the gate passes.
                 new AuthFlowExecutionEntity(UUID.randomUUID().toString(), flowId, stepUpId,
                         "otp", "REQUIRED", false, 20)));
-        LOG.info("Seeded built-in browser flow {} for realm {}", flowId, realmId);
+        LOG.info("Seeded built-in browser flow {} for realm {}", LogSafe.sanitize(flowId), LogSafe.sanitize(realmId));
     }
 
     private AuthFlowDefinition toDefinition(final AuthFlowEntity flow) {

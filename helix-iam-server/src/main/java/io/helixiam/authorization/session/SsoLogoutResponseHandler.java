@@ -7,6 +7,7 @@ package io.helixiam.authorization.session;
 
 import io.helixiam.authorization.session.logout.FrontchannelLogoutRenderer;
 import io.helixiam.authorization.session.logout.LogoutTargetResolver;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -73,7 +74,8 @@ public class SsoLogoutResponseHandler implements AuthenticationSuccessHandler {
                 realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
                 terminated = ssoLogoutService.terminate(subject, realm, issuerUrl);
                 if (terminated != null) {
-                    LOG.info("OIDC end_session terminated SSO session for {} (realm {})", subject, realm);
+                    LOG.info("OIDC end_session terminated SSO session for {} (realm {})",
+                            LogSafe.sanitize(subject), LogSafe.sanitize(realm));
                 }
             }
         }

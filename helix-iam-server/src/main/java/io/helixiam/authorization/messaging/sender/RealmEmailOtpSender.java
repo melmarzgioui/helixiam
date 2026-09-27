@@ -9,6 +9,7 @@ import io.helixiam.authorization.flow.authenticators.otp.OtpSender;
 import io.helixiam.authorization.messaging.MessagingService;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.service.UserInfoService;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,7 +49,8 @@ public class RealmEmailOtpSender implements OtpSender {
                 // Expose every user claim under user.<claim> ({{user.email}}, {{user.given_name}}, …).
                 final Map<String, String> vars = io.helixiam.authorization.messaging.MessageVariables.withUserClaims(base, profile);
                 if (messaging.sendEmail(realm, email, "otp-email", vars)) {
-                    LOG.info("Email OTP sent to user {} via realm {} provider", userId, realm);
+                    LOG.info("Email OTP sent to user {} via realm {} provider",
+                            LogSafe.sanitize(userId), LogSafe.sanitize(realm));
                     return;
                 }
             } catch (final RuntimeException e) {

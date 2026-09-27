@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.security.ratelimit;
 
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -60,7 +61,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        LOG.warn("Rate limit exceeded for {} on {}", clientIp(request), path);
+        LOG.warn("Rate limit exceeded for {} on {}", LogSafe.sanitize(clientIp(request)), LogSafe.sanitize(path));
         response.setStatus(429); // 429 Too Many Requests (no SC_ constant in the jakarta servlet API)
         response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
         response.setContentType("text/plain;charset=UTF-8");

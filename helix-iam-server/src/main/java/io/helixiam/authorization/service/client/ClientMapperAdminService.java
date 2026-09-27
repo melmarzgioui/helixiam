@@ -10,6 +10,7 @@ import io.helixiam.authorization.domain.client.mapper.ProtocolMapperDto;
 import io.helixiam.authorization.domain.client.mapper.ProtocolMapperWriteDto;
 import io.helixiam.authorization.repository.ClientProtocolMapperRepository;
 import io.helixiam.authorization.repository.ServiceProviderRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,7 +74,8 @@ public class ClientMapperAdminService {
     public boolean delete(final String realmId, final String clientId, final String mapperId) {
         return repository.findByMapperIdAndRealmIdAndClientId(mapperId, realmId, clientId).map(entity -> {
             repository.delete(entity);
-            LOG.debug("Deleted mapper {} from client {} in realm {}", mapperId, clientId, realmId);
+            LOG.debug("Deleted mapper {} from client {} in realm {}",
+                    LogSafe.sanitize(mapperId), LogSafe.sanitize(clientId), LogSafe.sanitize(realmId));
             return true;
         }).orElse(false);
     }
