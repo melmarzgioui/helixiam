@@ -28,7 +28,7 @@ paths are hardened and tested."
 - **Post-1.0 platform upgrades** — each a planned major upgrade with its own test pass, not a weekly
   bump (Dependabot ignores these majors until then): Spring Boot 4 / Spring Security 7 (incl. SAML2
   service provider 7), springdoc 3, Flyway 12+, Apache Santuario xmlsec 4, Java 25 LTS runtime; in the
-  console React 19, Vite 7+/`@vitejs/plugin-react` 5+, Storybook 9+; in the sandbox RP Express 5,
+  console React 19, Vite 7+/`@vitejs/plugin-react` 5+, Storybook 9+, TypeScript 6+, Vitest 3+; in the sandbox RP Express 5,
   `openid-client` 6, `otplib` 13; cosign 3 (`cosign-installer` 4) in the release workflow.
 
 ## Later
