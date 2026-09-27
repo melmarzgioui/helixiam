@@ -169,4 +169,22 @@ class OrganizationAdminServiceTest {
         assertEquals("alice", result.get(0).username());
         assertEquals("admin", result.get(0).role());
     }
+
+    @Test
+    void tokenMemberships_onlyIncludeOrganizationsOfTheTokensRealm() {
+        final Organization mine = new Organization("gov", "acme", null, null, true);
+        final Organization other = new Organization("other", "rival", null, null, true);
+        when(members.findAllByUserId("u1")).thenReturn(List.of(
+                new OrganizationMember(mine.getOrgId(), "u1", "owner"), new OrganizationMember(other.getOrgId(), "u1", "admin")));
+        when(organizations.findById(mine.getOrgId())).thenReturn(Optional.of(mine));
+        when(organizations.findById(other.getOrgId())).thenReturn(Optional.of(other));
+        io.helixiam.authorization.security.realm.RealmContextHolder.set("gov");
+        try {
+            final var result = service.membershipsForUser("u1");
+            assertEquals(1, result.size());
+            assertEquals("acme", result.get(0).name());
+        } finally {
+            io.helixiam.authorization.security.realm.RealmContextHolder.clear();
+        }
+    }
 }

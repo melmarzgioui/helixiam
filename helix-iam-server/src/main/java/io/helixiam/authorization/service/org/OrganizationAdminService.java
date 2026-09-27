@@ -185,10 +185,13 @@ public class OrganizationAdminService {
      * them. Restricted to enabled orgs (a disabled org is not advertised in tokens).
      */
     public List<OrgMembershipDto> membershipsForUser(final String userId) {
+        final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
         final List<OrgMembershipDto> out = new ArrayList<>();
         for (final OrganizationMember m : members.findAllByUserId(userId)) {
             organizations.findById(m.getOrgId())
                     .filter(Organization::isEnabled)
+                    // Review rc.3 #1: a token only lists organizations of its own realm.
+                    .filter(org -> realm == null || realm.equals(org.getTenantId()))
                     .ifPresent(org -> {
                         final List<String> roles = new ArrayList<>();
                         roles.add(m.getRole() == null || m.getRole().isBlank() ? DEFAULT_MEMBER_ROLE : m.getRole());
