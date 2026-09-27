@@ -15,6 +15,7 @@ import io.helixiam.authorization.repository.device.DeviceCredentialRepository;
 import io.helixiam.authorization.repository.mfa.HotpCredentialRepository;
 import io.helixiam.authorization.repository.mfa.RecoveryCodeRepository;
 import io.helixiam.authorization.repository.mfa.WebAuthnCredentialRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -95,14 +96,14 @@ public class CredentialAdminService {
                     .filter(p -> userId.equals(p.getUserId()))
                     .map(p -> {
                         passkeys.deleteById(id);
-                        LOG.debug("Revoked passkey {} for user {}", id, userId);
+                        LOG.debug("Revoked passkey {} for user {}", LogSafe.sanitize(id), LogSafe.sanitize(userId));
                         return true;
                     }).orElse(false);
             case "device" -> devices.findById(id)
                     .filter(d -> userId.equals(d.getUserId()))
                     .map(d -> {
                         devices.deleteById(id);
-                        LOG.debug("Revoked device {} for user {}", id, userId);
+                        LOG.debug("Revoked device {} for user {}", LogSafe.sanitize(id), LogSafe.sanitize(userId));
                         return true;
                     }).orElse(false);
             case "totp" -> users.findByUserId(userId)
@@ -111,13 +112,13 @@ public class CredentialAdminService {
                         u.setMfaSecret(null);
                         u.setMfaEnabled(false);
                         users.save(u);
-                        LOG.debug("Revoked TOTP for user {}", userId);
+                        LOG.debug("Revoked TOTP for user {}", LogSafe.sanitize(userId));
                         return true;
                     }).orElse(false);
             case "hotp" -> hotp.findByUserId(userId)
                     .map(h -> {
                         hotp.deleteById(userId);
-                        LOG.debug("Revoked HOTP for user {}", userId);
+                        LOG.debug("Revoked HOTP for user {}", LogSafe.sanitize(userId));
                         return true;
                     }).orElse(false);
             case "recovery-code" -> {
@@ -125,7 +126,7 @@ public class CredentialAdminService {
                     yield false;
                 }
                 recovery.deleteAllByUserId(userId);
-                LOG.debug("Revoked recovery codes for user {}", userId);
+                LOG.debug("Revoked recovery codes for user {}", LogSafe.sanitize(userId));
                 yield true;
             }
             default -> false;

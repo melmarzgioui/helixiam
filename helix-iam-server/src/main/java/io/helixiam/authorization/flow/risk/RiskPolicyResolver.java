@@ -7,6 +7,7 @@ package io.helixiam.authorization.flow.risk;
 
 import io.helixiam.authorization.amqp.realm.RealmSettingsDto;
 import io.helixiam.authorization.security.realm.RealmSettingsResolver;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
@@ -51,7 +52,8 @@ public class RiskPolicyResolver {
             }
             return fromSettings(settings);
         } catch (final RuntimeException e) {
-            LOG.warn("Risk-policy lookup failed for realm {}, treating as disabled: {}", realmId, e.getMessage());
+            LOG.warn("Risk-policy lookup failed for realm {}, treating as disabled: {}",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
             return RiskPolicy.disabled();
         }
     }

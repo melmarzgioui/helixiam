@@ -19,6 +19,7 @@ import io.helixiam.authorization.repository.tenant.TenantUserRepository;
 import io.helixiam.authorization.service.PasswordEncoderService;
 import io.helixiam.authorization.service.role.DefaultRoleAssignmentService;
 import io.helixiam.authorization.service.security.PasswordPolicyEnforcer;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -252,7 +253,7 @@ public class UserAdminService {
         if (tenantUserRepository.findAllByUserId(userId).isEmpty()) {
             userCredentialsRepository.findByUserId(userId).ifPresent(userCredentialsRepository::delete);
         }
-        LOG.debug("Removed user {} from realm {}", userId, realmId);
+        LOG.debug("Removed user {} from realm {}", LogSafe.sanitize(userId), LogSafe.sanitize(realmId));
         return true;
     }
 
@@ -262,7 +263,8 @@ public class UserAdminService {
         return userCredentialsRepository.findByUserId(userId).map(user -> {
             user.setRequiredActions(requiredActionsCsv == null || requiredActionsCsv.isBlank() ? null : requiredActionsCsv.trim());
             userCredentialsRepository.save(user);
-            LOG.debug("Set required actions [{}] for user {}", requiredActionsCsv, userId);
+            LOG.debug("Set required actions [{}] for user {}",
+                    LogSafe.sanitize(requiredActionsCsv), LogSafe.sanitize(userId));
             return true;
         }).orElse(false);
     }

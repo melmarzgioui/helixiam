@@ -13,6 +13,7 @@ import io.helixiam.authorization.messaging.MessageVariables;
 import io.helixiam.authorization.messaging.MessagingService;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.service.UserInfoService;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,7 +64,8 @@ public class RealmPushSender implements PushSender {
                         .map(String::valueOf).collect(Collectors.joining(",")));
                 if (messaging.sendPush(realm, tokens, "push-approval", vars, data)) {
                     LOG.info("Push approval {} sent to user {} ({} device(s)) via realm {}",
-                            message.approvalId(), message.userId(), tokens.size(), realm);
+                            LogSafe.sanitize(message.approvalId()), LogSafe.sanitize(message.userId()), tokens.size(),
+                            LogSafe.sanitize(realm));
                     return;
                 }
             }

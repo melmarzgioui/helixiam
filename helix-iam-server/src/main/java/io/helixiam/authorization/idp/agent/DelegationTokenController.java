@@ -14,6 +14,7 @@ import io.helixiam.authorization.amqp.realm.RealmAdminPublisher;
 import io.helixiam.authorization.security.agent.AgentTokenEnricher;
 import io.helixiam.authorization.security.agent.DelegationAttenuator;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.common.log.LogSafe;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -252,7 +253,8 @@ public class DelegationTokenController {
         try {
             client = registeredClients.findByClientId(creds[0]);
         } catch (final RuntimeException e) {
-            LOG.debug("delegation: client lookup failed for {}: {}", creds[0], e.getMessage());
+            LOG.debug("delegation: client lookup failed for {}: {}",
+                    LogSafe.sanitize(creds[0]), LogSafe.sanitize(e.getMessage()));
             return false;
         }
         if (client == null || client.getClientSecret() == null) {
@@ -371,7 +373,8 @@ public class DelegationTokenController {
                 base = trimSlash(r.issuer().trim());
             }
         } catch (final Exception e) {
-            LOG.debug("delegation issuer lookup failed for {}: {}", realm, e.getMessage());
+            LOG.debug("delegation issuer lookup failed for {}: {}",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
         }
         if (base == null) {
             base = settings.getIssuer() != null ? trimSlash(settings.getIssuer())

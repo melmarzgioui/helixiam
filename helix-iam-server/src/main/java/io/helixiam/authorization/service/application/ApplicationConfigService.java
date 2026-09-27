@@ -12,6 +12,7 @@ import io.helixiam.authorization.domain.saml.SamlRelyingPartyEntity;
 import io.helixiam.authorization.repository.ServiceProviderRepository;
 import io.helixiam.authorization.repository.application.ApplicationRepository;
 import io.helixiam.authorization.repository.saml.SamlRelyingPartyRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -88,14 +89,16 @@ public class ApplicationConfigService {
         for (final ServiceProviderOAuthClient client : serviceProviders.findAllByApplicationIdAndDeleted(applicationId, false)) {
             client.setDeleted(true);
             serviceProviders.save(client);
-            LOG.debug("Cascade: soft-deleted OIDC client {} with application {}", client.getClientId(), name);
+            LOG.debug("Cascade: soft-deleted OIDC client {} with application {}",
+                    LogSafe.sanitize(client.getClientId()), LogSafe.sanitize(name));
         }
         for (final SamlRelyingPartyEntity rp : relyingParties.findAllByApplicationId(applicationId)) {
             relyingParties.delete(rp);
-            LOG.debug("Cascade: deleted SAML relying party {} with application {}", rp.getEntityId(), name);
+            LOG.debug("Cascade: deleted SAML relying party {} with application {}",
+                    LogSafe.sanitize(rp.getEntityId()), LogSafe.sanitize(name));
         }
         repository.deleteByRealmIdAndName(realmId, name);
-        LOG.debug("Deleted application {} for realm {}", name, realmId);
+        LOG.debug("Deleted application {} for realm {}", LogSafe.sanitize(name), LogSafe.sanitize(realmId));
         return true;
     }
 

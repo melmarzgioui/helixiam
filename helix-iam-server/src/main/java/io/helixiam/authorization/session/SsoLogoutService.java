@@ -7,6 +7,7 @@ package io.helixiam.authorization.session;
 
 import io.helixiam.authorization.session.logout.BackchannelLogoutNotifier;
 import io.helixiam.authorization.session.logout.LogoutTargetResolver;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
@@ -67,7 +68,8 @@ public class SsoLogoutService {
         if (session.principalName() != null) {
             springSessionStore.deleteByPrincipal(session.principalName());
         }
-        LOG.info("Terminated SSO session {} ({} client authorizations)", ssoSessionId, session.clients().size());
+        LOG.info("Terminated SSO session {} ({} client authorizations)",
+                LogSafe.sanitize(ssoSessionId), session.clients().size());
 
         if (realm != null && issuerUrl != null) {
             fireBackchannel(session, realm, issuerUrl);

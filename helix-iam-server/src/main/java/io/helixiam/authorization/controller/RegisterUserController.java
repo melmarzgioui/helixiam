@@ -14,6 +14,7 @@ import io.helixiam.authorization.domain.UserRegister;
 import io.helixiam.authorization.security.captcha.CaptchaService;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.security.realm.RealmSettingsResolver;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
@@ -106,7 +107,8 @@ public class RegisterUserController {
       final List<ClaimDto> claims = claimScopePublisher.claims(realm);
       return claims == null ? List.of() : claims;
     } catch (final RuntimeException e) {
-      log.warn("Registration claim lookup failed for realm '{}'; rendering core fields only", realm, e);
+      log.warn("Registration claim lookup failed for realm '{}'; rendering core fields only",
+              LogSafe.sanitize(realm), e);
       return List.of();                               // registration still works with core fields only
     }
   }

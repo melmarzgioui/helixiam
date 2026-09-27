@@ -22,6 +22,7 @@ import com.webauthn4j.data.client.challenge.DefaultChallenge;
 import com.webauthn4j.server.ServerProperty;
 import io.helixiam.authorization.domain.mfa.WebAuthnCredentialEntity;
 import io.helixiam.authorization.repository.mfa.WebAuthnCredentialRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -64,10 +65,11 @@ public class WebAuthnService {
             final String credentialId = base64Url(acd.getCredentialId());
             final String stored = Base64.getEncoder().encodeToString(acdConverter.convert(acd));
             repository.save(new WebAuthnCredentialEntity(credentialId, userId, stored, signCount));
-            LOG.info("Registered WebAuthn credential for user {}", userId);
+            LOG.info("Registered WebAuthn credential for user {}", LogSafe.sanitize(userId));
             return true;
         } catch (final RuntimeException e) {
-            LOG.warn("WebAuthn registration failed for user {}: {}", userId, e.getMessage());
+            LOG.warn("WebAuthn registration failed for user {}: {}",
+                    LogSafe.sanitize(userId), LogSafe.sanitize(e.getMessage()));
             return false;
         }
     }

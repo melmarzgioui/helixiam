@@ -11,6 +11,7 @@ import io.helixiam.authorization.repository.UserCredentialsRepository;
 import io.helixiam.authorization.repository.realm.RealmConfigRepository;
 import io.helixiam.authorization.repository.tenant.TenantUserRepository;
 import io.helixiam.authorization.security.ratelimit.RateLimiter;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,7 +105,8 @@ public class MagicLinkService {
         }
         final String address = email.trim().toLowerCase(Locale.ROOT);
         if (!perIp.check(realmId + "|" + clientIp).allowed() || !perEmail.check(realmId + "|" + address).allowed()) {
-            LOG.warn("Magic-link request rate limited in realm {} (ip {})", realmId, clientIp);
+            LOG.warn("Magic-link request rate limited in realm {} (ip {})",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(clientIp));
             return;
         }
         final Optional<UserCredentials> user = users.findByRealmIdAndEmail(realmId, address)

@@ -6,6 +6,7 @@
 package io.helixiam.authorization.service.resource;
 
 import io.helixiam.authorization.repository.ServiceProviderRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -48,7 +49,7 @@ public class ResourceIndicatorService {
                     .orElseGet(Collections::emptyList);
         } catch (final Exception e) {
             LOG.warn("Allowed-resource resolution failed for client {}, treating as no allow-list: {}",
-                    clientId, e.getMessage());
+                    LogSafe.sanitize(clientId), LogSafe.sanitize(e.getMessage()));
             return Collections.emptyList();
         }
     }

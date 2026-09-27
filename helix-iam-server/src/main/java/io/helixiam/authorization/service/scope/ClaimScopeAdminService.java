@@ -23,6 +23,7 @@ import io.helixiam.authorization.repository.scope.ClaimDefRepository;
 import io.helixiam.authorization.repository.scope.ClientScopeRepository;
 import io.helixiam.authorization.repository.scope.ScopeClaimRepository;
 import io.helixiam.authorization.repository.tenant.TenantRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -340,7 +341,7 @@ public class ClaimScopeAdminService {
                 scopeClaims.save(new ScopeClaim(scope.getScopeId(), claim.getClaimId()));
             }
         });
-        LOG.info("Seeded default client scopes + claim catalogue for realm {}", realmId);
+        LOG.info("Seeded default client scopes + claim catalogue for realm {}", LogSafe.sanitize(realmId));
     }
 
     private void ensureTenant(final String realmId) {

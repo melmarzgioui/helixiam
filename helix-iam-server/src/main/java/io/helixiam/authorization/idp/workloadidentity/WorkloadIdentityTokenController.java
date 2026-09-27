@@ -20,6 +20,7 @@ import io.helixiam.authorization.security.audit.AuditContext;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.authorization.security.audit.AuditLog;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -143,7 +144,8 @@ public class WorkloadIdentityTokenController {
             verifier.verify(verifier.jwkSource(jwksUri), credential.issuer(), credential.audience(),
                     credential.subject(), subjectToken);
         } catch (final Exception e) {
-            LOG.debug("WIF verification failed for realm={} sub={}: {}", realm, sub, e.getMessage());
+            LOG.debug("WIF verification failed for realm={} sub={}: {}",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(sub), LogSafe.sanitize(e.getMessage()));
             return denied(realm, sub, sourceIp, "subject_token verification failed");
         }
 
@@ -175,7 +177,8 @@ public class WorkloadIdentityTokenController {
                     return c;
                 }
             } catch (final Exception e) {
-                LOG.warn("WIF credential resolution failed for realm={}: {}", realm, e.getMessage());
+                LOG.warn("WIF credential resolution failed for realm={}: {}",
+                        LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             }
         }
         return null;
@@ -280,7 +283,8 @@ public class WorkloadIdentityTokenController {
                 base = trimSlash(r.issuer().trim());
             }
         } catch (final Exception e) {
-            LOG.debug("WIF issuer: realm {} lookup failed, falling back: {}", realm, e.getMessage());
+            LOG.debug("WIF issuer: realm {} lookup failed, falling back: {}",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
         }
         if (base == null) {
             base = settings.getIssuer() != null ? trimSlash(settings.getIssuer())

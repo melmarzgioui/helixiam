@@ -9,6 +9,7 @@ import io.helixiam.authorization.amqp.webhook.WebhookConfigPublisher;
 import io.helixiam.authorization.amqp.webhook.WebhookSubscriptionDto;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.ObjectProvider;
@@ -125,7 +126,8 @@ public class WebhookDispatcher {
             cache.put(realm, new Cached(fresh == null ? List.of() : fresh, nowMillis.getAsLong()));
             return cache.get(realm).value;
         } catch (final RuntimeException e) {
-            LOG.debug("Webhook lookup failed for realm {}: {}", realm, e.getMessage());
+            LOG.debug("Webhook lookup failed for realm {}: {}",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             return List.of();
         }
     }

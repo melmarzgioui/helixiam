@@ -13,6 +13,7 @@ import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
 import io.helixiam.authorization.messaging.driver.EmailDriver;
 import io.helixiam.authorization.messaging.driver.PushDriver;
 import io.helixiam.authorization.messaging.driver.SmsDriver;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -53,7 +54,8 @@ public class MessagingService {
         final SmsDriver driver = smsDrivers.stream().filter(d -> d.driver().equalsIgnoreCase(provider.driver()))
                 .findFirst().orElse(null);
         if (driver == null) {
-            LOG.warn("No SMS driver for '{}' in realm {}", provider.driver(), realm);
+            LOG.warn("No SMS driver for '{}' in realm {}",
+                    LogSafe.sanitize(provider.driver()), LogSafe.sanitize(realm));
             return false;
         }
         final String body = render(realm, templateKey, vars).body();
@@ -70,7 +72,8 @@ public class MessagingService {
         final EmailDriver driver = emailDrivers.stream().filter(d -> d.driver().equalsIgnoreCase(provider.driver()))
                 .findFirst().orElse(null);
         if (driver == null) {
-            LOG.warn("No email driver for '{}' in realm {}", provider.driver(), realm);
+            LOG.warn("No email driver for '{}' in realm {}",
+                    LogSafe.sanitize(provider.driver()), LogSafe.sanitize(realm));
             return false;
         }
         final Rendered r = render(realm, templateKey, vars);
@@ -93,7 +96,8 @@ public class MessagingService {
         try {
             providers = publisher.enabledProviders(new ResolveRequest(realm, "PUSH"));
         } catch (final RuntimeException e) {
-            LOG.warn("Could not resolve PUSH providers for realm {}: {}", realm, e.getMessage());
+            LOG.warn("Could not resolve PUSH providers for realm {}: {}",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             return false;
         }
         if (providers == null || providers.isEmpty()) {
@@ -123,7 +127,8 @@ public class MessagingService {
             final List<ResolvedProviderDto> enabled = publisher.enabledProviders(new ResolveRequest(realm, channel));
             return enabled == null || enabled.isEmpty() ? null : enabled.get(0);
         } catch (final RuntimeException e) {
-            LOG.warn("Could not resolve {} provider for realm {}: {}", channel, realm, e.getMessage());
+            LOG.warn("Could not resolve {} provider for realm {}: {}",
+                    LogSafe.sanitize(channel), LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             return null;
         }
     }

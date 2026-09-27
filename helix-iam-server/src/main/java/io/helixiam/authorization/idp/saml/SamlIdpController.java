@@ -8,6 +8,7 @@ package io.helixiam.authorization.idp.saml;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.session.SsoLogoutService;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.apache.logging.log4j.LogManager;
@@ -411,7 +412,8 @@ public class SamlIdpController {
                     .findFirst()
                     .orElse(null);
         } catch (final RuntimeException e) {
-            LOG.warn("SAML: could not resolve the application for SP {} ({}): {}", spEntityId, e.getClass().getSimpleName(), e.getMessage());
+            LOG.warn("SAML: could not resolve the application for SP {} ({}): {}",
+                    LogSafe.sanitize(spEntityId), e.getClass().getSimpleName(), LogSafe.sanitize(e.getMessage()));
             return null;
         }
     }

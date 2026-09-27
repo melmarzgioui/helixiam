@@ -7,6 +7,7 @@ package io.helixiam.authorization.service.key;
 
 import io.helixiam.authorization.domain.realm.RealmKey;
 import io.helixiam.authorization.repository.realm.RealmKeyRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,7 +76,8 @@ public class RealmKeyService {
                     current.setStatus(RealmKey.Status.ROTATED);
                     current.setRotatedDate(new Date());
                     realmKeyRepository.save(current);
-                    LOG.debug("Rotated key {} for realm {} to ROTATED", current.getKeyId(), realmId);
+                    LOG.debug("Rotated key {} for realm {} to ROTATED",
+                            LogSafe.sanitize(current.getKeyId()), LogSafe.sanitize(realmId));
                 });
         return generateActive(realmId);
     }
@@ -104,7 +106,7 @@ public class RealmKeyService {
         return realmKeyRepository.findById(keyId).map(key -> {
             key.setStatus(RealmKey.Status.RETIRED);
             realmKeyRepository.save(key);
-            LOG.debug("Retired key {}", keyId);
+            LOG.debug("Retired key {}", LogSafe.sanitize(keyId));
             return true;
         }).orElse(false);
     }
@@ -115,7 +117,8 @@ public class RealmKeyService {
                 generated.kid(), realmId, generated.algorithm(),
                 generated.publicKeyBase64(), generated.privateKeyBase64());
         final RealmKey saved = realmKeyRepository.save(key);
-        LOG.debug("Generated ACTIVE key {} for realm {} via {} provider", saved.getKeyId(), realmId, keyProvider.type());
+        LOG.debug("Generated ACTIVE key {} for realm {} via {} provider",
+                LogSafe.sanitize(saved.getKeyId()), LogSafe.sanitize(realmId), LogSafe.sanitize(keyProvider.type()));
         return saved;
     }
 }

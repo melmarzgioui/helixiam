@@ -10,6 +10,7 @@ import io.helixiam.authorization.messaging.MessageVariables;
 import io.helixiam.authorization.messaging.MessagingService;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.service.UserInfoService;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +44,8 @@ public class RealmSmsOtpSender implements OtpSender {
             try {
                 final Map<String, String> vars = vars(realm, code, profile);
                 if (messaging.sendSms(realm, phone, "otp-sms", vars)) {
-                    LOG.info("SMS OTP sent to user {} via realm {} provider", userId, realm);
+                    LOG.info("SMS OTP sent to user {} via realm {} provider",
+                            LogSafe.sanitize(userId), LogSafe.sanitize(realm));
                     return;
                 }
             } catch (final RuntimeException e) {

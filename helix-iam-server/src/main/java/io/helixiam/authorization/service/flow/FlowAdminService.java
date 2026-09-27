@@ -15,6 +15,7 @@ import io.helixiam.authorization.domain.realm.AuthFlowEntity;
 import io.helixiam.authorization.domain.realm.AuthFlowExecutionEntity;
 import io.helixiam.authorization.repository.realm.AuthFlowExecutionRepository;
 import io.helixiam.authorization.repository.realm.AuthFlowRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
@@ -109,7 +110,8 @@ public class FlowAdminService {
                     e.getParentId() == null ? null : idMap.getOrDefault(e.getParentId(), e.getParentId()),
                     e.getAuthenticatorId(), e.getRequirement(), e.isCondition(), e.getPriority(), e.getConfig())).toList());
         }
-        LOG.info("Created flow {} in realm {} (copyFrom={})", clean, realmId, copyFromAlias);
+        LOG.info("Created flow {} in realm {} (copyFrom={})",
+                LogSafe.sanitize(clean), LogSafe.sanitize(realmId), LogSafe.sanitize(copyFromAlias));
         return new FlowSummaryDto(realmId, clean, false);
     }
 
@@ -135,7 +137,7 @@ public class FlowAdminService {
         final AuthFlowEntity flow = requireFlow(realmId, alias);
         executionRepository.deleteByFlowId(flow.getFlowId());
         flowRepository.delete(flow);
-        LOG.info("Deleted flow {} in realm {}", alias, realmId);
+        LOG.info("Deleted flow {} in realm {}", LogSafe.sanitize(alias), LogSafe.sanitize(realmId));
     }
 
     private FlowExecutionDto toDto(final AuthFlowExecutionEntity e) {

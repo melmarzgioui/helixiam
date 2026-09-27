@@ -73,6 +73,7 @@ import io.helixiam.authorization.amqp.scope.ClientScopeDto;
 import io.helixiam.authorization.amqp.scope.ScopeDetailDto;
 import io.helixiam.authorization.amqp.scope.ScopeRef;
 import io.helixiam.authorization.amqp.scope.ScopeWriteDto;
+import io.helixiam.common.log.LogSafe;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
@@ -228,7 +229,8 @@ public class RealmImportService {
         importRealm(realmId, doc, opts, result);
         if (result.hasFailed(SLICE_REALM)) {
             // Review rc.3 #5: without its realm nothing else can be imported consistently — stop here.
-            LOG.warn("Helix realm import [{}]: the realm could not be written; nothing else was imported", realmId);
+            LOG.warn("Helix realm import [{}]: the realm could not be written; nothing else was imported",
+                    LogSafe.sanitize(realmId));
             return result.build();
         }
         importRoles(realmId, doc, opts, result);
@@ -258,7 +260,8 @@ public class RealmImportService {
     /** 1.0 item 8: a write that threw is a failure (logged, reported with its reason), never a silent skip. */
     private static void failed(final RealmImportResult.Builder r, final String slice, final String realmId,
                                final RuntimeException ex) {
-        LOG.warn("Helix realm import [{}]: {} entry failed: {}", realmId, slice, ex.toString());
+        LOG.warn("Helix realm import [{}]: {} entry failed: {}",
+                LogSafe.sanitize(realmId), LogSafe.sanitize(slice), LogSafe.sanitize(ex.toString()));
         r.failed(slice, reason(ex));
     }
 
@@ -995,13 +998,14 @@ public class RealmImportService {
             if (io.helixiam.authorization.security.claims.ReservedClaims.isReserved(m.claimName())) {
                 // 1.0 security (item 1): a mapper may never write a reserved identity/authority claim.
                 LOG.warn("Helix realm import [{}]: refused protocol mapper '{}' on '{}' — claim '{}' is reserved",
-                        realmId, m.name(), m.clientId(), m.claimName());
+                        LogSafe.sanitize(realmId), LogSafe.sanitize(m.name()), LogSafe.sanitize(m.clientId()),
+                        LogSafe.sanitize(m.claimName()));
                 r.skipped(SLICE_CLIENT_MAPPERS);
                 continue;
             }
             if (!targets.containsKey(m.clientId())) {
                 LOG.warn("Helix realm import [{}]: skipped protocol mapper '{}' — client '{}' not in target realm",
-                        realmId, m.name(), m.clientId());
+                        LogSafe.sanitize(realmId), LogSafe.sanitize(m.name()), LogSafe.sanitize(m.clientId()));
                 r.skipped(SLICE_CLIENT_MAPPERS);
                 continue;
             }
@@ -1040,7 +1044,8 @@ public class RealmImportService {
                 }
                 if (!targets.containsKey(role.clientId())) {
                     LOG.warn("Helix realm import [{}]: skipped client role '{}' — client '{}' not in target realm",
-                            realmId, role.name(), role.clientId());
+                            LogSafe.sanitize(realmId), LogSafe.sanitize(role.name()),
+                            LogSafe.sanitize(role.clientId()));
                     r.skipped(SLICE_CLIENT_ROLES);
                     continue;
                 }
@@ -1072,7 +1077,8 @@ public class RealmImportService {
                 }
                 if (!targets.containsKey(sa.clientId())) {
                     LOG.warn("Helix realm import [{}]: skipped service-account role '{}' — client '{}' not in target",
-                            realmId, sa.roleName(), sa.clientId());
+                            LogSafe.sanitize(realmId), LogSafe.sanitize(sa.roleName()),
+                            LogSafe.sanitize(sa.clientId()));
                     r.skipped(SLICE_SA_ROLES);
                     continue;
                 }
@@ -1113,7 +1119,7 @@ public class RealmImportService {
             }
             if (!targets.containsKey(aw.clientId())) {
                 LOG.warn("Helix realm import [{}]: skipped resource allow-list — client '{}' not in target realm",
-                        realmId, aw.clientId());
+                        LogSafe.sanitize(realmId), LogSafe.sanitize(aw.clientId()));
                 r.skipped(SLICE_RESOURCE_INDICATORS);
                 continue;
             }
@@ -1150,7 +1156,7 @@ public class RealmImportService {
             }
             if (!targets.containsKey(a.clientId())) {
                 LOG.warn("Helix realm import [{}]: skipped authorization services — client '{}' not in target realm",
-                        realmId, a.clientId());
+                        LogSafe.sanitize(realmId), LogSafe.sanitize(a.clientId()));
                 r.skipped(SLICE_AUTHZ);
                 continue;
             }
@@ -1187,7 +1193,8 @@ public class RealmImportService {
                             && io.helixiam.authorization.service.authz.PermissionType.parse(perm.type()).isEmpty()) {
                         // 1.0 item 3: an unknown permission type is refused, never saved (it would evaluate to deny).
                         LOG.warn("Helix realm import [{}]: refused permission '{}' on '{}' — unknown type '{}'",
-                                realmId, perm.name(), a.clientId(), perm.type());
+                                LogSafe.sanitize(realmId), LogSafe.sanitize(perm.name()),
+                                LogSafe.sanitize(a.clientId()), LogSafe.sanitize(perm.type()));
                         r.skipped(SLICE_AUTHZ);
                         continue;
                     }

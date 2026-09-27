@@ -6,6 +6,7 @@
 package io.helixiam.authorization.security.resource;
 
 import io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -118,7 +119,7 @@ public class ResourceIndicatorAuthorizeFilter extends OncePerRequestFilter {
             return allowed != null ? allowed : Collections.emptyList();
         } catch (final Exception e) {
             LOG.warn("Allowed-resource lookup failed for client {}, treating as no allow-list: {}",
-                    clientId, e.getMessage());
+                    LogSafe.sanitize(clientId), LogSafe.sanitize(e.getMessage()));
             return Collections.emptyList();
         }
     }

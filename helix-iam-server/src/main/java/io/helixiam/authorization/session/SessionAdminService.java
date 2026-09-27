@@ -13,6 +13,7 @@ import io.helixiam.authorization.amqp.client.ClientDto;
 import io.helixiam.authorization.amqp.user.UserAdminDto;
 import io.helixiam.authorization.amqp.user.UserAdminPublisher;
 import io.helixiam.authorization.amqp.user.UserAdminRef;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
@@ -180,11 +181,13 @@ public class SessionAdminService {
         final Map<String, String> clientIdById = realmClientIdById(realmId);
         final boolean inRealm = session.clients().stream().anyMatch(c -> clientIdById.containsKey(c.clientId()));
         if (!inRealm) {
-            LOG.warn("Refusing to revoke SSO session {} — no client in realm {}", ssoSessionId, realmId);
+            LOG.warn("Refusing to revoke SSO session {} — no client in realm {}",
+                    LogSafe.sanitize(ssoSessionId), LogSafe.sanitize(realmId));
             return false;
         }
         ssoLogoutService.terminate(ssoSessionId, realmId, idpBaseUrl + "/realms/" + realmId);
-        LOG.info("Admin revoked SSO session {} in realm {} (cascading logout)", ssoSessionId, realmId);
+        LOG.info("Admin revoked SSO session {} in realm {} (cascading logout)",
+                LogSafe.sanitize(ssoSessionId), LogSafe.sanitize(realmId));
         return true;
     }
 
@@ -195,7 +198,8 @@ public class SessionAdminService {
             return false;
         }
         if (!realmClientIdById(realmId).containsKey(authorization.getRegisteredClientId())) {
-            LOG.warn("Refusing to revoke session {} — not owned by realm {}", id, realmId);
+            LOG.warn("Refusing to revoke session {} — not owned by realm {}",
+                    LogSafe.sanitize(id), LogSafe.sanitize(realmId));
             return false;
         }
         authorizationService.remove(authorization);

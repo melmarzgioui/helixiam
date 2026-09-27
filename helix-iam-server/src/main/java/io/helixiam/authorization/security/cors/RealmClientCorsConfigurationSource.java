@@ -7,6 +7,7 @@ package io.helixiam.authorization.security.cors;
 
 import io.helixiam.authorization.amqp.ServiceProviderPublisher;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -94,7 +95,8 @@ public class RealmClientCorsConfigurationSource implements CorsConfigurationSour
         try {
             origins = Set.copyOf(serviceProviderPublisher.retrieveWebOrigins(realm));
         } catch (final RuntimeException e) {
-            LOG.warn("Could not load web origins for realm {}, denying cross-origin: {}", realm, e.getMessage());
+            LOG.warn("Could not load web origins for realm {}, denying cross-origin: {}",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
         }
         if (origins.contains("*")) {
             // Security review M2: '*' is not honoured — these responses always carry
@@ -103,7 +105,7 @@ public class RealmClientCorsConfigurationSource implements CorsConfigurationSour
             LOG.warn("Realm {} has a '*' web-origin configured. A wildcard origin is IGNORED because this "
                     + "server allows credentialed cross-origin requests; list explicit client web origins "
                     + "instead. Cross-origin requests to this realm are denied unless their Origin matches "
-                    + "an explicitly configured entry.", realm);
+                    + "an explicitly configured entry.", LogSafe.sanitize(realm));
         }
         cache.put(realm, new Cached(origins, now + TTL_MILLIS));
         return origins;

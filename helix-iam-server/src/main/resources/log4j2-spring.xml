@@ -10,17 +10,32 @@
   alternative log-pipeline transports an operator can enable without code changes.
 -->
 <Configuration status="WARN">
+    <!--
+      Log-injection defence (CodeQL java/log-injection): the log MESSAGE is always rendered through
+      %enc{%m}{CRLF}, which escapes CR/LF to the literal two characters "\r" / "\n", so a user-controlled
+      value (username, client id, realm id, request parameter) can never start a forged log line. Stack traces
+      (%xwEx / %throwable) are outside %m and keep their normal multi-line layout. Call sites additionally pass
+      user-controlled arguments through io.helixiam.common.log.LogSafe.
+
+      CONSOLE_LOG_PATTERN below is the default; Boot's ${sys:CONSOLE_LOG_PATTERN} (set from
+      logging.pattern.console) overrides it. An operator overriding that property should keep %enc{%m}{CRLF}.
+    -->
+    <Properties>
+        <Property name="CONSOLE_LOG_PATTERN">%d %-5level %logger - %enc{%m}{CRLF}%n</Property>
+    </Properties>
     <Appenders>
         <!-- Application logs: Boot's standard console format (falls back to a plain pattern off-Boot). -->
         <Console name="Console" target="SYSTEM_OUT">
-            <!-- Reuse Boot's console pattern when set; brace-free fallback avoids the Log4j2 default-value
-                 parser choking on '{' in '%d{...}'/'%logger{36}' before Boot initializes the property. -->
-            <PatternLayout pattern="${sys:CONSOLE_LOG_PATTERN:-%d %-5level %logger - %m%n}"/>
+            <!-- Reuse Boot's console pattern when set; otherwise the CRLF-safe CONSOLE_LOG_PATTERN property
+                 above (a <Property> rather than a ':-' default, whose parser chokes on '{'). -->
+            <PatternLayout pattern="${sys:CONSOLE_LOG_PATTERN}"/>
         </Console>
 
-        <!-- Audit logs: the message IS the JSON event; no decoration, so each line is valid JSON. -->
+        <!-- Audit logs: the message IS the JSON event; no decoration, so each line is valid JSON. Serialised
+             JSON never contains a raw CR/LF, so %enc{..}{CRLF} leaves it unchanged; it only guarantees that a
+             non-JSON message cannot split the one-event-per-line stream. -->
         <Console name="AuditConsole" target="SYSTEM_OUT">
-            <PatternLayout pattern="%m%n"/>
+            <PatternLayout pattern="%enc{%m}{CRLF}%n"/>
         </Console>
 
         <!--

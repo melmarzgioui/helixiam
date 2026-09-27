@@ -9,6 +9,7 @@ import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.federation.FederatedSessionEstablisher;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.security.realm.SessionPolicyApplier;
+import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -74,7 +75,8 @@ public class ImpersonationService {
                 LOG.debug("Impersonation session-policy apply skipped: {}", e.getMessage());
             }
         }
-        LOG.info("Admin {} is now impersonating user {} in realm {}", adminActor, userId, realm);
+        LOG.info("Admin {} is now impersonating user {} in realm {}",
+                LogSafe.sanitize(adminActor), LogSafe.sanitize(userId), LogSafe.sanitize(realm));
         return new Result(userId, user.getUsername(), spBaseUrl);
     }
 

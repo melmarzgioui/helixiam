@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.session;
 
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,11 +62,12 @@ public class AccountSessionService {
     /** Revoke (Single Logout) one of the caller's own sessions; {@code false} if it is not theirs. */
     public boolean revokeSession(final String realmId, final String principalName, final String ssoSessionId) {
         if (!ownsSession(principalName, ssoSessionId)) {
-            LOG.warn("Refusing self session revoke {} — not owned by principal", ssoSessionId);
+            LOG.warn("Refusing self session revoke {} — not owned by principal", LogSafe.sanitize(ssoSessionId));
             return false;
         }
         ssoLogoutService.terminate(ssoSessionId, realmId, idpBaseUrl + "/realms/" + realmId);
-        LOG.info("User {} revoked their own SSO session {} in realm {}", principalName, ssoSessionId, realmId);
+        LOG.info("User {} revoked their own SSO session {} in realm {}",
+                LogSafe.sanitize(principalName), LogSafe.sanitize(ssoSessionId), LogSafe.sanitize(realmId));
         return true;
     }
 
@@ -99,7 +101,8 @@ public class AccountSessionService {
             }
         }
         if (revokedAny) {
-            LOG.info("User {} revoked consent for application {} in realm {}", principalName, clientId, realmId);
+            LOG.info("User {} revoked consent for application {} in realm {}",
+                    LogSafe.sanitize(principalName), LogSafe.sanitize(clientId), LogSafe.sanitize(realmId));
         }
         return revokedAny;
     }

@@ -13,6 +13,7 @@ import io.helixiam.authorization.domain.client.role.ServiceAccountRoleDto;
 import io.helixiam.authorization.repository.ClientRoleRepository;
 import io.helixiam.authorization.repository.ClientServiceAccountRoleRepository;
 import io.helixiam.authorization.repository.ServiceProviderRepository;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,7 +77,8 @@ public class ClientRoleAdminService {
     public boolean deleteClientRole(final String realmId, final String clientId, final String name) {
         return roles.findByRealmIdAndClientIdAndName(realmId, clientId, name).map(e -> {
             roles.delete(e);
-            LOG.debug("Deleted client role {} from {} in {}", name, clientId, realmId);
+            LOG.debug("Deleted client role {} from {} in {}",
+                    LogSafe.sanitize(name), LogSafe.sanitize(clientId), LogSafe.sanitize(realmId));
             return true;
         }).orElse(false);
     }
@@ -110,7 +112,9 @@ public class ClientRoleAdminService {
         final String type = roleType == null || roleType.isBlank() ? "REALM" : roleType;
         return saRoles.findByRealmIdAndClientIdAndRoleNameAndRoleType(realmId, clientId, roleName, type).map(e -> {
             saRoles.delete(e);
-            LOG.debug("Revoked {} role {} from service account of {} in {}", type, roleName, clientId, realmId);
+            LOG.debug("Revoked {} role {} from service account of {} in {}",
+                    LogSafe.sanitize(type), LogSafe.sanitize(roleName), LogSafe.sanitize(clientId),
+                    LogSafe.sanitize(realmId));
             return true;
         }).orElse(false);
     }
