@@ -234,14 +234,19 @@ class ThemedTemplatesTest {
 
     static String render(final String template, final Map<String, Object> model, final Map<String, String> params)
             throws Exception {
+        return render(template, model, params, Locale.ENGLISH);
+    }
+
+    static String render(final String template, final Map<String, Object> model, final Map<String, String> params,
+                         final Locale locale) throws Exception {
         final MockHttpServletRequest request = new MockHttpServletRequest(context.getServletContext(), "GET",
                 CONTEXT + "/" + template);
         params.forEach(request::addParameter);
         request.setContextPath(CONTEXT);
-        request.addPreferredLocale(Locale.ENGLISH);
+        request.addPreferredLocale(locale);
         request.setAttribute(DispatcherServlet.WEB_APPLICATION_CONTEXT_ATTRIBUTE, context);
         final MockHttpServletResponse response = new MockHttpServletResponse();
-        final View view = views.resolveViewName(template, Locale.ENGLISH);
+        final View view = views.resolveViewName(template, locale);
         assertThat(view).as(template).isNotNull();
         view.render(new HashMap<>(model), request, response);
         return response.getContentAsString();
