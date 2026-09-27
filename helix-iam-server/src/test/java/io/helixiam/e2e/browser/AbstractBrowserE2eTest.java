@@ -76,6 +76,7 @@ public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
     private final List<String> browserLog = new CopyOnWriteArrayList<>();
     private final List<String> cspViolations = new CopyOnWriteArrayList<>();
     private final List<String> navigations = new CopyOnWriteArrayList<>();
+    private final List<BrowserContext> otherBrowsers = new CopyOnWriteArrayList<>();
 
     @BeforeAll
     static void launchBrowserAndRelyingParty() {
@@ -165,6 +166,8 @@ public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
 
     @AfterEach
     void closePage() {
+        otherBrowsers.forEach(BrowserContext::close);
+        otherBrowsers.clear();
         if (browserContext != null) {
             try {
                 browserContext.tracing().stop();
@@ -183,6 +186,20 @@ public abstract class AbstractBrowserE2eTest extends AbstractE2eTest {
     /** The current tab. */
     protected Page page() {
         return page;
+    }
+
+    /**
+     * A tab in another, independent browser (its own cookie jar — another device), for tests with more than one
+     * sign-in; closed after the test.
+     */
+    protected Page otherBrowser() {
+        final BrowserContext other = browser.newContext(new Browser.NewContextOptions().setLocale("en-GB")
+                .setViewportSize(1280, 900));
+        otherBrowsers.add(other);
+        final Page tab = other.newPage();
+        tab.setDefaultTimeout(15_000);
+        tab.setDefaultNavigationTimeout(20_000);
+        return tab;
     }
 
     /** This class's relying party (another origin). */

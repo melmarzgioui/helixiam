@@ -16,6 +16,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
+import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -285,6 +286,49 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         assertOnIdpPath("/account");
     }
 
+    // ------------------------------------------------------------------------------------------------ sessions
+
+    @Test
+    void signOutEverywhereElse_endsTheOtherBrowser_andTellsItsApp_butKeepsThisOne() throws Exception {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe"), PASSWORD);
+
+        // Another device signs in to the app.
+        final com.microsoft.playwright.Page phone = otherBrowser();
+        signInToTheApp(phone, realm, joe);
+        final String phoneSid = rp().lastCallback().orElseThrow().idTokenClaims().getStringClaim("sid");
+        // This browser signs in to the app too, then opens the account console.
+        signInToTheApp(page(), realm, joe);
+        final String hereSid = rp().lastCallback().orElseThrow().idTokenClaims().getStringClaim("sid");
+        assertThat(hereSid).isNotEqualTo(phoneSid);
+        page().navigate(accountUrl(realm, null));
+        assertThat(page().locator("#session-list li")).hasCount(2);
+        assertThat(page().locator("#session-list li").nth(1).innerText()).contains("Another browser").contains("Apps: web");
+
+        submit(page().locator("#sign-out-others"));
+
+        assertOnIdpPath("/account");
+        assertThat(page().locator("#account-status").innerText()).isEqualTo("You're signed out everywhere else.");
+        assertThat(page().locator("#session-list li")).hasCount(1);
+        final TestRelyingParty.BackchannelLogout logout = rp().awaitBackchannelLogout(
+                l -> phoneSid.equals(l.claims().get("sid")), WAIT);
+        assertThat(logout.claims()).containsEntry("sub", joe.userId());
+        assertThat(rp().backchannelLogouts()).noneMatch(l -> hereSid.equals(l.claims().get("sid")));
+        awaitAudit(realm, "ACCOUNT_SESSIONS_SIGN_OUT_OTHERS", "SUCCESS");
+
+        // The other device is signed out of the IdP: the app sends it to the sign-in form again.
+        phone.navigate(rp().loginUrl(realm.web()));
+        phone.waitForLoadState(LoadState.LOAD);
+        assertThat(URI.create(phone.url()).getPath()).isEqualTo(realm.path() + "/login");
+        phone.navigate(accountUrl(realm, null));
+        assertThat(URI.create(phone.url()).getPath()).isEqualTo(realm.path() + "/login");
+        // This browser is still signed in, to the console and to the app.
+        page().navigate(accountUrl(realm, null));
+        assertOnIdpPath("/account");
+        startSignInAtRp(realm.web());
+        assertLandedOnRpCallback();
+    }
+
     // ------------------------------------------------------------------------------------------------ helpers
 
     static String enc(final String s) {
@@ -357,6 +401,23 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
             }
         } while (java.time.Instant.now().isBefore(deadline));
         throw new AssertionError("No audit event " + type + "/" + outcome + " in " + realm.realm());
+    }
+
+    /**
+     * Signs {@code user} in to the test app in {@code tab}: the sign-in form, then (A1: the form post cannot redirect
+     * to the app's origin yet) a second GET-started authorization that completes on the new IdP session.
+     */
+    void signInToTheApp(final com.microsoft.playwright.Page tab, final ReferenceSetup.Realm realm,
+                        final E2eSeed.SeededUser user) {
+        tab.navigate(rp().loginUrl(realm.web()));
+        tab.waitForLoadState(LoadState.LOAD);
+        tab.locator("#username").fill(user.username());
+        tab.locator("#password").fill(user.password());
+        tab.locator("#loginForm button[type=submit]").click();
+        tab.waitForLoadState(LoadState.LOAD);
+        tab.navigate(rp().loginUrl(realm.web()));
+        tab.waitForLoadState(LoadState.LOAD);
+        assertThat(tab.url()).startsWith(rp().callbackUri());
     }
 
     /** The path of the current page. */

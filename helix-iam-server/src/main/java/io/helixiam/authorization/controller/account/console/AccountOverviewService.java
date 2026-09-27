@@ -89,7 +89,9 @@ public class AccountOverviewService {
             if (currentSid != null && currentSid.equals(s.ssoSessionId())) {
                 current = new AccountOverview.SessionRow(true, current.signedIn() != null ? current.signedIn()
                         : format(s.issuedAt(), locale), apps);
-            } else {
+            } else if (s.issuedAt() != null) {
+                // A row without any issued token is an authorization code nobody redeemed (an abandoned or blocked
+                // sign-in), not a place the user is signed in; "sign out everywhere else" still revokes it.
                 rows.add(new AccountOverview.SessionRow(false, format(s.issuedAt(), locale), apps));
             }
         }

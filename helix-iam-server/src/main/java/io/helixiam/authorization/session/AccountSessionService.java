@@ -71,6 +71,37 @@ public class AccountSessionService {
         return true;
     }
 
+    /**
+     * B1 "sign out everywhere else": ends every SSO session of the caller in this realm except {@code keepSid} (this
+     * browser's), with back-channel logout to their applications, and leaves the HTTP sessions to
+     * {@link SessionRevocation}. Returns how many sessions were ended.
+     */
+    public int signOutOthers(final String realmId, final String principalName, final String keepSid) {
+        int ended = 0;
+        for (final SsoSessionView session : listSessions(realmId, principalName)) {
+            if (keepSid != null && keepSid.equals(session.ssoSessionId())) {
+                continue;
+            }
+            if (ssoLogoutService.terminate(session.ssoSessionId(), realmId, idpBaseUrl + "/realms/" + realmId, false) != null) {
+                ended++;
+            }
+        }
+        LOG.info("User {} signed out {} other session(s) in realm {}",
+                LogSafe.sanitize(principalName), ended, LogSafe.sanitize(realmId));
+        return ended;
+    }
+
+    /** B1 account deletion: ends every SSO session of the caller in this realm, with back-channel logout. */
+    public int signOutAll(final String realmId, final String principalName) {
+        int ended = 0;
+        for (final SsoSessionView session : listSessions(realmId, principalName)) {
+            if (ssoLogoutService.terminate(session.ssoSessionId(), realmId, idpBaseUrl + "/realms/" + realmId) != null) {
+                ended++;
+            }
+        }
+        return ended;
+    }
+
     /** The distinct applications the caller has authorized across their own sessions (their consents). */
     public List<AccountConsent> listConsents(final String realmId, final String principalName) {
         final Map<String, AccountConsent> byClient = new LinkedHashMap<>();
