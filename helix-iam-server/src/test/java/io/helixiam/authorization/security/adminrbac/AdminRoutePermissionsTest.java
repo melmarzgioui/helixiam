@@ -18,6 +18,9 @@ class AdminRoutePermissionsTest {
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/users", "POST")).contains("manage-users");
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/users/u-1/credentials", "DELETE"))
                 .contains("manage-users");
+        // Open issue E7: revoking every session of a user is a users write.
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/users/u-1/sessions", "DELETE"))
+                .contains("manage-users");
     }
 
     @Test

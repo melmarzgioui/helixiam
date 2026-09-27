@@ -30,6 +30,11 @@ Open issues found when Monthfold moved its production sign-in to rc.4
   which read as "already a member"). Roles are validated (at most 64 characters: letters, digits, `.`, `_`, `:`, `-`;
   400 `fieldErrors.role`). Audited as `ORGANIZATION_MEMBER_PUT` (detail: added or role change) and
   `ORGANIZATION_MEMBER_REMOVE`.
+- **E7** — `DELETE /admin/realms/{r}/users/{userId}/sessions` revokes every session of a user in one call: browser
+  sessions, every SSO session (back-channel logout with the session's `sid`, realm-signed, to each of its clients),
+  and every remaining authorization with its refresh token (those clients get a `sub`-only logout token). Answers the
+  counts; 404 for a user outside the path realm; needs `manage-users`; audited as `USER_SESSIONS_REVOKE`.
+  See `docs/oidc-sessions-and-logout.md`.
 
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 

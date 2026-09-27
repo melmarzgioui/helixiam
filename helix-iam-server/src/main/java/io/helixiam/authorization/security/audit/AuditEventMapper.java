@@ -49,6 +49,9 @@ public final class AuditEventMapper {
     private static String type(final String method, final String resource, final String sub) {
         return switch (resource) {
             case "users" -> {
+                if ("sessions".equals(sub) && "DELETE".equals(method)) {
+                    yield "USER_SESSIONS_REVOKE"; // open issue E7: every session of the user
+                }
                 if ("password".equals(sub)) {
                     yield "PASSWORD_RESET";
                 }
