@@ -21,8 +21,8 @@ import java.util.Set;
  *   <li>{@code focusRing} = {@code primary} (≥ 3:1 on the surfaces for any valid theme);</li>
  *   <li>{@code primaryStrong} = primary 18 % darker (light) / 20 % lighter (dark), nudged to AA for the text on it
  *       and as a link on the surface;</li>
- *   <li>{@code negative}/{@code positive} keep HelixIAM's red and green, lightness nudged to AA on the theme's
- *       surfaces when needed;</li>
+ *   <li>{@code negative}/{@code positive} keep HelixIAM's red and green, and {@code inkMuted} its muted ink,
+ *       lightness nudged to AA on the theme's surfaces when needed;</li>
  *   <li>{@code primaryTint}/{@code negativeTint}/{@code positiveTint} = 12 % of the colour in surfaceRaised
  *       (18 % in dark);</li>
  *   <li>{@code surfaceSunken} = 4 % ink in surface (light), surface darkened by 30 % (dark).</li>
@@ -35,7 +35,7 @@ public final class ThemePalette {
             "negativeTint", "positiveTint", "surfaceSunken");
 
     /** Semantic roles that keep HelixIAM's red/green but are nudged to AA on the theme's surfaces when needed. */
-    static final Set<String> SEMANTIC = Set.of("negative", "positive");
+    static final Set<String> SEMANTIC = Set.of("negative", "positive", "inkMuted");
 
     private ThemePalette() {
     }

@@ -181,4 +181,36 @@ class ThemePaletteTest {
         assertThat(m.negative()).isEqualTo(d.negative());
         assertThat(m.positive()).isEqualTo(d.positive());
     }
+
+    @Test
+    void theDefaultMutedInk_isAdjustedToAaOnTheThemesSurfaces_andKeptWhereItPasses() {
+        final Theme grey = Theme.EMPTY.withColors(ThemeColors.from(r -> switch (r) {
+            case "surface" -> c("#bdbdbd", "#3a3a3a");
+            case "surfaceRaised" -> c("#d0d0d0", "#4a4a4a");
+            case "ink" -> c("#111111", "#ffffff");
+            default -> null;
+        }));
+        final ThemeColors d = ThemeDefaults.THEME.colors();
+        assertThat(ThemeColorMath.contrast(d.inkMuted().light(), "#bdbdbd")).isLessThan(4.5);
+        final ThemeColor muted = resolve(grey).colors().inkMuted();
+        for (final String[] pair : new String[][] {{muted.light(), "#bdbdbd"}, {muted.light(), "#d0d0d0"},
+                {muted.dark(), "#3a3a3a"}, {muted.dark(), "#4a4a4a"}}) {
+            assertThat(ThemeColorMath.contrast(pair[0], pair[1])).as(pair[0] + " on " + pair[1]).isGreaterThanOrEqualTo(4.5);
+        }
+        final ThemeColors m = resolve(Theme.EMPTY.withColors(ThemeColors.from(r -> r.equals("primary")
+                ? c("#1f4d47", null) : null))).colors();
+        assertThat(m.inkMuted()).isEqualTo(d.inkMuted());
+    }
+
+    @Test
+    void aDerivedDarkMutedInk_passesOnBothDarkSurfaces() {
+        final Theme t = Theme.EMPTY.withColors(ThemeColors.from(r -> switch (r) {
+            case "inkMuted" -> c("#6b7280", null);
+            case "surfaceRaised" -> c("#ffffff", "#2e3440");
+            default -> null;
+        }));
+        final ThemeColors out = resolve(t).colors();
+        assertThat(ThemeColorMath.contrast(out.inkMuted().dark(), out.surface().dark())).isGreaterThanOrEqualTo(4.5);
+        assertThat(ThemeColorMath.contrast(out.inkMuted().dark(), "#2e3440")).isGreaterThanOrEqualTo(4.5);
+    }
 }

@@ -38,6 +38,11 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   context, else the realm's display name, else the id; `{{realmId}}` keeps the id. The registration and reset emails
   no longer say "HelixIAM" for a realm without a display name; they use its id.
 
+- **Item 7a** — The theme validator checks muted text: `inkMuted` on `surface` and on `surfaceRaised`, light and
+  dark, at least 4.5:1 (`contrast.inkMutedOnSurface.*`, `contrast.inkMutedOnSurfaceRaised.*`, same message format).
+  So that themes which leave `inkMuted` unset keep passing, the palette adjusts HelixIAM's muted ink to the theme's
+  surfaces when needed, and a derived dark `inkMuted` now also reaches 4.5:1 on the dark raised surface.
+
 ## Next release (after `v1.0.0-rc.4`)
 
 Open issues found when Monthfold moved its production sign-in to rc.4

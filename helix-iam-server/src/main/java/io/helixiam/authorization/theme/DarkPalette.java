@@ -45,6 +45,10 @@ public final class DarkPalette {
             if (against != null) {
                 dark = ThemeColorMath.ensureContrast(dark, against, ThemeColorMath.AA_TEXT);
             }
+            if ("inkMuted".equals(role)) {
+                // Item 7a: muted text also sits on cards and fields (the raised surface, lighter in dark mode).
+                dark = ThemeColorMath.ensureContrast(dark, out.get("surfaceRaised").dark(), ThemeColorMath.AA_TEXT);
+            }
             out.put(role, new ThemeColor(c.light(), dark));
         }
         return merged.withColors(ThemeColors.from(out::get));

@@ -157,8 +157,9 @@ Rules:
   - `surfaceSunken`: 4 % ink in surface (dark: surface darkened by 30 %).
   - `primaryStrong`: `primary` 18 % darker (light) / 20 % lighter (dark), adjusted until the text on it
     (`surfaceRaised`) and its use as a link on `surface` reach 4.5:1.
-- `negative` and `positive` keep HelixIAM's red and green when unset, but their lightness is adjusted until they reach
-  4.5:1 on your `surface` and `surfaceRaised`.
+- `negative` and `positive` keep HelixIAM's red and green when unset, and `inkMuted` HelixIAM's muted ink, but their
+  lightness is adjusted until they reach 4.5:1 on your `surface` and `surfaceRaised`. A derived dark `inkMuted` reaches
+  4.5:1 on both dark surfaces too. An `inkMuted` you set is never adjusted.
 - The split layout's **brand panel** has no colour field of its own. It is derived (see `--hx-brand-*` in the
   [variables contract](#4-css-variables-contract-v1)): in light mode it inverts the page (ground `ink`, text
   `surface`); in dark mode the ground is 14 % of the dark `primary` in the dark `surfaceSunken`, with `ink` text.
@@ -172,6 +173,8 @@ plus the new layer, with dark values derived). Each pair needs at least 4.5:1:
 |---|---|---|---|
 | `contrast.inkOnSurface.light` / `.dark` | `ink` | `surface` | `ink` or `surface` |
 | `contrast.textOnPrimary.light` / `.dark` | `surfaceRaised` | `primary` | `surfaceRaised` or `primary` |
+| `contrast.inkMutedOnSurface.light` / `.dark` | `inkMuted` | `surface` | `inkMuted` or `surface` |
+| `contrast.inkMutedOnSurfaceRaised.light` / `.dark` | `inkMuted` | `surfaceRaised` | `inkMuted` or `surfaceRaised` |
 | `contrast.brandPanel.dark` | `ink` (dark) | the dark brand-panel ground | `ink`, `surface`, `surfaceSunken` or `primary` |
 
 A pair is only checked when the layer you save sets one of its colours, so a layer that only changes the logo is
@@ -186,6 +189,9 @@ never blamed for the colours below it. A failure is a `400`, not a warning. The 
   }
 }
 ```
+
+The muted-text messages read `Muted text on surface (light): inkMuted #9a9a9a on surface #f6f1e9 has a contrast of
+2.5:1; WCAG AA needs at least 4.5:1.` and `Muted text on raised surface (light): inkMuted … on surfaceRaised …`.
 
 The brand-panel message reads `Brand panel text (dark): ink.dark #…… on the brand panel ground #…… has a contrast of
 N:1; WCAG AA needs at least 4.5:1.`
@@ -1014,7 +1020,7 @@ before upgrading if you may need to roll back with branding intact.
 - **The brand panel has no colour field.** It is derived from `ink`, `surface`, `surfaceSunken` and `primary`.
 - **`negative` and `positive` keep HelixIAM's hue** when unset (only their lightness is adjusted for contrast); set
   them if red and green do not suit your brand.
-- **Contrast checks** cover the three pairs listed above. An organization layer is not re-checked when the realm's
+- **Contrast checks** cover the five pairs listed above. An organization layer is not re-checked when the realm's
   colours change later.
 - **Identity-provider logo origins** are added to `img-src` from the global provider registry, not only from the
   current realm's providers.
@@ -1031,8 +1037,8 @@ The design spec is `docs/superpowers/specs/2026-09-27-structured-theming.md`. Th
 this page documents the code:
 
 - **Links** are a separate `links` group (`links.privacyUrl`, `termsUrl`, `supportUrl`), not part of `texts`.
-- **Contrast failures are errors (`400`)**, not warnings. Only pairs the saved layer touches are checked, and a third
-  pair (`contrast.brandPanel.dark`) is checked.
+- **Contrast failures are errors (`400`)**, not warnings. Only pairs the saved layer touches are checked, and three
+  more pairs are checked: `contrast.brandPanel.dark` and muted text (`inkMuted`) on `surface` and on `surfaceRaised`.
 - **Built-in fonts** also include `helix-sans` (the bundled Work Sans, the default).
 - **Custom CSS** is realm-only, and stricter than the spec's list: no escapes, comments or control characters, and no
   `image-set()`, `image()`, `cross-fade()` or `src()`. The `url()` allowlist is the operator setting only; theme asset
