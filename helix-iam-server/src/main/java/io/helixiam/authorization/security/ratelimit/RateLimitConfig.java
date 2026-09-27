@@ -54,6 +54,7 @@ public class RateLimitConfig {
         final Map<String, RateLimiter> limiters = new LinkedHashMap<>();
         limiters.put("/login", loginLimiter);
         limiters.put("/flow", loginLimiter);
+        limiters.put("/mfa", loginLimiter); // TOTP, enrolment and recovery-code submits
         limiters.put("/register", loginLimiter);
         limiters.put("/reset/password", loginLimiter);
         limiters.put("/oauth2/token", tokenLimiter);

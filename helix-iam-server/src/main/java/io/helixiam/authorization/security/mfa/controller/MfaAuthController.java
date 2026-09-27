@@ -42,6 +42,10 @@ import java.util.List;
 public class MfaAuthController {
     private static final String REDIRECT_PREFIX = "redirect:";
     static final String PENDING_SECRET = "HELIX_MFA_PENDING_SECRET";
+    static final String FAILURES = "HELIX_MFA_FAILURES";
+    /** Wrong second-factor codes allowed in one sign-in; the next one ends it (the password is needed again). */
+    static final int MAX_FAILURES_PER_SIGN_IN = 5;
+    private static final String LOCKED_REDIRECT = "redirect:/login?error=mfaLocked";
     private final QrCode qrCode;
     private final MfaService mfaService;
     private final TotpService totp;
@@ -51,6 +55,10 @@ public class MfaAuthController {
     private final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier;
     @Autowired(required = false)
     private io.helixiam.authorization.controller.BrandingSupport brandingSupport;
+    @Autowired(required = false)
+    private io.helixiam.authorization.service.security.LoginFailureService loginFailures;
+    @Autowired(required = false)
+    private io.helixiam.authorization.repository.realm.RealmConfigRepository realmConfigs;
     // SSO P1: after the second factor promotes the session, resume the originating /oauth2/authorize.
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
@@ -108,6 +116,9 @@ public class MfaAuthController {
         }
         final String secret = (String) request.getSession(true).getAttribute(PENDING_SECRET);
         if (secret == null || !totp.confirmEnrolment(user.getUsername(), secret, code)) {
+            if (failed(user, request)) {
+                return LOCKED_REDIRECT;
+            }
             model.addAttribute("error", "true");
             return requestEnableMfaFactor(user, model, request);
         }
@@ -136,7 +147,13 @@ public class MfaAuthController {
     @PostMapping(path = "/mfa/totp")
     public String processTotp(@RequestParam final String code, @AuthenticationPrincipal final UserCredentials user, final Model model,
                               final HttpServletRequest request, final HttpServletResponse response) {
+        if (lockedOut(user)) {
+            return endSignIn(request);
+        }
         if (!totp.verify(user.getUsername(), code)) {
+            if (failed(user, request)) {
+                return LOCKED_REDIRECT;
+            }
             model.addAttribute("error", "true");
             return requestTotp(model);
         }
@@ -146,11 +163,56 @@ public class MfaAuthController {
     @PostMapping(path = "/mfa/recovery")
     public String processRecoveryCode(@RequestParam final String recoveryCode, @AuthenticationPrincipal final UserCredentials user,
                                       final Model model, final HttpServletRequest request, final HttpServletResponse response) {
+        if (lockedOut(user)) {
+            return endSignIn(request);
+        }
         if (!Boolean.TRUE.equals(recoveryCodes.verifyAndConsume(new RecoveryCodeVerification(user.getUsername(), recoveryCode)))) {
+            if (failed(user, request)) {
+                return LOCKED_REDIRECT;
+            }
             model.addAttribute("recoveryError", "true");
             return requestTotp(model);
         }
         return complete(user, request, response);
+    }
+
+    /**
+     * A wrong second-factor code. It counts toward the realm's account lockout (like a wrong password) and toward
+     * this sign-in's cap; at the cap — or when the account is now locked — the sign-in ends. True = ended.
+     */
+    private boolean failed(final UserCredentials user, final HttpServletRequest request) {
+        final jakarta.servlet.http.HttpSession session = request.getSession(true);
+        final Integer previous = (Integer) session.getAttribute(FAILURES);
+        final int failures = (previous == null ? 0 : previous) + 1;
+        session.setAttribute(FAILURES, failures);
+        boolean locked = false;
+        if (loginFailures != null && realmConfigs != null) {
+            final var realm = realmConfigs.findById(RealmContextHolder.get()).orElse(null);
+            locked = realm != null && loginFailures.recordFailure(realm, user.getUsername());
+        }
+        if (failures >= MAX_FAILURES_PER_SIGN_IN || locked) {
+            endSignIn(request);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean lockedOut(final UserCredentials user) {
+        if (loginFailures == null || realmConfigs == null) {
+            return false;
+        }
+        return realmConfigs.findById(RealmContextHolder.get())
+                .map(realm -> loginFailures.isLockedOut(realm, user.getUsername())).orElse(false);
+    }
+
+    /** Throws away this sign-in (session and authentication): the user starts again with their password. */
+    private String endSignIn(final HttpServletRequest request) {
+        final jakarta.servlet.http.HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        return LOCKED_REDIRECT;
     }
 
     /** Second factor passed: restore the full authentication, mark the session, resume the authorize request. */

@@ -96,6 +96,11 @@
                  th:text="#{login.error.tooManySessions}">
                 You have too many active sessions. Sign out of another device and try again.
             </div>
+            <div class="alert error"
+                 th:if="${param.error != null && #strings.toString(param.error).equals('mfaLocked')}"
+                 th:text="#{login.error.mfaLocked}">
+                You have too many active sessions. Sign out of another device and try again.
+            </div>
 
             <div class="alert success"
                  th:if="${param.info != null && #strings.toString(param.info).equals('verified')}"
@@ -104,7 +109,7 @@
             </div>
 
             <form th:action="@{/login}" method="post" role="form" id="loginForm"
-                  th:classappend="${param.error != null && ! #strings.toString(param.error).equals('accountLocked') && ! #strings.toString(param.error).equals('tooManySessions') ? 'invalid' : 'valid'}">
+                  th:classappend="${param.error != null && ! #strings.toString(param.error).equals('accountLocked') && ! #strings.toString(param.error).equals('tooManySessions') && ! #strings.toString(param.error).equals('mfaLocked') ? 'invalid' : 'valid'}">
                 <label for="username" th:text="#{login.username.label}">Email Address</label>
                 <input type="text" id="username" name="username" autocomplete="username"/>
                 <span class="error" th:text="#{login.username.error}">Provide your email address</span>

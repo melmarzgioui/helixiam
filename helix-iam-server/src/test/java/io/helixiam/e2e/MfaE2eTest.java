@@ -176,6 +176,55 @@ class MfaE2eTest extends AbstractE2eTest {
         assertThat(gated.status()).as(gated.toString()).isIn(401, 403);
     }
 
+    @Test
+    void wrongSecondFactorCodes_areCappedPerSignIn_thenThePasswordIsNeededAgain() {
+        final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("brute"), PASSWORD);
+        final String secret = enrol(user);
+
+        final E2eHttp http = newBrowser();
+        final AtomicReference<E2eHttp.Response> totpPage = new AtomicReference<>();
+        try {
+            new OidcFlow(http, realm).authorize("web", web.redirectUri(), user.username(), PASSWORD, "openid",
+                    page -> { totpPage.set(page); throw new StopAtPage(); });
+        } catch (final StopAtPage expected) {
+            // the second-factor page is reached; we drive it by hand below
+        }
+        E2eHttp.Response page = totpPage.get();
+        assertThat(page.uri().getPath()).endsWith("/mfa/totp");
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            page = submit(http, page, "code", "000000");
+            assertThat(page.status()).as("attempt %d stays on the TOTP page", attempt).isEqualTo(200);
+        }
+        // A wrong recovery code counts too; the 5th failure ends this sign-in.
+        final E2eHttp.Response fifth = submit(http, page, "recoveryCode", "AAAA-AAAA");
+        assertThat(fifth.isRedirect()).as(fifth.toString()).isTrue();
+        assertThat(fifth.location().toString()).contains("/realms/" + realm + "/login").contains("error=mfaLocked");
+
+        // Even the right code no longer works in that session: the password is needed again.
+        final Map<String, String> fields = new LinkedHashMap<>(E2eHttp.hiddenInputs(E2eHttp.form(page.body(), "name=\"code\"").orElseThrow()));
+        fields.put("code", totp(secret, 30_000));
+        final E2eHttp.Response late = http.postForm("/realms/" + realm + "/mfa/totp", fields);
+        assertThat(late.isRedirect() && late.location().toString().contains("/oauth2/authorize")).as(late.toString()).isFalse();
+    }
+
+    /** Enrols TOTP for {@code user} through a real sign-in; returns the secret. */
+    private String enrol(final E2eSeed.SeededUser user) {
+        final E2eHttp http = newBrowser();
+        final AtomicReference<String> secret = new AtomicReference<>();
+        new OidcFlow(http, realm).authorize("web", web.redirectUri(), user.username(), PASSWORD, "openid", page -> {
+            final Matcher s = SECRET.matcher(page.body());
+            assertThat(s.find()).isTrue();
+            secret.set(s.group(1));
+            final E2eHttp.Response codes = http.followRedirects(submit(http, page, "code", totp(secret.get(), 0)));
+            return http.get(Pattern.compile("href=\"([^\"]*oauth2/authorize[^\"]*)\"").matcher(codes.body())
+                    .results().findFirst().map(m -> m.group(1).replace("&amp;", "&")).orElseThrow());
+        });
+        return secret.get();
+    }
+
+    private static final class StopAtPage extends RuntimeException {
+    }
+
     /** Submits the page's form containing {@code field} with that value (plus its hidden inputs). */
     private static E2eHttp.Response submit(final E2eHttp http, final E2eHttp.Response page, final String field, final String value) {
         final String marker = "value=\"skip\"".equals(value) ? "value=\"skip\"" : "name=\"" + field + "\"";
