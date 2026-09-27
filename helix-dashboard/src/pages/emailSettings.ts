@@ -341,6 +341,8 @@ export type TestTone = "success" | "info" | "warning" | "danger";
 
 /** A test result ready to render: i18n keys for title/reason/guidance, the server's own text as data. */
 export interface TestResultView {
+  /** True when the provider accepted or queued the email. */
+  ok: boolean;
   tone: TestTone;
   title: string;
   reason?: string;
@@ -384,6 +386,7 @@ export function describeTestResult(r: TestResult, driver: EmailDriver): TestResu
   const status = r.result && STATUS_TONE[r.result] ? r.result : undefined;
   if (!status) {
     return {
+      ok: r.sent,
       tone: r.sent ? "success" : "danger",
       title: r.sent ? "email.test.sent" : "email.test.notSent",
       message: r.message,
@@ -391,13 +394,38 @@ export function describeTestResult(r: TestResult, driver: EmailDriver): TestResu
     };
   }
   const reason = r.reason && REASONS.includes(r.reason) ? r.reason : undefined;
+  // Refused credentials or unusable settings are not "temporary": nothing changes until the settings do.
+  const settingsProblem = !r.sent && (reason === "AUTHENTICATION" || reason === "CONFIGURATION");
   return {
-    tone: STATUS_TONE[status],
-    title: `email.test.status.${status}`,
+    ok: status === "ACCEPTED" || status === "QUEUED",
+    tone: settingsProblem ? "danger" : STATUS_TONE[status],
+    title: settingsProblem ? "email.test.status.SETTINGS" : `email.test.status.${status}`,
     reason: reason ? `email.test.reason.${reason}` : undefined,
     guidance: guidanceFor(driver, reason, r.diagnostic),
     message: r.message,
     diagnostic: r.diagnostic || undefined,
     providerMessageId: r.providerMessageId || undefined,
   };
+}
+
+/**
+ * Whether a saved provider can be test-sent at all. Returns null when it can, or an i18n key: a Cloudflare provider
+ * without a stored API token can't send anything, so the page says so instead of letting the test fail.
+ */
+export function testBlocked(existing: MessagingProvider | undefined): string | null {
+  if (!existing) return "email.test.needSave";
+  if (existing.driver === "CLOUDFLARE" && !existing.secretSet) return "email.test.needToken";
+  return null;
+}
+
+/**
+ * How a test result relates to the settings on screen. `savedVersion` changes whenever the provider is saved, its
+ * secret removed, or another driver selected; a result taken at an older version is no longer shown. While the form
+ * has unsaved changes a current result is shown as stale: it describes the saved settings, not the ones on screen.
+ */
+export type TestResultState = "current" | "stale" | "cleared";
+
+export function testResultState(resultVersion: number, savedVersion: number, dirty: boolean): TestResultState {
+  if (resultVersion !== savedVersion) return "cleared";
+  return dirty ? "stale" : "current";
 }

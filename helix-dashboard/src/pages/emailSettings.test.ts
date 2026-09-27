@@ -16,6 +16,8 @@ import {
   clearSecretBlocked,
   clearSecretWrite,
   validateSendLimit,
+  testBlocked,
+  testResultState,
   resolveTlsMode,
   setPort,
   setTlsMode,
@@ -354,6 +356,26 @@ describe("describeTestResult", () => {
     expect(d("TRANSIENT_FAILURE", false)).toMatchObject({ tone: "warning", title: "email.test.status.TRANSIENT_FAILURE" });
   });
 
+  it("marks accepted and queued as ok, failures as not ok", () => {
+    const ok = (result: string, sent: boolean) => describeTestResult({ sent, message: "", result, reason: "NONE" }, "SMTP").ok;
+    expect(ok("ACCEPTED", true)).toBe(true);
+    expect(ok("QUEUED", true)).toBe(true);
+    expect(ok("PERMANENT_FAILURE", false)).toBe(false);
+    expect(ok("TRANSIENT_FAILURE", false)).toBe(false);
+    expect(describeTestResult({ sent: false, message: "No enabled EMAIL provider for this realm." }, "SMTP").ok).toBe(false);
+  });
+
+  it("calls refused credentials and unusable settings a settings problem, not a temporary failure", () => {
+    for (const reason of ["AUTHENTICATION", "CONFIGURATION"]) {
+      for (const result of ["TRANSIENT_FAILURE", "PERMANENT_FAILURE"]) {
+        expect(describeTestResult({ sent: false, message: "", result, reason }, "CLOUDFLARE")).toMatchObject({ tone: "danger", title: "email.test.status.SETTINGS" });
+      }
+    }
+    for (const reason of ["RATE_LIMITED", "RATE_CAPPED", "NETWORK"]) {
+      expect(describeTestResult({ sent: false, message: "", result: "TRANSIENT_FAILURE", reason }, "SMTP")).toMatchObject({ tone: "warning", title: "email.test.status.TRANSIENT_FAILURE" });
+    }
+  });
+
   it("gives Cloudflare token and domain guidance on authentication failures", () => {
     const d = describeTestResult({ sent: false, message: "Test email not delivered.", result: "TRANSIENT_FAILURE", reason: "AUTHENTICATION", diagnostic: "HTTP 403: 10000 Authentication error" }, "CLOUDFLARE");
     expect(d.reason).toBe("email.test.reason.AUTHENTICATION");
@@ -463,7 +485,7 @@ describe("describeTestResult for a chosen provider that is not configured", () =
 describe("describeTestResult for HelixIAM's own send rate cap", () => {
   it("explains the cap instead of blaming the provider", () => {
     const d = describeTestResult({ sent: false, message: "Test email not delivered.", result: "TRANSIENT_FAILURE", reason: "RATE_CAPPED", diagnostic: "The realm's send rate cap (60 emails per minute) is reached" }, "SMTP");
-    expect(d).toMatchObject({ tone: "warning", reason: "email.test.reason.RATE_CAPPED", guidance: "email.test.guide.rateCapped" });
+    expect(d).toMatchObject({ tone: "warning", title: "email.test.status.TRANSIENT_FAILURE", reason: "email.test.reason.RATE_CAPPED", guidance: "email.test.guide.rateCapped" });
   });
 });
 
@@ -472,5 +494,31 @@ describe("describeTestResult for unusable settings", () => {
     const d = describeTestResult({ sent: false, message: "", result: "PERMANENT_FAILURE", reason: "CONFIGURATION", diagnostic: "The Cloudflare provider has no API token" }, "CLOUDFLARE");
     expect(d.guidance).toBe("email.test.guide.cloudflareConfiguration");
     expect(describeTestResult({ sent: false, message: "", result: "PERMANENT_FAILURE", reason: "CONFIGURATION" }, "SMTP").guidance).toBe("email.test.guide.configuration");
+  });
+});
+
+describe("testBlocked (can this saved provider be test-sent?)", () => {
+  it("needs a saved provider", () => {
+    expect(testBlocked(undefined)).toBe("email.test.needSave");
+  });
+  it("needs the Cloudflare API token, which is what the 'has no API token' failure means", () => {
+    expect(testBlocked(provider({ driver: "CLOUDFLARE", secretSet: false, enabled: false }))).toBe("email.test.needToken");
+    expect(testBlocked(provider({ driver: "CLOUDFLARE", secretSet: true, enabled: false }))).toBeNull();
+  });
+  it("lets SMTP, HTTP and LOG test without a secret (sign-in is optional)", () => {
+    for (const driver of ["SMTP", "HTTP", "LOG"]) expect(testBlocked(provider({ driver, secretSet: false }))).toBeNull();
+  });
+});
+
+describe("testResultState (B1: a test result must never describe other settings)", () => {
+  it("shows a result taken at the current saved version", () => {
+    expect(testResultState(3, 3, false)).toBe("current");
+  });
+  it("clears it once the provider is saved again, its secret removed, or the driver changed (the version moves on)", () => {
+    expect(testResultState(3, 4, false)).toBe("cleared");
+    expect(testResultState(3, 4, true)).toBe("cleared");
+  });
+  it("marks it stale while the form has unsaved changes", () => {
+    expect(testResultState(3, 3, true)).toBe("stale");
   });
 });
