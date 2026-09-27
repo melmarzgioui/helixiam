@@ -385,6 +385,17 @@
             <version>1.21.4</version>
             <scope>test</scope>
         </dependency>
+        <!-- Real-browser e2e harness (io.helixiam.e2e.browser): Playwright drives a headless Chromium that it
+             downloads on first use (~/.cache/ms-playwright or ~/Library/Caches/ms-playwright), for macOS arm64
+             and Linux x86-64/arm64 alike, so the browser runs on the host next to the embedded IdP and the test
+             relying party: no container, no host-port exposure, one issuer for browser, RP back-channel and
+             token validation. -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>1.63.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
