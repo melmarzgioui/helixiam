@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.theme.asset;
 
+import io.helixiam.authorization.theme.RealmThemeLock;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -14,12 +16,13 @@ import java.util.Optional;
  * storage implementation can replace it later. Every lookup is scoped to a realm: an id of another realm is
  * "not found". Metadata reads never load the bytes.
  */
-public interface ThemeAssetStore {
+public interface ThemeAssetStore extends RealmThemeLock {
 
     /**
-     * Serialises asset writes of one realm for the rest of the current transaction, so the per-realm count limits
-     * hold under concurrent uploads.
+     * Serialises asset and theme writes of one realm for the rest of the current transaction, so the per-realm count
+     * limits hold under concurrent uploads and a theme is never validated against an asset being deleted.
      */
+    @Override
     void lockRealm(String realmId);
 
     /** Stores a new asset (its id is new). */

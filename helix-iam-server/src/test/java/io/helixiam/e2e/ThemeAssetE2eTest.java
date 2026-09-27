@@ -291,6 +291,38 @@ class ThemeAssetE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void reviewM1_aThemeSaveWaitsForAConcurrentAssetDelete_andThenRefusesTheDanglingReference() throws Exception {
+        final JsonNode logo = uploadImage(admin, realm, "logo.png", "image/png", AssetFixtures.png()).json();
+        final var store = context.getBean(io.helixiam.authorization.theme.asset.ThemeAssetStore.class);
+        final var themes = context.getBean(io.helixiam.authorization.theme.ThemeService.class);
+        final var tx = context.getBean(org.springframework.transaction.support.TransactionTemplate.class);
+        final java.util.concurrent.CountDownLatch locked = new java.util.concurrent.CountDownLatch(1);
+        final Thread deleter = new Thread(() -> tx.executeWithoutResult(s -> {
+            // What ThemeAssetService.delete does: lock the realm, check references (none yet), delete, commit later.
+            store.lockRealm(realm);
+            store.delete(realm, logo.path("id").asText());
+            locked.countDown();
+            try {
+                Thread.sleep(1500);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        deleter.start();
+        assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        final long start = System.nanoTime();
+        final io.helixiam.authorization.theme.Theme theme = io.helixiam.authorization.theme.Theme.EMPTY.withAssets(
+                new io.helixiam.authorization.theme.ThemeAssets(logo.path("url").asText(), null, null, null));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> themes.saveRealmTheme(realm, theme))
+                .as("validated only after the delete committed")
+                .isInstanceOf(io.helixiam.authorization.theme.ThemeValidationException.class);
+        assertThat((System.nanoTime() - start) / 1_000_000).as("the save waited for the lock").isGreaterThan(800);
+        deleter.join();
+        assertThat(admin.get("/admin/realms/" + realm + "/theme").json().path("assets").has("logoUrl")).isFalse();
+    }
+
+    @Test
     void assetsNeedManageRealm() {
         final E2eAdminSession orgOnly = scopedAdmin("manage-organizations");
         final E2eAdminSession realmOnly = scopedAdmin("manage-realm");

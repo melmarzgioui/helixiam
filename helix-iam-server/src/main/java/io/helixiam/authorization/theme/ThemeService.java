@@ -91,6 +91,14 @@ public class ThemeService {
         this.allowedImageOrigins = parseOrigins(allowedImageOrigins);
     }
 
+    private RealmThemeLock realmLock = RealmThemeLock.NONE;
+
+    /** Review M1: every save locks the realm (shared with asset uploads/deletions) before it validates. */
+    @Autowired(required = false)
+    public void setRealmThemeLock(final RealmThemeLock lock) {
+        this.realmLock = lock == null ? RealmThemeLock.NONE : lock;
+    }
+
     /** Parses the configured origin allowlist (invalid entries are ignored with a warning). */
     public static Set<String> parseOrigins(final String csv) {
         final Set<String> out = new LinkedHashSet<>();
@@ -246,6 +254,7 @@ public class ThemeService {
     /** Validates and stores the realm's layer (replacing it). */
     @Transactional
     public ThemeChange saveRealmTheme(final String realmId, final Theme theme) {
+        realmLock.lockRealm(realmId);
         final Theme candidate = ThemeNormalizer.normalize(theme);
         final Map<String, String> errors = validator().validate(realmId, ThemeValidator.Scope.REALM, candidate,
                 ThemeMerger.merge(belowRealm(realmId)));
@@ -262,6 +271,7 @@ public class ThemeService {
         if (org.isEmpty()) {
             return Optional.empty();
         }
+        realmLock.lockRealm(realmId);
         final Theme candidate = ThemeNormalizer.normalize(theme);
         final Map<String, String> errors = validator().validate(realmId, ThemeValidator.Scope.ORGANIZATION, candidate,
                 belowOrganization(realmId));
@@ -284,6 +294,7 @@ public class ThemeService {
         if (org.isEmpty()) {
             return Optional.empty();
         }
+        realmLock.lockRealm(realmId);
         final Theme stored = storedOrganizationTheme(org.get().getOrgId());
         final Theme patched = ThemeNormalizer.normalize(patch.apply(stored));
         final Theme delta = ThemeDiff.delta(stored, patched);
@@ -335,6 +346,7 @@ public class ThemeService {
      */
     @Transactional
     public void applyLegacyBranding(final String realmId, final LegacyBranding legacy) {
+        realmLock.lockRealm(realmId); // before reading: the settings save already holds this row, so it is cheap
         final Theme stored = realmTheme(realmId);
         final LegacyBranding incoming = keepUnservedCss(realmId, stored, legacy);
         if (incoming.equals(LegacyBranding.of(stored))) {
