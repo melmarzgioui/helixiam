@@ -400,6 +400,9 @@ public class SecurityConfig {
                             io.helixiam.authorization.security.audit.AuditContext.clientIp(req), "FAILURE",
                             java.util.Map.of("reason", ex.getClass().getSimpleName())));
                     helixMetrics.recordLogin(io.helixiam.authorization.security.realm.RealmContextHolder.get(), "failure");
+                    // The login page shows the username that was typed again (once; kept in the session, not the URL),
+                    // so only the password has to be re-entered.
+                    io.helixiam.authorization.controller.LoginFlash.username(req, req.getParameter("username"));
                     // Context-relative so the redirect stays under the realm's virtual context path
                     // (/realms/{realm}/login); a bare "/login" would be container-root-relative.
                     if(ex instanceof LockedException) {

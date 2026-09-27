@@ -60,7 +60,7 @@
                        th:attr="aria-invalid=${badCredentials} ? 'true' : null, aria-describedby=${badCredentials} ? 'credentials-error' : null"/>
 
                 <label for="password" th:text="#{login.password.label}">Password</label>
-                <input type="password" id="password" name="password" autocomplete="current-password"
+                <input type="password" id="password" name="password" autocomplete="current-password" th:autofocus="${prefillUsername != null}"
                        th:attr="aria-invalid=${badCredentials} ? 'true' : null, aria-describedby=${badCredentials} ? 'credentials-error' : null"/>
 
                 <!--/* Auth-hardening (feature 5): CAPTCHA widget (renders only when the realm enables it). */-->

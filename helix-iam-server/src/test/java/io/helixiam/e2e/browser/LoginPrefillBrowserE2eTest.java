@@ -42,4 +42,30 @@ class LoginPrefillBrowserE2eTest extends AbstractBrowserE2eTest {
         startSignInAtRp(realm.web(), Map.of("login_hint", "joe\u0000@monthfold.test"));
         assertThat(page().locator("#username").inputValue()).isEmpty();
     }
+
+    @Test
+    void afterAFailedSignIn_theUsernameIsStillFilledIn_andThePasswordIsNot() {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe") + "@monthfold.test", PASSWORD);
+
+        startSignInAtRp(realm.web());
+        signInWithPassword(joe.username(), "not-the-password");
+
+        assertOnIdpPath("/login");
+        assertThat(page().url()).as("the username is not put in the URL").doesNotContain("monthfold.test");
+        assertThat(page().locator("#credentials-error").isVisible()).isTrue();
+        assertThat(page().locator("#username").inputValue()).isEqualTo(joe.username());
+        assertThat(page().locator("#password").inputValue()).isEmpty();
+
+        // Only once: a fresh visit of the login page starts empty again.
+        page().navigate(baseUrl() + realm.path() + "/login");
+        assertThat(page().locator("#username").inputValue()).isEmpty();
+
+        // And the retry completes the pending sign-in.
+        startSignInAtRp(realm.web());
+        signInWithPassword(joe.username(), "not-the-password");
+        page().locator("#password").fill(PASSWORD);
+        submit(page().locator("#loginForm button[type=submit]"));
+        assertThat(assertLandedOnRpCallback().subject()).isEqualTo(joe.userId());
+    }
 }
