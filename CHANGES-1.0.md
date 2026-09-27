@@ -3,6 +3,28 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.4`)
+
+Open issues found when Monthfold moved its production sign-in to rc.4
+(`docs/superpowers/specs/2026-09-27-monthfold-open-issues.md`).
+
+- **A2** — `296aa4e` `prompt=login` no longer loops. The prompt filter used to clear the session again on the saved
+  authorize request that the login resumes, so the user was sent back to `/login` forever. It now notes when the
+  prompt was first seen and lets the resumed request through once the session's `auth_time` is at or after that moment.
+- **A3** — `2b2d99a` ID tokens carry `auth_time` (time of the last interactive sign-in, epoch seconds) and `sid` (the
+  browser SSO session), on the code exchange and on every refresh. The code is bound to the session when it is issued,
+  so refresh and silent SSO don't move `auth_time`, and `sid` is the same for every client of one sign-in.
+- **A4** — `6792b05` RP-initiated logout ends the SSO session named by the `id_token_hint`'s `sid` (it looked it up by
+  `sub`, found nothing, and sent no back-channel logout) and notifies every client of that session. It no longer
+  touches the user's other browser sessions. All authorizations of the session are removed, including older ones of a
+  client that signed in twice in it.
+- **A5 — security** — `4ef14f2` Back-channel logout tokens are signed with the key of the session's realm and carry
+  its issuer. A session revoked by an admin (an `/admin/**` request) used to be announced with tokens signed by the
+  master realm's key, which every relying party validating against its realm JWKS rejected, so the RP never logged out.
+- **A9 — security** — `2414be0` Logout tokens expire after 120 s (`HELIX_LOGOUT_TOKEN_TTL_SECONDS`, 1–600) and every
+  token has its own `jti`. `docs/oidc-sessions-and-logout.md` tells relying parties how to validate a logout token,
+  including rejecting a `jti` they have already seen until its `exp`.
+
 ## Code scanning and dependencies (after `v1.0.0-rc.4`)
 
 First CodeQL, Trivy and Dependabot results on `master` (the workflows had been listening on `main`).
