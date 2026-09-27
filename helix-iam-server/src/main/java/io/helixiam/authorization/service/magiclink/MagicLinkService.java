@@ -96,7 +96,7 @@ public class MagicLinkService {
 
     /**
      * Emails a sign-in link to {@code email} if it belongs to an active account of the realm and the limits allow.
-     * {@code linkBase} is the realm's external base, e.g. {@code https://idp.example.com/realms/monthfold}.
+     * {@code linkBase} is the realm's external base, e.g. {@code https://idp.example.com/realms/acme}.
      */
     @Transactional // the pool runs with auto-commit off: without a transaction the insert is rolled back
     public void request(final String realmId, final String email, final String clientIp, final String linkBase) {
