@@ -142,6 +142,13 @@ Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthf
   creation) and becomes the email's `expiresAt`, so a reset email is never retried after its code died. The other
   emailed codes and links were checked and already expire and work once: the email OTP (5 minutes, attempt-limited),
   the magic link, the verification link and the email-change link.
+- **security** — Emailed reset and sign-up codes are stored hashed: `notification_code.code` holds the hex
+  SHA-256 of the code, like the magic-link tokens, and the plain code exists only in the email. Lookup and the atomic
+  single-use consume go by the hash. The codes are random UUIDs (122 bits), so a plain hash is enough (no salt or slow
+  KDF), and a database dump no longer hands out working reset links. Every request now issues a new code (a pending
+  one cannot be re-sent, as its plain value is not kept); the new link replaces the older one.
+  **Upgrade note:** Flyway `V74` (and `schema.sql`, idempotently) hashes the codes pending at the upgrade in place, so
+  links already sent keep working until they expire; nobody has to request a new one.
 - **Test a chosen provider** — `492d221` `POST /admin/realms/{r}/messaging/providers/{channel}/test` takes an optional
   `driver`: it tests the realm's provider with that driver even when it is disabled (to check it before switching),
   and without it the active provider as before. The answer now also names the tested `driver` (EMAIL). An unknown

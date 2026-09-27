@@ -1069,3 +1069,6 @@ ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email_bounced_at bigint;
 ALTER TABLE user_credentials ADD COLUMN IF NOT EXISTS email_bounced_address character varying(255);
 -- Security (same as Flyway V73): emailed one-time codes (password reset, sign-up verification) expire.
 ALTER TABLE notification_code ADD COLUMN IF NOT EXISTS expires_at timestamp;
+-- Security (same as Flyway V74): emailed one-time codes are stored as their hex SHA-256; pending plain codes are hashed
+-- in place (idempotent: a 64-hex value is already a hash).
+UPDATE notification_code SET code = encode(sha256(convert_to(code, 'UTF8')), 'hex') WHERE code !~ '^[0-9a-f]{64}$';

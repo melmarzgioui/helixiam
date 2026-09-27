@@ -158,7 +158,7 @@ public class UserService {
             return false;
         }
         final java.util.Optional<io.helixiam.notification.domain.NotificationCode> found =
-                notificationCodeRepository.findByCodeAndType(code.trim(), "USER_RESET_PASSWORD");
+                notificationCodeRepository.findByCodeAndType(io.helixiam.notification.NotificationCodePolicy.hash(code), "USER_RESET_PASSWORD");
         if (found.isEmpty()) {
             return false;
         }
@@ -192,8 +192,9 @@ public class UserService {
 
     /** Whether {@code code} is a reset code that still works (unknown, used and expired codes do not). */
     public boolean resetCodeUsable(final String code) {
-        return code != null && !code.isBlank() && notificationCodeRepository.findByCodeAndType(code.trim(),
-                "USER_RESET_PASSWORD").filter(c -> codePolicy.isValid(c, java.time.Instant.now())).isPresent();
+        return code != null && !code.isBlank() && notificationCodeRepository.findByCodeAndType(
+                        io.helixiam.notification.NotificationCodePolicy.hash(code), "USER_RESET_PASSWORD")
+                .filter(c -> codePolicy.isValid(c, java.time.Instant.now())).isPresent();
     }
 
     /**
@@ -242,7 +243,7 @@ public class UserService {
             return null;
         }
         final java.util.Optional<io.helixiam.notification.domain.NotificationCode> found =
-                notificationCodeRepository.findByCodeAndType(code.trim(), "USER_SIGNUP");
+                notificationCodeRepository.findByCodeAndType(io.helixiam.notification.NotificationCodePolicy.hash(code), "USER_SIGNUP");
         if (found.isPresent() && !codePolicy.isValid(found.get(), java.time.Instant.now())) {
             notificationCodeRepository.consume(found.get().getCode(), "USER_SIGNUP"); // expired: gone
             return null;

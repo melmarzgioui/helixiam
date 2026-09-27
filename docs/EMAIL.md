@@ -308,6 +308,9 @@ others.
 | `helix.notification.reset-password.code-ttl` | `1h` | How long a password-reset code works. Single-use; an expired or used code is refused on the reset page. |
 | `helix.notification.signup.code-ttl` | `24h` | How long the sign-up verification code works. Single-use. |
 
+The reset and sign-up codes are stored only as their SHA-256 (the plain code is in the email alone), like the
+magic-link tokens; each request issues a new code and invalidates the previous one.
+
 **Send rate cap** ([section 10](#10-the-send-rate-cap))
 
 | Property | Default | Purpose |

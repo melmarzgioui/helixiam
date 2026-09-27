@@ -100,23 +100,20 @@ public class NotificationAspect {
             notificationRequest.setEmailAddress(userDetails.get("EMAIL"));
 
             if (notification.generateCode() || notification.generateSimpleCode()) {
-                // Reuse the pending code while it still works; an expired one is replaced by a new code.
+                // A new code on every request: only its SHA-256 is stored, so a pending code cannot be sent again;
+                // the new one replaces it (an older link stops working).
                 final java.time.Instant now = java.time.Instant.now();
-                final NotificationCode notificationCode = notificationCodeRepository
-                        .findByIdentifierAndType(identifier, notification.type())
-                        .filter(existing -> {
-                            if (codePolicy.isValid(existing, now)) {
-                                return true;
-                            }
-                            notificationCodeRepository.delete(existing);
-                            return false;
-                        })
-                        .orElseGet(() -> {
-                            final NotificationCode fresh = new NotificationCode(identifier, generateCode(notification),
-                                    notification.type());
-                            fresh.setExpiresAt(codePolicy.expiryFor(notification.type(), now));
-                            return notificationCodeRepository.save(fresh);
-                        });
+                notificationCodeRepository.findByIdentifierAndType(identifier, notification.type())
+                        .ifPresent(notificationCodeRepository::delete);
+                final String plain = generateCode(notification);
+                final java.util.Date expiresAt = codePolicy.expiryFor(notification.type(), now);
+                final NotificationCode stored = new NotificationCode(identifier,
+                        io.helixiam.notification.NotificationCodePolicy.hash(plain), notification.type());
+                stored.setExpiresAt(expiresAt);
+                notificationCodeRepository.save(stored);
+                // The request (and so the email) carries the plain code; it is never persisted.
+                final NotificationCode notificationCode = new NotificationCode(identifier, plain, notification.type());
+                notificationCode.setExpiresAt(expiresAt);
                 notificationRequest.setNotificationCode(notificationCode);
             }
 

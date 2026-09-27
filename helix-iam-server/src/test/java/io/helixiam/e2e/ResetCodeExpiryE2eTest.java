@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Security: the emailed password-reset code expires ({@code helix.notification.reset-password.code-ttl}, 1 hour by
  * default) and works once. An expired, used or unknown code is refused on the reset page with the themed error, and
- * the password stays unchanged.
+ * the password stays unchanged. The database holds only the code's SHA-256.
  */
 class ResetCodeExpiryE2eTest extends AbstractE2eTest {
 
@@ -36,20 +36,42 @@ class ResetCodeExpiryE2eTest extends AbstractE2eTest {
         new TransactionTemplate(context.getBean(PlatformTransactionManager.class)).executeWithoutResult(s -> work.run());
     }
 
-    /** Requests a reset from the public page and returns the code that was issued (read from the database). */
+    /** Sends the realm's email to the test mail sink (to read the reset link). */
+    private void mailToSink(final String realm) {
+        assertThat(adminSession().put("/admin/realms/" + realm + "/messaging/providers", Map.of("channel", "EMAIL",
+                "driver", "HTTP", "enabled", true, "fromAddress", "no-reply@acme.example.com",
+                "config", Map.of("url", io.helixiam.e2e.browser.MailSink.get().url()))).status()).isEqualTo(200);
+    }
+
+    /**
+     * Requests a reset from the public page and returns the code from the reset email. The database holds only its
+     * SHA-256, with a one-hour expiry.
+     */
     private String requestReset(final E2eHttp browser, final String realmUrl, final E2eSeed.SeededUser user) {
+        final String address = user.username() + "@e2e.helixiam.test";
+        final int before = io.helixiam.e2e.browser.MailSink.get().emailsTo(address).size();
         final E2eHttp.Response page = browser.get(realmUrl + "/reset/password?lang=en");
         final Map<String, String> form = new LinkedHashMap<>();
         form.put("_csrf", E2eHttp.csrf(page.body()));
-        form.put("username", user.username());
+        form.put("username", address);
         assertThat(browser.postForm(realmUrl + "/reset/password", form).status()).isEqualTo(200);
+        final String link = io.helixiam.e2e.browser.MailSink.get().await(address,
+                m -> io.helixiam.e2e.browser.MailSink.get().emailsTo(address).indexOf(m) >= before
+                        && m.link("/reset/password/").isPresent(), Duration.ofSeconds(10))
+                .link("/reset/password/").orElseThrow();
+        final String code = link.substring(link.lastIndexOf('/') + 1);
         final List<Map<String, Object>> rows = jdbc().queryForList(
                 "SELECT code, expires_at FROM notification_code WHERE identifier = ? AND type = 'USER_RESET_PASSWORD'",
                 user.userId());
         assertThat(rows).hasSize(1);
+        // Never the plain code: only its SHA-256.
+        assertThat(rows.get(0).get("code")).isEqualTo(io.helixiam.notification.NotificationCodePolicy.hash(code))
+                .isNotEqualTo(code);
+        assertThat(jdbc().queryForObject("SELECT count(*) FROM notification_code WHERE code = ?", Long.class, code))
+                .isZero();
         final Instant expires = ((Timestamp) rows.get(0).get("expires_at")).toInstant();
         assertThat(expires).isBetween(Instant.now().plus(Duration.ofMinutes(59)), Instant.now().plus(Duration.ofMinutes(61)));
-        return (String) rows.get(0).get("code");
+        return code;
     }
 
     private E2eHttp.Response setPassword(final E2eHttp browser, final String realmUrl, final String code) {
@@ -69,6 +91,7 @@ class ResetCodeExpiryE2eTest extends AbstractE2eTest {
     void aResetCode_worksOnce_thenTheLinkSaysItWasUsed() {
         final String realm = E2eSeed.unique("acme-reset");
         seed().realm(realm, "Acme");
+        mailToSink(realm);
         final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("reset"), "Before-Passw0rd!");
         final String realmUrl = baseUrl() + "/realms/" + realm;
         final E2eHttp browser = newBrowser();
@@ -95,12 +118,13 @@ class ResetCodeExpiryE2eTest extends AbstractE2eTest {
     void anExpiredResetCode_isRefused_andANewRequestIssuesAFreshCode() {
         final String realm = E2eSeed.unique("acme-reset-exp");
         seed().realm(realm, "Acme");
+        mailToSink(realm);
         final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("resetexp"), "Before-Passw0rd!");
         final String realmUrl = baseUrl() + "/realms/" + realm;
         final E2eHttp browser = newBrowser();
         final String code = requestReset(browser, realmUrl, user);
         inTx(() -> jdbc().update("UPDATE notification_code SET expires_at = ? WHERE code = ?",
-                Timestamp.from(Instant.now().minusSeconds(1)), code));
+                Timestamp.from(Instant.now().minusSeconds(1)), io.helixiam.notification.NotificationCodePolicy.hash(code)));
         final String before = passwordHash(user.userId());
 
         assertThat(browser.get(realmUrl + "/reset/password/" + code + "?lang=en").body()).contains("id=\"code-error\"")
@@ -122,5 +146,27 @@ class ResetCodeExpiryE2eTest extends AbstractE2eTest {
         final String realmUrl = baseUrl() + "/realms/" + MASTER;
         assertThat(browser.get(realmUrl + "/reset/password/not-a-code?lang=en").body()).contains("id=\"code-error\"");
         assertThat(setPassword(browser, realmUrl, "not-a-code").body()).contains("id=\"code-error\"");
+    }
+
+    @Test
+    void aPlainCodePendingAtTheUpgrade_isHashedInPlace_andItsLinkStillWorks() throws Exception {
+        final String realm = E2eSeed.unique("acme-upgrade");
+        seed().realm(realm, "Acme");
+        final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("upgrade"), "Before-Passw0rd!");
+        final String plain = java.util.UUID.randomUUID().toString();
+        final String upgrade = new String(getClass().getResourceAsStream("/db/migration/V74__notification_code_hashed.sql")
+                .readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).lines()
+                .filter(l -> !l.startsWith("--")).collect(java.util.stream.Collectors.joining("\n"));
+        inTx(() -> {
+            jdbc().update("INSERT INTO notification_code (code, identifier, type, expires_at) VALUES (?, ?, "
+                    + "'USER_RESET_PASSWORD', ?)", plain, user.userId(), Timestamp.from(Instant.now().plusSeconds(600)));
+            jdbc().update(upgrade);
+            jdbc().update(upgrade); // idempotent (schema.sql runs it at every start)
+        });
+
+        assertThat(jdbc().queryForObject("SELECT code FROM notification_code WHERE identifier = ?", String.class,
+                user.userId())).isEqualTo(io.helixiam.notification.NotificationCodePolicy.hash(plain));
+        final E2eHttp browser = newBrowser();
+        assertThat(setPassword(browser, baseUrl() + "/realms/" + realm, plain).isRedirect()).isTrue();
     }
 }
