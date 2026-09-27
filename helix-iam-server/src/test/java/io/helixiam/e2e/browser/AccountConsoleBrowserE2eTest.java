@@ -379,6 +379,86 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
         awaitAudit(realm, "ACCOUNT_EMAIL_VERIFY", "SUCCESS");
     }
 
+    // ------------------------------------------------------------------------------------------------ your data
+
+    @Test
+    void downloadingTheData_needsAFreshSignIn_andGivesAJsonFile() throws Exception {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        final E2eSeed.SeededUser ada = seed().user(realm.realm(), E2eSeed.unique("ada"), PASSWORD,
+                Map.of("given_name", "Ada"));
+        openAccount(realm, ada);
+        ageSignIn(realm, 600);
+        page().navigate(accountUrl(realm, null));
+
+        submit(page().locator("#export"));
+        assertOnIdpPath("/account/reauth");
+        page().locator("#reauth-password").fill(PASSWORD);
+        submit(page().locator("#reauth-continue"));
+        assertOnIdpPath("/account");
+
+        final com.microsoft.playwright.Download download = page().waitForDownload(() -> page().locator("#export").click());
+        assertThat(download.suggestedFilename()).isEqualTo("account-data-" + realm.realm() + ".json");
+        final com.fasterxml.jackson.databind.JsonNode data = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(java.nio.file.Files.readString(download.path()));
+        assertThat(data.toString()).contains(ada.username()).contains(ada.dto().email()).doesNotContain("password");
+        awaitAudit(realm, "ACCOUNT_DATA_EXPORT", "SUCCESS");
+
+        adminSession().put("/admin/realms/" + realm.realm() + "/settings/account-console", Map.of("allowDataExport", false));
+        page().navigate(accountUrl(realm, null));
+        assertThat(page().locator("#export").count()).isZero();
+    }
+
+    @Test
+    void deletingTheAccount_isOffByDefault() {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        final E2eSeed.SeededUser ada = seed().user(realm.realm(), E2eSeed.unique("ada"), PASSWORD);
+        openAccount(realm, ada);
+        assertThat(page().locator("#delete-account").count()).isZero();
+        page().navigate(baseUrl() + realm.path() + "/account/delete");
+        assertOnIdpPath("/account");
+        assertThat(page().locator("#account-error").innerText()).isEqualTo("That isn't available for your account.");
+    }
+
+    @Test
+    void deletingTheAccount_signsOutEverywhere_tellsTheApp_andOffersTheWayBack() {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        adminSession().put("/admin/realms/" + realm.realm() + "/settings/account-console", Map.of("allowAccountDeletion", true));
+        final E2eSeed.SeededUser joe = seed().user(realm.realm(), E2eSeed.unique("joe"), PASSWORD);
+        final com.microsoft.playwright.Page phone = otherBrowser();
+        phone.navigate(accountUrl(realm, null));
+        phone.locator("#username").fill(joe.username());
+        phone.locator("#password").fill(PASSWORD);
+        phone.locator("#loginForm button[type=submit]").click();
+        phone.waitForLoadState(LoadState.LOAD);
+        assertThat(URI.create(phone.url()).getPath()).isEqualTo(realm.path() + "/account");
+
+        signInToTheApp(page(), realm, joe);
+        final String back = rp().origin() + "/?from=deleted";
+        page().navigate(accountUrl(realm, "referrer=" + ReferenceSetup.WEB + "&referrer_uri=" + enc(back)));
+        submit(page().locator("#delete-account"));
+        assertOnIdpPath("/account/delete");
+        page().locator("#confirm").fill("someone-else");
+        submit(page().locator("#delete-confirm"));
+        assertThat(page().locator("#confirm-error").innerText()).isEqualTo("That's not your username.");
+        page().locator("#confirm").fill(joe.username());
+        submit(page().locator("#delete-confirm"));
+
+        assertThat(page().locator("#notice-title").innerText()).isEqualTo("Your account is deleted");
+        assertThat(page().locator("#account-return").getAttribute("href")).isEqualTo(back);
+        final TestRelyingParty.BackchannelLogout logout = rp().awaitBackchannelLogout(
+                l -> joe.userId().equals(l.claims().get("sub")), WAIT);
+        assertThat(logout.verified()).isTrue();
+        awaitAudit(realm, "ACCOUNT_DELETE", "SUCCESS");
+
+        // Every browser is signed out, and the account cannot sign in any more.
+        phone.navigate(accountUrl(realm, null));
+        assertThat(URI.create(phone.url()).getPath()).isEqualTo(realm.path() + "/login");
+        page().navigate(accountUrl(realm, null));
+        signInWithPassword(joe.username(), PASSWORD);
+        assertOnIdpPath("/login");
+        assertThat(adminSession().get("/admin/realms/" + realm.realm() + "/users/" + joe.userId()).status()).isEqualTo(404);
+    }
+
     // ------------------------------------------------------------------------------------------------ helpers
 
     static String enc(final String s) {

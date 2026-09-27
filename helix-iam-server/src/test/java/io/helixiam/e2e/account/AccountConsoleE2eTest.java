@@ -85,6 +85,26 @@ class AccountConsoleE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void exportAndDeletion_areRefusedWhereTheRealmDoesNotAllowThem_evenWhenPostedDirectly() {
+        final String realm = E2eSeed.unique("acc");
+        seed().realm(realm);
+        final E2eSeed.SeededUser ada = seed().user(realm, E2eSeed.unique("ada"), PASSWORD);
+        final E2eHttp http = E2eAdminSession.login(newBrowser(), realm, ada.username(), PASSWORD).http();
+        final String account = "/realms/" + realm + "/account";
+        adminSession().put("/admin/realms/" + realm + "/settings/account-console",
+                Map.of("allowDataExport", false, "allowAccountDeletion", false));
+
+        final String csrf = E2eHttp.csrf(http.get(account).body());
+        final E2eHttp.Response export = http.postForm(account + "/export", Map.of("_csrf", csrf));
+        assertThat(export.isRedirect()).as(export.toString()).isTrue();
+        assertThat(export.location().getPath()).isEqualTo(account);
+        final E2eHttp.Response delete = http.postForm(account + "/delete", Map.of("_csrf", csrf, "confirm", ada.username()));
+        assertThat(delete.isRedirect()).as(delete.toString()).isTrue();
+        assertThat(delete.location().getPath()).isEqualTo(account);
+        assertThat(adminSession().get("/admin/realms/" + realm + "/users/" + ada.userId()).status()).isEqualTo(200);
+    }
+
+    @Test
     void newRecoveryCodesOverTheJsonApi_needACodeOrAFreshSignIn() {
         final String realm = E2eSeed.unique("acc");
         seed().realm(realm);
