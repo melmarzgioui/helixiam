@@ -7,13 +7,11 @@ package io.helixiam.e2e.browser;
 
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Response;
-import com.microsoft.playwright.options.ColorScheme;
 import io.helixiam.e2e.E2eHttp;
 import org.junit.jupiter.api.Test;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -159,24 +157,6 @@ class ProtocolErrorPagesBrowserE2eTest extends AbstractBrowserE2eTest {
         assertThat(page().locator("footer").innerText()).as(which).contains("© Monthfold BV, Utrecht");
         assertThat(page().locator("[style]").count()).as(which + ": no inline style").isZero();
         assertThat(page().locator("script:not([src])").count()).as(which + ": no inline script").isZero();
-    }
-
-    /** Light and dark at 1440 and 390 px into {@code -Dhelix.shots}, when set. */
-    private void shots(final String name) {
-        final String dir = System.getProperty("helix.shots");
-        if (dir == null || dir.isBlank()) {
-            return;
-        }
-        for (final ColorScheme scheme : List.of(ColorScheme.LIGHT, ColorScheme.DARK)) {
-            for (final int width : List.of(1440, 390)) {
-                page().emulateMedia(new Page.EmulateMediaOptions().setColorScheme(scheme));
-                page().setViewportSize(width, width == 390 ? 844 : 900);
-                page().screenshot(new Page.ScreenshotOptions().setFullPage(true).setPath(Path.of(dir,
-                        name + "-" + scheme.name().toLowerCase(java.util.Locale.ROOT) + "-" + width + ".png")));
-            }
-        }
-        page().emulateMedia(new Page.EmulateMediaOptions().setColorScheme(ColorScheme.LIGHT));
-        page().setViewportSize(1280, 900);
     }
 
     private static String enc(final String value) {

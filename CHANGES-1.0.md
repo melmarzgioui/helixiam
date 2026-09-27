@@ -40,6 +40,11 @@ CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven
   by its `sid` with its current HTTP session and a short device name (never the raw `User-Agent`), and the list checks
   every row against the session store. Only the user's own sessions can be signed out; any other `sid` gets "That
   session is already signed out." A browser test with four browsers covers it on Redis and on the queue store.
+- **rc.6 session list, UI review** — Each row now leads with the device in bold, with "Signed in … · Last used …" on
+  one line and the "You're here" badge on this browser (plus a side accent on phones). Every per-row "Sign out" names
+  its device for screen readers ("Sign out Firefox on Windows"). "Sign out everywhere else" is shown only when there is
+  another session, and is styled as a destructive action; with one session the list says it is the only one. Account
+  console buttons are at least 44 px tall on phones, and its forms no longer carry the CSRF field twice.
 
 Items 3–7 of the rc.5 review status (`docs/superpowers/specs/2026-09-27-monthfold-open-issues.md`):
 

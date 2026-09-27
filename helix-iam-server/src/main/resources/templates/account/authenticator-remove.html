@@ -21,7 +21,6 @@
         <div class="container hx-account-form">
             <article>
                 <form th:action="@{/account/authenticator/remove}" method="post" id="remove-form">
-                    <input th:replace="~{fragments/account :: csrfField}">
                     <div class="buttonHolder">
                         <a class="button secondary" th:href="@{/account}" th:text="#{common.cancel}">Cancel</a>
                         <button type="submit" class="hx-btn hx-btn-danger hx-btn-solid" id="remove-confirm" th:text="#{account.remove.confirm}">Remove authenticator</button>
