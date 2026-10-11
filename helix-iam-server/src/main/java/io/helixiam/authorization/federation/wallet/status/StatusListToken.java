@@ -17,11 +17,11 @@ import com.nimbusds.jose.JWSObject;
 import com.nimbusds.jose.JWSVerifier;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
-import com.nimbusds.jose.crypto.impl.ECDSA;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.federation.wallet.mdoc.CborLimits;
 import io.helixiam.authorization.federation.wallet.mdoc.CborValue;
+import io.helixiam.authorization.federation.wallet.mdoc.CoseSign1;
 import io.helixiam.authorization.federation.wallet.mdoc.StrictCbor;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
@@ -29,10 +29,7 @@ import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
 import java.security.PublicKey;
-import java.security.Signature;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -58,7 +55,8 @@ import java.util.zip.Inflater;
  *       {@code x5c} header (HAIP §6.1), {@code sub}, {@code iat}, optional {@code exp} / {@code ttl}, and
  *       {@code status_list} {@code {bits, lst}} with {@code lst} the base64url zlib-compressed list. Header and payload
  *       are read with a strict JSON reader (duplicate members refused).</li>
- *   <li><b>CWT</b> (§5.2, the ISO mdoc form): COSE_Sign1_Tagged (18), decoded with {@link StrictCbor}; protected
+ *   <li><b>CWT</b> (§5.2, the ISO mdoc form): COSE_Sign1_Tagged (18), decoded with {@link StrictCbor}, parsed and
+ *       verified by {@link CoseSign1} (the wallet's one COSE_Sign1 verifier); protected
  *       header {@code 1} (alg ES256 -7 / -9, ES384 -35, ES512 -36), {@code 16} (type, the text
  *       {@code application/statuslist+cwt}) and {@code 33} (x5chain, which the ISO draft requires in the protected
  *       header for the MSO revocation list; it is not read from the unprotected header); payload {@code 2} sub,
@@ -90,9 +88,10 @@ public final class StatusListToken {
     /** CBOR budget for a whole CWT: the body is capped at 1 MB before it gets here. */
     private static final CborLimits CWT_LIMITS = new CborLimits(16, 10_000, 1024 * 1024);
 
-    private static final long COSE_HEADER_ALG = 1;
     private static final long COSE_HEADER_TYPE = 16;
-    private static final long COSE_HEADER_X5CHAIN = 33;
+    /** ES256 -7 (and its fully-specified twin ESP256 -9, HAIP §7), ES384 -35, ES512 -36. */
+    private static final Set<Integer> CWT_ALGORITHMS = Set.of(CoseSign1.ES256, CoseSign1.ESP256, CoseSign1.ES384,
+            CoseSign1.ES512);
     private static final long CWT_SUB = 2;
     private static final long CWT_EXP = 4;
     private static final long CWT_IAT = 6;
@@ -215,28 +214,30 @@ public final class StatusListToken {
     /** Parses and verifies a Status List Token in CWT form (COSE_Sign1_Tagged). */
     public static StatusListToken fromCwt(final byte[] cwt, final TrustAnchors anchors, final Instant now,
             final IssuerTrustValidator trust) {
-        if (!(StrictCbor.decode(cwt, CWT_LIMITS) instanceof CborValue.Tagged tagged) || tagged.tag() != 18
-                || !(tagged.content() instanceof CborValue.Array array) || array.items().size() != 4
-                || !(array.items().get(0) instanceof CborValue.Bytes protectedBytes)
-                || !(array.items().get(1) instanceof CborValue.Dict)
-                || !(array.items().get(2) instanceof CborValue.Bytes payloadBytes)
-                || !(array.items().get(3) instanceof CborValue.Bytes signature)) {
+        // COSE_Sign1_Tagged only: untagged and COSE_Mac0 (17) are refused
+        if (!(StrictCbor.decode(cwt, CWT_LIMITS) instanceof CborValue.Tagged tagged) || tagged.tag() != 18) {
             throw invalid("Status List Token is not a COSE_Sign1_Tagged");
         }
-        if (!(StrictCbor.decode(protectedBytes.value(), CWT_LIMITS) instanceof CborValue.Dict protectedHeader)) {
-            throw invalid("Status List Token protected header is not a map");
+        final CoseSign1 cose = CoseSign1.decode(tagged);
+        final byte[] payload = cose.payload();
+        if (payload == null) {
+            throw invalid("Status List Token is not a COSE_Sign1_Tagged");
         }
-        if (!(protectedHeader.get(COSE_HEADER_TYPE).orElse(null) instanceof CborValue.Text type)
+        if (!(cose.protectedParameters().get(COSE_HEADER_TYPE).orElse(null) instanceof CborValue.Text type)
                 || !CWT_TYPE.equalsIgnoreCase(type.value())) {
             throw new WalletVerificationException(WalletErrorCode.UNSUPPORTED_FORMAT,
                     "Status List Token type is not application/statuslist+cwt");
         }
-        final CoseAlg alg = CoseAlg.of(protectedHeader.get(COSE_HEADER_ALG).orElse(null));
-        final X509Certificate leaf = trust.validate(x5chain(protectedHeader.get(COSE_HEADER_X5CHAIN).orElse(null)),
-                anchors, now);
-        verifyCose(leaf.getPublicKey(), alg, protectedBytes.value(), payloadBytes.value(), signature.value());
+        if (!CWT_ALGORITHMS.contains(cose.algorithm())) {
+            throw new WalletVerificationException(WalletErrorCode.ALGORITHM_NOT_ALLOWED,
+                    "Status List Token COSE alg is not allowed");
+        }
+        final X509Certificate leaf = trust.validate(cose.protectedX5chain(), anchors, now);
+        if (!cose.verify(leaf.getPublicKey(), null, CWT_ALGORITHMS)) {
+            throw signatureInvalid();
+        }
 
-        if (!(StrictCbor.decode(payloadBytes.value(), CWT_LIMITS) instanceof CborValue.Dict claims)) {
+        if (!(StrictCbor.decode(payload, CWT_LIMITS) instanceof CborValue.Dict claims)) {
             throw invalid("Status List Token payload is not a map");
         }
         final String sub = claims.get(CWT_SUB).orElse(null) instanceof CborValue.Text t ? t.value() : null;
@@ -359,25 +360,6 @@ public final class StatusListToken {
         return certificates(der);
     }
 
-    private static List<X509Certificate> x5chain(final CborValue value) {
-        final List<byte[]> der = new ArrayList<>();
-        if (value instanceof CborValue.Bytes single) {
-            der.add(single.value());
-        } else if (value instanceof CborValue.Array array && !array.items().isEmpty()) {
-            for (final CborValue item : array.items()) {
-                if (!(item instanceof CborValue.Bytes b)) {
-                    throw new WalletVerificationException(WalletErrorCode.ISSUER_UNTRUSTED,
-                            "x5chain entry is not a byte string");
-                }
-                der.add(b.value());
-            }
-        } else {
-            throw new WalletVerificationException(WalletErrorCode.ISSUER_UNTRUSTED,
-                    "Status List Token has no x5chain in its protected header");
-        }
-        return certificates(der);
-    }
-
     private static List<X509Certificate> certificates(final List<byte[]> der) {
         try {
             final CertificateFactory factory = CertificateFactory.getInstance("X.509");
@@ -409,92 +391,6 @@ public final class StatusListToken {
         }
         throw new WalletVerificationException(WalletErrorCode.ALGORITHM_NOT_ALLOWED,
                 "Status List Token alg does not fit the certificate key");
-    }
-
-    /** COSE ECDSA algorithms allowed for the CWT form, with their hash and curve size. */
-    private enum CoseAlg {
-        ES256("SHA256withECDSA", 256), ES384("SHA384withECDSA", 384), ES512("SHA512withECDSA", 521);
-
-        private final String jca;
-        private final int fieldSize;
-
-        CoseAlg(final String jca, final int fieldSize) {
-            this.jca = jca;
-            this.fieldSize = fieldSize;
-        }
-
-        static CoseAlg of(final CborValue value) {
-            if (value instanceof CborValue.Int i) {
-                switch ((int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, i.value()))) {
-                    case -7, -9 -> {
-                        return ES256; // -9: ESP256, the fully-specified ES256 (HAIP §7)
-                    }
-                    case -35 -> {
-                        return ES384;
-                    }
-                    case -36 -> {
-                        return ES512;
-                    }
-                    default -> {
-                        // not allowed
-                    }
-                }
-            }
-            throw new WalletVerificationException(WalletErrorCode.ALGORITHM_NOT_ALLOWED,
-                    "Status List Token COSE alg is not allowed");
-        }
-    }
-
-    /** Verifies a COSE_Sign1 signature over {@code Sig_structure = ["Signature1", protected, h'', payload]}. */
-    private static void verifyCose(final PublicKey key, final CoseAlg alg, final byte[] protectedBytes,
-            final byte[] payload, final byte[] signature) {
-        if (!(key instanceof ECPublicKey ec) || ec.getParams().getCurve().getField().getFieldSize() != alg.fieldSize) {
-            throw new WalletVerificationException(WalletErrorCode.ALGORITHM_NOT_ALLOWED,
-                    "Status List Token COSE alg does not fit the certificate key");
-        }
-        final int half = (alg.fieldSize + 7) / 8;
-        if (signature.length != 2 * half) {
-            throw signatureInvalid();
-        }
-        final ByteArrayOutputStream toBeSigned = new ByteArrayOutputStream(protectedBytes.length + payload.length + 32);
-        toBeSigned.write(0x84); // array(4)
-        writeHead(toBeSigned, 3, "Signature1".length());
-        toBeSigned.writeBytes("Signature1".getBytes(StandardCharsets.US_ASCII));
-        writeHead(toBeSigned, 2, protectedBytes.length);
-        toBeSigned.writeBytes(protectedBytes);
-        writeHead(toBeSigned, 2, 0); // external_aad = h''
-        writeHead(toBeSigned, 2, payload.length);
-        toBeSigned.writeBytes(payload);
-        try {
-            final Signature verifier = Signature.getInstance(alg.jca);
-            verifier.initVerify(ec);
-            verifier.update(toBeSigned.toByteArray());
-            if (!verifier.verify(ECDSA.transcodeSignatureToDER(signature))) {
-                throw signatureInvalid();
-            }
-        } catch (final GeneralSecurityException | JOSEException e) {
-            throw signatureInvalid();
-        }
-    }
-
-    /** A definite-length CBOR head ({@code major} type, {@code length}). */
-    private static void writeHead(final ByteArrayOutputStream out, final int major, final long length) {
-        final int m = major << 5;
-        if (length < 24) {
-            out.write(m | (int) length);
-        } else if (length < 0x100) {
-            out.write(m | 24);
-            out.write((int) length);
-        } else if (length < 0x10000) {
-            out.write(m | 25);
-            out.write((int) (length >> 8));
-            out.write((int) length & 0xff);
-        } else {
-            out.write(m | 26);
-            for (int shift = 24; shift >= 0; shift -= 8) {
-                out.write((int) (length >> shift) & 0xff);
-            }
-        }
     }
 
     private static Instant numericDate(final Object value, final String name) {

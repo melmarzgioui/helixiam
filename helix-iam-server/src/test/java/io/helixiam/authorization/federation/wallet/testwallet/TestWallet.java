@@ -7,6 +7,8 @@ package io.helixiam.authorization.federation.wallet.testwallet;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
+import com.fasterxml.jackson.dataformat.cbor.CBORGenerator;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
@@ -16,6 +18,7 @@ import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.crypto.impl.ECDSA;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
@@ -24,13 +27,18 @@ import com.nimbusds.jose.util.Base64;
 import io.helixiam.authorization.federation.wallet.status.StatusReference;
 import io.helixiam.authorization.federation.wallet.testwallet.TestPki.Leaf;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
+import java.security.Signature;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPrivateKey;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -58,6 +66,7 @@ public final class TestWallet {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final CBORFactory CBOR = new CBORFactory();
 
     private final TestPki pki;
     private final Leaf issuer;
@@ -310,6 +319,277 @@ public final class TestWallet {
             sb.append(d).append('~');
         }
         return sb.toString();
+    }
+
+    // ------------------------------------------------------------------------------------------- mdoc (ISO 18013-5)
+
+    /** The PID docType, also its namespace (ARF PID rulebook). */
+    public static final String MDOC_PID_DOCTYPE = "eu.europa.ec.eudi.pid.1";
+
+    /** A CBOR tag for {@link #cbor}: {@code tag} applied to {@code content}. */
+    public record CborTag(long tag, Object content) {
+    }
+
+    /**
+     * An issued mdoc. {@code issuerAuth} is the untagged COSE_Sign1 over {@code mso} as a {@link #cbor} structure;
+     * {@code items} maps each elementIdentifier to its IssuerSignedItemBytes ({@code #6.24(bstr)}) structure;
+     * {@code deviceKey} is the holder's private EC key. The writer is deterministic, so {@link #cbor} of a structure
+     * always gives the bytes that were signed and digested.
+     */
+    public record MdocCredential(String docType, List<Object> issuerAuth, byte[] mso, Map<String, CborTag> items,
+            ECKey deviceKey) {
+
+        /** The encoded COSE_Sign1 (IssuerAuth). */
+        public byte[] issuerAuthBytes() {
+            return cbor(issuerAuth);
+        }
+
+        /** The encoded IssuerSignedItemBytes of {@code elementIdentifier}, exactly as digested in the MSO. */
+        public byte[] itemBytes(final String elementIdentifier) {
+            return cbor(items.get(elementIdentifier));
+        }
+    }
+
+    /**
+     * A PID mdoc: one IssuerSignedItem per claim in namespace {@link #MDOC_PID_DOCTYPE}, an MSO with SHA-256 digests,
+     * the holder's P-256 device key as a COSE_Key, the validity times as tdate and the optional status list
+     * reference, signed by this wallet's issuer leaf (alg from its curve, x5chain in the unprotected header as ISO
+     * 18013-5 places it).
+     */
+    public MdocCredential mdocPid(final Map<String, Object> claims, final Instant signed, final Instant validFrom,
+            final Instant validUntil, final Optional<StatusReference> status) {
+        final ECKey deviceKey = ecKey(Curve.P_256);
+        final Map<String, CborTag> items = new LinkedHashMap<>();
+        final Map<Object, Object> digests = new LinkedHashMap<>();
+        int digestId = 0;
+        for (final Map.Entry<String, Object> claim : claims.entrySet()) {
+            final byte[] random = new byte[16];
+            RANDOM.nextBytes(random);
+            final Map<Object, Object> item = new LinkedHashMap<>();
+            item.put("digestID", digestId);
+            item.put("random", random);
+            item.put("elementIdentifier", claim.getKey());
+            item.put("elementValue", claim.getValue());
+            final CborTag itemBytes = new CborTag(24, cbor(item));
+            items.put(claim.getKey(), itemBytes);
+            digests.put(digestId++, sha("SHA-256", cbor(itemBytes)));
+        }
+        final Map<String, Map<Object, Object>> valueDigests = new LinkedHashMap<>();
+        valueDigests.put(MDOC_PID_DOCTYPE, digests);
+        final Map<Object, Object> mso = mso(MDOC_PID_DOCTYPE, "SHA-256", valueDigests, coseKey(deviceKey), signed,
+                validFrom, validUntil);
+        status.ifPresent(s -> mso.put("status", Map.of("status_list", Map.of("idx", s.idx(), "uri", s.uri()))));
+        final byte[] msoBytes = cbor(new CborTag(24, cbor(mso)));
+        final Map<Object, Object> unprotectedHeader = new LinkedHashMap<>();
+        unprotectedHeader.put(33, x5chain(issuer.chain()));
+        final List<Object> issuerAuth = coseSign1(Map.of(1, coseAlg(issuer.privateKey())), unprotectedHeader,
+                msoBytes, false, issuer.privateKey());
+        return new MdocCredential(MDOC_PID_DOCTYPE, issuerAuth, msoBytes, Collections.unmodifiableMap(items),
+                deviceKey);
+    }
+
+    /**
+     * A mutable MobileSecurityObject map, members in the ISO presentation order, so a test can change one member and
+     * re-encode it with {@link #cbor}. Times are tdate (tag 0).
+     */
+    public static Map<Object, Object> mso(final String docType, final String digestAlgorithm,
+            final Map<String, Map<Object, Object>> valueDigests, final Map<Object, Object> deviceKey,
+            final Instant signed, final Instant validFrom, final Instant validUntil) {
+        final Map<Object, Object> validity = new LinkedHashMap<>();
+        validity.put("signed", tdate(signed));
+        validity.put("validFrom", tdate(validFrom));
+        validity.put("validUntil", tdate(validUntil));
+        final Map<Object, Object> keyInfo = new LinkedHashMap<>();
+        keyInfo.put("deviceKey", deviceKey);
+        final Map<Object, Object> mso = new LinkedHashMap<>();
+        mso.put("version", "1.0");
+        mso.put("digestAlgorithm", digestAlgorithm);
+        mso.put("valueDigests", new LinkedHashMap<>(valueDigests));
+        mso.put("deviceKeyInfo", keyInfo);
+        mso.put("docType", docType);
+        mso.put("validityInfo", validity);
+        return mso;
+    }
+
+    /** {@code #6.0(tstr)}: an RFC 3339 date-time in UTC without fractions. */
+    public static CborTag tdate(final Instant instant) {
+        return new CborTag(0, instant.truncatedTo(ChronoUnit.SECONDS).toString());
+    }
+
+    /** A mutable COSE_Key (RFC 9052 §7, EC2) of {@code key}'s public part: {1: 2, -1: crv, -2: x, -3: y}. */
+    public static Map<Object, Object> coseKey(final ECKey key) {
+        final int crv = Curve.P_384.equals(key.getCurve()) ? 2 : Curve.P_521.equals(key.getCurve()) ? 3 : 1;
+        final Map<Object, Object> coseKey = new LinkedHashMap<>();
+        coseKey.put(1, 2);
+        coseKey.put(-1, crv);
+        coseKey.put(-2, key.getX().decode());
+        coseKey.put(-3, key.getY().decode());
+        return coseKey;
+    }
+
+    /** The COSE alg for an EC key: -7 (P-256), -35 (P-384), -36 (P-521). */
+    public static int coseAlg(final PrivateKey key) {
+        final int bits = ((ECPrivateKey) key).getParams().getCurve().getField().getFieldSize();
+        return bits == 384 ? -35 : bits == 521 ? -36 : -7;
+    }
+
+    /** x5chain (RFC 9360): one bstr for a single certificate, else an array of DER bstr. */
+    public static Object x5chain(final List<X509Certificate> chain) {
+        final List<Object> der = new ArrayList<>();
+        for (final X509Certificate cert : chain) {
+            try {
+                der.add(cert.getEncoded());
+            } catch (final java.security.cert.CertificateEncodingException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return der.size() == 1 ? der.get(0) : der;
+    }
+
+    /**
+     * An untagged COSE_Sign1 structure {@code [protected, unprotected, payload | null, signature]} (RFC 9052 §4.2) for
+     * {@link #cbor}. The signature is raw {@code r||s} ECDSA over {@code ["Signature1", protected, h'', payload]},
+     * hashed per the key's curve and independent of the header {@code alg}, so a test can disagree with it. An empty
+     * {@code protectedHeader} is encoded as a zero-length bstr. {@code detached} writes a null payload and signs
+     * {@code payload} as the detached content.
+     */
+    public static List<Object> coseSign1(final Map<Object, Object> protectedHeader,
+            final Map<Object, Object> unprotectedHeader, final byte[] payload, final boolean detached,
+            final PrivateKey key) {
+        final byte[] protectedBytes = protectedHeader.isEmpty() ? new byte[0] : cbor(protectedHeader);
+        final byte[] toBeSigned = cbor(List.of("Signature1", protectedBytes, new byte[0], payload));
+        final List<Object> cose = new ArrayList<>();
+        cose.add(protectedBytes);
+        cose.add(unprotectedHeader);
+        cose.add(detached ? null : payload);
+        cose.add(ecdsaRaw(key, toBeSigned));
+        return cose;
+    }
+
+    /**
+     * A DeviceResponse {@code {version, documents: [Document], status: 0}} disclosing {@code disclose}. DeviceSigned has
+     * empty DeviceNameSpaces and a {@code deviceSignature}: a detached ES256 COSE_Sign1 by the device key over
+     * DeviceAuthenticationBytes {@code #6.24(bstr .cbor ["DeviceAuthentication", SessionTranscript, docType,
+     * DeviceNameSpacesBytes])}. {@code sessionTranscript} is the encoded SessionTranscript, embedded byte-exact.
+     */
+    public static byte[] mdocDeviceResponse(final MdocCredential credential, final Set<String> disclose,
+            final byte[] sessionTranscript) {
+        final List<Object> items = new ArrayList<>();
+        for (final String name : disclose) {
+            final CborTag item = credential.items().get(name);
+            if (item == null) {
+                throw new IllegalArgumentException("no IssuerSignedItem for " + name);
+            }
+            items.add(item);
+        }
+        final CborTag deviceNameSpaces = new CborTag(24, cbor(Map.of()));
+        final ByteArrayOutputStream deviceAuthentication = new ByteArrayOutputStream();
+        deviceAuthentication.write(0x84); // array(4); written by hand so the transcript is embedded byte-exact
+        deviceAuthentication.writeBytes(cbor("DeviceAuthentication"));
+        deviceAuthentication.writeBytes(sessionTranscript);
+        deviceAuthentication.writeBytes(cbor(credential.docType()));
+        deviceAuthentication.writeBytes(cbor(deviceNameSpaces));
+        final byte[] deviceAuthenticationBytes = cbor(new CborTag(24, deviceAuthentication.toByteArray()));
+        final PrivateKey deviceKey;
+        try {
+            deviceKey = credential.deviceKey().toECPrivateKey();
+        } catch (final JOSEException e) {
+            throw new IllegalStateException(e);
+        }
+        final List<Object> deviceSignature = coseSign1(Map.of(1, -7), Map.of(), deviceAuthenticationBytes, true,
+                deviceKey);
+
+        final Map<Object, Object> issuerSigned = new LinkedHashMap<>();
+        issuerSigned.put("nameSpaces", Map.of(credential.docType(), items));
+        issuerSigned.put("issuerAuth", credential.issuerAuth());
+        final Map<Object, Object> deviceSigned = new LinkedHashMap<>();
+        deviceSigned.put("nameSpaces", deviceNameSpaces);
+        deviceSigned.put("deviceAuth", Map.of("deviceSignature", deviceSignature));
+        final Map<Object, Object> document = new LinkedHashMap<>();
+        document.put("docType", credential.docType());
+        document.put("issuerSigned", issuerSigned);
+        document.put("deviceSigned", deviceSigned);
+        final Map<Object, Object> response = new LinkedHashMap<>();
+        response.put("version", "1.0");
+        response.put("documents", List.of(document));
+        response.put("status", 0);
+        return cbor(response);
+    }
+
+    /**
+     * Encodes {@code value} with Jackson's {@link CBORGenerator} (the CBOR writer the wallet tests use), definite
+     * lengths: Map (Integer/Long or String keys), List, String, Integer/Long, byte[], Boolean, null and
+     * {@link CborTag}. Deterministic for a given structure.
+     */
+    public static byte[] cbor(final Object value) {
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (CBORGenerator g = CBOR.createGenerator(out)) {
+            writeCbor(g, value);
+        } catch (final IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return out.toByteArray();
+    }
+
+    private static void writeCbor(final CBORGenerator g, final Object value) throws IOException {
+        if (value == null) {
+            g.writeNull();
+        } else if (value instanceof String s) {
+            g.writeString(s);
+        } else if (value instanceof Integer || value instanceof Long) {
+            g.writeNumber(((Number) value).longValue());
+        } else if (value instanceof Boolean b) {
+            g.writeBoolean(b);
+        } else if (value instanceof byte[] bytes) {
+            g.writeBinary(bytes);
+        } else if (value instanceof CborTag tag) {
+            g.writeTag((int) tag.tag());
+            writeCbor(g, tag.content());
+        } else if (value instanceof List<?> list) {
+            g.writeStartArray(list, list.size());
+            for (final Object item : list) {
+                writeCbor(g, item);
+            }
+            g.writeEndArray();
+        } else if (value instanceof Map<?, ?> map) {
+            g.writeStartObject(map, map.size());
+            for (final Map.Entry<?, ?> e : map.entrySet()) {
+                if (e.getKey() instanceof String name) {
+                    g.writeFieldName(name);
+                } else if (e.getKey() instanceof Integer || e.getKey() instanceof Long) {
+                    g.writeFieldId(((Number) e.getKey()).longValue());
+                } else {
+                    throw new IllegalArgumentException("CBOR map key must be text or integer");
+                }
+                writeCbor(g, e.getValue());
+            }
+            g.writeEndObject();
+        } else {
+            throw new IllegalArgumentException("cannot encode " + value.getClass().getSimpleName());
+        }
+    }
+
+    /** Raw {@code r||s} ECDSA (COSE form) over {@code data}, hash per the key's curve. */
+    private static byte[] ecdsaRaw(final PrivateKey key, final byte[] data) {
+        final int bits = ((ECPrivateKey) key).getParams().getCurve().getField().getFieldSize();
+        final String jca = bits == 384 ? "SHA384withECDSA" : bits == 521 ? "SHA512withECDSA" : "SHA256withECDSA";
+        try {
+            final Signature ecdsa = Signature.getInstance(jca);
+            ecdsa.initSign(key);
+            ecdsa.update(data);
+            return ECDSA.transcodeSignatureToConcat(ecdsa.sign(), 2 * ((bits + 7) / 8));
+        } catch (final GeneralSecurityException | JOSEException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** {@code jcaName} digest of {@code data}; independent of production code. */
+    public static byte[] sha(final String jcaName, final byte[] data) {
+        try {
+            return MessageDigest.getInstance(jcaName).digest(data);
+        } catch (final java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     // ------------------------------------------------------------------------------------------- helpers
