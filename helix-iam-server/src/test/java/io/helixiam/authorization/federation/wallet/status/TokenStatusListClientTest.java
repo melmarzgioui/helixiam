@@ -40,6 +40,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 
 import javax.net.ssl.SSLContext;
@@ -284,6 +286,16 @@ class TokenStatusListClientTest {
     }
 
     @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void hugeZipBombIsLimitExceededQuickly() {
+        stub.serveJwt(signJwt(signer, header(signer), baseClaims(uri("/lists/bomb")).claim("status_list",
+                Map.of("bits", 1, "lst", b64url(StatusListTokenTest.zlibOfZeros(256L * 1024 * 1024)))).build()));
+        assertCode(() -> client(failOpen()).evaluate(new StatusReference(0, uri("/lists/bomb")), anchors),
+                WalletErrorCode.LIMIT_EXCEEDED);
+        assertThat(audits).isEmpty();
+    }
+
+    @Test
     void listOfExactlyTwoMegabytesIsAccepted() {
         final byte[] list = new byte[2 * 1024 * 1024];
         list[list.length - 1] = 1; // the very last index (8 * 2 MB - 8) is revoked
@@ -417,19 +429,225 @@ class TokenStatusListClientTest {
     }
 
     @Test
-    void refusedUriIsValidWithAnAuditEntryWhenFailOpen() {
-        assertThat(client(failOpen()).evaluate(new StatusReference(0, "https://169.254.169.254/x"), anchors))
-                .isEqualTo(StatusEvaluator.VALID);
-        assertThat(audits).containsExactly("169.254.169.254|STATUS_UNAVAILABLE");
+    void refusedUriFailsClosedEvenWhenFailOpen() {
+        assertCode(() -> client(failOpen()).evaluate(new StatusReference(0, "https://169.254.169.254/x"), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(audits).isEmpty();
     }
 
     @Test
-    void zipBombIsValidWithAnAuditEntryWhenFailOpen() {
+    void zipBombFailsClosedEvenWhenFailOpen() {
         stub.serveJwt(signJwt(signer, header(signer), baseClaims(uri("/lists/bomb"))
                 .claim("status_list", Map.of("bits", 1, "lst", b64url(zlib(new byte[3 * 1024 * 1024])))).build()));
-        assertThat(client(failOpen()).evaluate(new StatusReference(0, uri("/lists/bomb")), anchors))
-                .isEqualTo(StatusEvaluator.VALID);
-        assertThat(audits).containsExactly("localhost|LIMIT_EXCEEDED");
+        assertCode(() -> client(failOpen()).evaluate(new StatusReference(0, uri("/lists/bomb")), anchors),
+                WalletErrorCode.LIMIT_EXCEEDED);
+        assertThat(audits).isEmpty();
+    }
+
+    /** What a failure class must do under FAIL_OPEN_WITH_AUDIT (under FAIL_CLOSED all are refused). */
+    enum Outcome { CLOSED_UNAVAILABLE, CLOSED_LIMIT, OPEN }
+
+    /** The reference to evaluate, the guard (null: the default localhost guard), allowedHosts and the form. */
+    record Scenario(String uri, OutboundUrlGuard guard, List<String> allowedHosts, boolean cwt) {
+        static Scenario of(final String uri) {
+            return new Scenario(uri, null, List.of(), false);
+        }
+    }
+
+    /**
+     * Every failure class (fix round 1 ruling). Policy refusals and integrity failures, and every other non-transient
+     * failure, fail closed under both policies; only transient availability failures (connect/read error, timeout,
+     * 5xx, DNS resolution failure) may fail open.
+     */
+    enum Failure {
+        // ---- policy refusals
+        HTTP_URI(Outcome.CLOSED_UNAVAILABLE, t -> Scenario.of("http://localhost:" + t.stub.port() + "/lists/1")),
+        PRIVATE_ADDRESS(Outcome.CLOSED_UNAVAILABLE,
+                t -> Scenario.of("https://127.0.0.1:" + t.stub.port() + "/lists/1")),
+        METADATA_ADDRESS(Outcome.CLOSED_UNAVAILABLE, t -> Scenario.of("https://169.254.169.254/latest/meta-data")),
+        NOT_IN_ALLOWED_HOSTS(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveJwt(t.jwt(t.uri("/lists/1"), 1, new int[] {0}));
+            return new Scenario(t.uri("/lists/1"), null, List.of("status.example"), false);
+        }),
+        REDIRECT_TO_PRIVATE(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.respond(r -> new StubResponse(302, null, new byte[0], 0,
+                    "https://127.0.0.1:" + t.stub.port() + "/internal"));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        REDIRECT_TO_HTTP(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.respond(r -> new StubResponse(302, null, new byte[0], 0,
+                    "http://localhost:" + t.stub.port() + "/plain"));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        // ---- integrity of the fetched list
+        BAD_SIGNATURE(Outcome.CLOSED_UNAVAILABLE, t -> {
+            final String good = t.jwt(t.uri("/lists/1"), 1, new int[] {0});
+            final String[] parts = good.split("\\.");
+            t.stub.serveJwt(parts[0] + "." + t.jwt(t.uri("/lists/1"), 1, new int[] {1}).split("\\.")[1] + "."
+                    + parts[2]);
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        UNTRUSTED_SIGNER(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveJwt(t.jwt(TestPki.create("Stranger").issueLeaf(LeafSpec.defaults()), t.uri("/lists/1"), 1,
+                    new int[] {0}, b -> b));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        MISSING_X5C(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveJwt(t.jwt(signer, t.uri("/lists/1"), 1, new int[] {0},
+                    b -> new JWSHeader.Builder(JWSAlgorithm.ES256).type(new JOSEObjectType("statuslist+jwt"))));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        WRONG_TYP(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveJwt(t.jwt(signer, t.uri("/lists/1"), 1, new int[] {0},
+                    b -> b.type(new JOSEObjectType("JWT"))));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        DISALLOWED_ALG(Outcome.CLOSED_UNAVAILABLE, t -> {
+            final String[] parts = t.jwt(t.uri("/lists/1"), 1, new int[] {0}).split("\\.");
+            final String header = b64url(("{\"alg\":\"HS256\",\"typ\":\"statuslist+jwt\"}")
+                    .getBytes(StandardCharsets.UTF_8));
+            t.stub.serveJwt(header + "." + parts[1] + "." + parts[2]);
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        SUB_MISMATCH(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveJwt(t.jwt(t.uri("/lists/other"), 1, new int[] {0}));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        CWT_BAD_SIGNATURE(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveCwt(t.cwt(signer, t.uri("/cwt/1"), 1, new int[] {0}, Map.of("tamper", true)));
+            return new Scenario(t.uri("/cwt/1"), null, List.of(), true);
+        }),
+        CWT_SUB_MISMATCH(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveCwt(t.cwt(signer, t.uri("/cwt/other"), 1, new int[] {0}, Map.of()));
+            return new Scenario(t.uri("/cwt/1"), null, List.of(), true);
+        }),
+        // ---- other non-transient failures
+        EXPIRED_TOKEN(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveJwt(t.jwt(t.uri("/lists/1"), 1, new int[] {0}, c -> c.expirationTime(Date.from(
+                    t.clock.instant().minus(Duration.ofMinutes(5))))));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        MALFORMED_LIST(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.serveJwt(signJwt(signer, header(signer), t.baseClaims(t.uri("/lists/1"))
+                    .claim("status_list", Map.of("bits", 1, "lst", b64url("not zlib".getBytes()))).build()));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        NOT_FOUND(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.respond(r -> new StubResponse(404, null, new byte[0], 0, null));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        TOO_MANY_REDIRECTS(Outcome.CLOSED_UNAVAILABLE, t -> {
+            t.stub.respond(r -> new StubResponse(302, null, new byte[0], 0, r.path() + "x"));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        ZIP_BOMB(Outcome.CLOSED_LIMIT, t -> {
+            t.stub.serveJwt(signJwt(signer, header(signer), t.baseClaims(t.uri("/lists/1"))
+                    .claim("status_list", Map.of("bits", 1, "lst", b64url(zlib(new byte[3 * 1024 * 1024]))))
+                    .build()));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        BODY_TOO_LARGE(Outcome.CLOSED_LIMIT, t -> {
+            t.stub.respond(r -> StubResponse.ok(JWT_TYPE, new byte[1024 * 1024 + 1]));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        // ---- transient availability failures
+        CONNECTION_REFUSED(Outcome.OPEN, t -> {
+            final String u = "https://localhost:" + freePort() + "/lists/1";
+            return new Scenario(u, guardFor(u), List.of(), false);
+        }),
+        SERVER_ERROR(Outcome.OPEN, t -> {
+            t.stub.respond(r -> new StubResponse(503, null, new byte[0], 0, null));
+            return Scenario.of(t.uri("/lists/1"));
+        }),
+        DNS_FAILURE(Outcome.OPEN, t -> Scenario.of("https://status-list.invalid/lists/1")),
+        READ_TIMEOUT(Outcome.OPEN, t -> {
+            t.stub.respond(r -> new StubResponse(200, JWT_TYPE, new byte[64], -6_000, null));
+            return Scenario.of(t.uri("/lists/1"));
+        });
+
+        final Outcome failOpenOutcome;
+        final Function<TokenStatusListClientTest, Scenario> arrange;
+
+        Failure(final Outcome failOpenOutcome, final Function<TokenStatusListClientTest, Scenario> arrange) {
+            this.failOpenOutcome = failOpenOutcome;
+            this.arrange = arrange;
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Failure.class)
+    @Timeout(value = 20, unit = TimeUnit.SECONDS)
+    void everyFailureClassFollowsTheRulingUnderBothPolicies(final Failure failure) {
+        final Scenario scenario = failure.arrange.apply(this);
+        final WalletErrorCode closedCode = failure.failOpenOutcome == Outcome.CLOSED_LIMIT
+                ? WalletErrorCode.LIMIT_EXCEEDED : WalletErrorCode.STATUS_UNAVAILABLE;
+
+        assertCode(() -> evaluator(scenario, OnUnavailable.FAIL_CLOSED).evaluate(
+                new StatusReference(0, scenario.uri()), anchors), closedCode);
+        assertThat(audits).isEmpty();
+
+        final StatusEvaluator failOpen = evaluator(scenario, OnUnavailable.FAIL_OPEN_WITH_AUDIT);
+        if (failure.failOpenOutcome == Outcome.OPEN) {
+            assertThat(failOpen.evaluate(new StatusReference(0, scenario.uri()), anchors))
+                    .isEqualTo(StatusEvaluator.VALID);
+            assertThat(audits).singleElement().asString().endsWith("|STATUS_UNAVAILABLE");
+        } else {
+            assertCode(() -> failOpen.evaluate(new StatusReference(0, scenario.uri()), anchors), closedCode);
+            assertThat(audits).isEmpty();
+        }
+    }
+
+    private StatusEvaluator evaluator(final Scenario scenario, final OnUnavailable onUnavailable) {
+        final StatusPolicy policy = policy(onUnavailable, scenario.allowedHosts());
+        final TokenStatusListClient client = scenario.guard() == null ? client(policy)
+                : client(policy, scenario.guard());
+        return scenario.cwt() ? client.cwtEvaluator() : client;
+    }
+
+    @Test
+    @Timeout(value = 20, unit = TimeUnit.SECONDS)
+    void connectTimeoutIsThreeSeconds() {
+        final TokenStatusListClient client = client(failClosed());
+        assertThat(client.connectTimeout()).isEqualTo(Duration.ofSeconds(3));
+        // A non-routable address: the connect hangs until the 3 s connect timeout, well before the 5 s deadline.
+        // (A network that rejects the route at once fails even faster; either way never the 5 s read deadline.)
+        final OutboundUrlGuard permissive = OutboundUrlGuard.permissive();
+        final long start = System.nanoTime();
+        assertCode(() -> client(failClosed(), permissive).evaluate(
+                new StatusReference(0, "https://10.255.255.1:443/lists/1"), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(4_500));
+    }
+
+    @Test
+    void maxCacheAbove900SecondsIsClampedTo900() {
+        stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 86_400)));
+        final TokenStatusListClient client = client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED,
+                Duration.ofDays(1), List.of()));
+        client.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        clock.advance(Duration.ofSeconds(899));
+        client.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        assertThat(stub.requests()).hasSize(1);
+        clock.advance(Duration.ofSeconds(2));
+        client.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        assertThat(stub.requests()).hasSize(2);
+    }
+
+    @Test
+    void negativeMaxCacheIsAConfigurationError() {
+        assertThatThrownBy(() -> client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED, Duration.ofSeconds(-1),
+                List.of()))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void nullMaxCacheMeans900Seconds() {
+        stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 86_400)));
+        final TokenStatusListClient client = client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED, null,
+                List.of()));
+        client.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        clock.advance(Duration.ofSeconds(901));
+        client.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        assertThat(stub.requests()).hasSize(2);
     }
 
     @Test

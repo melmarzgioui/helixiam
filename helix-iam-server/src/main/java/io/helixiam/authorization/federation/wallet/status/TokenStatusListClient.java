@@ -16,6 +16,7 @@ import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.common.log.LogSafe;
 import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.SsrfBlockedException;
+import io.helixiam.common.net.UnresolvableHostException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -75,13 +76,22 @@ import java.util.stream.Collectors;
  * list is {@code INVALID_RESPONSE} (§8.3 step 6: the token "MUST be rejected"). These definite answers are never
  * subject to the unavailability policy.
  *
- * <p><b>Unavailable</b> is every other failure: refused URI, network error, timeout, non-200 response, an invalid or
- * untrusted token, a {@code sub} mismatch, an expired token, a zip bomb. Under {@code FAIL_CLOSED} it throws
- * {@code STATUS_UNAVAILABLE} ({@code LIMIT_EXCEEDED} for a size limit). Under {@code FAIL_OPEN_WITH_AUDIT} it logs a
- * warning, records the event through the {@link AuditSink} and returns {@code VALID}; if the audit cannot be recorded
- * it fails closed. This class is the single place that applies {@code onUnavailable} to a status-list evaluation: it
- * never lets a non-wallet exception escape, so the verifiers' own unavailability path (for a status claim without an
- * evaluable mechanism) is never reached for a status list.
+ * <p><b>Fail closed vs. fail open.</b> Only a <em>transient availability failure</em> is subject to
+ * {@link StatusPolicy#onUnavailable()}: a connect or read error, a timeout, an HTTP 5xx answer, or a host name that
+ * cannot be resolved ({@link UnresolvableHostException} from the guard). These are raised as the private
+ * {@link TransientFailure} type, so the classification is structural, never by message text. Under {@code FAIL_CLOSED}
+ * they throw {@code STATUS_UNAVAILABLE}; under {@code FAIL_OPEN_WITH_AUDIT} they are logged, recorded through the
+ * {@link AuditSink} and answered {@code VALID} (if the audit cannot be recorded, it fails closed).
+ *
+ * <p>Everything else <b>always fails closed</b>, under both policies: policy refusals (a non-https uri or redirect
+ * hop, a host the guard blocks, a host outside {@code allowedHosts}), every integrity failure of the fetched list (bad
+ * signature, untrusted / expired chain, wrong {@code typ} / type, alg not allowed, {@code sub} not equal to the uri),
+ * and any other non-transient failure (non-5xx error status, too many redirects, malformed list, expired token). These
+ * throw {@code STATUS_UNAVAILABLE}, or {@code LIMIT_EXCEEDED} for a size limit (body, inflated list).
+ *
+ * <p>This class is the single place that applies {@code onUnavailable} to a status-list evaluation: it never lets a
+ * non-wallet exception escape, so the verifiers' own unavailability path (for a status claim without an evaluable
+ * mechanism) is never reached for a status list.
  */
 public final class TokenStatusListClient implements StatusEvaluator {
 
@@ -89,7 +99,7 @@ public final class TokenStatusListClient implements StatusEvaluator {
     public static final int READ_TIMEOUT_SECONDS = 5;
     public static final int MAX_BODY_BYTES = 1024 * 1024;
     public static final int MAX_REDIRECTS = 3;
-    /** {@code maxCache} when the policy leaves it unset (spec: status cache max 900 s). */
+    /** {@code maxCache} when the policy leaves it unset, and its upper bound (spec: status cache max 900 s). */
     public static final Duration DEFAULT_MAX_CACHE = Duration.ofSeconds(900);
     /** Most status lists kept; each may hold up to 2 MB inflated. */
     static final int MAX_CACHE_ENTRIES = 64;
@@ -110,6 +120,16 @@ public final class TokenStatusListClient implements StatusEvaluator {
          * @param safeDetail     a safe reason
          */
         void statusUnavailableAccepted(String statusListHost, WalletErrorCode code, String safeDetail);
+    }
+
+    /**
+     * A transient availability failure (connect / read error, timeout, HTTP 5xx, DNS resolution failure): the only
+     * failure {@code onUnavailable} may turn into {@code VALID}. Never escapes this class.
+     */
+    private static final class TransientFailure extends RuntimeException {
+        TransientFailure(final String safeDetail) {
+            super(safeDetail, null, false, false);
+        }
     }
 
     /** The two Status List Token forms. */
@@ -151,7 +171,11 @@ public final class TokenStatusListClient implements StatusEvaluator {
         this.audit = Objects.requireNonNull(audit, "audit");
         Objects.requireNonNull(policy.onUnavailable(), "policy.onUnavailable");
         final Duration configured = policy.maxCache();
-        this.maxCache = configured == null || configured.isNegative() ? DEFAULT_MAX_CACHE : configured;
+        if (configured != null && configured.isNegative()) {
+            throw new IllegalArgumentException("statusList.maxCache must not be negative");
+        }
+        this.maxCache = configured == null || configured.compareTo(DEFAULT_MAX_CACHE) > 0 ? DEFAULT_MAX_CACHE
+                : configured;
         this.allowedHosts = policy.allowedHosts() == null ? Set.of() : policy.allowedHosts().stream()
                 .filter(Objects::nonNull).map(h -> h.trim().toLowerCase(Locale.ROOT)).filter(h -> !h.isEmpty())
                 .collect(Collectors.toUnmodifiableSet());
@@ -160,6 +184,11 @@ public final class TokenStatusListClient implements StatusEvaluator {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .sslContext(Objects.requireNonNull(sslContext, "sslContext"))
                 .build();
+    }
+
+    /** The connect timeout of the underlying HTTP client. */
+    Duration connectTimeout() {
+        return http.connectTimeout().orElseThrow();
     }
 
     /** An {@link AuditSink} that emits {@code WALLET_STATUS_CHECK_FAILED} (AUTHN) for the current realm. */
@@ -188,11 +217,14 @@ public final class TokenStatusListClient implements StatusEvaluator {
         final StatusListToken token;
         try {
             token = load(ref.uri(), anchors, form);
+        } catch (final TransientFailure e) {
+            return unavailable(ref.uri(), e.getMessage());
         } catch (final WalletVerificationException e) {
-            return unavailable(ref.uri(), e.code() == WalletErrorCode.LIMIT_EXCEEDED
+            // policy refusal, integrity failure or other non-transient failure: never fail-open
+            throw refused(ref.uri(), e.code() == WalletErrorCode.LIMIT_EXCEEDED
                     ? WalletErrorCode.LIMIT_EXCEEDED : WalletErrorCode.STATUS_UNAVAILABLE, e.getMessage());
         } catch (final RuntimeException e) {
-            return unavailable(ref.uri(), WalletErrorCode.STATUS_UNAVAILABLE, "status list could not be evaluated");
+            throw refused(ref.uri(), WalletErrorCode.STATUS_UNAVAILABLE, "status list could not be evaluated");
         }
         final int status = token.statusAt(ref.idx()); // out of range: INVALID_RESPONSE, a definite rejection
         return switch (status) {
@@ -204,8 +236,17 @@ public final class TokenStatusListClient implements StatusEvaluator {
         };
     }
 
-    /** The one place {@code onUnavailable} is applied to a status-list evaluation. */
-    private String unavailable(final String uri, final WalletErrorCode code, final String safeDetail) {
+    /** A failure that is never subject to {@code onUnavailable}. */
+    private static WalletVerificationException refused(final String uri, final WalletErrorCode code,
+            final String safeDetail) {
+        LOG.info("Credential status list refused: host={} code={} detail={}", LogSafe.sanitize(hostOf(uri)), code,
+                safeDetail);
+        return new WalletVerificationException(code, safeDetail);
+    }
+
+    /** The one place {@code onUnavailable} is applied: transient availability failures only. */
+    private String unavailable(final String uri, final String safeDetail) {
+        final WalletErrorCode code = WalletErrorCode.STATUS_UNAVAILABLE;
         final String host = LogSafe.sanitize(hostOf(uri));
         if (policy.onUnavailable() != StatusPolicy.OnUnavailable.FAIL_OPEN_WITH_AUDIT) {
             LOG.debug("Credential status unavailable: host={} code={} detail={}", host, code, safeDetail);
@@ -244,10 +285,10 @@ public final class TokenStatusListClient implements StatusEvaluator {
                 ? StatusListToken.fromJwt(new String(body, StandardCharsets.UTF_8), anchors, now, trust)
                 : StatusListToken.fromCwt(body, anchors, now, trust);
         if (!uri.equals(token.subject())) {
-            throw unavailableFailure("Status List Token sub does not match the status list uri");
+            throw nonTransient("Status List Token sub does not match the status list uri");
         }
         if (token.isExpiredAt(now)) {
-            throw unavailableFailure("Status List Token is expired");
+            throw nonTransient("Status List Token is expired");
         }
         final Duration ttl = token.ttl() == null || token.ttl().compareTo(maxCache) > 0 ? maxCache : token.ttl();
         Instant until = now.plus(ttl);
@@ -283,22 +324,25 @@ public final class TokenStatusListClient implements StatusEvaluator {
                 close(response.body());
                 final String location = response.headers().firstValue("Location").orElse(null);
                 if (location == null) {
-                    throw unavailableFailure("status list redirect has no location");
+                    throw nonTransient("status list redirect has no location");
                 }
                 try {
                     target = vet(target.resolve(location).toString());
                 } catch (final IllegalArgumentException e) {
-                    throw unavailableFailure("status list redirect location is malformed");
+                    throw nonTransient("status list redirect location is malformed");
                 }
                 continue;
             }
             if (status != 200) {
                 close(response.body());
-                throw unavailableFailure("status list server answered HTTP " + status);
+                if (status / 100 == 5) {
+                    throw new TransientFailure("status list server answered HTTP " + status);
+                }
+                throw nonTransient("status list server answered HTTP " + status);
             }
             return readBody(response.body(), deadline);
         }
-        throw unavailableFailure("status list redirected too often");
+        throw nonTransient("status list redirected too often");
     }
 
     /** {@code https}, allowed host, and the outbound guard, before any connection; returns the parsed URI. */
@@ -307,21 +351,23 @@ public final class TokenStatusListClient implements StatusEvaluator {
         try {
             parsed = new URI(uri);
         } catch (final URISyntaxException | NullPointerException e) {
-            throw unavailableFailure("status list uri is malformed");
+            throw nonTransient("status list uri is malformed");
         }
         if (!"https".equalsIgnoreCase(parsed.getScheme())) {
-            throw unavailableFailure("status list uri is not https");
+            throw nonTransient("status list uri is not https");
         }
         if (parsed.getHost() == null || parsed.getRawUserInfo() != null) {
-            throw unavailableFailure("status list uri has no plain host");
+            throw nonTransient("status list uri has no plain host");
         }
         if (!allowedHosts.isEmpty() && !allowedHosts.contains(bareHost(parsed.getHost()))) {
-            throw unavailableFailure("status list host is not in allowedHosts");
+            throw nonTransient("status list host is not in allowedHosts");
         }
         try {
             guard.checkAllowed(parsed.toString());
+        } catch (final UnresolvableHostException e) {
+            throw new TransientFailure("status list host could not be resolved");
         } catch (final SsrfBlockedException e) {
-            throw unavailableFailure("status list host is not allowed");
+            throw nonTransient("status list host is not allowed");
         }
         return parsed;
     }
@@ -329,7 +375,7 @@ public final class TokenStatusListClient implements StatusEvaluator {
     private HttpResponse<InputStream> send(final URI target, final Form form, final long deadline) {
         final long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {
-            throw unavailableFailure("status list request timed out");
+            throw new TransientFailure("status list request timed out");
         }
         final HttpRequest request = HttpRequest.newBuilder(target)
                 .timeout(Duration.ofNanos(remaining))
@@ -339,12 +385,12 @@ public final class TokenStatusListClient implements StatusEvaluator {
         try {
             return http.send(request, HttpResponse.BodyHandlers.ofInputStream());
         } catch (final java.net.http.HttpTimeoutException e) {
-            throw unavailableFailure("status list request timed out");
+            throw new TransientFailure("status list request timed out");
         } catch (final IOException e) {
-            throw unavailableFailure("status list could not be fetched");
+            throw new TransientFailure("status list could not be fetched");
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw unavailableFailure("status list fetch was interrupted");
+            throw new TransientFailure("status list fetch was interrupted");
         }
     }
 
@@ -363,13 +409,13 @@ public final class TokenStatusListClient implements StatusEvaluator {
         } catch (final TimeoutException e) {
             read.cancel(true);
             close(in);
-            throw unavailableFailure("status list response timed out");
+            throw new TransientFailure("status list response timed out");
         } catch (final ExecutionException e) {
-            throw unavailableFailure("status list could not be read");
+            throw new TransientFailure("status list could not be read");
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
             close(in);
-            throw unavailableFailure("status list fetch was interrupted");
+            throw new TransientFailure("status list fetch was interrupted");
         }
         if (body.length > MAX_BODY_BYTES) {
             throw new WalletVerificationException(WalletErrorCode.LIMIT_EXCEEDED,
@@ -400,7 +446,8 @@ public final class TokenStatusListClient implements StatusEvaluator {
         }
     }
 
-    private static WalletVerificationException unavailableFailure(final String safeDetail) {
+    /** A non-transient failure: always fails closed (see the class comment). */
+    private static WalletVerificationException nonTransient(final String safeDetail) {
         return new WalletVerificationException(WalletErrorCode.STATUS_UNAVAILABLE, safeDetail);
     }
 

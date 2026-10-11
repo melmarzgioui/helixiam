@@ -218,7 +218,8 @@ public class OutboundUrlGuard {
     /**
      * Validate {@code url} for outbound use.
      *
-     * @throws SsrfBlockedException when the scheme is not http/https, the host is missing/unresolvable, or any
+     * @throws SsrfBlockedException when the scheme is not http/https, the host is missing/unresolvable (then the
+     *                              subtype {@link UnresolvableHostException}), or any
      *                              resolved address is loopback / wildcard / link-local / private / multicast
      *                              (unless {@code allow-private} is enabled, which skips only the address checks).
      */
@@ -255,10 +256,10 @@ public class OutboundUrlGuard {
         try {
             addresses = resolver.resolve(host);
         } catch (final UnknownHostException e) {
-            throw new SsrfBlockedException("Outbound host could not be resolved: " + host, e);
+            throw new UnresolvableHostException("Outbound host could not be resolved: " + host, e);
         }
         if (addresses == null || addresses.length == 0) {
-            throw new SsrfBlockedException("Outbound host resolved to no address: " + host);
+            throw new UnresolvableHostException("Outbound host resolved to no address: " + host);
         }
         for (final InetAddress address : addresses) {
             if (allowlisted ? isAlwaysBlocked(address) : isBlocked(address)) {

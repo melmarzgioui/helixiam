@@ -12,13 +12,18 @@ import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.federation.wallet.mdoc.CborValue;
 import io.helixiam.authorization.federation.wallet.mdoc.StrictCbor;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Base64;
+import java.time.Duration;
 import java.util.HexFormat;
+import java.util.concurrent.TimeUnit;
+import java.util.zip.Deflater;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,6 +108,39 @@ class StatusListTokenTest {
                         e -> assertThat(e.code()).isEqualTo(WalletErrorCode.LIMIT_EXCEEDED));
         assertThat(StatusListToken.inflate(TokenStatusListClientTest.zlib(
                 new byte[StatusListToken.MAX_INFLATED_BYTES]))).hasSize(StatusListToken.MAX_INFLATED_BYTES);
+    }
+
+    @Test
+    @Timeout(value = 3, unit = TimeUnit.SECONDS)
+    void hugeZipBombStopsEarly() {
+        final byte[] bomb = zlibOfZeros(256L * 1024 * 1024); // 256 MB inflated, ~250 KB compressed
+        assertThat(bomb.length).isLessThan(TokenStatusListClient.MAX_BODY_BYTES / 2);
+        final long start = System.nanoTime();
+        assertThatThrownBy(() -> StatusListToken.inflate(bomb))
+                .isInstanceOfSatisfying(WalletVerificationException.class,
+                        e -> assertThat(e.code()).isEqualTo(WalletErrorCode.LIMIT_EXCEEDED));
+        // stopping at 2 MB takes milliseconds; inflating 256 MB would not
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(500));
+    }
+
+    /** zlib of {@code size} zero bytes, deflated in chunks so the input is never held in memory. */
+    static byte[] zlibOfZeros(final long size) {
+        final Deflater deflater = new Deflater(Deflater.BEST_COMPRESSION);
+        final byte[] chunk = new byte[1024 * 1024];
+        final byte[] buf = new byte[64 * 1024];
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        for (long fed = 0; fed < size; fed += chunk.length) {
+            deflater.setInput(chunk);
+            while (!deflater.needsInput()) {
+                out.write(buf, 0, deflater.deflate(buf));
+            }
+        }
+        deflater.finish();
+        while (!deflater.finished()) {
+            out.write(buf, 0, deflater.deflate(buf));
+        }
+        deflater.end();
+        return out.toByteArray();
     }
 
     @Test
