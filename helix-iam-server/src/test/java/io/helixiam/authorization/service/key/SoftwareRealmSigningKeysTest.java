@@ -11,6 +11,7 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSObject;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
+import io.helixiam.common.startup.DeploymentProfile;
 import io.helixiam.e2e.AbstractE2eTest;
 import io.helixiam.e2e.E2eSeed;
 import io.helixiam.persistence.security.AttributeEncryption;
@@ -26,6 +27,7 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.io.StringWriter;
 import java.math.BigInteger;
@@ -190,6 +192,74 @@ class SoftwareRealmSigningKeysTest extends AbstractE2eTest {
         assertThatThrownBy(() -> keys.importKey(realm, "self", pem(kp.getPrivate()), pem(selfSigned)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not be self-signed");
+    }
+
+    @Test
+    void leafSignedByItsOwnKey_withDifferentIssuerDn_isRefusedAsSelfSigned() throws Exception {
+        // Fix round 1: the DN comparison alone could be bypassed by an issuer DN that differs from the subject.
+        final KeyPair kp = ecKeyPair("secp256r1");
+        final X509Certificate disguised = cert("CN=Some Trusted CA", kp, "CN=verifier.example", kp.getPublic(),
+                "SHA256withECDSA", false, Instant.now().plus(Duration.ofDays(30)));
+        assertThatThrownBy(() -> keys.importKey(realm, "disguised", pem(kp.getPrivate()), pem(disguised)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must not be self-signed");
+        assertThat(rows("disguised")).isZero();
+    }
+
+    @Test
+    void secp256k1Key_isRefused_curveIdentityNotFieldSize() throws Exception {
+        // secp256k1 has a 256-bit field like P-256 but is not P-256: never ES256.
+        final KeyPairGenerator gen = KeyPairGenerator.getInstance("EC", new BouncyCastleProvider());
+        gen.initialize(new ECGenParameterSpec("secp256k1"));
+        final KeyPair k1 = gen.generateKeyPair();
+        final KeyPair caKey = ecKeyPair("secp256r1");
+        final X509Certificate leaf = cert("CN=CA", caKey, "CN=k1", k1.getPublic(), "SHA256withECDSA", false,
+                Instant.now().plus(Duration.ofDays(30)));
+        assertThatThrownBy(() -> keys.importKey(realm, "k1", pem(k1.getPrivate()), pem(leaf)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported EC curve")
+                .hasMessageContaining("P-256, P-384 or P-521");
+
+        final KeyPairGenerator bp = KeyPairGenerator.getInstance("EC", new BouncyCastleProvider());
+        bp.initialize(new ECGenParameterSpec("brainpoolP256r1"));
+        final KeyPair brainpool = bp.generateKeyPair();
+        assertThatThrownBy(() -> keys.importKey(realm, "bp", pem(brainpool.getPrivate()), pem(leaf)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported EC curve");
+    }
+
+    @Test
+    void malformedBase64InCertificateBlock_isIllegalArgument() throws Exception {
+        final Pki pki = Pki.ec("secp256r1", "SHA256withECDSA");
+        final String broken = "-----BEGIN CERTIFICATE-----\nMIIB!!!not*base64@@@\n-----END CERTIFICATE-----\n";
+        assertThatThrownBy(() -> keys.importKey(realm, "broken", pem(pki.leafKey.getPrivate()), broken))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("certificate chain could not be parsed");
+        final String brokenKey = "-----BEGIN PRIVATE KEY-----\nMIIB!!!not*base64@@@\n-----END PRIVATE KEY-----\n";
+        assertThatThrownBy(() -> keys.importKey(realm, "broken2", brokenKey, pem(pki.leaf)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("private key");
+    }
+
+    @Test
+    void withoutDbEncryption_importIsRefusedOutsideDev_andAllowedInDev() throws Exception {
+        final JdbcTemplate template = context.getBean(JdbcTemplate.class);
+        final PlatformTransactionManager tm = context.getBean(PlatformTransactionManager.class);
+        final Pki pki = Pki.ec("secp256r1", "SHA256withECDSA");
+
+        final RealmSigningKeys production = new SoftwareRealmSigningKeys(template, tm, new AttributeEncryption(null),
+                DeploymentProfile.production());
+        assertThatThrownBy(() -> production.importKey(realm, "plain", pem(pki.leafKey.getPrivate()), pem(pki.leaf)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("set DB_ENCRYPTION before importing a verifier signing key");
+        assertThat(rows("plain")).isZero();
+
+        final RealmSigningKeys dev = new SoftwareRealmSigningKeys(template, tm, new AttributeEncryption(null),
+                DeploymentProfile.development());
+        final String ref = dev.importKey(realm, "plain", pem(pki.leafKey.getPrivate()), pem(pki.leaf));
+        assertThat(dev.resolve(realm, ref).algorithm()).isEqualTo(JWSAlgorithm.ES256);
+        assertThat(jdbc.queryForObject("SELECT private_key FROM verifier_signing_key WHERE realm_id = ? AND name = ?",
+                String.class, realm, "plain")).as("dev without DB_ENCRYPTION stores plaintext").contains("PRIVATE KEY");
     }
 
     @Test

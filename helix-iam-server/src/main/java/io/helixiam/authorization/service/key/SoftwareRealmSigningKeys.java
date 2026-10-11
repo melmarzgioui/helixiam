@@ -13,10 +13,17 @@ import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.jca.JCAContext;
 import com.nimbusds.jose.util.Base64URL;
 import io.helixiam.common.log.LogSafe;
+import io.helixiam.common.startup.DeploymentProfile;
 import io.helixiam.persistence.security.AttributeEncryption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import com.nimbusds.jose.jwk.Curve;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.asn1.sec.SECObjectIdentifiers;
+import org.bouncycastle.asn1.x9.ECNamedCurveTable;
+import org.bouncycastle.asn1.x9.X962Parameters;
+import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.openssl.PEMKeyPair;
@@ -66,16 +73,22 @@ import java.util.regex.Pattern;
  * {@link IllegalArgumentException}.
  *
  * <h2>Algorithms</h2>
- * EC only; the curve decides the JWS algorithm: P-256 → ES256, P-384 → ES384, P-521 → ES512. <b>RSA keys are refused
+ * EC only; the curve <em>identity</em> (named-curve OID / Nimbus {@link Curve}, never the field size) decides the JWS
+ * algorithm: P-256 → ES256, P-384 → ES384, P-521 → ES512; secp256k1, brainpool and explicit parameters are refused. <b>RSA keys are refused
  * at any size</b>: HAIP / OpenID4VP request signing uses ECDSA, the feature does not need RSA, and refusing it keeps
  * the "RSA ≥ 2048" rule trivially true.
  *
  * <h2>Import checks</h2>
  * The private key must match the leaf (first) certificate's public key; the chain is leaf first (every certificate is
  * issued and signed by the next one); the leaf must be currently valid (not expired, not yet valid) and <b>must not be
- * self-signed</b> (HAIP: the certificate signing the request object must not be self-signed). A trailing self-signed
+ * self-signed</b> (HAIP: the certificate signing the request object must not be self-signed), judged by its signature
+ * verifying with its own key, whatever its issuer DN says. A trailing self-signed
  * certificate (the trust anchor) is dropped before storing: the {@code x5c} chain must not contain it. Names are
  * unique per realm; importing an existing name is refused (keys are immutable; rotate by importing a new name).
+ *
+ * <h2>Encryption at rest</h2>
+ * Without {@code DB_ENCRYPTION} the import is refused unless the {@code dev} profile is active ({@link DeploymentProfile});
+ * in dev the key is stored in plaintext with a warning.
  *
  * <p>Key material is never logged and never echoed in exception messages; realm and name are logged through
  * {@link LogSafe#sanitize}.
@@ -87,21 +100,29 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
 
     static final String SOFTWARE_SCHEME = "software:";
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9._-]{1,64}");
+    private static final String ENCRYPTION_PROBE = "helix-encryption-probe";
+    private static final String UNSUPPORTED_CURVE = "Unsupported EC curve";
+    private static final Set<ASN1ObjectIdentifier> ALLOWED_CURVES = Set.of(SECObjectIdentifiers.secp256r1,
+            SECObjectIdentifiers.secp384r1, SECObjectIdentifiers.secp521r1);
     private static final byte[] MATCH_PROBE = "helix-verifier-key-match".getBytes(StandardCharsets.US_ASCII);
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final TransactionTemplate readTx;
     private final AttributeEncryption encryption;
+    private final DeploymentProfile profile;
+    private final boolean encrypted;
 
     @Autowired
     public SoftwareRealmSigningKeys(final JdbcTemplate jdbc, final PlatformTransactionManager transactions,
-                                    @Value("${database.encryption:#{null}}") final String encryptionKey) {
-        this(jdbc, transactions, new AttributeEncryption(encryptionKey));
+                                    @Value("${database.encryption:#{null}}") final String encryptionKey,
+                                    final DeploymentProfile profile) {
+        this(jdbc, transactions, new AttributeEncryption(encryptionKey), profile);
     }
 
     public SoftwareRealmSigningKeys(final JdbcTemplate jdbc, final PlatformTransactionManager transactions,
-                                    final AttributeEncryption encryption) {
+                                    final AttributeEncryption encryption, final DeploymentProfile profile) {
+        this.profile = profile;
         this.jdbc = jdbc;
         // The pool has auto-commit off: every write commits in its own transaction.
         this.tx = new TransactionTemplate(transactions);
@@ -109,6 +130,8 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
         this.readTx = new TransactionTemplate(transactions);
         this.readTx.setReadOnly(true);
         this.encryption = encryption;
+        // AttributeEncryption without a key passes values through unchanged.
+        this.encrypted = !ENCRYPTION_PROBE.equals(encryption.convertToDatabaseColumn(ENCRYPTION_PROBE));
     }
 
     // ------------------------------------------------------------------------------------------------ resolve
@@ -177,6 +200,14 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
         if (certificateChainPem == null || certificateChainPem.isBlank()) {
             throw new IllegalArgumentException("A PEM certificate chain is required");
         }
+        if (!encrypted) {
+            if (!profile.isDev()) {
+                throw new IllegalArgumentException("Database encryption is not configured: set DB_ENCRYPTION before "
+                        + "importing a verifier signing key");
+            }
+            LOG.warn("DB_ENCRYPTION is not set: storing verifier signing key realm={} name={} UNENCRYPTED (dev profile)",
+                    LogSafe.sanitize(realmId), LogSafe.sanitize(name));
+        }
         final PrivateKey privateKey = parsePrivateKey(privateKeyPem);
         if ("RSA".equalsIgnoreCase(privateKey.getAlgorithm())) {
             throw new IllegalArgumentException("RSA keys are not supported for verifier access certificates; "
@@ -218,7 +249,7 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
             throw new IllegalArgumentException("The leaf certificate is not yet valid (notBefore "
                     + leaf.getNotBefore() + ")");
         }
-        if (isSelfSigned(leaf)) {
+        if (verifiesWith(leaf, leaf.getPublicKey())) { // by key alone: an issuer DN != subject must not hide it
             throw new IllegalArgumentException("The verifier access certificate must not be self-signed (HAIP); "
                     + "import a certificate issued by a CA, with its chain");
         }
@@ -238,14 +269,18 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
     // ------------------------------------------------------------------------------------------------ crypto helpers
 
     static JWSAlgorithm algorithmFor(final ECPrivateKey key) {
-        final int bits = key.getParams().getCurve().getField().getFieldSize();
-        return switch (bits) {
-            case 256 -> JWSAlgorithm.ES256;
-            case 384 -> JWSAlgorithm.ES384;
-            case 521 -> JWSAlgorithm.ES512;
-            default -> throw new IllegalArgumentException("Unsupported EC curve (" + bits
-                    + " bits); use P-256, P-384 or P-521");
-        };
+        final Curve curve = Curve.forECParameterSpec(key.getParams());
+        if (Curve.P_256.equals(curve)) {
+            return JWSAlgorithm.ES256;
+        }
+        if (Curve.P_384.equals(curve)) {
+            return JWSAlgorithm.ES384;
+        }
+        if (Curve.P_521.equals(curve)) {
+            return JWSAlgorithm.ES512;
+        }
+        throw new IllegalArgumentException(UNSUPPORTED_CURVE + (curve == null ? "" : " " + curve.getName())
+                + "; use P-256, P-384 or P-521");
     }
 
     /** Sign-and-verify proof that the private key belongs to the certificate's public key. */
@@ -295,19 +330,48 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
         } catch (final IOException | RuntimeException e) {
             throw new IllegalArgumentException("The private key could not be parsed as PEM");
         }
+        final PrivateKeyInfo info;
         try {
-            final JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
-            if (o instanceof PrivateKeyInfo info) {
-                return converter.getPrivateKey(info);
+            if (o instanceof PrivateKeyInfo pkcs8) {
+                info = pkcs8;
+            } else if (o instanceof PEMKeyPair pair) {
+                info = pair.getPrivateKeyInfo(); // the public part may be absent
+            } else {
+                throw new IllegalArgumentException("The private key must be an unencrypted PEM private key "
+                        + "(BEGIN PRIVATE KEY or BEGIN EC PRIVATE KEY)");
             }
-            if (o instanceof PEMKeyPair pair) {
-                return converter.getPrivateKey(pair.getPrivateKeyInfo()); // public part may be absent
+            requireAllowedCurve(info);
+            return new JcaPEMKeyConverter().getPrivateKey(info);
+        } catch (final IllegalArgumentException e) {
+            if (e.getMessage() != null && (e.getMessage().startsWith("The private key must")
+                    || e.getMessage().startsWith(UNSUPPORTED_CURVE))) {
+                throw e;
             }
+            throw new IllegalArgumentException("The private key could not be parsed as PEM");
         } catch (final IOException | RuntimeException e) {
             throw new IllegalArgumentException("The private key could not be parsed as PEM");
         }
-        throw new IllegalArgumentException("The private key must be an unencrypted PEM private key "
-                + "(BEGIN PRIVATE KEY or BEGIN EC PRIVATE KEY)");
+    }
+
+    /**
+     * Curve identity, not field size: an EC key must name P-256, P-384 or P-521 (secp256k1 and brainpool share field
+     * sizes with them and are refused). Checked on the encoded OID, before any JCA provider sees the key.
+     */
+    private static void requireAllowedCurve(final PrivateKeyInfo info) {
+        if (!X9ObjectIdentifiers.id_ecPublicKey.equals(info.getPrivateKeyAlgorithm().getAlgorithm())) {
+            return; // RSA etc.: refused later with its own message
+        }
+        final X962Parameters params = X962Parameters.getInstance(info.getPrivateKeyAlgorithm().getParameters());
+        if (!params.isNamedCurve()) {
+            throw new IllegalArgumentException(UNSUPPORTED_CURVE + " (explicit curve parameters); "
+                    + "use P-256, P-384 or P-521");
+        }
+        final ASN1ObjectIdentifier oid = ASN1ObjectIdentifier.getInstance(params.getParameters());
+        if (!ALLOWED_CURVES.contains(oid)) {
+            final String name = ECNamedCurveTable.getName(oid);
+            throw new IllegalArgumentException(UNSUPPORTED_CURVE + " " + (name == null ? oid.getId() : name)
+                    + "; use P-256, P-384 or P-521");
+        }
     }
 
     private static List<X509Certificate> parseChain(final String pem) {
@@ -322,6 +386,14 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
                 certs.add(converter.getCertificate(holder));
             }
         } catch (final IOException | GeneralSecurityException e) {
+            throw new IllegalArgumentException("The certificate chain could not be parsed as PEM certificates");
+        } catch (final RuntimeException e) {
+            // BouncyCastle signals some malformed input (base64 / ASN.1) with runtime exceptions (DecoderException,
+            // IllegalArgumentException, ...): the same documented error, never a BC message.
+            if (e instanceof IllegalArgumentException iae && iae.getMessage() != null
+                    && iae.getMessage().startsWith("The certificate chain must")) {
+                throw iae;
+            }
             throw new IllegalArgumentException("The certificate chain could not be parsed as PEM certificates");
         }
         if (certs.isEmpty()) {
