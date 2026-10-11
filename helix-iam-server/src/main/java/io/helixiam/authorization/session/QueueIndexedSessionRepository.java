@@ -56,6 +56,14 @@ public class QueueIndexedSessionRepository implements FindByIndexNameSessionRepo
         store.save(new HttpSessionRecord(session.getId(), principalOf(session), SessionBlobs.serialize(attributes),
                 session.getCreationTime().toEpochMilli(), session.getLastAccessedTime().toEpochMilli(),
                 (int) session.getMaxInactiveInterval().getSeconds(), expiry));
+        // request.changeSessionId() (session-fixation defence: FederatedLoginCompleter, FlowController,
+        // MagicLinkController) renames the id on the in-memory MapSession but this store keys rows by id, so the
+        // save above only ever INSERTs a new row under the new id — the old row is never implicitly renamed away
+        // like Redis/JDBC do it. Delete it explicitly, exactly once, right when the id actually changed.
+        final String originalId = session.getOriginalId();
+        if (originalId != null && !originalId.equals(session.getId())) {
+            store.deleteById(originalId);
+        }
     }
 
     @Override

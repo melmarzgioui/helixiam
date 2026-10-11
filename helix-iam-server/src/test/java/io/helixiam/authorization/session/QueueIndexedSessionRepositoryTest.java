@@ -89,6 +89,34 @@ class QueueIndexedSessionRepositoryTest {
         assertThat(store.byId).doesNotContainKey("old"); // expired → deleted
     }
 
+    /**
+     * Security: {@code request.changeSessionId()} (session-fixation defence on federated/magic-link login, see
+     * FederatedLoginCompleter, FlowController, MagicLinkController) renames the id on the in-memory session, but
+     * this store keys rows by id — unlike Redis/Spring-JDBC, which rename the row in place, a save after rotation
+     * must not leave the OLD row (with the now-promoted, fully authenticated attributes) alive, or replaying the
+     * pre-rotation cookie resurrects an authenticated session that logging out of the NEW id never ends.
+     */
+    @Test
+    void save_afterChangeSessionId_deletesTheOldRow() {
+        final FakeStore store = new FakeStore();
+        final QueueIndexedSessionRepository repo = new QueueIndexedSessionRepository(store, Duration.ofMinutes(30));
+
+        final MapSession fresh = repo.createSession();
+        fresh.setAttribute("hello", "world");
+        repo.save(fresh);
+        final String before = fresh.getId();
+
+        // A later request loads the session fresh from the store (as the real SessionRepositoryFilter does),
+        // rotates its id, then saves it back — mirroring request.getSession() + request.changeSessionId().
+        final MapSession loaded = repo.findById(before);
+        loaded.changeSessionId();
+        repo.save(loaded);
+
+        assertThat(store.byId).as("the pre-rotation row must not survive").doesNotContainKey(before);
+        assertThat(store.byId).containsKey(loaded.getId());
+        assertThat(repo.findById(loaded.getId()).<String>getAttribute("hello")).isEqualTo("world");
+    }
+
     @Test
     void deleteById_removes() {
         final FakeStore store = new FakeStore();
