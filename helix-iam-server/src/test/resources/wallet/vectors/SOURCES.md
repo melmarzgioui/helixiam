@@ -9,11 +9,80 @@ Protocol notes: `docs/eudi-wallet-spec-notes.md`.
 
 ## Licences
 
-| Source | Licence / terms |
-|---|---|
-| RFC 9901 | Copyright (c) 2025 IETF Trust and the persons identified as the document authors. All rights reserved. Subject to BCP 78 and the IETF Trust Legal Provisions (https://trustee.ietf.org/license-info). Reproduced unmodified with attribution. |
-| draft-ietf-oauth-sd-jwt-vc-19, draft-ietf-oauth-status-list-21 | Copyright (c) 2026 IETF Trust and the persons identified as the document authors. All rights reserved. Same BCP 78 / Trust Legal Provisions terms. |
-| OpenID for Verifiable Presentations 1.0 | Copyright (c) 2025 The OpenID Foundation. The OIDF grants "a non-exclusive, royalty free, worldwide copyright license to reproduce, prepare derivative works from, distribute, perform and display, this Implementers Draft, Final Specification, or Final Specification Incorporating Errata Corrections solely for the purposes of (i) developing specifications, and (ii) implementing [...] based on such documents, provided that attribution be made to the OIDF as the source of the material, but that such attribution does not indicate an endorsement by the OIDF." (Appendix G). Used here for implementing the specification, with attribution. |
+**These vector files are NOT under the project's Apache-2.0 licence.** Each file keeps the licence of the specification
+it was extracted from, as listed below. Downstream packagers must carry these notices with the files.
+
+### IETF-sourced files: Revised BSD License (IETF Trust Legal Provisions §4)
+
+Applies to exactly these files:
+
+- `sd-jwt/rfc9901-5.1-issuer-signed-jwt.txt`, `sd-jwt/rfc9901-5.1-sd-jwt.txt`, `sd-jwt/rfc9901-5.2-sd-jwt-kb.txt`,
+  `sd-jwt/rfc9901-5.2-expected.json`, `sd-jwt/rfc9901-A.3-sd-jwt-vc-issued.txt`, `sd-jwt/rfc9901-A.3-sd-jwt-vc-kb.txt`,
+  `sd-jwt/rfc9901-A.3-expected.json`, `sd-jwt/rfc9901-A.5-issuer-public-key.jwk.json`: from **RFC 9901**,
+  Copyright (c) 2025 IETF Trust and the persons identified as the document authors.
+- `sd-jwt/sd-jwt-vc-19-2.3.2-presentation-kb.txt`, `sd-jwt/sd-jwt-vc-19-2.3.2-presentation-no-kb.txt`: from
+  **draft-ietf-oauth-sd-jwt-vc-19**, Copyright (c) 2026 IETF Trust and the persons identified as the document authors.
+- `status-list/status-list-21-4.1-small-examples.json`, `status-list/status-list-21-C.1-1bit.json`,
+  `status-list/status-list-21-C.2-2bit.json`, `status-list/status-list-21-C.3-4bit.json`,
+  `status-list/status-list-21-C.4-8bit.json`, `status-list/status-list-21-8.2-status-list-token.jwt`: from
+  **draft-ietf-oauth-status-list-21**, Copyright (c) 2026 IETF Trust and the persons identified as the document
+  authors.
+
+Each source document states: "Code Components extracted from this document must include Revised BSD License text as
+described in Section 4.e of the Trust Legal Provisions and are provided without warranty as described in the Revised
+BSD License." These extracted JWTs, JWKs, JSON values and CBOR hex are Code Components. Per TLP §4.e option (1), the
+full Revised BSD License text from TLP §4.c (Legal Provisions Relating to IETF Documents, v5.0, corrected 2021,
+https://trustee.ietf.org/documents/trust-legal-provisions/) is reproduced here and applies to each file listed above,
+with the copyright line given for that file. Per TLP §4.d: these Code Components were derived from IETF RFC 9901,
+draft-ietf-oauth-sd-jwt-vc-19 and draft-ietf-oauth-status-list-21 as listed. Please reproduce this note if possible.
+
+```
+Copyright (c) <year as listed above> IETF Trust and the persons identified as authors of
+the code. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are
+permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice, this list of
+  conditions and the following disclaimer.
+- Redistributions in binary form must reproduce the above copyright notice, this list of
+  conditions and the following disclaimer in the documentation and/or other materials
+  provided with the distribution.
+- Neither the name of Internet Society, IETF or IETF Trust, nor the names of specific
+  contributors, may be used to endorse or promote products derived from this software
+  without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
+TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+(Only line wrapping and the bullet characters differ from the TLP PDF.)
+
+### OIDF-sourced files: OpenID Foundation terms (field-of-use restricted, NOT Apache-2.0)
+
+Applies to exactly these files: `openid4vp/openid4vp-1.0-B.2.6.1-handover.json`,
+`openid4vp/openid4vp-1.0-8.3-encrypted-response.json`, `openid4vp/openid4vp-1.0-dcql-examples.json`. Each is from
+**OpenID for Verifiable Presentations 1.0** (Final, 9 July 2025),
+https://openid.net/specs/openid-4-verifiable-presentations-1_0.html. Copyright (c) 2025 The OpenID Foundation.
+
+Licence (OpenID4VP 1.0 Appendix G, verbatim): "The OpenID Foundation (OIDF) grants to any Contributor, developer,
+implementer, or other interested party a non-exclusive, royalty free, worldwide copyright license to reproduce, prepare
+derivative works from, distribute, perform and display, this Implementers Draft, Final Specification, or Final
+Specification Incorporating Errata Corrections solely for the purposes of (i) developing specifications, and (ii)
+implementing Implementers Drafts, Final Specifications, and Final Specification Incorporating Errata Corrections based
+on such documents, provided that attribution be made to the OIDF as the source of the material, but that such
+attribution does not indicate an endorsement by the OIDF."
+
+This is a **field-of-use** licence: these files may be used only to develop specifications or implement OpenID4VP. We
+use them as test fixtures for this OpenID4VP implementation, with the attribution above. They are **not** offered
+under Apache-2.0 and must not be relicensed or repurposed beyond that field of use.
 
 ## Files
 

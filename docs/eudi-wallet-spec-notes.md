@@ -219,8 +219,8 @@ Spec example of a request-object payload (§5.10.1, non-normative):
   `response_uri` must equal `<dNSName>` (unless the wallet trusts the client id). The config validator should enforce
   this, not only "SAN matches `clientIdHost`".
 - `x509_hash:<base64url(SHA-256(DER(leaf certificate)))>`, unpadded base64url (43 characters for SHA-256).
-  **UNVERIFIED:** "base64url-encoded" is not explicitly said to be unpadded here. The spec example
-  (`Uvo3HtuIxuhC92rShpgqcT3YXwrqRxWEviRiA0OZszk`, 43 characters) has no padding, consistent with RFC 7515 base64url.
+  OpenID4VP 1.0 §2 (Terminology): "Base64url-encoded denotes the URL-safe base64 encoding without padding defined in
+  Section 2 of [RFC7515]."
 - The full string, including the prefix, is the value of `aud` in the KB-JWT and the `clientId` in the mdoc handover
   (§14.8: "Wallets MUST always use the full Client Identifier, including the prefix if provided").
 
@@ -1075,198 +1075,157 @@ draft, so its signature cannot be verified**; use it for parsing only.
 
 ## 6. ISO/IEC 18013-5 structures used by OpenID4VP
 
-**UNVERIFIED (all of §6):** the final ISO/IEC 18013-5:2021 text was not read (paywalled). The CDDL below is copied
-from the public 2nd-edition working draft (CD ballot resolution v4, 2025-09-14). The structures we rely on are
-unchanged since 2021 as far as we know. The status/revocation part exists **only** in the 2nd edition. HAIP §5.3.1
-requires that edition's mechanisms.
+**Source and licence.** The final ISO/IEC 18013-5:2021 text is paywalled and was **not read**. The facts below were
+taken from the public 2nd-edition working draft ("Working Draft ISO_IEC_18013-5_second-edition_CD_ballot_resolution_v4",
+dated 2025-09-14, https://github.com/ISOWG10/ISO-18013/tree/main/Working%20Documents). That repository has no
+licence, so this section **does not reproduce its text**. It records only the structure facts later tasks need
+(names, types, keys, tags, algorithm identifiers), with the draft's clause numbers. Read the draft itself for the full
+definitions. **UNVERIFIED (all of §6):** that the 2021 final text is identical. The status/revocation part exists
+**only** in the 2nd edition, whose mechanisms HAIP §5.3.1 requires.
+
+Notation: "map" means a CBOR map with **text-string keys** exactly as written (case-sensitive). Every map in these
+structures also allows further text-string keys reserved for future use: ignore unknown keys and do not reject them.
+CBOR maps are unordered. The key order given is the draft's presentation order; nothing depends on it except
+deterministic encoding when *we* produce structures (TestWallet).
 
 ### 6.1 DeviceResponse, Document, IssuerSigned (draft §10.3)
 
-```cddl
-DeviceResponse = {
-    "version" : tstr,
-    ? "documents" : [+Document],
-    ? "zkDocuments" : [+ ZkDocument],
-    ? "encryptedDocuments": [+ EncryptedDocuments]
-    ? "documentErrors": [+DocumentError],
-    "status" : uint,
-    * tstr => RFU
-}
-Document = {
-    "docType" : DocType,
-    "issuerSigned" : IssuerSigned,
-    "deviceSigned" : DeviceSigned,
-    ? "errors" : Errors,
-    * tstr => RFU
-}
-IssuerSigned = {
-    "issuerAuth" : IssuerAuth,
-    ? "nameSpaces" : IssuerNameSpaces,
-    * tstr => RFU
-}
-IssuerNameSpaces = {
-    + NameSpace => [ + IssuerSignedItemBytes ]
-}
-IssuerSignedItemBytes = #6.24(bstr .cbor IssuerSignedItem)
-IssuerSignedItem = {
-    "digestID" : uint,
-    "random" : bstr,
-    "elementIdentifier" : DataElementIdentifier,
-    "elementValue" : DataElementValue
-    * tstr => RFU
-}
-DeviceAuth = {
-    "deviceSignature" : DeviceSignature //                 ; "//" means OR
-    "deviceMac" : DeviceMac
-    * tstr => RFU
-}
-```
+- **DeviceResponse** (map):
+  - `"version"` tstr, value `"1.0"`
+  - optional `"documents"`: array of Document
+  - optional `"zkDocuments"`, `"encryptedDocuments"`: new in the 2nd edition; Helix does not support them and must
+    reject them
+  - optional `"documentErrors"`
+  - `"status"`: uint, on the DeviceResponse itself, **not** on Document. `0` is OK.
+- **Document** (map):
+  - `"docType"` tstr
+  - `"issuerSigned"` IssuerSigned
+  - `"deviceSigned"` DeviceSigned
+  - optional `"errors"`
+- **IssuerSigned** (map):
+  - `"issuerAuth"`: COSE_Sign1
+  - optional `"nameSpaces"`: map NameSpace (tstr) → non-empty array of IssuerSignedItemBytes
+- **IssuerSignedItemBytes** = CBOR tag **24** wrapping a bstr that contains the CBOR encoding of IssuerSignedItem.
+- **IssuerSignedItem** (map):
+  - `"digestID"` uint (< 2^31)
+  - `"random"` bstr (≥ 16 bytes)
+  - `"elementIdentifier"` tstr
+  - `"elementValue"` any
+- **DeviceSigned** (map):
+  - `"nameSpaces"`: DeviceNameSpacesBytes, a tag-24 bstr of a map NameSpace → map(elementIdentifier → value); may be
+    an empty map
+  - `"deviceAuth"`: DeviceAuth
+- **DeviceAuth** (map): exactly one of `"deviceSignature"` (COSE_Sign1) or `"deviceMac"` (COSE_Mac0).
 
-`version` is `"1.0"`.
+### 6.2 IssuerAuth and the MSO (draft §12.3.4, §12.3.5)
 
-### 6.2 IssuerAuth and the MSO (draft §12.3)
+- **IssuerAuth** = COSE_Sign1 whose payload is MobileSecurityObjectBytes: tag **24** wrapping a bstr of the CBOR
+  MobileSecurityObject. When decoding the payload, expect the tag-24 wrapper.
+- **MobileSecurityObject** (map):
+  - `"version"` tstr (`"1.0"`)
+  - `"digestAlgorithm"` tstr
+  - `"valueDigests"`: map NameSpace → map(DigestID uint → Digest bstr)
+  - `"deviceKeyInfo"` DeviceKeyInfo
+  - `"docType"` tstr
+  - `"validityInfo"` ValidityInfo
+  - optional `"status"` Status (2nd edition)
+- **DeviceKeyInfo** (map):
+  - `"deviceKey"`: COSE_Key
+  - optional `"keyAuthorizations"`: map with optional `"nameSpaces"` (array of tstr) and `"dataElements"` (map
+    NameSpace → array of elementIdentifier)
+  - optional `"keyInfo"`
+- **ValidityInfo** (map): `"signed"`, `"validFrom"`, `"validUntil"`, optional `"expectedUpdate"`. All are `tdate`
+  (CBOR tag 0 date-time string). Draft constraints:
+  - validFrom ≥ signed
+  - validUntil > validFrom
+  - validUntil ≤ the leaf certificate's notAfter
+- **digestAlgorithm** identifiers (draft Table 16): `"SHA-256"`, `"SHA-384"`, `"SHA-512"`. These are upper-case,
+  unlike SD-JWT's `sha-256`.
+- **Digest input:** the complete IssuerSignedItemBytes, including the tag-24 wrapper, exactly as received. Do not
+  re-encode. One digest algorithm per MSO.
+- **x5chain:** COSE header label **33** (RFC 9360). The draft requires it in the **unprotected** header. A reader
+  should also accept it in the protected header (2nd-edition recommendation). `x5t` (label 34) may be present in the
+  protected header.
+- **IssuerAuth signature algorithms:** the draft lists ES256 / ES384 / ES512 / EdDSA, including brainpool curves.
+  It says readers shall support all of them. The Helix constraints allow ES256/384/512 only; this is a recorded
+  deviation.
 
-```cddl
-IssuerAuth = COSE_Sign1             ; The payload is MobileSecurityObjectBytes
-MobileSecurityObjectBytes = #6.24(bstr .cbor MobileSecurityObject)
-MobileSecurityObject = {
-    "version" : tstr,
-    "digestAlgorithm" : tstr,
-    "valueDigests" : ValueDigests,
-    "deviceKeyInfo" : DeviceKeyInfo,
-    "docType" : tstr,
-    "validityInfo" : ValidityInfo
-    ? "status": Status
-    * tstr => RFU
-}
-DeviceKeyInfo = {
-    "deviceKey" : DeviceKey
-    ? "keyAuthorizations" : KeyAuthorizations,
-    ? "keyInfo" : KeyInfo
-    * tstr => RFU
-}
-DeviceKey = COSE_Key
-ValueDigests = { + NameSpace => DigestIDs }
-DigestIDs = { + DigestID => Digest }
-ValidityInfo = {
-     "signed" : tdate,
-     "validFrom" : tdate,
-     "validUntil" : tdate,
-     ? "expectedUpdate" : tdate
-     * tstr => RFU
-}
-Status = {
-    ? "identifier_list" : IdentifierListInfo,
-    ? "status_list" : StatusListInfo,
-    * tstr => RFU
-}
-DigestID = uint
-Digest = bstr
-```
+### 6.3 DeviceAuthentication and the transcript (draft §12.4.4, §12.7.1)
 
-Draft §12.3.5, digest:
-
-> The issuing authority infrastructure shall use one of the following digest algorithms: SHA-256, SHA-384 or SHA-512
-> [...]. The input for the digest calculation shall be the IssuerSignedItemBytes element (see 10.3.3).
-
-`digestAlgorithm` identifiers (Table 16): `"SHA-256"`, `"SHA-384"`, `"SHA-512"`. These are **upper-case**, unlike
-SD-JWT's `sha-256`. The digest input is the full **tag-24 encoded** `IssuerSignedItemBytes`
-(`d8 18 <bstr header> <CBOR(IssuerSignedItem)>`), exactly as received; do not re-encode.
-
-Draft §12.3.4, x5chain and signature algorithms:
-
-> The certificate containing the public key belonging to the private key used to sign the MSO shall be included as an
-> x5chain element as described in RFC 9360. It shall be included as an unprotected header element. [...] An mdoc
-> reader should support the presence of the x5chain element in the protected header.
-
-> "ES256" (ECDSA with SHA-256), "ES384" (ECDSA with SHA-384), "ES512" (ECDSA with SHA-512) or "EdDSA" (EdDSA). "ES256"
-> shall be used with curves P-256 and brainpoolP256r1. [...] For verifying the signature, the mdoc reader shall
-> support all of these signature algorithms and curves.
-
-### 6.3 DeviceAuthentication (draft §12.4.4) and the transcript
-
-```cddl
-; For DeviceMac and DeviceSignature, use a null value for the payload.
-; The detached content is DeviceAuthenticationBytes
-DeviceMac = COSE_Mac0
-DeviceSignature = COSE_Sign1
-DeviceAuthenticationBytes = #6.24(bstr .cbor DeviceAuthentication)
-DeviceAuthentication = [
-    "DeviceAuthentication",
-    SessionTranscript,
-    DocType,                                 ; Same as in mdoc response
-    DeviceNameSpacesBytes                    ; Same as in mdoc response
-]
-```
-
-Draft §12.7.1:
-
-```cddl
-SessionTranscript = [
-    DeviceEngagementBytes / null,
-    EReaderKeyBytes / EncryptionParametersBytes / null ,
-    Handover
-]
-```
-
-For OpenID4VP redirects, `SessionTranscript = [null, null, OpenID4VPHandover]` (§1.9). The device signature is a
-COSE_Sign1 with **null payload**, and the detached content is the **tag-24 wrapped** `DeviceAuthenticationBytes`.
-The `Sig_structure` per RFC 9052 §4.4 is `["Signature1", protected, h'', DeviceAuthenticationBytes]`.
-
-> An mdoc shall only authenticate response data elements in DeviceNameSpaces if the key it is using for mdoc
-> authentication is authorized to authenticate these elements in the KeyAuthorizations structure in the MSO [...].
+- **DeviceAuthentication** = array of 4, in this order:
+  1. tstr `"DeviceAuthentication"`
+  2. SessionTranscript
+  3. DocType (tstr, same as the Document)
+  4. DeviceNameSpacesBytes (the tag-24 bstr, same as in the Document)
+- **DeviceAuthenticationBytes** = tag **24** wrapping a bstr of the CBOR DeviceAuthentication.
+- **DeviceSignature** = COSE_Sign1 with a **null payload** (detached). The detached content is
+  DeviceAuthenticationBytes. Sig_structure per RFC 9052 §4.4: `["Signature1", protected, h'', DeviceAuthenticationBytes]`.
+  Verify with MSO `deviceKeyInfo.deviceKey`.
+- **SessionTranscript** (ISO generic form) = array of 3: [DeviceEngagementBytes or null, reader-key bytes or null,
+  Handover]. For OpenID4VP redirects it is `[null, null, OpenID4VPHandover]` (§1.9, normative per OpenID4VP Annex
+  B.2.6.1).
+- Draft §12.4.4: device-signed data elements in DeviceNameSpaces are only valid if authorised by `keyAuthorizations`
+  in the MSO. The reader must check this. Helix: reject non-empty DeviceNameSpaces (simplest compliant choice).
 
 ### 6.4 `deviceMac` (draft §12.4.5)
 
-> To authenticate the mdoc with mdoc MAC authentication, the mdoc computes the MAC of the device authentication data
-> with an ephemeral MAC key (EMacKey) derived from the mdoc authentication private key and the mdoc reader ephemeral
-> public key.
+Per draft §12.4.5, the MAC key (EMacKey) is derived by ECDH between the mdoc device key and the **mdoc reader's
+ephemeral public key**, then HKDF-SHA-256 with salt = SHA-256(SessionTranscriptBytes) and info `"EMacKey"`.
 
-**Conclusion (our reading):** OpenID4VP redirect flows set `EReaderKeyBytes` to `null`, and OpenID4VP 1.0 defines no
-reader ephemeral key for MAC derivation in that flow. HAIP §7 lists only `deviceSignature` for Verifiers. So
-**reject `deviceMac`** (`HOLDER_BINDING_INVALID`) and do not advertise HMAC identifiers in `deviceauth_alg_values`.
-**UNVERIFIED:** whether any wallet derives `EMacKey` from the response-encryption key in redirect flows. Nothing in
-the texts read says so.
+**Conclusion (our reading):** OpenID4VP redirect flows set the reader-key element of SessionTranscript to `null`, and
+OpenID4VP 1.0 defines no reader ephemeral key for MAC derivation in that flow. HAIP §7 lists only `deviceSignature`
+for Verifiers. So **reject `deviceMac`** (`HOLDER_BINDING_INVALID`) and do not advertise HMAC identifiers in
+`deviceauth_alg_values`. **UNVERIFIED:** whether any wallet derives `EMacKey` from the response-encryption key in
+redirect flows. Nothing in the texts read says so.
 
 ### 6.5 MSO status (draft §12.3.6) — differs from SD-JWT
 
-> An MSO revocation list shall be implemented according to the Token Status List specification as a Status List Token
-> in CWT format, since the IssuerAuth structure is a CWT. [...] The exp claim shall be present. [...] The CWT shall
-> contain the x5chain in the protected header that contains the certificate or chain of certificates used to verify
-> the signature of the MSO revocation list.
+- **MSO `"status"`** (map) has an optional `"identifier_list"` (IdentifierListInfo) and/or an optional
+  `"status_list"` (StatusListInfo).
+- **StatusListInfo** = the Token Status List `status_list` structure:
+  - `"idx"` uint
+  - `"uri"` tstr
+  - optional `"certificate"` bstr: a trust point for the list's signer (draft §12.3.6.2)
+- **IdentifierListInfo** (map):
+  - `"id"` bstr (unique per MSO)
+  - `"uri"` tstr
+  - optional `"certificate"` bstr
+- **MSO revocation list token** (both mechanisms):
+  - a Token Status List **CWT** (COSE_Sign1)
+  - `exp` required, `ttl` optional
+  - **x5chain in the protected header**
+  - signature algorithms as for IssuerAuth
+- **Status list mechanism:**
+  - content type `application/statuslist+cwt`
+  - `bits` **= 1**
+- **Identifier list mechanism:**
+  - type `application/identifierlist+cwt`
+  - no StatusList claim
+  - claim key **65530** holds IdentifierList: a map with `"identifiers"` (map: bstr Identifier → map) and an optional
+    `"aggregation_uri"` (tstr)
+  - an MSO is revoked iff its `id` is present in `"identifiers"`
+- **Certificate trust:** if `"certificate"` is absent, the list's x5chain top certificate must be signed by the
+  certificate that signed the MSO x5chain (the IACA, for mDL).
 
-> 12.3.6.5 Status list details [...] The bits element in the StatusList structure shall be set to 1. [...] The
-> status_list element shall follow the requirements for the StatusListInfo structure as defined in the token status
-> list specification with the addition of the optional Certificate element defined in 12.3.6.2.
+ARF Annex 2 (v3.0.0), VCR_12:
 
-Identifier list (the alternative mechanism, `application/identifierlist+cwt`, claim key 65530):
+> If a Relying Party decides it needs to be able to verify the revocation status of PIDs or attestations, it SHALL
+> support both the Attestation Status List mechanism and the Attestation Revocation List mechanism specified per
+> VCR_11.
+>
+> *Note: Per VCR_13, it is recommended but not mandatory for a Relying Party to verify whether a PID or attestation is
+> revoked.*
 
-```cddl
-IdentifierListInfo = {
-    "id" : Identifier ,
-    "uri": URI,
-    ? "certificate": Certificate
-    * tstr => RFU
-}
-IdentifierList = {
-    "identifiers" : { * Identifier => IdentifierInfo },
-    ? "aggregation_uri" : Aggregation_uri
-    * tstr => RFU
-}
-```
+ARF Annex 2 (v3.0.0), VCR_01 (ISO/IEC 18013-5 PIDs; VCR_01b is the SD-JWT VC equivalent) allows a PID Provider to:
 
-> Presence of the Identifier in the IdentifierList indicates that the MSO that contains that identifier in the status
-> element is revoked.
+> Only issue short-lived attestations having a validity period of 24 hours or less, such that revocation will never be
+> necessary
 
-ARF Annex 2, VCR_12: "If a Relying Party decides it needs to be able to verify the
-revocation status of PIDs or attestations, it SHALL support both the Attestation Status List mechanism and the
-Attestation Revocation List mechanism specified per VCR_11." Its note: "Per VCR_13, it is recommended but not mandatory for a Relying Party to verify whether a PID or
-attestation is revoked." VCR_01 also lets PID Providers "Only issue short-lived
-attestations having a validity period of 24 hours or less" with **no** status at all.
+Such PIDs carry **no** status at all.
 
 ### 6.6 ISO test vectors
 
-ISO/IEC 18013-5 Annex D vectors are ISO copyright and are **not** copied. None — generated by TestWallet.
+ISO/IEC 18013-5 Annex D test vectors are ISO copyright and are **not** copied. None — generated by TestWallet.
 
 ---
 
@@ -1396,18 +1355,17 @@ Android wallet `eudi-app-android-wallet-ui` (EUPL-1.2) registers `eudi-openid4vp
 
 ## 9. Open points and UNVERIFIED items
 
-1. **UNVERIFIED:** ISO/IEC 18013-5:2021 final text (paywalled). All mdoc CDDL is taken from the public 2nd-edition
-   working draft and from OpenID4VP Annex B.
+1. **UNVERIFIED:** ISO/IEC 18013-5:2021 final text (paywalled). mdoc structure facts come from the public 2nd-edition
+   working draft (summarised, not quoted; see §6) and from OpenID4VP Annex B (quoted).
 2. **UNVERIFIED:** whether HAIP's pinned SD-JWT VC -13 / TSL -14 differ from -19 / -21 in any verifier-relevant way
    beyond the items flagged (`aka_vcts`, removal of the `vc+sd-jwt` note, section renumbering).
-3. **UNVERIFIED:** padding of `x509_hash` base64url. We assume unpadded, matching the spec example.
-4. **Unspecified by OpenID4VP:** the HTTP status/body of a **rejected** POST to the Response URI.
-5. **Unspecified:** an X.509 certificate profile for the access certificate (HAIP: "out of scope"; ARF RPA_02 points
+3. **Unspecified by OpenID4VP:** the HTTP status/body of a **rejected** POST to the Response URI.
+4. **Unspecified:** an X.509 certificate profile for the access certificate (HAIP: "out of scope"; ARF RPA_02 points
    to ETSI TS 119 475 and ETSI TS 119 411-8, **not read**). Key-usage/EKU checks for the access certificate and for
    PID-provider certificates are therefore **UNVERIFIED**. The TSL draft §10 defines an EKU OID for status-list
    signing certificates (not extracted here).
-6. **Not read:** ETSI TS 119 475 (registration certificate / `verifier_info` format). `verifier_info` stays
+5. **Not read:** ETSI TS 119 475 (registration certificate / `verifier_info` format). `verifier_info` stays
    config-gated and off.
-7. **UNVERIFIED:** whether national wallets accept `x509_san_dns` at all. HAIP only guarantees `x509_hash`.
-8. **Not checked in detail:** OpenID4VP Appendix A (DC API, `origin:` audience, B.2.6.2 DC API handover). That is
+6. **UNVERIFIED:** whether national wallets accept `x509_san_dns` at all. HAIP only guarantees `x509_hash`.
+7. **Not checked in detail:** OpenID4VP Appendix A (DC API, `origin:` audience, B.2.6.2 DC API handover). That is
    Phase 4.
