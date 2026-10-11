@@ -5,6 +5,7 @@
 
 package io.helixiam;
 
+import io.helixiam.common.net.RevocationTimeouts;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration;
@@ -50,6 +51,8 @@ public class Application {
 
     public static void main(final String[] args) {
         SecurityContextHolder.setStrategyName(SecurityContextHolder.MODE_INHERITABLETHREADLOCAL);
+        // Before anything loads the JDK revocation classes: they read these timeouts once, statically.
+        RevocationTimeouts.applyDefaults(System.getProperties());
         SpringApplication.run(Application.class, args);
     }
 }

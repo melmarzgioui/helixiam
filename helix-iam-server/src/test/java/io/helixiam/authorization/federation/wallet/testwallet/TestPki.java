@@ -253,6 +253,28 @@ public final class TestPki {
         }
     }
 
+    /**
+     * A self-signed CA certificate (basicConstraints cA=true) with the given key type and key usage ({@code null}: no
+     * key-usage extension), for anchor-loading tests.
+     */
+    public static X509Certificate caCertificate(final KeyType keyType, final Integer keyUsage) {
+        final KeyPair keys = keyType.generate();
+        final Instant now = Instant.now();
+        final X500Name name = new X500Name("CN=Test " + keyType + " CA");
+        final X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name, serial(),
+                Date.from(now.minus(Duration.ofDays(1))), Date.from(now.plus(Duration.ofDays(365))), name,
+                keys.getPublic());
+        try {
+            builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(true));
+            if (keyUsage != null) {
+                builder.addExtension(Extension.keyUsage, true, new KeyUsage(keyUsage));
+            }
+        } catch (final Exception e) {
+            throw new IllegalStateException(e);
+        }
+        return sign(builder, keys.getPrivate(), keyType);
+    }
+
     public X509Certificate root() {
         return root;
     }

@@ -7,6 +7,7 @@ package io.helixiam.authorization.federation.wallet.trust;
 
 import io.helixiam.authorization.federation.wallet.testwallet.TestPki;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors.RevocationMode;
+import org.bouncycastle.asn1.x509.KeyUsage;
 import org.junit.jupiter.api.Test;
 
 import java.security.cert.TrustAnchor;
@@ -68,9 +69,52 @@ class TrustAnchorsPemTest {
     }
 
     @Test
-    void revocationModeIsRequired() {
-        assertThatThrownBy(() -> TrustAnchors.fromPem(PKI.rootPem(), null, null))
-                .isInstanceOf(IllegalArgumentException.class);
+    void nullRevocationModeDefaultsToSoftFail() {
+        assertThat(TrustAnchors.fromPem(PKI.rootPem(), null, null).revocation()).isEqualTo(RevocationMode.SOFT_FAIL);
+        assertThat(new TrustAnchors(java.util.Set.of(), java.util.List.of(), null).revocation())
+                .isEqualTo(RevocationMode.SOFT_FAIL);
+    }
+
+    @Test
+    void nonCaAnchorIsRejected() {
+        final String leafPem = TestPki.pem(PKI.issueLeaf(TestPki.LeafSpec.defaults()).certificate());
+        assertThatThrownBy(() -> TrustAnchors.fromPem(leafPem, null, RevocationMode.OFF))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A trust anchor is not a CA certificate");
+        final String selfSigned = TestPki.pem(TestPki.selfSignedLeaf("CN=Self").certificate());
+        assertThatThrownBy(() -> TrustAnchors.fromPem(selfSigned, null, RevocationMode.OFF))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A trust anchor is not a CA certificate");
+    }
+
+    @Test
+    void anchorKeyUsageWithoutKeyCertSignIsRejected() {
+        final String pem = TestPki.pem(TestPki.caCertificate(TestPki.KeyType.EC_P256, KeyUsage.digitalSignature));
+        assertThatThrownBy(() -> TrustAnchors.fromPem(pem, null, RevocationMode.OFF))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A trust anchor's key usage does not allow certificate signing");
+    }
+
+    @Test
+    void anchorWithoutKeyUsageExtensionIsAccepted() {
+        final String pem = TestPki.pem(TestPki.caCertificate(TestPki.KeyType.EC_P256, null));
+        assertThat(TrustAnchors.fromPem(pem, null, RevocationMode.OFF).anchors()).hasSize(1);
+    }
+
+    @Test
+    void anchorWithWeakKeyIsRejected() {
+        final String pem = TestPki.pem(TestPki.caCertificate(TestPki.KeyType.RSA_1024,
+                KeyUsage.keyCertSign | KeyUsage.cRLSign));
+        assertThatThrownBy(() -> TrustAnchors.fromPem(pem, null, RevocationMode.OFF))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A trust anchor's key type or size is not allowed (EC P-256/P-384/P-521 or RSA >= 2048)");
+    }
+
+    @Test
+    void rsa2048AndP384CaAnchorsAreAccepted() {
+        final String pem = TestPki.pem(TestPki.caCertificate(TestPki.KeyType.RSA_2048, KeyUsage.keyCertSign))
+                + TestPki.pem(TestPki.caCertificate(TestPki.KeyType.EC_P384, KeyUsage.keyCertSign));
+        assertThat(TrustAnchors.fromPem(pem, null, RevocationMode.OFF).anchors()).hasSize(2);
     }
 
     @Test

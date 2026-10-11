@@ -87,8 +87,8 @@ import java.util.Objects;
  * ({@code HARD_FAIL}: rejected with "revocation endpoint not allowed"; {@code SOFT_FAIL}: revocation is skipped for
  * this chain with a warning). Residual risks not closed here: DNS rebinding between the guard's resolution and the
  * JDK's; HTTP redirects followed by the JDK's {@code HttpURLConnection}; the JDK-global timeouts
- * ({@code com.sun.security.ocsp.timeout}, {@code com.sun.security.crl.timeout}, 15 s by default) and the unbounded
- * CRL download size. A guarded, size- and time-bounded revocation client is the real fix (follow-up).
+ * ({@code com.sun.security.ocsp.timeout}, {@code com.sun.security.crl.timeout}; bounded to 3 s connect / 5 s read by
+ * {@code RevocationTimeouts} in {@code main}) and the unbounded CRL download size. A guarded, size- and time-bounded revocation client is the real fix (follow-up).
  */
 public final class IssuerTrustValidator {
 
@@ -159,7 +159,7 @@ public final class IssuerTrustValidator {
         } catch (final GeneralSecurityException e) {
             throw untrusted("certificate chain not trusted");
         }
-        final RevocationMode mode = anchors.revocation() == null ? RevocationMode.HARD_FAIL : anchors.revocation();
+        final RevocationMode mode = anchors.revocation(); // never null: TrustAnchors defaults it to SOFT_FAIL
         if (mode == RevocationMode.OFF) {
             return;
         }
@@ -304,11 +304,16 @@ public final class IssuerTrustValidator {
         }
     }
 
-    private static void checkKey(final PublicKey key) {
-        if (key instanceof RSAPublicKey rsa && rsa.getModulus().bitLength() >= MIN_RSA_BITS) {
-            return;
+    /** The issuer key rule, shared with anchor loading: EC P-256/P-384/P-521 or RSA &ge; 2048. */
+    static boolean allowedKey(final PublicKey key) {
+        if (key instanceof RSAPublicKey rsa) {
+            return rsa.getModulus().bitLength() >= MIN_RSA_BITS;
         }
-        if (key instanceof ECPublicKey ec && ALLOWED_CURVES.stream().anyMatch(c -> sameCurve(c, ec.getParams()))) {
+        return key instanceof ECPublicKey ec && ALLOWED_CURVES.stream().anyMatch(c -> sameCurve(c, ec.getParams()));
+    }
+
+    private static void checkKey(final PublicKey key) {
+        if (allowedKey(key)) {
             return;
         }
         throw new WalletVerificationException(WalletErrorCode.ALGORITHM_NOT_ALLOWED,

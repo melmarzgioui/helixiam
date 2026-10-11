@@ -30,7 +30,12 @@ public record TrustAnchors(Set<TrustAnchor> anchors, List<X509Certificate> pinne
     /** How issuer-certificate revocation (CRL/OCSP) is handled. */
     public enum RevocationMode { OFF, SOFT_FAIL, HARD_FAIL }
 
+    /** Index of {@code keyCertSign} in {@link X509Certificate#getKeyUsage()}. */
+    private static final int KEY_CERT_SIGN = 5;
+
+    /** A null {@code revocation} means {@link RevocationMode#SOFT_FAIL} (the spec §7.5 default). */
     public TrustAnchors {
+        revocation = revocation == null ? RevocationMode.SOFT_FAIL : revocation;
         anchors = anchors == null ? Set.of() : Set.copyOf(anchors);
         pinnedIntermediates = pinnedIntermediates == null ? List.of() : List.copyOf(pinnedIntermediates);
     }
@@ -39,25 +44,42 @@ public record TrustAnchors(Set<TrustAnchor> anchors, List<X509Certificate> pinne
      * Loads the anchors from a PEM bundle (one or more {@code CERTIFICATE} blocks) and the optional pinned
      * intermediates from a second bundle ({@code null} or blank for none).
      *
+     * <p>Every anchor must be a CA certificate (spec §7.5 "PEM CA certificates"): basicConstraints {@code cA=true}, a
+     * key usage (when present) that includes {@code keyCertSign}, and a key that meets the issuer key rule (EC
+     * P-256/P-384/P-521 or RSA &ge; 2048). A null {@code mode} means {@code SOFT_FAIL}.
+     *
      * @throws IllegalArgumentException when the bundle holds no certificate, a block is not a certificate or cannot be
-     *                                  parsed, or {@code mode} is null. The message never carries parser detail.
+     *                                  parsed, or an anchor is not an acceptable CA certificate. The message is
+     *                                  field-safe: never PEM content or parser detail.
      */
     public static TrustAnchors fromPem(final String pemBundle, final String intermediatesPem,
             final RevocationMode mode) {
-        if (mode == null) {
-            throw new IllegalArgumentException("A revocation mode is required");
-        }
         final List<X509Certificate> roots = parse(pemBundle == null ? "" : pemBundle, "trust anchors");
         if (roots.isEmpty()) {
             throw new IllegalArgumentException("The trust anchors must contain at least one PEM certificate");
         }
         final Set<TrustAnchor> anchors = new LinkedHashSet<>();
         for (final X509Certificate root : roots) {
+            requireCaAnchor(root);
             anchors.add(new TrustAnchor(root, null));
         }
         final List<X509Certificate> intermediates = intermediatesPem == null || intermediatesPem.isBlank()
                 ? List.of() : parse(intermediatesPem, "pinned intermediates");
         return new TrustAnchors(anchors, intermediates, mode);
+    }
+
+    private static void requireCaAnchor(final X509Certificate cert) {
+        if (cert.getBasicConstraints() < 0) {
+            throw new IllegalArgumentException("A trust anchor is not a CA certificate");
+        }
+        final boolean[] keyUsage = cert.getKeyUsage();
+        if (keyUsage != null && (keyUsage.length <= KEY_CERT_SIGN || !keyUsage[KEY_CERT_SIGN])) {
+            throw new IllegalArgumentException("A trust anchor's key usage does not allow certificate signing");
+        }
+        if (!IssuerTrustValidator.allowedKey(cert.getPublicKey())) {
+            throw new IllegalArgumentException(
+                    "A trust anchor's key type or size is not allowed (EC P-256/P-384/P-521 or RSA >= 2048)");
+        }
     }
 
     private static List<X509Certificate> parse(final String pem, final String what) {

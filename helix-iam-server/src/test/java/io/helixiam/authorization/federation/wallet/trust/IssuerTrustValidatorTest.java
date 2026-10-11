@@ -48,11 +48,8 @@ class IssuerTrustValidatorTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        // Belt and braces: low JDK revocation timeouts (seconds), in case the classes are not yet loaded.
-        System.setProperty("com.sun.security.crl.timeout", "2");
-        System.setProperty("com.sun.security.crl.readtimeout", "2");
-        System.setProperty("com.sun.security.ocsp.timeout", "2");
-        System.setProperty("com.sun.security.ocsp.readtimeout", "2");
+        // No JVM-global timeout properties: every revocation endpoint here is a closed port (refused at once), a
+        // socket that accepts and closes at once, or a local CRL server that answers; @Timeout guards the rest.
         pki = TestPki.create();
         final int port;
         try (ServerSocket socket = new ServerSocket(0)) {
@@ -115,7 +112,10 @@ class IssuerTrustValidatorTest {
     @Test
     void selfSignedLeafEvenWhenConfiguredAsAnchorIsUntrusted() {
         final Leaf self = TestPki.selfSignedLeaf("CN=Self Signed Issuer");
-        final TrustAnchors anchors = TrustAnchors.fromPem(TestPki.pem(self.certificate()), null, RevocationMode.OFF);
+        // fromPem refuses non-CA anchors; build the record directly to prove the validator refuses it as well.
+        final TrustAnchors anchors = new TrustAnchors(
+                java.util.Set.of(new java.security.cert.TrustAnchor(self.certificate(), null)), null,
+                RevocationMode.OFF);
 
         assertRejected(() -> validator.validate(self.chain(), anchors, Instant.now()),
                 WalletErrorCode.ISSUER_UNTRUSTED, "leaf certificate is self-signed");

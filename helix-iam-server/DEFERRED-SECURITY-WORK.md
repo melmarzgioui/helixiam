@@ -57,6 +57,28 @@ come up on OpenSAML 5.
 - **L5**: legacy AES/ECB decrypt fallback retained for existing-row compatibility (now logged).
 - **L6**: generated bootstrap admin password is logged (zero-config trade-off; set `HELIX_ADMIN_PASSWORD`).
 
+## EUDI Wallet: bounded issuer-revocation client (follow-up to Task 7, 2026-10-11)
+**Status: OPEN.** `IssuerTrustValidator` (wallet issuer X.509 trust) lets the JDK `PKIXRevocationChecker` fetch the
+CRL distribution points and OCSP responders named in the presented certificates. Mitigated today:
+- Nothing is fetched until the chain validates to a configured anchor, so only certificates a trusted CA issued can
+  name a URL.
+- Every CRL/OCSP URL passes `OutboundUrlGuard` first. Non-http(s) schemes (incl. `ldap:`), non-URI names, and
+  loopback, private and link-local hosts are never fetched.
+- The JDK timeouts are bounded in `Application.main` (`RevocationTimeouts`: 3 s connect, 5 s read; an operator's
+  `-D` value wins).
+
+Residual limits of the JDK fetch, to be closed by a HelixIAM revocation client (guarded, time-bounded,
+size-capped, CRL/OCSP response cache, plugged into PKIX via a custom `PKIXCertPathChecker` or pre-fetched CRLs in a
+`CertStore`):
+- **DNS rebinding / TOCTOU:** the guard resolves the host, then the JDK resolves it again before connecting.
+- **Redirects:** the JDK's `HttpURLConnection` follows same-protocol redirects, which can lead to an address the
+  guard never saw.
+- **CRL size:** the JDK sets no download cap, so a large CRL is a memory and latency DoS.
+- **No result cache under our control:** each wallet login may re-fetch, depending only on the JDK's internal
+  caching.
+- **SOFT_FAIL with two or more intermediates:** an undeterminable upper CA stops the JDK before it checks a lower
+  CA. The leaf is always checked separately.
+
 ## Deep SAML pentest (2026-09-17, issue #1) — outcome
 Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md`](../docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md)). Result: 0 critical / 0 high / 1 medium / 2 low.
 - **XSW2–XSW8**: ALL rejected on both the generic and eID validators (no signature-wrapping bypass). `InResponseTo` binding held; `EncryptedID` handling sound (no padding oracle / DoS).
