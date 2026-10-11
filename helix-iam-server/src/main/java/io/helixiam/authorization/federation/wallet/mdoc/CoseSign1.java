@@ -48,8 +48,7 @@ import java.util.Set;
  *
  * <p>{@code unprotectedHeader} keys are {@link Long} (integer labels) or {@link String}; values are {@link CborValue}.
  */
-public record CoseSign1(byte[] protectedHeader, Map<Object, Object> unprotectedHeader, byte[] payload,
-                        byte[] signature) {
+public final class CoseSign1 {
 
     /** ECDSA w/ SHA-256 on P-256. */
     public static final int ES256 = -7;
@@ -67,32 +66,46 @@ public record CoseSign1(byte[] protectedHeader, Map<Object, Object> unprotectedH
     private static final long LABEL_ALG = 1;
     private static final long LABEL_CRIT = 2;
     private static final long LABEL_X5CHAIN = 33;
-    /** A protected header lives inside an already-bounded message; this bounds the second decode of its bytes. */
-    private static final CborLimits HEADER_LIMITS = new CborLimits(16, 10_000, 1024 * 1024);
     private static final byte[] SIGNATURE1 = "Signature1".getBytes(StandardCharsets.US_ASCII);
 
-    public CoseSign1 {
+    private final byte[] protectedHeader;
+    private final Map<Object, Object> unprotectedHeader;
+    private final byte[] payload;
+    private final byte[] signature;
+    /** {@link #protectedHeader} decoded once, with {@link CborLimits#DEFAULTS}; the bytes stay the signed input. */
+    private final CborValue.Dict protectedParameters;
+
+    /**
+     * @throws WalletVerificationException {@code INVALID_RESPONSE} when {@code protectedHeader} is not an encoded map
+     *                                     (or empty)
+     */
+    public CoseSign1(final byte[] protectedHeader, final Map<Object, Object> unprotectedHeader, final byte[] payload,
+            final byte[] signature) {
         Objects.requireNonNull(protectedHeader, "protectedHeader");
         Objects.requireNonNull(unprotectedHeader, "unprotectedHeader");
         Objects.requireNonNull(signature, "signature");
-        protectedHeader = protectedHeader.clone();
-        unprotectedHeader = Collections.unmodifiableMap(new LinkedHashMap<>(unprotectedHeader));
-        payload = payload == null ? null : payload.clone();
-        signature = signature.clone();
+        this.protectedHeader = protectedHeader.clone();
+        this.unprotectedHeader = Collections.unmodifiableMap(new LinkedHashMap<>(unprotectedHeader));
+        this.payload = payload == null ? null : payload.clone();
+        this.signature = signature.clone();
+        this.protectedParameters = decodeProtected(this.protectedHeader);
     }
 
-    @Override
+    /** The protected header exactly as received (the Sig_structure input). */
     public byte[] protectedHeader() {
         return protectedHeader.clone();
     }
 
+    /** Unprotected header: keys are {@link Long} or {@link String}, values {@link CborValue}. */
+    public Map<Object, Object> unprotectedHeader() {
+        return unprotectedHeader;
+    }
+
     /** The attached payload, or {@code null} when it is detached. */
-    @Override
     public byte[] payload() {
         return payload == null ? null : payload.clone();
     }
 
-    @Override
     public byte[] signature() {
         return signature.clone();
     }
@@ -125,7 +138,7 @@ public record CoseSign1(byte[] protectedHeader, Map<Object, Object> unprotectedH
         }
         final CoseSign1 cose = new CoseSign1(protectedBytes.value(), unprotectedHeader, payloadBytes,
                 signatureBytes.value());
-        final CborValue.Dict protectedHeader = cose.protectedParameters();
+        final CborValue.Dict protectedHeader = cose.protectedParameters;
         for (final CborValue label : protectedHeader.entries().keySet()) {
             if (unprotected.entries().containsKey(label)) {
                 throw invalid("COSE header label appears in both header buckets");
@@ -139,10 +152,14 @@ public record CoseSign1(byte[] protectedHeader, Map<Object, Object> unprotectedH
 
     /** The decoded protected header; a zero-length protected bstr is the empty map. */
     public CborValue.Dict protectedParameters() {
-        if (protectedHeader.length == 0) {
+        return protectedParameters;
+    }
+
+    private static CborValue.Dict decodeProtected(final byte[] bytes) {
+        if (bytes.length == 0) {
             return new CborValue.Dict(Map.of());
         }
-        if (!(StrictCbor.decode(protectedHeader, HEADER_LIMITS) instanceof CborValue.Dict dict)) {
+        if (!(StrictCbor.decode(bytes, CborLimits.DEFAULTS) instanceof CborValue.Dict dict)) {
             throw invalid("COSE protected header is not a map");
         }
         return dict;

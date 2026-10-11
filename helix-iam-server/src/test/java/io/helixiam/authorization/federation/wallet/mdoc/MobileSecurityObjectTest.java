@@ -88,7 +88,10 @@ class MobileSecurityObjectTest {
         final MdocCredential pid = wallet.mdocPid(Map.of("given_name", "Erika"), SIGNED, SIGNED, VALID_UNTIL,
                 Optional.of(new StatusReference(412, "https://status.example/lists/7")));
         assertThat(MobileSecurityObject.decode(pid.mso()).status())
-                .isEqualTo(new StatusReference(412, "https://status.example/lists/7"));
+                .isInstanceOfSatisfying(MobileSecurityObject.StatusList.class, s -> {
+                    assertThat(s.reference()).isEqualTo(new StatusReference(412, "https://status.example/lists/7"));
+                    assertThat(s.certificate()).isNull();
+                });
     }
 
     @Test
@@ -98,7 +101,30 @@ class MobileSecurityObjectTest {
         list.put("uri", "https://status.example/1");
         list.put("certificate", new byte[] {1, 2, 3});
         assertThat(decode(mso -> mso.put("status", Map.of("status_list", list))).status())
-                .isEqualTo(new StatusReference(3, "https://status.example/1"));
+                .isInstanceOfSatisfying(MobileSecurityObject.StatusList.class, s -> {
+                    assertThat(s.reference()).isEqualTo(new StatusReference(3, "https://status.example/1"));
+                    assertThat(s.certificate()).containsExactly(1, 2, 3); // kept for the ISO trust point, not used
+                });
+    }
+
+    @Test
+    void statusWithoutAStatusListIsPresentButNotEvaluable() {
+        final Map<Object, Object> identifierList = Map.of("id", new byte[] {1}, "uri", "https://status.example/ids");
+        assertThat(decode(mso -> mso.put("status", Map.of("identifier_list", identifierList))).status())
+                .isInstanceOfSatisfying(MobileSecurityObject.NotEvaluable.class,
+                        s -> assertThat(s.mechanisms()).containsExactly("identifier_list"));
+        assertThat(decode(mso -> mso.put("status", Map.of())).status())
+                .isInstanceOfSatisfying(MobileSecurityObject.NotEvaluable.class,
+                        s -> assertThat(s.mechanisms()).isEmpty());
+    }
+
+    @Test
+    void statusListWinsNextToAnIdentifierList() {
+        final Map<Object, Object> status = new LinkedHashMap<>();
+        status.put("identifier_list", Map.of("id", new byte[] {1}, "uri", "https://status.example/ids"));
+        status.put("status_list", Map.of("idx", 1, "uri", "https://status.example/1"));
+        assertThat(decode(mso -> mso.put("status", status)).status())
+                .isInstanceOf(MobileSecurityObject.StatusList.class);
     }
 
     @Test
@@ -227,9 +253,14 @@ class MobileSecurityObjectTest {
     @Test
     void malformedStatusIsInvalidNeverNull() {
         assertCode(mso -> mso.put("status", "revoked"), WalletErrorCode.INVALID_RESPONSE);
-        assertCode(mso -> mso.put("status", Map.of()), WalletErrorCode.INVALID_RESPONSE);
+        assertCode(mso -> mso.put("status", Map.of("identifier_list", "x")), WalletErrorCode.INVALID_RESPONSE);
         assertCode(mso -> mso.put("status", Map.of("identifier_list",
-                Map.of("id", new byte[] {1}, "uri", "https://status.example/ids"))), WalletErrorCode.INVALID_RESPONSE);
+                Map.of("id", "1", "uri", "https://status.example/ids"))), WalletErrorCode.INVALID_RESPONSE);
+        assertCode(mso -> mso.put("status", Map.of("identifier_list", Map.of("id", new byte[] {1}))),
+                WalletErrorCode.INVALID_RESPONSE);
+        assertCode(mso -> mso.put("status", Map.of("identifier_list",
+                Map.of("id", new byte[] {1}, "uri", "https://s.example", "certificate", "pem"))),
+                WalletErrorCode.INVALID_RESPONSE);
         assertCode(mso -> mso.put("status", Map.of("status_list", "x")), WalletErrorCode.INVALID_RESPONSE);
         assertCode(mso -> mso.put("status", Map.of("status_list", Map.of("idx", -1, "uri", "https://s.example"))),
                 WalletErrorCode.INVALID_RESPONSE);

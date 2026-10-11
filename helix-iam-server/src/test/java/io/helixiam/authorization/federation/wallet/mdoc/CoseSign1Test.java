@@ -176,6 +176,24 @@ class CoseSign1Test {
         assertThat(decode(cbor(cose)).verify(p256.certificate().getPublicKey(), null)).isFalse();
     }
 
+    @Test
+    void nonPreferredProtectedHeaderIsVerifiedOverTheBytesAsReceived() {
+        // {1: -7} with the label written as 18 01 instead of 01: re-encoding it would break the signature
+        final byte[] nonPreferred = {(byte) 0xa1, 0x18, 0x01, 0x26};
+        final CoseSign1 cose = decode(cbor(TestWallet.coseSign1(nonPreferred, Map.of(), PAYLOAD, false,
+                p256.privateKey())));
+
+        assertThat(cose.algorithm()).isEqualTo(-7);
+        assertThat(cose.protectedHeader()).isEqualTo(nonPreferred);
+        assertThat(cose.verify(p256.certificate().getPublicKey(), null)).isTrue();
+    }
+
+    @Test
+    void protectedHeaderIsDecodedOnce() {
+        final CoseSign1 cose = decode(sign(Map.of(1, -7), Map.of(), PAYLOAD, p256));
+        assertThat(cose.protectedParameters()).isSameAs(cose.protectedParameters());
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {0, 63, 65, 128})
     void signatureOfTheWrongLengthIsInvalidNotAnException(final int length) {

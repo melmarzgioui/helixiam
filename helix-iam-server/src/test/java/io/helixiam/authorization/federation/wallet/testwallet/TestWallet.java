@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * A test-only issuer and holder wallet: issues SD-JWT VC PIDs (every top-level claim selectively disclosable, flat)
@@ -358,34 +359,69 @@ public final class TestWallet {
      */
     public MdocCredential mdocPid(final Map<String, Object> claims, final Instant signed, final Instant validFrom,
             final Instant validUntil, final Optional<StatusReference> status) {
-        final ECKey deviceKey = ecKey(Curve.P_256);
-        final Map<String, CborTag> items = new LinkedHashMap<>();
-        final Map<Object, Object> digests = new LinkedHashMap<>();
+        return mdocPid(claims, signed, validFrom, validUntil,
+                mso -> status.ifPresent(s -> mso.put("status",
+                        Map.of("status_list", Map.of("idx", s.idx(), "uri", s.uri())))));
+    }
+
+    /** As {@link #mdocPid(Map, Instant, Instant, Instant, Optional)}; {@code msoEdit} may change the MSO map. */
+    public MdocCredential mdocPid(final Map<String, Object> claims, final Instant signed, final Instant validFrom,
+            final Instant validUntil, final Consumer<Map<Object, Object>> msoEdit) {
+        final List<IssuedItem> items = new ArrayList<>();
         int digestId = 0;
         for (final Map.Entry<String, Object> claim : claims.entrySet()) {
+            items.add(IssuedItem.of(digestId++, claim.getKey(), claim.getValue()));
+        }
+        return mdoc(MDOC_PID_DOCTYPE, "SHA-256", items, signed, validFrom, validUntil, msoEdit);
+    }
+
+    /**
+     * One IssuerSignedItem to issue: {@code key} names it in {@link MdocCredential#items()}, {@code encoded} is the
+     * IssuerSignedItem CBOR exactly as it will be wrapped in tag 24 and digested (so a test can hand-write it).
+     */
+    public record IssuedItem(String key, int digestId, byte[] encoded) {
+
+        /** {@code {digestID, random (16 fresh bytes), elementIdentifier, elementValue}}, keyed by the identifier. */
+        public static IssuedItem of(final int digestId, final String elementIdentifier, final Object elementValue) {
             final byte[] random = new byte[16];
             RANDOM.nextBytes(random);
             final Map<Object, Object> item = new LinkedHashMap<>();
             item.put("digestID", digestId);
             item.put("random", random);
-            item.put("elementIdentifier", claim.getKey());
-            item.put("elementValue", claim.getValue());
-            final CborTag itemBytes = new CborTag(24, cbor(item));
-            items.put(claim.getKey(), itemBytes);
-            digests.put(digestId++, sha("SHA-256", cbor(itemBytes)));
+            item.put("elementIdentifier", elementIdentifier);
+            item.put("elementValue", elementValue);
+            return new IssuedItem(elementIdentifier, digestId, cbor(item));
+        }
+    }
+
+    /**
+     * An mdoc of {@code docType} whose items all live in namespace {@code docType}: the MSO digests each item's
+     * IssuerSignedItemBytes ({@code #6.24(encoded)}) with {@code digestAlgorithm} (a JCA name: SHA-256/384/512) under
+     * its {@code digestId}, carries a fresh P-256 device key and the validity times, is changed by {@code msoEdit},
+     * and is signed by this wallet's issuer leaf.
+     */
+    public MdocCredential mdoc(final String docType, final String digestAlgorithm, final List<IssuedItem> issued,
+            final Instant signed, final Instant validFrom, final Instant validUntil,
+            final Consumer<Map<Object, Object>> msoEdit) {
+        final ECKey deviceKey = ecKey(Curve.P_256);
+        final Map<String, CborTag> items = new LinkedHashMap<>();
+        final Map<Object, Object> digests = new LinkedHashMap<>();
+        for (final IssuedItem item : issued) {
+            final CborTag itemBytes = new CborTag(24, item.encoded());
+            items.put(item.key(), itemBytes);
+            digests.put(item.digestId(), sha(digestAlgorithm, cbor(itemBytes)));
         }
         final Map<String, Map<Object, Object>> valueDigests = new LinkedHashMap<>();
-        valueDigests.put(MDOC_PID_DOCTYPE, digests);
-        final Map<Object, Object> mso = mso(MDOC_PID_DOCTYPE, "SHA-256", valueDigests, coseKey(deviceKey), signed,
+        valueDigests.put(docType, digests);
+        final Map<Object, Object> mso = mso(docType, digestAlgorithm, valueDigests, coseKey(deviceKey), signed,
                 validFrom, validUntil);
-        status.ifPresent(s -> mso.put("status", Map.of("status_list", Map.of("idx", s.idx(), "uri", s.uri()))));
+        msoEdit.accept(mso);
         final byte[] msoBytes = cbor(new CborTag(24, cbor(mso)));
         final Map<Object, Object> unprotectedHeader = new LinkedHashMap<>();
         unprotectedHeader.put(33, x5chain(issuer.chain()));
         final List<Object> issuerAuth = coseSign1(Map.of(1, coseAlg(issuer.privateKey())), unprotectedHeader,
                 msoBytes, false, issuer.privateKey());
-        return new MdocCredential(MDOC_PID_DOCTYPE, issuerAuth, msoBytes, Collections.unmodifiableMap(items),
-                deviceKey);
+        return new MdocCredential(docType, issuerAuth, msoBytes, Collections.unmodifiableMap(items), deviceKey);
     }
 
     /**
@@ -456,7 +492,13 @@ public final class TestWallet {
     public static List<Object> coseSign1(final Map<Object, Object> protectedHeader,
             final Map<Object, Object> unprotectedHeader, final byte[] payload, final boolean detached,
             final PrivateKey key) {
-        final byte[] protectedBytes = protectedHeader.isEmpty() ? new byte[0] : cbor(protectedHeader);
+        return coseSign1(protectedHeader.isEmpty() ? new byte[0] : cbor(protectedHeader), unprotectedHeader, payload,
+                detached, key);
+    }
+
+    /** As {@link #coseSign1(Map, Map, byte[], boolean, PrivateKey)} with hand-written protected header bytes. */
+    public static List<Object> coseSign1(final byte[] protectedBytes, final Map<Object, Object> unprotectedHeader,
+            final byte[] payload, final boolean detached, final PrivateKey key) {
         final byte[] toBeSigned = cbor(List.of("Signature1", protectedBytes, new byte[0], payload));
         final List<Object> cose = new ArrayList<>();
         cose.add(protectedBytes);
@@ -474,6 +516,16 @@ public final class TestWallet {
      */
     public static byte[] mdocDeviceResponse(final MdocCredential credential, final Set<String> disclose,
             final byte[] sessionTranscript) {
+        return cbor(mdocDeviceResponseStructure(credential, disclose, sessionTranscript));
+    }
+
+    /**
+     * The {@link #mdocDeviceResponse} as a mutable {@link #cbor} structure (maps and lists all mutable), so a test can
+     * change one member: {@code response.documents[0].issuerSigned.nameSpaces[docType]} is the list of disclosed
+     * IssuerSignedItemBytes, {@code ...deviceSigned.deviceAuth} the map holding {@code deviceSignature}.
+     */
+    public static Map<Object, Object> mdocDeviceResponseStructure(final MdocCredential credential,
+            final Set<String> disclose, final byte[] sessionTranscript) {
         final List<Object> items = new ArrayList<>();
         for (final String name : disclose) {
             final CborTag item = credential.items().get(name);
@@ -483,6 +535,35 @@ public final class TestWallet {
             items.add(item);
         }
         final CborTag deviceNameSpaces = new CborTag(24, cbor(Map.of()));
+        final Map<Object, Object> nameSpaces = new LinkedHashMap<>();
+        nameSpaces.put(credential.docType(), items);
+        final Map<Object, Object> issuerSigned = new LinkedHashMap<>();
+        issuerSigned.put("nameSpaces", nameSpaces);
+        issuerSigned.put("issuerAuth", new ArrayList<>(credential.issuerAuth()));
+        final Map<Object, Object> deviceAuth = new LinkedHashMap<>();
+        deviceAuth.put("deviceSignature", deviceSignature(credential, sessionTranscript, deviceNameSpaces));
+        final Map<Object, Object> deviceSigned = new LinkedHashMap<>();
+        deviceSigned.put("nameSpaces", deviceNameSpaces);
+        deviceSigned.put("deviceAuth", deviceAuth);
+        final Map<Object, Object> document = new LinkedHashMap<>();
+        document.put("docType", credential.docType());
+        document.put("issuerSigned", issuerSigned);
+        document.put("deviceSigned", deviceSigned);
+        final List<Object> documents = new ArrayList<>();
+        documents.add(document);
+        final Map<Object, Object> response = new LinkedHashMap<>();
+        response.put("version", "1.0");
+        response.put("documents", documents);
+        response.put("status", 0);
+        return response;
+    }
+
+    /**
+     * A detached ES256 COSE_Sign1 by the credential's device key over DeviceAuthenticationBytes built from
+     * {@code sessionTranscript} (embedded byte-exact), the credential's docType and {@code deviceNameSpaces}.
+     */
+    public static List<Object> deviceSignature(final MdocCredential credential, final byte[] sessionTranscript,
+            final CborTag deviceNameSpaces) {
         final ByteArrayOutputStream deviceAuthentication = new ByteArrayOutputStream();
         deviceAuthentication.write(0x84); // array(4); written by hand so the transcript is embedded byte-exact
         deviceAuthentication.writeBytes(cbor("DeviceAuthentication"));
@@ -496,24 +577,7 @@ public final class TestWallet {
         } catch (final JOSEException e) {
             throw new IllegalStateException(e);
         }
-        final List<Object> deviceSignature = coseSign1(Map.of(1, -7), Map.of(), deviceAuthenticationBytes, true,
-                deviceKey);
-
-        final Map<Object, Object> issuerSigned = new LinkedHashMap<>();
-        issuerSigned.put("nameSpaces", Map.of(credential.docType(), items));
-        issuerSigned.put("issuerAuth", credential.issuerAuth());
-        final Map<Object, Object> deviceSigned = new LinkedHashMap<>();
-        deviceSigned.put("nameSpaces", deviceNameSpaces);
-        deviceSigned.put("deviceAuth", Map.of("deviceSignature", deviceSignature));
-        final Map<Object, Object> document = new LinkedHashMap<>();
-        document.put("docType", credential.docType());
-        document.put("issuerSigned", issuerSigned);
-        document.put("deviceSigned", deviceSigned);
-        final Map<Object, Object> response = new LinkedHashMap<>();
-        response.put("version", "1.0");
-        response.put("documents", List.of(document));
-        response.put("status", 0);
-        return cbor(response);
+        return coseSign1(Map.of(1, -7), new LinkedHashMap<>(), deviceAuthenticationBytes, true, deviceKey);
     }
 
     /**

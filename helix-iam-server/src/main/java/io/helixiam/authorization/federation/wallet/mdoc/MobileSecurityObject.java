@@ -23,8 +23,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -42,17 +44,70 @@ import java.util.Objects;
  * not tdate (tag 0 on an RFC 3339 date-time), {@code validFrom < signed} or {@code validUntil <= validFrom}, and a
  * malformed {@code status}.
  *
- * <p>{@code status} is null only when the MSO has no {@code status} member. A present {@code status} must hold a
- * {@code status_list} {@code {idx, uri, ? certificate}} (draft §12.3.6); a status with only another mechanism
- * ({@code identifier_list}) cannot be evaluated here and is refused rather than read as "no status", so revocation can
- * never be skipped.
+ * <p>{@code status} is null only when the MSO has no {@code status} member. A present {@code status} is a
+ * {@link StatusList} when it holds a {@code status_list} {@code {idx, uri, ? certificate}} (draft §12.3.6), otherwise a
+ * {@link NotEvaluable} (e.g. only an {@code identifier_list}): present but not evaluable here, never read as "no
+ * status", so revocation can never be skipped silently. A structurally malformed {@code status}, {@code status_list} or
+ * {@code identifier_list} is {@code INVALID_RESPONSE}.
  *
  * @param valueDigests namespace → digest ID → digest; unmodifiable, digests copied on read
  * @param deviceKey    the holder's EC public key ({@code deviceKeyInfo.deviceKey})
  */
 public record MobileSecurityObject(String version, String digestAlgorithm, String docType,
         Map<String, Map<Integer, byte[]>> valueDigests, PublicKey deviceKey, Instant signed, Instant validFrom,
-        Instant validUntil, StatusReference status) {
+        Instant validUntil, Status status) {
+
+    /** A present MSO {@code status} (draft §12.3.6). */
+    public sealed interface Status permits StatusList, NotEvaluable {
+    }
+
+    /**
+     * {@code status.status_list}: a Token Status List reference to evaluate.
+     *
+     * @param certificate the optional ISO trust point for the list signer (draft §12.3.6.2), DER, or null. Kept for the
+     *                    status-list wiring; trust is not decided here
+     */
+    public record StatusList(StatusReference reference, byte[] certificate) implements Status {
+        public StatusList {
+            Objects.requireNonNull(reference, "reference");
+            certificate = certificate == null ? null : certificate.clone();
+        }
+
+        @Override
+        public byte[] certificate() {
+            return certificate == null ? null : certificate.clone();
+        }
+
+        @Override
+        public boolean equals(final Object o) {
+            return o instanceof StatusList other && reference.equals(other.reference)
+                    && java.util.Arrays.equals(certificate, other.certificate);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * reference.hashCode() + java.util.Arrays.hashCode(certificate);
+        }
+
+        @Override
+        public String toString() {
+            return "StatusList[" + reference + ", certificate=" + (certificate == null ? "none"
+                    : certificate.length + " bytes") + "]";
+        }
+    }
+
+    /**
+     * A present {@code status} without a {@code status_list} (only an {@code identifier_list}, nothing, or unknown
+     * members): it exists, so it is never "no status", but it cannot be evaluated here. The verifier applies the
+     * unavailability policy to it.
+     *
+     * @param mechanisms the member names it carries, e.g. {@code [identifier_list]}
+     */
+    public record NotEvaluable(List<String> mechanisms) implements Status {
+        public NotEvaluable {
+            mechanisms = List.copyOf(mechanisms);
+        }
+    }
 
     private static final Map<String, Integer> DIGEST_LENGTHS = Map.of("SHA-256", 32, "SHA-384", 48, "SHA-512", 64);
     private static final long TAG_TDATE = 0;
@@ -232,27 +287,54 @@ public record MobileSecurityObject(String version, String digestAlgorithm, Strin
         }
     }
 
-    /** {@code status.status_list} → reference; null only when there is no {@code status} at all. */
-    private static StatusReference status(final CborValue value) {
+    /**
+     * The MSO {@code status}: null only when there is no {@code status} member at all; {@link StatusList} when it holds
+     * a {@code status_list}; otherwise {@link NotEvaluable}. Each known member is checked structurally first.
+     */
+    private static Status status(final CborValue value) {
         if (value == null) {
             return null;
         }
         if (!(value instanceof CborValue.Dict status)) {
             throw invalid("MSO status is not a map");
         }
-        if (!(status.get("status_list").orElse(null) instanceof CborValue.Dict list)) {
-            throw invalid("MSO status has no status_list");
+        final CborValue identifierList = status.get("identifier_list").orElse(null);
+        if (identifierList != null) {
+            if (!(identifierList instanceof CborValue.Dict ids) || !(ids.get("id").orElse(null) instanceof CborValue.Bytes)
+                    || !(ids.get("uri").orElse(null) instanceof CborValue.Text idsUri) || idsUri.value().isBlank()) {
+                throw invalid("MSO status.identifier_list is malformed");
+            }
+            certificate(ids, "identifier_list");
+        }
+        final CborValue statusList = status.get("status_list").orElse(null);
+        if (statusList == null) {
+            final List<String> mechanisms = new ArrayList<>();
+            for (final CborValue key : status.entries().keySet()) {
+                mechanisms.add(key instanceof CborValue.Text t ? t.value() : String.valueOf(((CborValue.Int) key).value()));
+            }
+            return new NotEvaluable(mechanisms);
+        }
+        if (!(statusList instanceof CborValue.Dict list)) {
+            throw invalid("MSO status.status_list is malformed");
         }
         if (!(list.get("idx").orElse(null) instanceof CborValue.Int idx) || idx.value() < 0
                 || idx.value() > Integer.MAX_VALUE
                 || !(list.get("uri").orElse(null) instanceof CborValue.Text uri) || uri.value().isBlank()) {
             throw invalid("MSO status.status_list is malformed");
         }
-        final CborValue certificate = list.get("certificate").orElse(null);
-        if (certificate != null && !(certificate instanceof CborValue.Bytes)) {
-            throw invalid("MSO status.status_list.certificate is not a byte string");
+        return new StatusList(new StatusReference((int) idx.value(), uri.value()), certificate(list, "status_list"));
+    }
+
+    /** The optional {@code certificate} bstr of a status mechanism, or null. */
+    private static byte[] certificate(final CborValue.Dict mechanism, final String name) {
+        final CborValue certificate = mechanism.get("certificate").orElse(null);
+        if (certificate == null) {
+            return null;
         }
-        return new StatusReference((int) idx.value(), uri.value());
+        if (!(certificate instanceof CborValue.Bytes bytes)) {
+            throw invalid("MSO status." + name + ".certificate is not a byte string");
+        }
+        return bytes.value();
     }
 
     private static WalletVerificationException invalid(final String safeDetail) {
