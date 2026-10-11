@@ -5,12 +5,6 @@
 
 package io.helixiam.authorization.federation.wallet.sdjwt;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSObject;
@@ -22,6 +16,7 @@ import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.RSAKey;
 import io.helixiam.authorization.federation.wallet.PresentationVerifier;
+import io.helixiam.authorization.federation.wallet.StrictJson;
 import io.helixiam.authorization.federation.wallet.VerificationContext;
 import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
@@ -143,15 +138,6 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
     private static final int MIN_RSA_BITS = 2048;
     /** |NumericDate| bound: far beyond any real date, far inside {@link Instant}'s range. */
     private static final long MAX_EPOCH_SECONDS = 100_000_000_000_000L;
-
-    /** Header / payload JSON: duplicate members refused, ints as Long (like Nimbus), nothing trailing, bounded. */
-    private static final ObjectMapper STRICT_JSON = JsonMapper.builder(JsonFactory.builder()
-                    .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build())
-                    .build())
-            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.USE_LONG_FOR_INTS)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-            .build();
 
     private final IssuerTrustValidator trust;
     private final StatusEvaluator status;
@@ -503,7 +489,7 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
     }
 
     /**
-     * A compact JWS whose header and payload were decoded with {@link #STRICT_JSON}; the signature is checked by Nimbus
+     * A compact JWS whose header and payload were decoded with {@link StrictJson#MAPPER}; the signature is checked by Nimbus
      * over the exact received signing input.
      */
     private record Jws(String compact, Map<String, Object> header, Map<String, Object> payload) {
@@ -533,7 +519,7 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
         @SuppressWarnings("unchecked")
         private static Map<String, Object> json(final String segment, final String what) {
             try {
-                final Object parsed = STRICT_JSON.readValue(Base64.getUrlDecoder().decode(segment), Object.class);
+                final Object parsed = StrictJson.MAPPER.readValue(Base64.getUrlDecoder().decode(segment), Object.class);
                 if (parsed instanceof Map<?, ?> map) {
                     return (Map<String, Object>) map;
                 }

@@ -5,11 +5,7 @@
 
 package io.helixiam.authorization.federation.wallet.sdjwt;
 
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import io.helixiam.authorization.federation.wallet.StrictJson;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 
@@ -34,15 +30,6 @@ public record Disclosure(String encoded, String digest, String claimName, Object
 
     /** Unpadded base64url, the only encoding RFC 9901 allows. */
     static final Pattern BASE64URL = Pattern.compile("[A-Za-z0-9_-]+");
-
-    /** Disclosure JSON: duplicate members refused, ints as Long (like Nimbus), nothing after the array, shallow. */
-    private static final ObjectMapper JSON = JsonMapper.builder(com.fasterxml.jackson.core.JsonFactory.builder()
-                    .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build())
-                    .build())
-            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.USE_LONG_FOR_INTS)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-            .build();
 
     /** Redacted: a disclosure carries PID values and must never reach a log line. */
     @Override
@@ -72,7 +59,7 @@ public record Disclosure(String encoded, String digest, String claimName, Object
         }
         final Object parsed;
         try {
-            parsed = JSON.readValue(json, Object.class);
+            parsed = StrictJson.MAPPER.readValue(json, Object.class);
         } catch (java.io.IOException e) {
             throw invalid("disclosure is not valid JSON");
         }
