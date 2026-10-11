@@ -501,10 +501,21 @@ class SdJwtVcPresentationVerifierTest {
     }
 
     @Test
-    void cnfJwkThatIsNotAKeyIsHolderBindingInvalid() {
-        final TestWallet w = wallet.withoutCnf().withPayloadClaim("cnf", Map.of("jwk", Map.of("kty", "oct", "k", "AAAA")));
+    void cnfJwkWithKtyOctIsHolderBindingInvalid() {
+        final String k = TestWallet.b64url(new byte[32]);
+        final TestWallet w = wallet.withoutCnf().withPayloadClaim("cnf", Map.of("jwk", Map.of("kty", "oct", "k", k)));
 
         assertRejected(presentAll(w, pid(w)), WalletErrorCode.HOLDER_BINDING_INVALID);
+    }
+
+    @Test
+    void arrayDigestInsideCnfIsDisclosureInvalid() {
+        final Map<String, Object> cnf = new LinkedHashMap<>();
+        cnf.put("jwk", wallet.holderKey().toPublicJWK().toJSONObject());
+        cnf.put("alt", List.of(Map.of("...", TestWallet.digest(TestWallet.disclosure("x", "y"), "sha-256"))));
+        final TestWallet w = wallet.withoutCnf().withPayloadClaim("cnf", cnf);
+
+        assertRejected(presentAll(w, pid(w)), WalletErrorCode.DISCLOSURE_INVALID);
     }
 
     @Test
@@ -569,6 +580,7 @@ class SdJwtVcPresentationVerifierTest {
 
         assertRejected(wallet.present(cred, Set.of("given_name"), CLIENT_ID, "another-nonce"),
                 WalletErrorCode.NONCE_MISMATCH);
+        assertThat(evaluated.get()).as("status is checked only after holder binding").isNull();
     }
 
     @Test
@@ -703,6 +715,88 @@ class SdJwtVcPresentationVerifierTest {
 
         assertThat(result.statusResult()).isEqualTo("ABSENT");
         assertThat(evaluated.get()).isNull();
+    }
+
+    /** A credential whose {@code status} claim is {@code statusValue}, presented with {@code extraDisclosures}. */
+    private static String withStatus(final Object statusValue, final Map<String, String> extraDisclosures) {
+        final TestWallet w = wallet.withPayloadClaim("status", statusValue);
+        final Instant now = Instant.now();
+        final SdJwtCredential cred = w.sdJwtPid(pidClaims(), now.minusSeconds(60), now.plusSeconds(3600),
+                Optional.empty());
+        final Map<String, String> disclosures = new LinkedHashMap<>(cred.disclosures());
+        disclosures.putAll(extraDisclosures);
+        final Set<String> disclose = new java.util.LinkedHashSet<>(pidClaims().keySet());
+        disclose.addAll(extraDisclosures.keySet());
+        return w.present(new SdJwtCredential(cred.issuerJwt(), disclosures, cred.holderKey()), disclose, CLIENT_ID,
+                NONCE);
+    }
+
+    private static VerificationContext failOpenContext() {
+        final VerificationContext c = context();
+        return new VerificationContext(c.clientId(), c.nonce(), c.responseUri(), null, c.now(), c.clockSkew(),
+                c.anchors(), new StatusPolicy(false, StatusPolicy.OnUnavailable.FAIL_OPEN_WITH_AUDIT,
+                        Duration.ofSeconds(900), List.of()), c.acceptedVcts(), null, false);
+    }
+
+    @Test
+    void selectivelyDisclosableStatusListOmittedByTheHolderIsDisclosureInvalid() {
+        final String d = TestWallet.disclosure("status_list", Map.of("idx", 1, "uri", STATUS_REF.uri()));
+        final Map<String, Object> status = Map.of("_sd", List.of(TestWallet.digest(d, "sha-256")));
+
+        assertRejected(withStatus(status, Map.of()), WalletErrorCode.DISCLOSURE_INVALID);
+        assertThat(evaluated.get()).isNull();
+    }
+
+    @Test
+    void selectivelyDisclosedStatusListIsDisclosureInvalid() {
+        final String d = TestWallet.disclosure("status_list", Map.of("idx", 1, "uri", STATUS_REF.uri()));
+        final Map<String, Object> status = Map.of("_sd", List.of(TestWallet.digest(d, "sha-256")));
+
+        assertRejected(withStatus(status, Map.of("status_list", d)), WalletErrorCode.DISCLOSURE_INVALID);
+    }
+
+    @Test
+    void nestedSdDeepInsideStatusIsDisclosureInvalid() {
+        final Map<String, Object> status = Map.of("status_list", Map.of("idx", 1, "uri", STATUS_REF.uri(),
+                "ext", Map.of("_sd", List.of(TestWallet.digest(TestWallet.disclosure("a", "b"), "sha-256")))));
+
+        assertRejected(withStatus(status, Map.of()), WalletErrorCode.DISCLOSURE_INVALID);
+    }
+
+    @Test
+    void unknownStatusMechanismIsStatusUnavailableWhenFailClosed() {
+        final String vp = withStatus(Map.of("other_mechanism", Map.of("id", 1)), Map.of());
+
+        assertRejected(vp, WalletErrorCode.STATUS_UNAVAILABLE);
+        assertRejected(withStatus(Map.of(), Map.of()), WalletErrorCode.STATUS_UNAVAILABLE);
+    }
+
+    @Test
+    void unknownStatusMechanismIsAcceptedAndRecordedWhenFailOpen() {
+        final String vp = withStatus(Map.of("other_mechanism", Map.of("id", 1)), Map.of());
+
+        final VerifiedPresentation result = verifier().verify(vp, failOpenContext());
+
+        assertThat(result.statusResult()).isEqualTo(SdJwtVcPresentationVerifier.STATUS_UNAVAILABLE_ACCEPTED)
+                .isNotEqualTo(SdJwtVcPresentationVerifier.STATUS_ABSENT);
+        assertThat(evaluated.get()).isNull();
+    }
+
+    @Test
+    void unreachableEvaluatorFollowsFailOpenToo() {
+        status = (ref, a) -> {
+            throw new IllegalStateException("network down");
+        };
+
+        assertThat(verifier().verify(presentAll(wallet, pid(wallet)), failOpenContext()).statusResult())
+                .isEqualTo(SdJwtVcPresentationVerifier.STATUS_UNAVAILABLE_ACCEPTED);
+    }
+
+    @Test
+    void nonValidEvaluatorAnswerIsNeverAcceptedEvenWhenFailOpen() {
+        status = (ref, a) -> "REVOKED";
+
+        assertRejected(presentAll(wallet, pid(wallet)), failOpenContext(), WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
     @Test

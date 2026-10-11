@@ -27,6 +27,7 @@ import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
+import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
 import io.helixiam.authorization.federation.wallet.status.StatusReference;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 
@@ -81,7 +82,8 @@ import java.util.Set;
  *       skew: {@code CREDENTIAL_NOT_YET_VALID}). All three are optional; when present they must be numbers;</li>
  *   <li>disclosures resolved with the payload's {@code _sd_alg} ({@link SdJwtDisclosures}); a claim that SD-JWT VC
  *       §2.2.2.3 forbids to disclose selectively ({@code iss nbf exp cnf vct vct#integrity aka_vcts status}) arriving
- *       through a disclosure is {@code DISCLOSURE_INVALID}; a selectively disclosed {@code iat} gets the same time
+ *       through a disclosure, or holding an {@code _sd} member or {@code "..."} array digest at any depth (so no part
+ *       of {@code status} or {@code cnf} can be withheld), is {@code DISCLOSURE_INVALID}; a selectively disclosed {@code iat} gets the same time
  *       check as a plain one;</li>
  *   <li>Key Binding JWT, always required (§7.3 step 1): absent, or no {@code cnf.jwk} in the credential:
  *       {@code HOLDER_BINDING_MISSING}. Then strict JSON as above; {@code typ} {@code kb+jwt}
@@ -91,11 +93,14 @@ import java.util.Set;
  *       {@code clientId} ({@code AUDIENCE_MISMATCH}); {@code nonce} ({@code NONCE_MISMATCH}); {@code iat} REQUIRED and
  *       within the window below; optional {@code exp}/{@code nbf} honoured; {@code sd_hash} equal to
  *       {@link SdJwt#sdHash} under the payload's {@code _sd_alg} ({@code HOLDER_BINDING_INVALID});</li>
- *   <li>status: a {@code status.status_list} reference goes to the {@link StatusEvaluator}, which must answer
- *       {@code VALID} or throw (any other answer, or a non-wallet exception, is {@code STATUS_UNAVAILABLE}). No
- *       {@code status_list} and {@code statusPolicy.required}: {@code STATUS_REQUIRED}; not required (the default, also
- *       for a null policy): accepted with status result {@code ABSENT}. A malformed reference is
- *       {@code INVALID_RESPONSE};</li>
+ *   <li>status: no {@code status} claim at all: {@code STATUS_REQUIRED} when {@code statusPolicy.required}, else
+ *       accepted as {@code ABSENT} (the only way to {@code ABSENT}). A {@code status.status_list} reference goes to the
+ *       {@link StatusEvaluator}, which must answer {@code VALID} or throw; its wallet exceptions pass through and any
+ *       other answer is {@code STATUS_UNAVAILABLE} (never fail-open). A present {@code status} with no evaluable
+ *       mechanism (no {@code status_list}, or only an unknown one), or an evaluator failing with a non-wallet
+ *       exception, is <em>unavailable</em>: {@code STATUS_UNAVAILABLE} under {@code onUnavailable = FAIL_CLOSED} (also
+ *       for a null policy), accepted as {@code UNAVAILABLE_ACCEPTED} under {@code FAIL_OPEN_WITH_AUDIT}. A malformed
+ *       reference is {@code INVALID_RESPONSE};</li>
  *   <li>output.</li>
  * </ol>
  *
@@ -119,6 +124,11 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
     public static final int DEFAULT_MAX_PRESENTATION_BYTES = 64 * 1024;
     /** {@link VerifiedPresentation#statusResult()} when the credential carries no status reference. */
     public static final String STATUS_ABSENT = "ABSENT";
+    /**
+     * {@link VerifiedPresentation#statusResult()} when the status could not be evaluated and
+     * {@code statusPolicy.onUnavailable} is {@code FAIL_OPEN_WITH_AUDIT}: accepted, and the caller must audit it.
+     */
+    public static final String STATUS_UNAVAILABLE_ACCEPTED = "UNAVAILABLE_ACCEPTED";
 
     private static final Set<String> OUTPUT_EXCLUDED = Set.of("_sd", "_sd_alg", "cnf", "status", "iss", "vct",
             "vct#integrity", "aka_vcts", "iat", "nbf", "exp");
@@ -223,6 +233,9 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
         for (final String name : NEVER_DISCLOSED) {
             if (resolved.containsKey(name) && !payload.containsKey(name)) {
                 throw fail(WalletErrorCode.DISCLOSURE_INVALID, "a claim that must not be selectively disclosed was");
+            }
+            if (containsDigests(payload.get(name))) {
+                throw fail(WalletErrorCode.DISCLOSURE_INVALID, "a claim that must not be selectively disclosed has digests");
             }
         }
         if (resolved.containsKey("iat") && !payload.containsKey("iat")) {
@@ -366,12 +379,15 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
     // ------------------------------------------------------------------------------------------- status
 
     private String checkStatus(final Map<String, Object> payload, final VerificationContext ctx) {
+        if (!payload.containsKey("status")) {
+            if (ctx.statusPolicy() != null && ctx.statusPolicy().required()) {
+                throw fail(WalletErrorCode.STATUS_REQUIRED, "credential has no status claim");
+            }
+            return STATUS_ABSENT; // the only way to ABSENT: no status claim at all
+        }
         final StatusReference ref = statusReference(payload);
         if (ref == null) {
-            if (ctx.statusPolicy() != null && ctx.statusPolicy().required()) {
-                throw fail(WalletErrorCode.STATUS_REQUIRED, "credential has no status_list reference");
-            }
-            return STATUS_ABSENT;
+            return unavailable(ctx, "credential status mechanism cannot be evaluated");
         }
         final String result;
         try {
@@ -379,24 +395,44 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
         } catch (final WalletVerificationException e) {
             throw e;
         } catch (final RuntimeException e) {
-            throw fail(WalletErrorCode.STATUS_UNAVAILABLE, "credential status could not be determined");
+            return unavailable(ctx, "credential status could not be determined");
         }
         if (!StatusEvaluator.VALID.equals(result)) {
-            throw fail(WalletErrorCode.STATUS_UNAVAILABLE, "credential status is not VALID");
+            throw fail(WalletErrorCode.STATUS_UNAVAILABLE, "credential status is not VALID"); // never fail-open
         }
         return result;
     }
 
-    /** {@code status.status_list}, or null when the credential has no status_list reference. */
-    private static StatusReference statusReference(final Map<String, Object> payload) {
-        if (!payload.containsKey("status")) {
-            return null;
+    /**
+     * A status that could not be evaluated: {@code STATUS_UNAVAILABLE} unless the policy is
+     * {@code FAIL_OPEN_WITH_AUDIT}, which accepts it as {@link #STATUS_UNAVAILABLE_ACCEPTED} (the caller audits it).
+     */
+    private static String unavailable(final VerificationContext ctx, final String safeDetail) {
+        if (ctx.statusPolicy() != null
+                && ctx.statusPolicy().onUnavailable() == StatusPolicy.OnUnavailable.FAIL_OPEN_WITH_AUDIT) {
+            return STATUS_UNAVAILABLE_ACCEPTED;
         }
+        throw fail(WalletErrorCode.STATUS_UNAVAILABLE, safeDetail);
+    }
+
+    /** True when {@code value} holds an {@code _sd} member or a {@code "..."} array digest at any depth. */
+    private static boolean containsDigests(final Object value) {
+        if (value instanceof Map<?, ?> map) {
+            if (map.containsKey("_sd") || map.containsKey("...")) {
+                return true;
+            }
+            return map.values().stream().anyMatch(SdJwtVcPresentationVerifier::containsDigests);
+        }
+        return value instanceof List<?> list && list.stream().anyMatch(SdJwtVcPresentationVerifier::containsDigests);
+    }
+
+    /** {@code status.status_list} of a present {@code status} claim, or null when it has no status_list. */
+    private static StatusReference statusReference(final Map<String, Object> payload) {
         if (!(payload.get("status") instanceof Map<?, ?> st)) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "status is not an object");
         }
         if (!st.containsKey("status_list")) {
-            return null; // another status mechanism, which this verifier does not evaluate
+            return null; // empty, or only another mechanism: not evaluable here
         }
         if (!(st.get("status_list") instanceof Map<?, ?> list)
                 || !(list.get("idx") instanceof Long idx) || idx < 0 || idx > Integer.MAX_VALUE

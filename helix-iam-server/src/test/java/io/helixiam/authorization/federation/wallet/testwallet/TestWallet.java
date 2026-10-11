@@ -345,7 +345,8 @@ public final class TestWallet {
         }
     }
 
-    private static String disclosure(final String name, final Object value) {
+    /** A fresh object-property disclosure {@code [salt, name, value]}, base64url-encoded. */
+    public static String disclosure(final String name, final Object value) {
         final byte[] salt = new byte[16];
         RANDOM.nextBytes(salt);
         return b64url(json(List.of(b64url(salt), name, value)));
