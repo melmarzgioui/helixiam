@@ -277,3 +277,16 @@ above), and the one truly AMQP-shaped type (`ResponseException`) had exactly one
 refactors cleanly onto the existing `ValidationException` hierarchy. `RealmScopedKey` is the one
 class kept for a *future* cross-service caller (the publisher's client-lookup path) but that
 caller doesn't exist in this repo yet, so it's inert, not a seam.
+
+---
+
+## EUDI Wallet verifier: direct third-party libraries (wallet Task 6)
+
+Nothing is vendored for the wallet verifier (pure Java, no kotlin-stdlib, no EUDI reference libraries). It depends
+directly on two libraries that were already on the classpath. They are listed here so the wallet code's external
+surface is explicit.
+
+| Library | Coordinates | Version source | Used by | Notes |
+|---|---|---|---|---|
+| Nimbus JOSE + JWT | `com.nimbusds:nimbus-jose-jwt` | `${nimbus-jose-jwt.version}` (9.47) in this pom's `dependencyManagement` | `io.helixiam.authorization.federation.wallet.*` (SD-JWT issuer JWT, KB-JWT, JWE `ECDH-ES` response decryption, JWK thumbprints) | Was only transitive (SAS → `spring-security-oauth2-jose` 9.37.4, SAS itself 9.47). **Spring Boot 3.5 does not manage it**, so the plan's "version-less, Boot-managed" premise does not hold: the `<dependency>` is version-less and the version is pinned once in `dependencyManagement` to 9.47, the version the build already resolved, so SAS sees no change. `mvn dependency:tree -Dverbose` shows a single 9.47. Apache-2.0. |
+| Jackson CBOR | `com.fasterxml.jackson.dataformat:jackson-dataformat-cbor` | Spring Boot dependency management (Jackson BOM, 2.21.4) | `wallet.mdoc.StrictCbor` (the only CBOR entry point for wallet input) | Already a direct pom dependency (no other main-code import of it today). Used only through `CBORParser` token streaming with Helix's own depth/item/byte counters, never `readTree`. Features `READ_UNDEFINED_AS_EMBEDDED_OBJECT` and `READ_SIMPLE_VALUE_AS_EMBEDDED_OBJECT` (2.20+) are enabled so undefined/simple values can be refused. Apache-2.0. |
