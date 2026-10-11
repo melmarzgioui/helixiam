@@ -1075,3 +1075,14 @@ UPDATE notification_code SET code = encode(sha256(convert_to(code, 'UTF8')), 'he
 -- Security (same as Flyway V75): identity-provider secrets live encrypted in their own column, never in config_json.
 -- Existing secrets are moved at startup by IdentityProviderSecretsBackfill (the V75.1 counterpart).
 ALTER TABLE identity_provider ADD COLUMN IF NOT EXISTS secret_json text;
+-- EUDI Wallet (same as Flyway V76): per-realm verifier access-certificate signing keys; private_key encrypted at rest
+-- (DB_ENCRYPTION, AttributeEncryption), certificate chain leaf first without the trust anchor.
+CREATE TABLE IF NOT EXISTS verifier_signing_key (
+    realm_id              character varying(255) NOT NULL,
+    name                  character varying(64)  NOT NULL,
+    alg                   character varying(16)  NOT NULL,
+    private_key           text                   NOT NULL,
+    certificate_chain_pem text                   NOT NULL,
+    created_at            timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    PRIMARY KEY (realm_id, name)
+);
