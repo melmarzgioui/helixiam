@@ -422,6 +422,7 @@
                             <includes>
                                 <include>io/helixiam/e2e/browser/AccountConsoleBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/CrossOriginSignInBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/FederatedSessionRotationBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/MfaGateBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/RegistrationReturnBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/RegistrationVerificationBrowserE2eTest.java</include>

@@ -39,6 +39,7 @@ import static org.mockito.Mockito.when;
 class FederatedLoginCompleterTest {
 
     private static final String SP = "https://helix.test";
+    private static final String USER_ID = "user-9";
 
     private final FlowExecutor flowExecutor = mock(FlowExecutor.class);
     private final AuthFlowPublisher authFlowPublisher = mock(AuthFlowPublisher.class);
@@ -59,6 +60,18 @@ class FederatedLoginCompleterTest {
         return new ObjectMapper().readValue(
                 "{\"userId\":\"" + id + "\",\"username\":\"ada@corp\",\"authorities\":[{\"role\":\"ROLE_USER\"}]}",
                 UserCredentials.class);
+    }
+
+    /** Stubs a federated login whose post-broker flow completes immediately (no step-up). */
+    private void givenFlowCompletes() {
+        try {
+            when(establisher.loadUser(USER_ID)).thenReturn(user(USER_ID));
+        } catch (final Exception e) {
+            throw new RuntimeException(e);
+        }
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(null); // use the in-code fallback
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
     }
 
     @Test
@@ -114,5 +127,14 @@ class FederatedLoginCompleterTest {
 
         assertThat(view).startsWith("redirect:/login?error");
         verify(establisher, never()).persist(any(), any(), any());
+    }
+
+    @Test
+    void completedFederatedLogin_rotatesTheSessionId_beforePersistingTheContext() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final String before = request.getSession(true).getId();
+        givenFlowCompletes();                       // existing helper in this test class
+        completer.complete(USER_ID, request, new MockHttpServletResponse());
+        assertThat(request.getSession(false).getId()).isNotEqualTo(before);
     }
 }

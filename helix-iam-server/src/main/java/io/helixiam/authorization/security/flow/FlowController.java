@@ -109,6 +109,7 @@ public class FlowController {
 
         return switch (progress.type()) {
             case COMPLETED -> {
+                request.changeSessionId(); // post-broker step-up just completed: rotate before promoting the context
                 mfaService.unlockUser(); // restore the fully authenticated token
                 authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, io.helixiam.authorization.security.realm.RealmContextHolder.get()); // SSO P3

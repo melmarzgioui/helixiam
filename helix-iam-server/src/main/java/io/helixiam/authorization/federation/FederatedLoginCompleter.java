@@ -96,6 +96,7 @@ public class FederatedLoginCompleter {
 
         return switch (progress.type()) {
             case COMPLETED -> {
+                request.changeSessionId(); // new sign-in, new session id (mirrors MagicLinkController)
                 sessionEstablisher.persist(fullAuthentication, request, response);
                 authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
