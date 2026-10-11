@@ -8,6 +8,15 @@ question. Newest first within each phase.
 CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven false positives are explained in
 `helix-iam-server/CODEQL-TRIAGE.md` ("rc.5 scan").
 
+- **security** — Nimbus JOSE + JWT is pinned to **10.10** (CVE-2025-53864 / GHSA-xwmg-2g98-w7v9). Nimbus before
+  10.0.2 (and before 9.37.4 on the 9.x line) has no bound on JSON nesting in a JWT claim set, so an attacker-supplied
+  token with deeply nested arrays or objects can exhaust the stack (denial of service). **This also affects the
+  already-released versions:** Spring Authorization Server 1.5.8 brings in the vulnerable 9.47, which it and Spring
+  Security use to decode JWTs (for example `private_key_jwt` client assertions). Boot 3.5 does not manage Nimbus, so the
+  version is now pinned in `helix-iam-server/pom.xml` `dependencyManagement`; the build resolves a single Nimbus.
+  `NimbusNestedJsonRegressionTest` checks that a claim set nested 10 000 levels deep is refused with a
+  `ParseException` (9.47 accepted it). The EUDI Wallet verifier also uses Nimbus directly to parse wallet JWTs.
+
 - **security** — Identity-provider secrets are encrypted at rest and never returned. The OIDC `clientSecret`, the eID
   SP private keys (`spDecryptionPrivateKey`, `spSigningPrivateKey`), the LDAP bind password and the coming EUDI Wallet
   keys (`accessCertificatePrivateKey`, `subjectPepper`) were stored in plain text in `identity_provider.config_json`

@@ -49,8 +49,10 @@
                CVE-2026-8763, CVE-2026-13506. -->
         <postgresql.version>42.7.12</postgresql.version>
         <bouncycastle.version>1.86</bouncycastle.version>
-        <!-- Boot 3.5 does not manage Nimbus; 9.47 is the version SAS 1.5.8 already resolved to (no change). -->
-        <nimbus-jose-jwt.version>9.47</nimbus-jose-jwt.version>
+        <!-- Boot 3.5 does not manage Nimbus. SECURITY: CVE-2025-53864 / GHSA-xwmg-2g98-w7v9 (unbounded recursion on
+             deeply nested JSON claim sets; affects < 9.37.4 and 9.38-rc1 .. < 10.0.2, incl. the 9.47 SAS 1.5.8 pulls
+             in). Pinned to a patched 10.x release; NimbusNestedJsonRegressionTest guards it. -->
+        <nimbus-jose-jwt.version>10.10</nimbus-jose-jwt.version>
     </properties>
 
     <!-- Transitive-dependency version overrides (security review). Boot's parent does not manage guava,
@@ -180,7 +182,8 @@
                 <version>${cryptacular.version}</version>
             </dependency>
 
-            <!-- One Nimbus for SAS (transitive 9.37.4 / 9.47) and the EUDI Wallet verifier (direct). -->
+            <!-- One patched Nimbus (CVE-2025-53864) for SAS (transitive 9.37.4 / 9.47) and the EUDI Wallet
+                 verifier (direct). -->
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
