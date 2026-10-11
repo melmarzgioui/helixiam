@@ -77,6 +77,32 @@ class OidcIdentityProviderTest {
         assertThat(identity.attributes()).containsEntry("given_name", "Ada");
     }
 
+    /**
+     * [Critical fix round 1] Forged acr: an upstream id_token's claims are copied verbatim into the
+     * generic {@code attributes} map (minus sub/nonce) — including a claim literally named {@code "loa"}
+     * or {@code "acr"} — but this OIDC connector must NEVER set the typed {@code levelOfAssurance()}. Only
+     * a connector that validates an asserted LoA against its own scheme's ladder may (today, only the eID
+     * SAML connector); otherwise any OIDC IdP could forge Helix's ID token {@code acr} verbatim.
+     */
+    @Test
+    void callback_neverSetsATypedLevelOfAssurance_evenWhenTheIdTokenClaimsLoaOrAcr() {
+        final OidcTokenClient client = (cfg, code, redirectUri) -> new OidcTokenClient.OidcTokens(
+                Map.of("sub", "ext-1", "nonce", "fixed-nonce",
+                        "loa", "http://eidas.europa.eu/LoA/high",
+                        "acr", "http://eidas.europa.eu/LoA/high"),
+                "access-xyz");
+        final CallbackContext ctx = new CallbackContext("master",
+                Map.of("code", "auth-code", "state", "state-abc"), "state-abc", "fixed-nonce",
+                "https://helix.test/broker/acme/callback");
+
+        final BrokeredIdentity identity = provider(client).callback(ctx);
+
+        assertThat(identity.levelOfAssurance()).isNull();
+        // The forged claims land in the free-form attributes map (harmless: the broker never reads acr
+        // from there), proving the typed field really is independent of it.
+        assertThat(identity.attributes()).containsEntry("loa", "http://eidas.europa.eu/LoA/high");
+    }
+
     @Test
     void callback_rejectsAStateMismatch_csrf() {
         final CallbackContext ctx = new CallbackContext("master",

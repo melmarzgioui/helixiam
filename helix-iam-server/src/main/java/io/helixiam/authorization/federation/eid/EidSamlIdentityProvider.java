@@ -167,6 +167,12 @@ public class EidSamlIdentityProvider implements IdentityProvider {
         if (assertion.authnContextClassRef() != null) {
             attributes.put("loa", assertion.authnContextClassRef());
         }
+        // Security: the ID token acr must come ONLY from a value this connector itself validated against
+        // its scheme's ladder — NEVER from the free-form attributes map above (a forged "loa" attribute
+        // with no real AuthnContextClassRef, or an unrecognised URN, must never become the acr).
+        final String levelOfAssurance = assertion.authnContextClassRef() != null
+                && EidLevelOfAssurance.rung(config.scheme(), assertion.authnContextClassRef()) > 0
+                ? assertion.authnContextClassRef() : null;
         if (assertion.subjectType() != null) {
             attributes.put("subjectType", assertion.subjectType()); // BSN / KvK / PersonIdentifier type
         }
@@ -182,7 +188,7 @@ public class EidSamlIdentityProvider implements IdentityProvider {
             attributes.put("representation", "true");
         }
         // eID schemes do not assert an email; emailVerified=false so the broker never links by email.
-        return new BrokeredIdentity(config.alias(), assertion.subjectId(), null, false, attributes);
+        return new BrokeredIdentity(config.alias(), assertion.subjectId(), null, false, attributes, levelOfAssurance);
     }
 
     @Override

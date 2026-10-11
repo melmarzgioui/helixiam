@@ -203,6 +203,46 @@ class EidSamlIdentityProviderTest {
         assertThat(identity.emailVerified()).isFalse();
         assertThat(identity.attributes()).containsEntry("firstName", "Ada")
                 .containsEntry("loa", DIGID_SUBSTANTIAL).containsEntry("subjectType", LEGACY_BSN);
+        // [Critical fix round 1] The TYPED level of assurance is set, validated against the DigiD ladder.
+        assertThat(identity.levelOfAssurance()).isEqualTo(DIGID_SUBSTANTIAL);
+    }
+
+    /**
+     * [Critical fix round 1] Forged acr: a free-form assertion attribute named {@code "loa"} must NEVER
+     * become the typed level of assurance when there is no real (or no valid) {@code AuthnContextClassRef}
+     * to back it — only {@code EidLevelOfAssurance.rung(scheme, authnContextClassRef) > 0} may.
+     */
+    @Test
+    void callbackNeverTrustsAForgedLoaAttribute_whenThereIsNoAuthnContextClassRef() throws Exception {
+        final EidSamlIdentityProvider provider = new EidSamlIdentityProvider(config(), validator);
+        // The assertion itself asserts NO authnContextClassRef, but its (attacker-controlled / malformed
+        // upstream) attributes happen to contain a key literally named "loa".
+        when(validator.validate(any(), eq("encoded-response"), eq("state-123"))).thenReturn(new EidAssertion(
+                "123456782", LEGACY_BSN, null, Map.of("loa", "http://eidas.europa.eu/LoA/high")));
+
+        final Map<String, String> params = new HashMap<>();
+        params.put("SAMLResponse", "encoded-response");
+        params.put("RelayState", "state-123");
+        final BrokeredIdentity identity = provider.callback(new IdentityProvider.CallbackContext(
+                "master", params, "state-123", null, "https://helix.test/acs"));
+
+        assertThat(identity.levelOfAssurance()).isNull();
+    }
+
+    /** An asserted AuthnContextClassRef that is not on this scheme's ladder is never trusted either. */
+    @Test
+    void callbackNeverTrustsAnUnrecognisedAuthnContextClassRef() throws Exception {
+        final EidSamlIdentityProvider provider = new EidSamlIdentityProvider(config(), validator);
+        when(validator.validate(any(), eq("encoded-response"), eq("state-123"))).thenReturn(
+                new EidAssertion("123456782", LEGACY_BSN, "urn:something:unrecognised", Map.of()));
+
+        final Map<String, String> params = new HashMap<>();
+        params.put("SAMLResponse", "encoded-response");
+        params.put("RelayState", "state-123");
+        final BrokeredIdentity identity = provider.callback(new IdentityProvider.CallbackContext(
+                "master", params, "state-123", null, "https://helix.test/acs"));
+
+        assertThat(identity.levelOfAssurance()).isNull();
     }
 
     @Test

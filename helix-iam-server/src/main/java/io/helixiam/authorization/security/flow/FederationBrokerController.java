@@ -198,10 +198,10 @@ public class FederationBrokerController {
         session.setAttribute(IDP_SOURCE_ATTR, alias);
         session.setAttribute(IDP_SUBJECT_ATTR, identity.externalSubject());
         // Run the post-broker flow (optional step-up); it establishes the session or routes to /flow.
-        // Task 3: the eID SAML (and future wallet) connectors stamp "loa" on the brokered identity's
-        // attributes when the provider asserted one — propagate it so it reaches the ID token's acr.
-        return loginCompleter.complete(result.userId(), identity.attributes() == null ? null
-                : identity.attributes().get("loa"), request, response);
+        // Task 3 (fix round 1): ONLY the typed BrokeredIdentity#levelOfAssurance() may reach acr — NEVER
+        // identity.attributes().get("loa"), which is free-form/provider-controlled and forgeable (any OIDC
+        // IdP whose id_token carries a "loa" claim would otherwise set it verbatim).
+        return loginCompleter.complete(result.userId(), identity.levelOfAssurance(), request, response);
     }
 
     /**

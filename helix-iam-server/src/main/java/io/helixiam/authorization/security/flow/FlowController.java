@@ -111,7 +111,15 @@ public class FlowController {
             case COMPLETED -> {
                 request.changeSessionId(); // post-broker step-up just completed: rotate before promoting the context
                 mfaService.unlockUser(); // restore the fully authenticated token
-                authTimeStamper.stamp(request); // SSO P2
+                authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
+                // Task 3 fix round 1: promote THIS flow's pending acr (if a federated login set one) only
+                // now that THIS SAME flow has reached COMPLETED, and only AFTER stamp() cleared any stale
+                // value — never earlier, so an abandoned step-up can never leak into an unrelated login.
+                if (state.pendingAcr() != null && !state.pendingAcr().isBlank()) {
+                    session.setAttribute(
+                            io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
+                            state.pendingAcr());
+                }
                 sessionPolicyApplier.applyOnLogin(request, io.helixiam.authorization.security.realm.RealmContextHolder.get()); // SSO P3
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }

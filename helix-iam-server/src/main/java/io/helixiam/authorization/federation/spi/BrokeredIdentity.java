@@ -17,8 +17,23 @@ import java.util.Map;
  * @param email           the asserted email (may be null)
  * @param emailVerified   whether the provider asserts the email is verified — required before any
  *                        email-based account linking (an unverified email is an account-takeover vector)
- * @param attributes      remaining normalized attributes (username, given_name, family_name, …)
+ * @param attributes      remaining normalized attributes (username, given_name, family_name, …) — free-form
+ *                        and provider-controlled; NEVER trusted as the source of the level of assurance
+ *                        (an upstream OIDC IdP's id_token, or a forged eID assertion attribute, could put
+ *                        anything under a key like {@code "loa"} here)
+ * @param levelOfAssurance the level of assurance of this login, typed and set ONLY by a connector that
+ *                        cryptographically verified it against its own scheme's ladder (today only
+ *                        {@code EidSamlIdentityProvider}, from the SAML assertion's
+ *                        {@code AuthnContextClassRef}); {@code null} when the provider asserted none, or
+ *                        cannot be trusted to assert one. This is the ONLY value the federation broker may
+ *                        propagate into the ID token {@code acr} — never {@code attributes.get("loa")}.
  */
 public record BrokeredIdentity(String idpAlias, String externalSubject, String email,
-                               boolean emailVerified, Map<String, String> attributes) {
+                               boolean emailVerified, Map<String, String> attributes, String levelOfAssurance) {
+
+    /** Compatibility constructor for providers that never assert a (trusted) level of assurance. */
+    public BrokeredIdentity(final String idpAlias, final String externalSubject, final String email,
+                            final boolean emailVerified, final Map<String, String> attributes) {
+        this(idpAlias, externalSubject, email, emailVerified, attributes, null);
+    }
 }

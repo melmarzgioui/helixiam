@@ -133,15 +133,16 @@ class FederationBrokerControllerTest {
     }
 
     /**
-     * Task 3: when the upstream provider asserted a level of assurance (the eID SAML connector stamps it
-     * as {@code loa} on the brokered identity's attributes), the controller passes it to the completer so
-     * it can reach the ID token {@code acr}.
+     * Task 3: when the upstream provider asserted a TYPED level of assurance ({@code
+     * BrokeredIdentity#levelOfAssurance()} — only a connector that validated it against its own ladder,
+     * e.g. the eID SAML connector, may set this), the controller passes it to the completer so it can
+     * reach the ID token {@code acr}.
      */
     @Test
     void callbackPassesTheBrokeredLoaToTheLoginCompleter() {
         when(registry.get(ALIAS)).thenReturn(provider);
         final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true,
-                Map.of("loa", "http://eidas.europa.eu/LoA/substantial"));
+                Map.of(), "http://eidas.europa.eu/LoA/substantial");
         when(provider.callback(any())).thenReturn(identity);
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
 
@@ -156,6 +157,34 @@ class FederationBrokerControllerTest {
 
         assertThat(view).isEqualTo("redirect:" + SP);
         verify(loginCompleter).complete("user-9", "http://eidas.europa.eu/LoA/substantial", request, response);
+    }
+
+    /**
+     * [Critical fix round 1] Forged acr: a provider's free-form {@code attributes} map is NEVER the source
+     * of acr — only the typed {@code levelOfAssurance()}. Without this, any OIDC IdP whose id_token (or any
+     * provider whose generic attributes) happens to carry a key named {@code "loa"} could set Helix's acr
+     * verbatim (e.g. forging {@code http://eidas.europa.eu/LoA/high}).
+     */
+    @Test
+    void callbackNeverTrustsAForgedAttributesLoaKey_onlyTheTypedLevelOfAssurance() {
+        when(registry.get(ALIAS)).thenReturn(provider);
+        // Forged: a generic attribute happens to be named "loa", but this identity asserts NO typed LoA
+        // (the 5-arg compatibility constructor — what every non-eID provider, e.g. OIDC, actually uses).
+        final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true,
+                Map.of("loa", "http://eidas.europa.eu/LoA/high"));
+        when(provider.callback(any())).thenReturn(identity);
+        when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
+
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession().setAttribute("HELIX_FED_STATE_" + ALIAS, "fixed-state");
+        request.setParameter("state", "fixed-state");
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+        when(loginCompleter.complete("user-9", null, request, response)).thenReturn("redirect:" + SP);
+
+        final String view = controller.callback(ALIAS, request, response);
+
+        assertThat(view).isEqualTo("redirect:" + SP);
+        verify(loginCompleter).complete("user-9", null, request, response);
     }
 
     @Test

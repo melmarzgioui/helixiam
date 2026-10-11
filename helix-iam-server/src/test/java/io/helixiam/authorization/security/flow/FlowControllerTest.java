@@ -73,28 +73,32 @@ class FlowControllerTest {
     }
 
     /**
-     * Task 3: a federated login that needed a step-up ({@link
-     * io.helixiam.authorization.federation.FederatedLoginCompleter} CHALLENGE branch) stashes {@code
-     * HELIX_ACR} in the session before routing here. This endpoint must not lose it when the second
-     * factor passes and the session id rotates — it still needs to reach the authorization once the
-     * resumed {@code /oauth2/authorize} issues the code.
+     * Task 3 (fix round 1 — stale acr): a federated login that needed a step-up ({@link
+     * io.helixiam.authorization.federation.FederatedLoginCompleter} CHALLENGE branch) holds the asserted
+     * LoA only as {@link FlowExecutionState#pendingAcr()} — never directly in the live {@code HELIX_ACR}
+     * session attribute. This endpoint must promote it to {@code HELIX_ACR} once THIS SAME flow reaches
+     * COMPLETED (after the session-id rotation and the auth_time stamp), so it still reaches the
+     * authorization once the resumed {@code /oauth2/authorize} issues the code.
      */
     @Test
-    void completingTheChallenge_keepsTheAcrAFederatedLoginStashedBeforeTheStepUp() {
+    void completingTheChallenge_promotesThePendingAcrFromAFederatedStepUp() {
         when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
         when(flowExecutor.submit(any(), any(), any(), any())).thenReturn(FlowProgress.completed("user-9"));
 
         final MockHttpServletRequest request = new MockHttpServletRequest();
         final MockHttpServletResponse response = new MockHttpServletResponse();
         final HttpSession session = request.getSession(true);
-        session.setAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
-                "http://eidas.europa.eu/LoA/substantial");
 
         final FlowExecutionState state = new FlowExecutionState("master");
         state.setUserId("user-9");
         state.setCurrentChallengeExecutionId("otp-exec");
+        state.setPendingAcr("http://eidas.europa.eu/LoA/substantial"); // stashed by FederatedLoginCompleter
         session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
         session.setAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE, new AuthFlowDefinition());
+
+        // No HELIX_ACR before completion: the pending value is held only on the flow state.
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
 
         final String view = controller.submitChallenge(Map.of("code", "123456"), session,
                 new ExtendedModelMap(), request, response);
@@ -103,5 +107,27 @@ class FlowControllerTest {
         assertThat(request.getSession(false)
                 .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
                 .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
+
+    /** A flow with no pending acr (e.g. a plain password step-up) promotes none. */
+    @Test
+    void completingTheChallenge_withNoPendingAcr_setsNoAcr() {
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+        when(flowExecutor.submit(any(), any(), any(), any())).thenReturn(FlowProgress.completed("user-9"));
+
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+        final HttpSession session = request.getSession(true);
+
+        final FlowExecutionState state = new FlowExecutionState("master");
+        state.setUserId("user-9");
+        state.setCurrentChallengeExecutionId("otp-exec");
+        session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
+        session.setAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE, new AuthFlowDefinition());
+
+        controller.submitChallenge(Map.of("code", "123456"), session, new ExtendedModelMap(), request, response);
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
     }
 }

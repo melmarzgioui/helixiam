@@ -25,6 +25,14 @@ public class FlowExecutionState implements Serializable {
     private String userId;
     private String currentChallengeExecutionId;
     private String currentChallengeView;
+    /**
+     * Task 3 fix round 1: the brokered level of assurance a federated login asserted, held here (NOT in a
+     * live {@code HELIX_ACR} session attribute) while this flow is mid-CHALLENGE, so it can never be read
+     * by anything other than THIS flow completing. A fresh login always gets a brand-new {@code
+     * FlowExecutionState} (see {@code FlowLoginSuccessHandler}/{@code FederatedLoginCompleter}), so an
+     * abandoned challenge's pending acr can never leak into a later, unrelated login.
+     */
+    private String pendingAcr;
 
     public FlowExecutionState(final String realmId) {
         this.realmId = realmId;
@@ -69,5 +77,14 @@ public class FlowExecutionState implements Serializable {
 
     public void setCurrentChallengeView(final String view) {
         this.currentChallengeView = view;
+    }
+
+    /** The brokered level of assurance pending promotion into {@code HELIX_ACR} when THIS flow completes. */
+    public String pendingAcr() {
+        return pendingAcr;
+    }
+
+    public void setPendingAcr(final String pendingAcr) {
+        this.pendingAcr = pendingAcr;
     }
 }

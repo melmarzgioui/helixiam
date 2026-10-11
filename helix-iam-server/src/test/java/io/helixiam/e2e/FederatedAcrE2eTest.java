@@ -100,6 +100,41 @@ class FederatedAcrE2eTest extends AbstractE2eTest {
         assertThat(oidc.verify(tokens.idToken()).getClaim("acr")).isNull();
     }
 
+    /**
+     * [Important fix round 1] Stale acr: a password re-login in the SAME browser session, after a
+     * federated login that asserted a high LoA, must NOT be bound with that old acr. Without clearing it
+     * at the {@code AuthTimeStamper.stamp} choke point, {@code SsoSessionBindingAuthorizationService}
+     * would copy the stale {@code HELIX_ACR} onto the new authorization.
+     */
+    @Test
+    void passwordReLogin_afterAFederatedLoaLogin_hasNoAcr() throws Exception {
+        final E2eSeed.SeededUser dana = seed().user(realm, E2eSeed.unique("dana"), PASSWORD);
+        final E2eHttp http = newBrowser();
+        final OidcFlow oidc = new OidcFlow(http, realm);
+
+        // 1. Federated login asserting a high LoA.
+        final OidcFlow.Pkce pkce1 = OidcFlow.Pkce.create();
+        final String authorize1 = "/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=web&redirect_uri="
+                + E2eSeed.REDIRECT_URI + "&scope=openid%20profile&state=st1&code_challenge=" + pkce1.challenge()
+                + "&code_challenge_method=S256";
+        http.followRedirects(http.get(authorize1, "Accept", "text/html"));
+        final E2eHttp.Response signedIn1 = http.followRedirectsUntil(
+                http.get("/realms/" + realm + "/broker/e2e-stub/complete?userId=" + dana.userId() + "&loa=" + encode(LOA)),
+                r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(signedIn1.locationStartsWith(E2eSeed.REDIRECT_URI)).as(signedIn1 + "\n" + http.trail(10)).isTrue();
+        final String code1 = OidcFlow.query(signedIn1.location()).get("code");
+        final OidcFlow.Tokens tokens1 = oidc.exchangeCode("web", web.secret(), E2eSeed.REDIRECT_URI, code1, pkce1.verifier());
+        assertThat(oidc.verify(tokens1.idToken()).getStringClaim("acr")).as("sanity: the first login has acr").isEqualTo(LOA);
+
+        // 2. Re-authenticate with the password in the SAME browser (prompt=login forces a fresh interactive
+        // login, mirroring max_age re-auth) — this must NOT inherit the previous login's acr.
+        final OidcFlow.AuthorizationResult again = oidc.authorize("web", web.redirectUri(), dana.username(), PASSWORD,
+                "openid profile", null, java.util.Map.of("prompt", "login"));
+        final OidcFlow.Tokens tokens2 = oidc.exchangeCode("web", web.secret(), web.redirectUri(), again.code(),
+                again.pkce().verifier());
+        assertThat(oidc.verify(tokens2.idToken()).getClaim("acr")).isNull();
+    }
+
     private static String encode(final String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }

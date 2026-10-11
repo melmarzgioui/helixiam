@@ -168,12 +168,51 @@ class FederatedLoginCompleterTest {
     }
 
     /**
-     * The step-up (CHALLENGE) path: the session id does not rotate here (it rotates later, at
-     * {@code FlowController} once the second factor passes), but {@code HELIX_ACR} must already be in the
-     * session so it survives into that later rotation and reaches the authorization once the flow completes.
+     * [Important fix round 1] Stale acr: a COMPLETED federated login must CLEAR a stale {@code HELIX_ACR}
+     * an EARLIER login in this same browser session left behind, not just leave it when this one asserts
+     * none. {@code authTimeStamper.stamp(request)} is the choke point that clears it — this proves the
+     * completer actually goes through it before (not instead of) deciding whether to set a fresh value.
      */
     @Test
-    void challengingFederatedLoginWithAcr_putsAcrInTheSessionBeforeTheChallenge() throws Exception {
+    void completedFederatedLoginWithoutAcr_clearsAStaleAcrFromAnEarlierLoginInThisSession() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute(
+                io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
+                "http://eidas.europa.eu/LoA/high"); // stale, from an earlier high-LoA login
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, request, new MockHttpServletResponse()); // this login asserts no LoA
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    /** Same stale-clearing choke point, but this login DOES assert a (different, lower) LoA. */
+    @Test
+    void completedFederatedLoginWithAcr_replacesAStaleAcrFromAnEarlierLoginInThisSession() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute(
+                io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
+                "http://eidas.europa.eu/LoA/high"); // stale, from an earlier high-LoA login
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, "http://eidas.europa.eu/LoA/substantial", request, new MockHttpServletResponse());
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
+
+    /**
+     * [Important fix round 1] The step-up (CHALLENGE) path: the asserted LoA is held ONLY on {@link
+     * FlowExecutionState#pendingAcr()} — never written directly to the live {@code HELIX_ACR} session
+     * attribute. That means an abandoned challenge has NOTHING to leak: a later, unrelated login in this
+     * browser (which always gets its own brand-new {@code FlowExecutionState}, see {@code
+     * FlowLoginSuccessHandler}) can never see it. {@code FlowController} is what promotes it, and only when
+     * THIS SAME flow reaches COMPLETED (covered by {@code FlowControllerTest}).
+     */
+    @Test
+    void challengingFederatedLoginWithAcr_holdsItOnlyAsPendingOnTheFlowState_neverInTheLiveSession() throws Exception {
         when(establisher.loadUser("user-9")).thenReturn(user("user-9"));
         when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(null);
         when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
@@ -185,8 +224,12 @@ class FederatedLoginCompleterTest {
                 new MockHttpServletResponse());
 
         assertThat(view).isEqualTo("redirect:/flow");
+        // NOT in the live session attribute — nothing to leak to an unrelated later login.
         assertThat(request.getSession(false)
-                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
-                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+        // Held as pending on THIS flow's state, ready for FlowController to promote on completion.
+        final FlowExecutionState state = (FlowExecutionState) request.getSession(false)
+                .getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        assertThat(state.pendingAcr()).isEqualTo("http://eidas.europa.eu/LoA/substantial");
     }
 }

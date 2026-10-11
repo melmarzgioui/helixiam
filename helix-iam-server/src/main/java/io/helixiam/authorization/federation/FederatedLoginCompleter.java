@@ -84,11 +84,17 @@ public class FederatedLoginCompleter {
     /**
      * As {@link #complete(String, HttpServletRequest, HttpServletResponse)}, additionally carrying the
      * brokered level of assurance the upstream IdP asserted (Task 3; {@code null}/blank when the provider
-     * asserted none, or the primary authentication was not brokered). Stashed as {@link
-     * io.helixiam.authorization.security.session.AuthTimeStamper#ACR_SESSION_ATTRIBUTE} in the session —
-     * BEFORE the session id rotates on an immediate completion, and before the step-up gate on a
-     * CHALLENGE, so it survives into whichever point later binds it onto the issued authorization code
-     * ({@code SsoSessionBindingAuthorizationService}).
+     * asserted none, or the primary authentication was not brokered). Callers MUST pass only a value a
+     * connector itself validated (e.g. {@code BrokeredIdentity#levelOfAssurance()}), never a free-form
+     * provider attribute — this is the only path that can set the ID token {@code acr}.
+     *
+     * <p>Task 3 fix round 1 (stale acr): on an immediate COMPLETED, it is written to {@link
+     * io.helixiam.authorization.security.session.AuthTimeStamper#ACR_SESSION_ATTRIBUTE} AFTER {@code
+     * authTimeStamper.stamp(request)} runs — stamp() is the choke point that clears any stale value a
+     * PRIOR login in this browser session left behind. On a CHALLENGE it is held only as {@link
+     * FlowExecutionState#pendingAcr()} — never written to the live session attribute — so an abandoned
+     * step-up can never leak into an unrelated later login; {@code FlowController} promotes it to the
+     * session attribute only when THIS SAME flow reaches COMPLETED.
      */
     public String complete(final String userId, final String acr, final HttpServletRequest request,
                            final HttpServletResponse response) {
@@ -102,6 +108,12 @@ public class FederatedLoginCompleter {
 
         final FlowExecutionState state = new FlowExecutionState(RealmContextHolder.get());
         state.setUserId(user.getUserId());
+        if (acr != null && !acr.isBlank()) {
+            // Task 3 fix round 1: held on THIS flow's state, never written to the live HELIX_ACR session
+            // attribute until (and unless) THIS SAME flow reaches COMPLETED — an abandoned CHALLENGE can
+            // therefore never leak into a later, unrelated login (which always gets its own fresh state).
+            state.setPendingAcr(acr);
+        }
         final FlowProgress progress = flowExecutor.begin(flow, state);
 
         final HttpSession session = request.getSession();
@@ -111,25 +123,20 @@ public class FederatedLoginCompleter {
         return switch (progress.type()) {
             case COMPLETED -> {
                 request.changeSessionId(); // new sign-in, new session id (mirrors MagicLinkController)
+                sessionEstablisher.persist(fullAuthentication, request, response);
+                authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
                 if (acr != null && !acr.isBlank()) {
-                    // Task 3: after rotation, same session object — the code-binding step reads it from here.
+                    // Task 3 fix round 1: set AFTER stamp (which just cleared any stale value) — the
+                    // code-binding step reads it from here.
                     session.setAttribute(
                             io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE, acr);
                 }
-                sessionEstablisher.persist(fullAuthentication, request, response);
-                authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
                 LOG.info("Federated login completed for user {} (no step-up required)", LogSafe.sanitize(userId));
                 // SSO P1: resume the originating /oauth2/authorize (if any), else the SP base URL.
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }
             case CHALLENGE -> {
-                // Task 3: stash before the step-up gate — the session id rotates later (FlowController, once
-                // the second factor passes), but it is the SAME session object, so this survives into it.
-                if (acr != null && !acr.isBlank()) {
-                    session.setAttribute(
-                            io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE, acr);
-                }
                 // Hold the user pending the post-broker factor; /flow promotes this to a full session.
                 sessionEstablisher.persist(new MfaAuthentication(fullAuthentication), request, response);
                 LOG.info("Federated login for user {} requires step-up — routing to the flow engine", LogSafe.sanitize(userId));
