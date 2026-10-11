@@ -353,4 +353,16 @@ class MobileSecurityObjectTest {
         assertThatThrownBy(call).isInstanceOfSatisfying(WalletVerificationException.class,
                 e -> assertThat(e.code()).isEqualTo(code));
     }
+
+    @Test
+    void customCborLimitsAreHonoured() {
+        final MdocCredential pid = wallet.mdocPid(Map.of("given_name", "Erika", "family_name", "Mustermann",
+                "nationality", "DE"), SIGNED, SIGNED, VALID_UNTIL, Optional.empty());
+
+        assertThat(MobileSecurityObject.decode(pid.mso(), CborLimits.DEFAULTS).docType()).isEqualTo(NS);
+        assertCode(() -> MobileSecurityObject.decode(pid.mso(), new CborLimits(16, 10, 256 * 1024)),
+                WalletErrorCode.LIMIT_EXCEEDED);
+        assertCode(() -> MobileSecurityObject.decode(pid.mso(), new CborLimits(2, 10_000, 256 * 1024)),
+                WalletErrorCode.LIMIT_EXCEEDED);
+    }
 }

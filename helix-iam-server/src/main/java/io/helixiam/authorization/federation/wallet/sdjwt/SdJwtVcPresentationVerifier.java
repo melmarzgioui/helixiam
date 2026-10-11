@@ -27,7 +27,7 @@ import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
-import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
+import io.helixiam.authorization.federation.wallet.status.StatusCheck;
 import io.helixiam.authorization.federation.wallet.status.StatusReference;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 
@@ -123,12 +123,12 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
     /** Caps the whole presentation (issuer JWT, disclosures and KB-JWT), as ruled for "JWT 64 KB". */
     public static final int DEFAULT_MAX_PRESENTATION_BYTES = 64 * 1024;
     /** {@link VerifiedPresentation#statusResult()} when the credential carries no status reference. */
-    public static final String STATUS_ABSENT = "ABSENT";
+    public static final String STATUS_ABSENT = StatusCheck.ABSENT;
     /**
      * {@link VerifiedPresentation#statusResult()} when the status could not be evaluated and
      * {@code statusPolicy.onUnavailable} is {@code FAIL_OPEN_WITH_AUDIT}: accepted, and the caller must audit it.
      */
-    public static final String STATUS_UNAVAILABLE_ACCEPTED = "UNAVAILABLE_ACCEPTED";
+    public static final String STATUS_UNAVAILABLE_ACCEPTED = StatusCheck.UNAVAILABLE_ACCEPTED;
 
     private static final Set<String> OUTPUT_EXCLUDED = Set.of("_sd", "_sd_alg", "cnf", "status", "iss", "vct",
             "vct#integrity", "aka_vcts", "iat", "nbf", "exp");
@@ -378,41 +378,16 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
 
     // ------------------------------------------------------------------------------------------- status
 
+    /** Status policy via the shared {@link StatusCheck} (identical for every format). */
     private String checkStatus(final Map<String, Object> payload, final VerificationContext ctx) {
         if (!payload.containsKey("status")) {
-            if (ctx.statusPolicy() != null && ctx.statusPolicy().required()) {
-                throw fail(WalletErrorCode.STATUS_REQUIRED, "credential has no status claim");
-            }
-            return STATUS_ABSENT; // the only way to ABSENT: no status claim at all
+            return StatusCheck.absent(ctx.statusPolicy(), "credential has no status claim");
         }
         final StatusReference ref = statusReference(payload);
         if (ref == null) {
-            return unavailable(ctx, "credential status mechanism cannot be evaluated");
+            return StatusCheck.notEvaluable(ctx.statusPolicy(), "credential status mechanism cannot be evaluated");
         }
-        final String result;
-        try {
-            result = status.evaluate(ref, ctx.anchors());
-        } catch (final WalletVerificationException e) {
-            throw e;
-        } catch (final RuntimeException e) {
-            return unavailable(ctx, "credential status could not be determined");
-        }
-        if (!StatusEvaluator.VALID.equals(result)) {
-            throw fail(WalletErrorCode.STATUS_UNAVAILABLE, "credential status is not VALID"); // never fail-open
-        }
-        return result;
-    }
-
-    /**
-     * A status that could not be evaluated: {@code STATUS_UNAVAILABLE} unless the policy is
-     * {@code FAIL_OPEN_WITH_AUDIT}, which accepts it as {@link #STATUS_UNAVAILABLE_ACCEPTED} (the caller audits it).
-     */
-    private static String unavailable(final VerificationContext ctx, final String safeDetail) {
-        if (ctx.statusPolicy() != null
-                && ctx.statusPolicy().onUnavailable() == StatusPolicy.OnUnavailable.FAIL_OPEN_WITH_AUDIT) {
-            return STATUS_UNAVAILABLE_ACCEPTED;
-        }
-        throw fail(WalletErrorCode.STATUS_UNAVAILABLE, safeDetail);
+        return StatusCheck.evaluate(status, ref, ctx.anchors(), ctx.statusPolicy());
     }
 
     /** True when {@code value} holds an {@code _sd} member or a {@code "..."} array digest at any depth. */

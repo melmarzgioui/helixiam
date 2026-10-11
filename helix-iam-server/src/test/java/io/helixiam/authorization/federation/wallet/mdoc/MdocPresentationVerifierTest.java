@@ -802,4 +802,145 @@ class MdocPresentationVerifierTest {
 
         assertRejected(presentAll(cred), WalletErrorCode.INVALID_RESPONSE);
     }
+
+    // ------------------------------------------------------------------------------------------- fix round 1
+
+    private String withDeviceSignatureHeader(final Map<Object, Object> protectedHeader) {
+        final MdocCredential cred = pid();
+        final Map<Object, Object> response = response(cred);
+        deviceAuth(response).put("deviceSignature", TestWallet.deviceSignature(cred, transcript(),
+                new CborTag(24, TestWallet.cbor(Map.of())), protectedHeader));
+        return encode(response);
+    }
+
+    @Test
+    void deviceSignatureAlgThatDoesNotFitTheDeviceKeyIsHolderBindingInvalid() {
+        assertRejected(withDeviceSignatureHeader(Map.of(1, -35)), WalletErrorCode.HOLDER_BINDING_INVALID); // ES384
+    }
+
+    @Test
+    void deviceSignatureAlgOutsideTheAllowListIsHolderBindingInvalid() {
+        assertRejected(withDeviceSignatureHeader(Map.of(1, -8)), WalletErrorCode.HOLDER_BINDING_INVALID); // EdDSA
+    }
+
+    @Test
+    void deviceSignatureWithoutAlgIsHolderBindingInvalid() {
+        assertRejected(withDeviceSignatureHeader(Map.of(4, new byte[] {1})), WalletErrorCode.HOLDER_BINDING_INVALID);
+    }
+
+    @Test
+    void issuerAuthAlgOutsideTheAllowListStaysAlgorithmNotAllowed() {
+        final Map<Object, Object> response = response(pid());
+        issuerAuth(response).set(0, TestWallet.cbor(Map.of(1, -8)));
+
+        assertRejected(encode(response), WalletErrorCode.ALGORITHM_NOT_ALLOWED);
+    }
+
+    @Test
+    void versionMustBeOneDotDigits() {
+        for (final String version : List.of("1.", "1.0-junk", "1.x", "11.0")) {
+            final Map<Object, Object> response = response(pid());
+            response.put("version", version);
+            assertRejected(encode(response), WalletErrorCode.INVALID_RESPONSE);
+        }
+        final Map<Object, Object> minor = response(pid());
+        minor.put("version", "1.1");
+        assertThat(verify(encode(minor)).claims()).containsKey(NS);
+    }
+
+    private static String single(final String identifier, final Object value) {
+        final Map<String, Object> claims = new LinkedHashMap<>();
+        claims.put(identifier, value);
+        final Instant now = Instant.now();
+        final MdocCredential cred = wallet.mdocPid(claims, now.minusSeconds(60), now.minusSeconds(60),
+                now.plusSeconds(3600), Optional.empty());
+        return TestWallet.b64url(TestWallet.mdocDeviceResponse(cred, claims.keySet(), transcript()));
+    }
+
+    @Test
+    void mapElementWithIntegerKeysUsesTheirDecimalText() {
+        final Map<Object, Object> value = new LinkedHashMap<>();
+        value.put(1, "one");
+        value.put(-2, "minus two");
+        value.put("three", 3);
+
+        assertThat(pidNamespace(verify(single("codes", value))))
+                .containsEntry("codes", Map.of("1", "one", "-2", "minus two", "three", 3L));
+    }
+
+    @Test
+    void integerAndTextKeyCollisionIsInvalidResponse() {
+        final Map<Object, Object> value = new LinkedHashMap<>();
+        value.put(1, "integer");
+        value.put("1", "text");
+
+        assertRejected(single("codes", value), WalletErrorCode.INVALID_RESPONSE);
+    }
+
+    @Test
+    void fullDateMustBeExactlyYyyyMmDd() {
+        for (final String date : List.of("+10000-01-01", "10000-01-01", "1964-8-12", "1964-08-12Z")) {
+            assertRejected(single("birth_date", new CborTag(1004, date)), WalletErrorCode.INVALID_RESPONSE);
+        }
+    }
+
+    @Test
+    void tdateWithANonZOffsetIsRefused() {
+        assertRejected(single("issuance_date", new CborTag(0, "2026-01-02T05:04:05+02:00")),
+                WalletErrorCode.INVALID_RESPONSE);
+        assertThat(pidNamespace(verify(single("issuance_date", new CborTag(0, "2026-01-02T03:04:05.250Z")))))
+                .containsEntry("issuance_date", "2026-01-02T03:04:05.250Z");
+    }
+
+    /** DCQL matching (Task 14) must reject a presentation that discloses nothing; the verifier itself accepts it. */
+    @Test
+    void documentWithoutNameSpacesVerifiesWithEmptyClaims() {
+        final Map<Object, Object> response = response(pid());
+        issuerSigned(response).remove("nameSpaces");
+
+        assertThat(verify(encode(response)).claims()).isEmpty();
+    }
+
+    @Test
+    void documentErrorsNextToTheDocumentAreTolerated() {
+        final Map<Object, Object> response = response(pid());
+        response.put("documentErrors", List.of(Map.of("org.iso.18013.5.1.mDL", 0)));
+
+        assertThat(verify(encode(response)).claims()).containsKey(NS);
+    }
+
+    @Test
+    void customMaxPresentationBytesIsHonoured() {
+        final MdocPresentationVerifier small = new MdocPresentationVerifier(new IssuerTrustValidator(), status, 100,
+                CborLimits.DEFAULTS);
+
+        assertRejected(presentAll(pid()), WalletErrorCode.LIMIT_EXCEEDED, small);
+    }
+
+    @Test
+    void customCborLimitsAreHonouredForTheMso() {
+        // 150 claims, one disclosed: the outer DeviceResponse stays far under 200 items, the MSO (150 digests) not
+        final Map<String, Object> claims = new LinkedHashMap<>();
+        for (int i = 0; i < 150; i++) {
+            claims.put("c" + i, i);
+        }
+        final Instant now = Instant.now();
+        final MdocCredential cred = wallet.mdocPid(claims, now.minusSeconds(60), now.minusSeconds(60),
+                now.plusSeconds(3600), Optional.empty());
+        final byte[] response = TestWallet.mdocDeviceResponse(cred, Set.of("c0"), transcript());
+        final CborLimits tight = new CborLimits(16, 200, 256 * 1024);
+        StrictCbor.decode(response, tight); // precondition: the outer response itself is within the tight limit
+
+        assertThat(verify(TestWallet.b64url(response)).claims()).containsKey(NS);
+        assertRejected(TestWallet.b64url(response), WalletErrorCode.LIMIT_EXCEEDED,
+                new MdocPresentationVerifier(new IssuerTrustValidator(), status,
+                        MdocPresentationVerifier.DEFAULT_MAX_PRESENTATION_BYTES, tight));
+    }
+
+    private static void assertRejected(final String presentation, final WalletErrorCode code,
+            final MdocPresentationVerifier verifier) {
+        assertThatThrownBy(() -> verifier.verify(presentation, context()))
+                .isInstanceOf(WalletVerificationException.class)
+                .satisfies(e -> assertThat(((WalletVerificationException) e).code()).isEqualTo(code));
+    }
 }

@@ -398,4 +398,15 @@ class CoseSign1Test {
         assertThatThrownBy(call).isInstanceOfSatisfying(WalletVerificationException.class,
                 e -> assertThat(e.code()).isEqualTo(code));
     }
+
+    @Test
+    void customCborLimitsAreHonouredForTheProtectedHeader() {
+        final Map<Object, Object> header = new LinkedHashMap<>();
+        header.put(1, -7);
+        header.put(4, new byte[32]); // kid: a 38-byte protected header
+        final CborValue message = StrictCbor.decode(sign(header, Map.of(), PAYLOAD, p256));
+
+        assertThat(CoseSign1.decode(message, CborLimits.DEFAULTS).algorithm()).isEqualTo(-7);
+        assertCode(() -> CoseSign1.decode(message, new CborLimits(16, 10_000, 16)), WalletErrorCode.LIMIT_EXCEEDED);
+    }
 }

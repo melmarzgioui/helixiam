@@ -564,6 +564,15 @@ public final class TestWallet {
      */
     public static List<Object> deviceSignature(final MdocCredential credential, final byte[] sessionTranscript,
             final CborTag deviceNameSpaces) {
+        return deviceSignature(credential, sessionTranscript, deviceNameSpaces, Map.of(1, -7));
+    }
+
+    /**
+     * As {@link #deviceSignature(MdocCredential, byte[], CborTag)} with {@code protectedHeader} (e.g. another or no
+     * {@code alg}); the signature itself is always ECDSA per the device key's curve.
+     */
+    public static List<Object> deviceSignature(final MdocCredential credential, final byte[] sessionTranscript,
+            final CborTag deviceNameSpaces, final Map<Object, Object> protectedHeader) {
         final ByteArrayOutputStream deviceAuthentication = new ByteArrayOutputStream();
         deviceAuthentication.write(0x84); // array(4); written by hand so the transcript is embedded byte-exact
         deviceAuthentication.writeBytes(cbor("DeviceAuthentication"));
@@ -577,7 +586,7 @@ public final class TestWallet {
         } catch (final JOSEException e) {
             throw new IllegalStateException(e);
         }
-        return coseSign1(Map.of(1, -7), new LinkedHashMap<>(), deviceAuthenticationBytes, true, deviceKey);
+        return coseSign1(protectedHeader, new LinkedHashMap<>(), deviceAuthenticationBytes, true, deviceKey);
     }
 
     /**

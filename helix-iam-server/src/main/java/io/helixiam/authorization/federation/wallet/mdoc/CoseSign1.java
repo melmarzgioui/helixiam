@@ -72,7 +72,7 @@ public final class CoseSign1 {
     private final Map<Object, Object> unprotectedHeader;
     private final byte[] payload;
     private final byte[] signature;
-    /** {@link #protectedHeader} decoded once, with {@link CborLimits#DEFAULTS}; the bytes stay the signed input. */
+    /** {@link #protectedHeader} decoded once (default {@link CborLimits#DEFAULTS}); the bytes stay the signed input. */
     private final CborValue.Dict protectedParameters;
 
     /**
@@ -81,6 +81,13 @@ public final class CoseSign1 {
      */
     public CoseSign1(final byte[] protectedHeader, final Map<Object, Object> unprotectedHeader, final byte[] payload,
             final byte[] signature) {
+        this(protectedHeader, unprotectedHeader, payload, signature, CborLimits.DEFAULTS);
+    }
+
+    /** As the four-argument constructor, the protected header decoded within {@code limits}. */
+    public CoseSign1(final byte[] protectedHeader, final Map<Object, Object> unprotectedHeader, final byte[] payload,
+            final byte[] signature, final CborLimits limits) {
+        Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(protectedHeader, "protectedHeader");
         Objects.requireNonNull(unprotectedHeader, "unprotectedHeader");
         Objects.requireNonNull(signature, "signature");
@@ -88,7 +95,7 @@ public final class CoseSign1 {
         this.unprotectedHeader = Collections.unmodifiableMap(new LinkedHashMap<>(unprotectedHeader));
         this.payload = payload == null ? null : payload.clone();
         this.signature = signature.clone();
-        this.protectedParameters = decodeProtected(this.protectedHeader);
+        this.protectedParameters = decodeProtected(this.protectedHeader, limits);
     }
 
     /** The protected header exactly as received (the Sig_structure input). */
@@ -116,6 +123,11 @@ public final class CoseSign1 {
      * @throws WalletVerificationException {@code INVALID_RESPONSE} for anything else
      */
     public static CoseSign1 decode(final CborValue value) {
+        return decode(value, CborLimits.DEFAULTS);
+    }
+
+    /** As {@link #decode(CborValue)}, the protected header decoded within {@code limits}. */
+    public static CoseSign1 decode(final CborValue value, final CborLimits limits) {
         CborValue content = value;
         if (content instanceof CborValue.Tagged tagged) {
             if (tagged.tag() != TAG_COSE_SIGN1) {
@@ -137,7 +149,7 @@ public final class CoseSign1 {
                     : ((CborValue.Text) e.getKey()).value(), e.getValue());
         }
         final CoseSign1 cose = new CoseSign1(protectedBytes.value(), unprotectedHeader, payloadBytes,
-                signatureBytes.value());
+                signatureBytes.value(), limits);
         final CborValue.Dict protectedHeader = cose.protectedParameters;
         for (final CborValue label : protectedHeader.entries().keySet()) {
             if (unprotected.entries().containsKey(label)) {
@@ -155,11 +167,11 @@ public final class CoseSign1 {
         return protectedParameters;
     }
 
-    private static CborValue.Dict decodeProtected(final byte[] bytes) {
+    private static CborValue.Dict decodeProtected(final byte[] bytes, final CborLimits limits) {
         if (bytes.length == 0) {
             return new CborValue.Dict(Map.of());
         }
-        if (!(StrictCbor.decode(bytes, CborLimits.DEFAULTS) instanceof CborValue.Dict dict)) {
+        if (!(StrictCbor.decode(bytes, limits) instanceof CborValue.Dict dict)) {
             throw invalid("COSE protected header is not a map");
         }
         return dict;

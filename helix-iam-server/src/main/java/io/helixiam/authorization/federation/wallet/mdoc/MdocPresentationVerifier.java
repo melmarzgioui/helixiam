@@ -11,7 +11,7 @@ import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
-import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
+import io.helixiam.authorization.federation.wallet.status.StatusCheck;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 
 import java.security.MessageDigest;
@@ -45,9 +45,11 @@ import java.util.regex.Pattern;
  * <ol>
  *   <li>size: the base64url input is at most {@code maxPresentationBytes} characters ({@code LIMIT_EXCEEDED}), then
  *       strict base64url (no padding) and {@link StrictCbor} with {@code cborLimits} (a depth / item / size bomb is
- *       {@code LIMIT_EXCEEDED});</li>
- *   <li>DeviceResponse: {@code version} "1.x", {@code status} {@code 0}, exactly one Document (HAIP §5.3.1: one mdoc
- *       per DeviceResponse), no {@code zkDocuments} / {@code encryptedDocuments}; else {@code INVALID_RESPONSE};</li>
+ *       {@code LIMIT_EXCEEDED}). The same {@code cborLimits} bound every nested decode: the MSO, the COSE protected
+ *       headers, each IssuerSignedItem and DeviceNameSpaces;</li>
+ *   <li>DeviceResponse: {@code version} matching {@code 1\.\d+}, {@code status} {@code 0}, exactly one Document
+ *       (HAIP §5.3.1: one mdoc per DeviceResponse), no {@code zkDocuments} / {@code encryptedDocuments}; else
+ *       {@code INVALID_RESPONSE}. {@code documentErrors} is tolerated (not read);</li>
  *   <li>Document {@code docType} equals {@code acceptedDoctype} ({@code DOCTYPE_NOT_ACCEPTED});</li>
  *   <li>IssuerAuth: a COSE_Sign1 with an <em>attached</em> payload (the MSO; detached is {@code INVALID_RESPONSE}),
  *       its x5chain validated by {@link IssuerTrustValidator} at {@code context.now}, then its signature with the leaf
@@ -73,7 +75,9 @@ import java.util.regex.Pattern;
  *       {@code deviceKey} over DeviceAuthenticationBytes built from this verifier's own SessionTranscript
  *       ({@link SessionTranscripts#openId4VpRedirect} of {@code clientId}, {@code nonce},
  *       {@code encryptionJwkThumbprint}, {@code responseUri}) and the received DeviceNameSpacesBytes. Any failure is
- *       {@code HOLDER_BINDING_INVALID}: the transcript is only hashed inside the signature, so a wrong nonce cannot be
+ *       {@code HOLDER_BINDING_INVALID}, including a {@code deviceSignature} {@code alg} that is missing, outside
+ *       ES256/384/512 or does not fit the device key (as on the SD-JWT KB-JWT path; IssuerAuth keeps
+ *       {@code ALGORITHM_NOT_ALLOWED}). The transcript is only hashed inside the signature, so a wrong nonce cannot be
  *       told apart from a wrong client_id (no {@code NONCE_MISMATCH} / {@code AUDIENCE_MISMATCH} here);</li>
  *   <li>status, only after holder binding passed: no MSO {@code status} is {@code STATUS_REQUIRED} when
  *       {@code statusPolicy.required}, else {@link #STATUS_ABSENT}. A {@code status_list} goes to the
@@ -87,9 +91,13 @@ import java.util.regex.Pattern;
  *
  * <p><b>Output claims.</b> {@code namespace -> {elementIdentifier -> value}} for the disclosed items only. Values are
  * normalised to JSON-ish Java: text as {@link String}, integers as {@link Long}, floats as {@link Double}, booleans,
- * null, byte strings as base64url (no padding), {@code full-date} (tag 1004) as ISO-8601 {@code YYYY-MM-DD},
- * {@code tdate} (tag 0) as an ISO-8601 instant, arrays as lists and maps as maps (integer keys as their decimal
- * text). An invalid date or any other tag in a value is {@code INVALID_RESPONSE}. The issuer identity is the IssuerAuth
+ * null, byte strings as base64url (no padding), {@code full-date} (tag 1004, exactly {@code YYYY-MM-DD}) as is,
+ * {@code tdate} (tag 0, UTC "Z" only, per the PID rulebook) as an ISO-8601 instant, arrays as lists and maps as maps
+ * (integer keys as their decimal text; an integer and a text key that collide are refused). An invalid date, a
+ * non-UTC tdate or any other tag in a value is {@code INVALID_RESPONSE}.
+ *
+ * <p><b>No disclosure.</b> A Document without {@code issuerSigned.nameSpaces} is valid ISO and verifies with empty
+ * claims; DCQL matching (Task 14) must reject a presentation that does not satisfy the query. The issuer identity is the IssuerAuth
  * leaf's subject DN (RFC 2253) and serial (lower-case hex).
  */
 public final class MdocPresentationVerifier implements PresentationVerifier {
@@ -98,14 +106,20 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
     /** Caps the whole presentation (the base64url DeviceResponse), as ruled for "JWT 64 KB". */
     public static final int DEFAULT_MAX_PRESENTATION_BYTES = 64 * 1024;
     /** {@link VerifiedPresentation#statusResult()} when the MSO carries no {@code status}. */
-    public static final String STATUS_ABSENT = "ABSENT";
+    public static final String STATUS_ABSENT = StatusCheck.ABSENT;
     /**
      * {@link VerifiedPresentation#statusResult()} when the status could not be evaluated and
      * {@code statusPolicy.onUnavailable} is {@code FAIL_OPEN_WITH_AUDIT}: accepted, and the caller must audit it.
      */
-    public static final String STATUS_UNAVAILABLE_ACCEPTED = "UNAVAILABLE_ACCEPTED";
+    public static final String STATUS_UNAVAILABLE_ACCEPTED = StatusCheck.UNAVAILABLE_ACCEPTED;
 
     private static final Pattern BASE64URL = Pattern.compile("[A-Za-z0-9_-]+");
+    /** DeviceResponse {@code version}: major 1, any minor. */
+    private static final Pattern VERSION = Pattern.compile("1\\.\\d+");
+    /** full-date (RFC 8943): exactly a four-digit year, month and day. */
+    private static final Pattern FULL_DATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    /** tdate as the PID rulebook requires it: UTC ("Z"), optional fractional seconds. */
+    private static final Pattern TDATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z");
     private static final int MIN_RANDOM_BYTES = 16;
     private static final long TAG_TDATE = 0;
     private static final long TAG_FULL_DATE = 1004;
@@ -174,7 +188,7 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
         // ---- IssuerAuth
         final CborValue issuerAuthValue = issuerSigned.get("issuerAuth")
                 .orElseThrow(() -> fail(WalletErrorCode.INVALID_RESPONSE, "issuerSigned has no issuerAuth"));
-        final CoseSign1 issuerAuth = CoseSign1.decode(issuerAuthValue);
+        final CoseSign1 issuerAuth = CoseSign1.decode(issuerAuthValue, cborLimits);
         final byte[] msoBytes = issuerAuth.payload();
         if (msoBytes == null) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "IssuerAuth payload is detached");
@@ -185,7 +199,7 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
         }
 
         // ---- MSO
-        final MobileSecurityObject mso = MobileSecurityObject.decode(msoBytes);
+        final MobileSecurityObject mso = MobileSecurityObject.decode(msoBytes, cborLimits);
         if (!mso.docType().equals(docType)) {
             throw fail(WalletErrorCode.DOCTYPE_NOT_ACCEPTED, "MSO docType does not match the Document");
         }
@@ -231,7 +245,7 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
     /** The single Document of a DeviceResponse whose version and status are acceptable. */
     private static CborValue.Dict document(final CborValue.Dict response) {
         if (!(response.get("version").orElse(null) instanceof CborValue.Text version)
-                || !version.value().startsWith("1.")) {
+                || !VERSION.matcher(version.value()).matches()) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "DeviceResponse version is not supported");
         }
         if (!(response.get("status").orElse(null) instanceof CborValue.Int st) || st.value() != 0) {
@@ -379,8 +393,14 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
             }
             case CborValue.Dict d -> {
                 final Map<String, Object> map = new LinkedHashMap<>();
-                d.entries().forEach((k, v) -> map.put(k instanceof CborValue.Text t ? t.value()
-                        : Long.toString(((CborValue.Int) k).value()), json(v)));
+                for (final Map.Entry<CborValue, CborValue> e : d.entries().entrySet()) {
+                    final String key = e.getKey() instanceof CborValue.Text t ? t.value()
+                            : Long.toString(((CborValue.Int) e.getKey()).value());
+                    if (map.containsKey(key)) {
+                        throw fail(WalletErrorCode.INVALID_RESPONSE, "element map keys collide as text");
+                    }
+                    map.put(key, json(e.getValue()));
+                }
                 yield Collections.unmodifiableMap(map);
             }
             default -> throw fail(WalletErrorCode.INVALID_RESPONSE, "element value type is not supported");
@@ -388,17 +408,24 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
     }
 
     private static String fullDate(final CborValue content) {
+        final String text = ((CborValue.Text) content).value();
+        if (!FULL_DATE.matcher(text).matches()) {
+            throw fail(WalletErrorCode.INVALID_RESPONSE, "element value is not a valid full-date");
+        }
         try {
-            return LocalDate.parse(((CborValue.Text) content).value(), DateTimeFormatter.ISO_LOCAL_DATE).toString();
+            return LocalDate.parse(text, DateTimeFormatter.ISO_LOCAL_DATE).toString();
         } catch (final DateTimeParseException e) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "element value is not a valid full-date");
         }
     }
 
     private static String tdate(final CborValue content) {
+        final String text = ((CborValue.Text) content).value();
+        if (!TDATE.matcher(text).matches()) {
+            throw fail(WalletErrorCode.INVALID_RESPONSE, "element value is not a UTC tdate");
+        }
         try {
-            return OffsetDateTime.parse(((CborValue.Text) content).value(), DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                    .toInstant().toString();
+            return OffsetDateTime.parse(text, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant().toString();
         } catch (final DateTimeParseException e) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "element value is not a valid tdate");
         }
@@ -441,7 +468,7 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
                 .orElseThrow(() -> fail(WalletErrorCode.HOLDER_BINDING_MISSING, "deviceAuth has no deviceSignature"));
         final CoseSign1 deviceSignature;
         try {
-            deviceSignature = CoseSign1.decode(signatureValue);
+            deviceSignature = CoseSign1.decode(signatureValue, cborLimits);
         } catch (final WalletVerificationException e) {
             if (e.code() != WalletErrorCode.INVALID_RESPONSE) {
                 throw e; // e.g. LIMIT_EXCEEDED from its protected header
@@ -455,7 +482,17 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
                 ctx.encryptionJwkThumbprint(), ctx.responseUri());
         final byte[] deviceAuthentication = SessionTranscripts.deviceAuthenticationBytes(transcript, docType,
                 deviceNameSpaces.encoded());
-        if (!deviceSignature.verify(deviceKey, deviceAuthentication)) {
+        final boolean valid;
+        try {
+            valid = deviceSignature.verify(deviceKey, deviceAuthentication);
+        } catch (final WalletVerificationException e) {
+            if (e.code() != WalletErrorCode.ALGORITHM_NOT_ALLOWED) {
+                throw e;
+            }
+            // alg missing, outside the allow-list, or not fitting the device key: like the SD-JWT KB-JWT path
+            throw fail(WalletErrorCode.HOLDER_BINDING_INVALID, "deviceSignature alg is not usable with the device key");
+        }
+        if (!valid) {
             throw fail(WalletErrorCode.HOLDER_BINDING_INVALID,
                     "deviceSignature does not verify over the expected SessionTranscript");
         }
@@ -463,40 +500,15 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
 
     // ------------------------------------------------------------------------------------------- status
 
+    /** Status policy via the shared {@link StatusCheck} (identical to the SD-JWT VC verifier). */
     private String checkStatus(final MobileSecurityObject.Status msoStatus, final VerificationContext ctx) {
         if (msoStatus == null) {
-            if (ctx.statusPolicy() != null && ctx.statusPolicy().required()) {
-                throw fail(WalletErrorCode.STATUS_REQUIRED, "MSO has no status");
-            }
-            return STATUS_ABSENT; // the only way to ABSENT: no status at all
+            return StatusCheck.absent(ctx.statusPolicy(), "MSO has no status");
         }
         if (!(msoStatus instanceof MobileSecurityObject.StatusList list)) {
-            return unavailable(ctx, "MSO status mechanism cannot be evaluated");
+            return StatusCheck.notEvaluable(ctx.statusPolicy(), "MSO status mechanism cannot be evaluated");
         }
-        final String result;
-        try {
-            result = status.evaluate(list.reference(), ctx.anchors());
-        } catch (final WalletVerificationException e) {
-            throw e;
-        } catch (final RuntimeException e) {
-            return unavailable(ctx, "credential status could not be determined");
-        }
-        if (!StatusEvaluator.VALID.equals(result)) {
-            throw fail(WalletErrorCode.STATUS_UNAVAILABLE, "credential status is not VALID"); // never fail-open
-        }
-        return result;
-    }
-
-    /**
-     * A status that could not be evaluated: {@code STATUS_UNAVAILABLE} unless the policy is
-     * {@code FAIL_OPEN_WITH_AUDIT}, which accepts it as {@link #STATUS_UNAVAILABLE_ACCEPTED} (the caller audits it).
-     */
-    private static String unavailable(final VerificationContext ctx, final String safeDetail) {
-        if (ctx.statusPolicy() != null
-                && ctx.statusPolicy().onUnavailable() == StatusPolicy.OnUnavailable.FAIL_OPEN_WITH_AUDIT) {
-            return STATUS_UNAVAILABLE_ACCEPTED;
-        }
-        throw fail(WalletErrorCode.STATUS_UNAVAILABLE, safeDetail);
+        return StatusCheck.evaluate(status, list.reference(), ctx.anchors(), ctx.statusPolicy());
     }
 
     private static WalletVerificationException fail(final WalletErrorCode code, final String safeDetail) {

@@ -137,10 +137,16 @@ public record MobileSecurityObject(String version, String digestAlgorithm, Strin
      * @throws WalletVerificationException see the class description
      */
     public static MobileSecurityObject decode(final byte[] taggedPayload) {
-        if (!(StrictCbor.decode(taggedPayload) instanceof CborValue.Embedded embedded)) {
+        return decode(taggedPayload, CborLimits.DEFAULTS);
+    }
+
+    /** As {@link #decode(byte[])}, both decodes bounded by {@code limits} (a verifier's configured limits). */
+    public static MobileSecurityObject decode(final byte[] taggedPayload, final CborLimits limits) {
+        Objects.requireNonNull(limits, "limits");
+        if (!(StrictCbor.decode(taggedPayload, limits) instanceof CborValue.Embedded embedded)) {
             throw invalid("MSO is not tag-24 MobileSecurityObjectBytes");
         }
-        if (!(StrictCbor.decode(embedded.content()) instanceof CborValue.Dict mso)) {
+        if (!(StrictCbor.decode(embedded.content(), limits) instanceof CborValue.Dict mso)) {
             throw invalid("MSO is not a map");
         }
         final String version = text(mso, "version");
