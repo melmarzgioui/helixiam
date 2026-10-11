@@ -8,6 +8,7 @@ package io.helixiam.authorization.controller.admin.io;
 import io.helixiam.authorization.amqp.client.ClientDto;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.realm.RealmSettingsDto;
+import io.helixiam.authorization.federation.ProviderSecretKeys;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -25,7 +26,8 @@ import java.util.Set;
  *   <li>{@code ClientDto.secret} — OAuth client secret (already null on list/get; defensively nulled)</li>
  *   <li>{@code RealmSettingsDto.captchaSecretKey} — CAPTCHA secret (write-only; defensively nulled)</li>
  *   <li>{@code IdentityProviderConfig.config[*]} — any entry whose key looks like a secret
- *       (clientSecret, bindCredential, password, privateKey, secret, token, scimToken, ...)</li>
+ *       (clientSecret, bindCredential, password, privateKey, secret, token, scimToken, ...), and every key
+ *       {@code ProviderSecretKeys} names for the provider's protocol (e.g. wallet {@code subjectPepper})</li>
  * </ul>
  * Not secrets (kept): SAML {@code signingCertificate} / {@code encryptionCertificate} are public X.509
  * certs used for signature verification / encryption, never private keys — they stay in the export so an
@@ -83,7 +85,7 @@ public final class SecretMasking {
         }
         final Map<String, String> safe = new LinkedHashMap<>();
         idp.config().forEach((k, v) -> {
-            if (!isSecretKey(k)) {
+            if (!isSecretKey(idp.protocol(), k)) {
                 safe.put(k, v);
             }
         });
@@ -103,7 +105,7 @@ public final class SecretMasking {
         }
         final Map<String, String> out = new LinkedHashMap<>();
         idp.config().forEach((k, v) -> {
-            if (isSecretKey(k) && v != null && !v.isBlank()) {
+            if (isSecretKey(idp.protocol(), k) && v != null && !v.isBlank()) {
                 final String name = SecretPlaceholders.nameFor(idp.realmId(), "idp", idp.alias(), k);
                 requiredEnv.add(name);
                 out.put(k, "${" + name + "}");
@@ -144,6 +146,14 @@ public final class SecretMasking {
                 r.riskMediumAction(), r.riskHighAction(),
                 r.logoUrl(), r.primaryColor(), r.backgroundColor(), r.welcomeText(), r.customCss(),
                 r.registrationEnabled());
+    }
+
+    /**
+     * Whether an identity-provider config key holds a secret: a key {@link ProviderSecretKeys} names for the protocol
+     * (Task 4: e.g. wallet {@code subjectPepper}, LDAP {@code bindPw}), or one the name heuristic flags.
+     */
+    public static boolean isSecretKey(final String protocol, final String key) {
+        return ProviderSecretKeys.isSecret(protocol, key) || isSecretKey(key);
     }
 
     /** Whether a federation config-map key looks like it holds a secret and must be masked. */

@@ -96,6 +96,55 @@ class IdentityProviderConfigServiceTest {
         verify(repository, never()).deleteByRealmIdAndAlias("gov", "ghost");
     }
 
+    @Test
+    void saveOrUpdate_storesSecretsOutsideConfigJson_andReadMergesThemBack() {
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        final IdentityProviderConfig saved = service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up",
+                true, Map.of("clientId", "web", "clientSecret", "s3cret", "clientSecretSet", "true")));
+
+        final ArgumentCaptor<IdentityProviderEntity> captor = ArgumentCaptor.forClass(IdentityProviderEntity.class);
+        verify(repository).save(captor.capture());
+        assertEquals("{\"clientId\":\"web\"}", captor.getValue().getConfigJson());
+        assertEquals("{\"clientSecret\":\"s3cret\"}", captor.getValue().getSecretJson());
+        assertEquals("s3cret", saved.config().get("clientSecret"), "the runtime map is merged");
+        assertFalse(saved.config().containsKey("clientSecretSet"));
+    }
+
+    @Test
+    void saveOrUpdate_absentOrBlankSecret_keepsTheStoredOne_andClearRemovesIt() {
+        final IdentityProviderEntity stored = entity("gov", "up", "oidc", "Up", true, "{\"clientId\":\"web\"}");
+        stored.setSecretJson("{\"clientSecret\":\"s3cret\"}");
+        when(repository.findById("gov|up")).thenReturn(Optional.of(stored));
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up", true, Map.of("clientId", "web2")));
+        assertEquals("{\"clientSecret\":\"s3cret\"}", stored.getSecretJson());
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up", true,
+                Map.of("clientId", "web2", "clientSecret", " ")));
+        assertEquals("{\"clientSecret\":\"s3cret\"}", stored.getSecretJson());
+
+        final IdentityProviderConfig cleared = service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc",
+                "Up", true, Map.of("clientId", "web2", "clientSecret", "", "clearClientSecret", "true")));
+        assertEquals(null, stored.getSecretJson());
+        assertFalse(cleared.config().containsKey("clientSecret"));
+        assertEquals("{\"clientId\":\"web2\"}", stored.getConfigJson());
+    }
+
+    @Test
+    void read_legacySecretStillInConfigJson_isMergedForTheRuntime_andMovedOnTheNextSave() {
+        final IdentityProviderEntity legacy = entity("gov", "up", "oidc", "Up", true,
+                "{\"clientId\":\"web\",\"clientSecret\":\"old\"}");
+        when(repository.findByRealmIdAndAlias("gov", "up")).thenReturn(Optional.of(legacy));
+        when(repository.findById("gov|up")).thenReturn(Optional.of(legacy));
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals("old", service.get("gov", "up").orElseThrow().config().get("clientSecret"));
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up", true, Map.of("clientId", "web")));
+        assertEquals("{\"clientId\":\"web\"}", legacy.getConfigJson());
+        assertEquals("{\"clientSecret\":\"old\"}", legacy.getSecretJson());
+    }
+
     private static IdentityProviderEntity entity(final String realm, final String alias, final String protocol,
                                                  final String displayName, final boolean enabled, final String json) {
         final IdentityProviderEntity e = new IdentityProviderEntity();

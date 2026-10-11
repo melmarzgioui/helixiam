@@ -87,6 +87,9 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
   const [note, setNote] = React.useState<Note | null>(null);
   const [attempted, setAttempted] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
+  // Write-only secrets: which ones are stored, and which ones the admin is replacing.
+  const [secretsSet, setSecretsSet] = React.useState<Record<string, boolean>>({});
+  const [replacing, setReplacing] = React.useState<Record<string, boolean>>({});
 
   const runSync = async () => {
     setSyncing(true);
@@ -111,6 +114,8 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
     const { mappers: serial, ...rest } = c.config ?? {};
     setConfig(rest);
     setMappers(parseMappers(serial));
+    setSecretsSet(c.secretsSet ?? {});
+    setReplacing({});
   }, []);
 
   const reload = React.useCallback(() => {
@@ -131,6 +136,16 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
     ?? (loaded ? kindOf(loaded.protocol) : "social");
 
   const set = (k: string, v: string) => setConfig((c) => ({ ...c, [k]: v }));
+  // An emptied secret leaves the config entirely, so it is neither sent nor marks the form dirty.
+  const setSecret = (k: string, v: string) => setConfig((c) => {
+    const { [k]: _old, ...rest } = c;
+    return v ? { ...rest, [k]: v } : rest;
+  });
+  const secretProps = (k: string) => ({
+    value: config[k] ?? "", stored: !!secretsSet[k], replacing: !!replacing[k],
+    onChange: (v: string) => setSecret(k, v),
+    onReplace: (on: boolean) => { setReplacing((r) => ({ ...r, [k]: on })); if (!on) setSecret(k, ""); },
+  });
 
   const dirty = !!loaded && (
     displayName !== (loaded.displayName ?? "") ||
@@ -284,7 +299,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
             </Section>
             <Section title={t("connectionDetail.sectionClientCredsTitle")} description={t("connectionDetail.sectionClientCredsDesc")} layout="cols">
               <FormField label={t("connectionDetail.fieldClientId")} required error={fieldErr("clientId")}><Input value={config.clientId ?? ""} onChange={(e) => set("clientId", e.target.value)} /></FormField>
-              <FormField label={t("connectionDetail.fieldClientSecret")} hint={t("connectionDetail.fieldClientSecretHint")}><Input type="password" value={config.clientSecret ?? ""} onChange={(e) => set("clientSecret", e.target.value)} placeholder="••••••••" /></FormField>
+              <FormField label={t("connectionDetail.fieldClientSecret")} hint={t("connectionDetail.fieldClientSecretHint")} group><SecretInput label={t("connectionDetail.fieldClientSecret")} {...secretProps("clientSecret")} /></FormField>
             </Section>
           </>
         )}
@@ -390,8 +405,8 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
             </Section>
             <Section title={t("connectionDetail.sectionSpKeysTitle")} description={t("connectionDetail.sectionSpKeysDesc")}>
               <FormField label={t("connectionDetail.fieldSpSignCert")}><Textarea className="hx-mono" value={config.spSigningCertificate ?? ""} onChange={(e) => set("spSigningCertificate", e.target.value)} rows={4} placeholder="-----BEGIN CERTIFICATE-----…" /></FormField>
-              <FormField label={t("connectionDetail.fieldSpSignKey")} hint={t("connectionDetail.fieldSpSignKeyHint")}><Textarea className="hx-mono" value={config.spSigningPrivateKey ?? ""} onChange={(e) => set("spSigningPrivateKey", e.target.value)} rows={4} placeholder="-----BEGIN PRIVATE KEY-----…" /></FormField>
-              <FormField label={t("connectionDetail.fieldSpDecryptKey")} hint={t("connectionDetail.fieldSpDecryptKeyHint")}><Textarea className="hx-mono" value={config.spDecryptionPrivateKey ?? ""} onChange={(e) => set("spDecryptionPrivateKey", e.target.value)} rows={4} placeholder="-----BEGIN PRIVATE KEY-----…" /></FormField>
+              <FormField label={t("connectionDetail.fieldSpSignKey")} hint={t("connectionDetail.fieldSpSignKeyHint")} group><SecretInput multiline label={t("connectionDetail.fieldSpSignKey")} {...secretProps("spSigningPrivateKey")} /></FormField>
+              <FormField label={t("connectionDetail.fieldSpDecryptKey")} hint={t("connectionDetail.fieldSpDecryptKeyHint")} group><SecretInput multiline label={t("connectionDetail.fieldSpDecryptKey")} {...secretProps("spDecryptionPrivateKey")} /></FormField>
             </Section>
           </>
         )}
@@ -401,7 +416,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
           <Section title={t("connectionDetail.sectionDirectoryTitle")} description={t("connectionDetail.sectionDirectoryDesc")} layout="cols">
             <div className="hx-full"><FormField label={t("connectionDetail.fieldConnUrl")} required error={fieldErr("url")}><Input value={config.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="ldaps://dc.example.com:636" /></FormField></div>
             <FormField label={t("connectionDetail.fieldBindDn")} required error={fieldErr("bindDn")}><Input value={config.bindDn ?? ""} onChange={(e) => set("bindDn", e.target.value)} placeholder="cn=svc,ou=apps,dc=example,dc=com" /></FormField>
-            <FormField label={t("connectionDetail.fieldBindPassword")} hint={t("connectionDetail.fieldBindPasswordHint")}><Input type="password" value={config.bindPassword ?? ""} onChange={(e) => set("bindPassword", e.target.value)} placeholder="••••••••" /></FormField>
+            <FormField label={t("connectionDetail.fieldBindPassword")} hint={t("connectionDetail.fieldBindPasswordHint")} group><SecretInput label={t("connectionDetail.fieldBindPassword")} {...secretProps("bindPassword")} /></FormField>
           </Section>
         )}
         {family === "ldap" && tab === "search" && (
@@ -464,6 +479,33 @@ function MapperEditor({ mappers, setMappers, placeholderSource = "department" }:
         </div>
       ))}
       <div><Button variant="ghost" onClick={add}>{t("connectionDetail.mapperAddBtn")}</Button></div>
+    </div>
+  );
+}
+
+/**
+ * A write-only identity-provider secret: "Set" / "Not set" and Replace, like the email settings. The stored value is
+ * never shown or prefilled; an empty field is never sent, so the API keeps the stored secret.
+ */
+function SecretInput({ label, value, stored, replacing, multiline, onChange, onReplace }: {
+  label: string; value: string; stored: boolean; replacing: boolean; multiline?: boolean;
+  onChange: (v: string) => void; onReplace: (on: boolean) => void;
+}) {
+  const { t } = useT();
+  const editing = !stored || replacing;
+  const pending = !!value.trim() && editing;
+  return (
+    <div className="hx-secretstate">
+      {pending
+        ? <Badge tone="accent">{t(stored ? "email.secret.pendingReplace" : "email.secret.pendingNew")}</Badge>
+        : stored ? <Badge tone="success">{t("email.secret.set")}</Badge> : <Badge tone="neutral">{t("email.secret.notSet")}</Badge>}
+      {editing && (multiline
+        ? <Textarea className="hx-mono" value={value} onChange={(e) => onChange(e.target.value)} rows={4} aria-label={label}
+            placeholder="-----BEGIN PRIVATE KEY-----…" spellCheck={false} />
+        : <Input type="password" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}
+            placeholder="••••••••" autoComplete="new-password" spellCheck={false} />)}
+      {stored && !replacing && <Button variant="ghost" onClick={() => onReplace(true)}>{t("email.secret.replace")}</Button>}
+      {stored && replacing && <Button variant="ghost" onClick={() => onReplace(false)}>{t("email.secret.keep")}</Button>}
     </div>
   );
 }

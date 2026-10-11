@@ -5,7 +5,9 @@
 
 package io.helixiam.authorization.domain.federation;
 
+import io.helixiam.persistence.security.AttributeEncryption;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.Id;
@@ -19,7 +21,9 @@ import java.util.Date;
 /**
  * Helix IAM E8.1: a persisted identity-provider configuration, partitioned per realm. The id is
  * {@code realmId|alias}, so an alias is unique within a realm. The protocol-specific settings live
- * in {@code config_json} (a serialised map) to keep the table stable as provider types grow.
+ * in {@code config_json} (a serialised map) to keep the table stable as provider types grow. Secrets
+ * ({@code ProviderSecretKeys}) are never kept there: they live in {@code secret_json}, a serialised map encrypted at
+ * rest with {@code DB_ENCRYPTION} (Task 4, security).
  */
 @Entity
 @Table(name = "identity_provider")
@@ -44,6 +48,10 @@ public class IdentityProviderEntity {
 
     @Column(name = "config_json", columnDefinition = "text")
     private String configJson;
+
+    @Convert(converter = AttributeEncryption.class)
+    @Column(name = "secret_json", columnDefinition = "text")
+    private String secretJson;
 
     @Column(name = "enabled")
     private boolean enabled = true;
@@ -107,6 +115,14 @@ public class IdentityProviderEntity {
 
     public void setConfigJson(final String configJson) {
         this.configJson = configJson;
+    }
+
+    public String getSecretJson() {
+        return secretJson;
+    }
+
+    public void setSecretJson(final String secretJson) {
+        this.secretJson = secretJson;
     }
 
     public boolean isEnabled() {

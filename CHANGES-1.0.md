@@ -8,6 +8,19 @@ question. Newest first within each phase.
 CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven false positives are explained in
 `helix-iam-server/CODEQL-TRIAGE.md` ("rc.5 scan").
 
+- **security** — Identity-provider secrets are encrypted at rest and never returned. The OIDC `clientSecret`, the eID
+  SP private keys (`spDecryptionPrivateKey`, `spSigningPrivateKey`), the LDAP bind password and the coming EUDI Wallet
+  keys (`accessCertificatePrivateKey`, `subjectPepper`) were stored in plain text in `identity_provider.config_json`
+  and returned as is by `GET /admin/realms/{realm}/identity-providers` (list and by alias). They now live in a new
+  column `secret_json`, encrypted with `DB_ENCRYPTION` (Flyway `V75`, and `schema.sql`); existing secrets are moved
+  out of `config_json` by Flyway `V75.1`, or at startup on the `schema.sql` path (idempotent). The API returns
+  `"<key>Set": true|false` instead of the value. Secrets are write-only, like the messaging provider's
+  `secret` / `clearSecret`: an absent or blank value keeps the stored one, a value replaces it, and
+  `"clear<Key>": "true"` (e.g. `clearClientSecret`) removes it; a value together with its clear flag is a 400. The realm
+  export masks every one of these keys (also `subjectPepper` and `bindPw`, which the key-name rule missed), and a
+  re-import without them keeps the stored secrets. The console shows "Set" / "Not set" with Replace and sends a secret
+  only when one is typed. The list of secret keys per protocol is `ProviderSecretKeys`.
+
 - **security** — `79b5bf4` No state change on a `GET` (CodeQL #258, #259). Opening `/required-actions` sent the
   verification email; the email is now sent in the sign-in `POST` that holds the user, and "send again" stays a
   `POST`. Opening the link that confirms a changed email address (`/account/email/verify`) confirmed it at once, so a

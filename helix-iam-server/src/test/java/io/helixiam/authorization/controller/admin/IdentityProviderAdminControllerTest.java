@@ -18,8 +18,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,9 +45,9 @@ class IdentityProviderAdminControllerTest {
         final IdentityProviderConfig cfg = new IdentityProviderConfig("gov", "digid", "saml", "DigiD", true, Map.of());
         when(publisher.list("gov")).thenReturn(List.of(cfg));
 
-        final List<IdentityProviderConfig> result = controller.list("gov");
+        final List<IdentityProviderAdminView> result = controller.list("gov");
 
-        assertThat(result).containsExactly(cfg);
+        assertThat(result).containsExactly(IdentityProviderAdminView.of(cfg));
         verify(publisher).list("gov");
     }
 
@@ -56,7 +58,7 @@ class IdentityProviderAdminControllerTest {
         when(publisher.get(new IdentityProviderRef("gov", "ghost"))).thenReturn(null);
 
         assertThat(controller.get("gov", "digid").getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(controller.get("gov", "digid").getBody()).isEqualTo(cfg);
+        assertThat(controller.get("gov", "digid").getBody()).isEqualTo(IdentityProviderAdminView.of(cfg));
         assertThat(controller.get("gov", "ghost").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
@@ -66,7 +68,7 @@ class IdentityProviderAdminControllerTest {
         final IdentityProviderRequest body = new IdentityProviderRequest(
                 "digid", "saml", "DigiD (CombiConnect)", true, Map.of("ssoUrl", "https://idp"));
 
-        final ResponseEntity<IdentityProviderConfig> response = controller.create("gov", body);
+        final ResponseEntity<IdentityProviderAdminView> response = controller.create("gov", body);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         final ArgumentCaptor<IdentityProviderConfig> captor = ArgumentCaptor.forClass(IdentityProviderConfig.class);
@@ -83,7 +85,7 @@ class IdentityProviderAdminControllerTest {
         final IdentityProviderRequest body = new IdentityProviderRequest(
                 "ignored-alias", "saml", "DigiD", false, Map.of());
 
-        final ResponseEntity<IdentityProviderConfig> response = controller.update("gov", "digid", body);
+        final ResponseEntity<IdentityProviderAdminView> response = controller.update("gov", "digid", body);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         final ArgumentCaptor<IdentityProviderConfig> captor = ArgumentCaptor.forClass(IdentityProviderConfig.class);
@@ -99,5 +101,38 @@ class IdentityProviderAdminControllerTest {
 
         assertThat(controller.delete("gov", "digid").getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(controller.delete("gov", "ghost").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void responses_neverCarrySecretValues_onlyKeySetFlags() {
+        final IdentityProviderConfig oidc = new IdentityProviderConfig("gov", "up", "oidc", "Up", true,
+                Map.of("clientId", "web", "clientSecret", "s3cret"));
+        final IdentityProviderConfig eid = new IdentityProviderConfig("gov", "digid", "digid", "DigiD", true,
+                Map.of("ssoUrl", "https://idp", "spSigningPrivateKey", "PEM"));
+        when(publisher.list("gov")).thenReturn(List.of(oidc, eid));
+        when(publisher.get(new IdentityProviderRef("gov", "up"))).thenReturn(oidc);
+        when(publisher.save(any(IdentityProviderConfig.class))).thenReturn(oidc);
+
+        final List<IdentityProviderAdminView> list = controller.list("gov");
+        assertThat(list.get(0).config()).containsEntry("clientId", "web").containsEntry("clientSecretSet", true)
+                .doesNotContainKey("clientSecret");
+        assertThat(list.get(1).config()).containsEntry("spSigningPrivateKeySet", true)
+                .containsEntry("spDecryptionPrivateKeySet", false).doesNotContainKey("spSigningPrivateKey");
+        assertThat(controller.get("gov", "up").getBody().config()).doesNotContainKey("clientSecret");
+        assertThat(controller.create("gov", new IdentityProviderRequest("up", "oidc", "Up", true,
+                Map.of("clientSecret", "s3cret"))).getBody().config()).doesNotContainKey("clientSecret")
+                .containsEntry("clientSecretSet", true);
+    }
+
+    @Test
+    void aNewSecretTogetherWithItsClearFlag_isRejected_andNothingIsSaved() {
+        final IdentityProviderRequest body = new IdentityProviderRequest("up", "oidc", "Up", true,
+                Map.of("clientSecret", "new", "clearClientSecret", "true"));
+
+        assertThatThrownBy(() -> controller.update("gov", "up", body))
+                .isInstanceOf(ProviderValidationException.class)
+                .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors())
+                        .containsKey("config.clearClientSecret"));
+        verify(publisher, never()).save(any(IdentityProviderConfig.class));
     }
 }

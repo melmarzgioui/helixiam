@@ -5,6 +5,7 @@
 
 import { findProviderType } from "../components/providerCatalog";
 import type { WizardResult } from "../components/ProviderWizard";
+import { fromIdpResponse, secretWriteConfig, type RawIdentityProviderConfig } from "./idpSecrets";
 
 /** A persisted identity-provider connection (mirrors the backend E8.2 DTO). */
 export interface IdentityProviderConfig {
@@ -13,7 +14,10 @@ export interface IdentityProviderConfig {
   protocol: string;
   displayName: string;
   enabled: boolean;
+  /** Settings only: secrets are never returned (see `secretsSet`). */
   config: Record<string, string>;
+  /** Which write-only secrets are stored (`clientSecret: true`); from the API's `"<key>Set"` flags. */
+  secretsSet?: Record<string, boolean>;
 }
 
 /** Create/update body (realm + alias come from the path, never the body). */
@@ -105,14 +109,18 @@ export function createHttpClient(baseUrl = ""): IdentityProviderApi {
     return res.status === 204 ? null : res.json();
   };
 
+  const one = (raw: RawIdentityProviderConfig | null) => (raw ? fromIdpResponse(raw) : null);
+  // A blank secret is never sent: the API keeps the stored one.
+  const write = (body: IdentityProviderRequest) => JSON.stringify({ ...body, config: secretWriteConfig(body.config ?? {}) });
+
   return {
-    list: (realmId) => fetch(url(realmId)).then(json),
+    list: (realmId) => fetch(url(realmId)).then(json).then((all: RawIdentityProviderConfig[]) => all.map(fromIdpResponse)),
     get: (realmId, alias) =>
-      fetch(url(realmId, alias)).then((res) => (res.status === 404 ? null : json(res))),
+      fetch(url(realmId, alias)).then((res) => (res.status === 404 ? null : json(res).then(one))),
     create: (realmId, body) =>
-      fetch(url(realmId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(json),
+      fetch(url(realmId), { method: "POST", headers: { "Content-Type": "application/json" }, body: write(body) }).then(json).then(fromIdpResponse),
     update: (realmId, alias, body) =>
-      fetch(url(realmId, alias), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(json),
+      fetch(url(realmId, alias), { method: "PUT", headers: { "Content-Type": "application/json" }, body: write(body) }).then(json).then(fromIdpResponse),
     remove: (realmId, alias) => fetch(url(realmId, alias), { method: "DELETE" }).then(json).then(() => undefined),
     syncUsers: (realmId, alias) =>
       fetch(`${base}/admin/realms/${encodeURIComponent(realmId)}/user-federation/${encodeURIComponent(alias)}/sync`, { method: "POST" }).then(json),

@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.domain.federation.IdentityProviderConfig;
 import io.helixiam.authorization.domain.federation.IdentityProviderEntity;
+import io.helixiam.authorization.federation.ProviderSecretKeys;
 import io.helixiam.authorization.repository.federation.IdentityProviderConfigRepository;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -25,6 +27,11 @@ import java.util.Optional;
  * Helix IAM E8.1: owns the persisted, per-realm identity-provider configs that the admin console
  * (E8.2) writes and the federation registry (E8.3) reads. The protocol-specific settings are stored
  * as a JSON map so the schema stays stable as provider types grow.
+ *
+ * <p>Task 4 (security): secrets ({@link ProviderSecretKeys}) are split off into {@code secret_json} (encrypted at rest
+ * by the entity's converter) and merged back on read, so the runtime ({@code FederationProviderFactory.fromStored})
+ * sees one map. Writes are write-only for secrets: absent / blank keeps, a value replaces, {@code clear<Key>=true}
+ * removes. A legacy secret still in {@code config_json} is read as a secret and moved on the next save.
  */
 @Service
 public class IdentityProviderConfigService {
@@ -47,15 +54,27 @@ public class IdentityProviderConfigService {
         final IdentityProviderEntity entity = repository
                 .findById(IdentityProviderEntity.key(config.realmId(), config.alias()))
                 .orElseGet(IdentityProviderEntity::new);
+        final Map<String, String> secrets = new LinkedHashMap<>(storedSecrets(entity));
         entity.setId(IdentityProviderEntity.key(config.realmId(), config.alias()));
         entity.setRealmId(config.realmId());
         entity.setAlias(config.alias());
         entity.setProtocol(config.protocol());
         entity.setDisplayName(config.displayName());
         entity.setEnabled(config.enabled());
-        entity.setConfigJson(writeConfig(config.config()));
+        final Map<String, String> incoming = config.config() == null ? Map.of() : config.config();
+        final ProviderSecretKeys.Split split = ProviderSecretKeys.split(config.protocol(), incoming);
+        for (final String key : ProviderSecretKeys.allKeys()) {
+            if (split.secrets().containsKey(key)) {
+                secrets.put(key, split.secrets().get(key));
+            } else if (ProviderSecretKeys.clears(incoming, key)) {
+                secrets.remove(key);
+            }
+        }
+        entity.setConfigJson(writeConfig(split.plain()));
+        entity.setSecretJson(secrets.isEmpty() ? null : writeConfig(secrets));
         final IdentityProviderEntity saved = repository.save(entity);
-        LOG.debug("Saved identity-provider config {} for realm {}", config.alias(), config.realmId());
+        LOG.debug("Saved identity-provider config {} for realm {}",
+                LogSafe.sanitize(config.alias()), LogSafe.sanitize(config.realmId()));
         return toDto(saved);
     }
 
@@ -82,8 +101,21 @@ public class IdentityProviderConfigService {
     }
 
     private IdentityProviderConfig toDto(final IdentityProviderEntity entity) {
+        final Map<String, String> merged = new LinkedHashMap<>(readConfig(entity.getConfigJson()));
+        merged.putAll(readConfig(entity.getSecretJson()));
         return new IdentityProviderConfig(entity.getRealmId(), entity.getAlias(), entity.getProtocol(),
-                entity.getDisplayName(), entity.isEnabled(), readConfig(entity.getConfigJson()));
+                entity.getDisplayName(), entity.isEnabled(), merged);
+    }
+
+    /** The entity's current secrets: {@code secret_json}, plus any legacy secret still in {@code config_json}. */
+    private Map<String, String> storedSecrets(final IdentityProviderEntity entity) {
+        if (entity.getId() == null) {
+            return Map.of();
+        }
+        final Map<String, String> secrets = new LinkedHashMap<>(
+                ProviderSecretKeys.split(entity.getProtocol(), readConfig(entity.getConfigJson())).secrets());
+        secrets.putAll(readConfig(entity.getSecretJson()));
+        return secrets;
     }
 
     private String writeConfig(final Map<String, String> config) {

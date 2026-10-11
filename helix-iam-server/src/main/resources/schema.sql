@@ -1072,3 +1072,6 @@ ALTER TABLE notification_code ADD COLUMN IF NOT EXISTS expires_at timestamp;
 -- Security (same as Flyway V74): emailed one-time codes are stored as their hex SHA-256; pending plain codes are hashed
 -- in place (idempotent: a 64-hex value is already a hash).
 UPDATE notification_code SET code = encode(sha256(convert_to(code, 'UTF8')), 'hex') WHERE code !~ '^[0-9a-f]{64}$';
+-- Security (same as Flyway V75): identity-provider secrets live encrypted in their own column, never in config_json.
+-- Existing secrets are moved at startup by IdentityProviderSecretsBackfill (the V75.1 counterpart).
+ALTER TABLE identity_provider ADD COLUMN IF NOT EXISTS secret_json text;
