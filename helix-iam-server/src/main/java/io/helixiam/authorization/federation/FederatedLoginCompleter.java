@@ -78,6 +78,20 @@ public class FederatedLoginCompleter {
 
     /** Complete a federated login for the broker-resolved {@code userId}; returns the redirect view. */
     public String complete(final String userId, final HttpServletRequest request, final HttpServletResponse response) {
+        return complete(userId, null, request, response);
+    }
+
+    /**
+     * As {@link #complete(String, HttpServletRequest, HttpServletResponse)}, additionally carrying the
+     * brokered level of assurance the upstream IdP asserted (Task 3; {@code null}/blank when the provider
+     * asserted none, or the primary authentication was not brokered). Stashed as {@link
+     * io.helixiam.authorization.security.session.AuthTimeStamper#ACR_SESSION_ATTRIBUTE} in the session —
+     * BEFORE the session id rotates on an immediate completion, and before the step-up gate on a
+     * CHALLENGE, so it survives into whichever point later binds it onto the issued authorization code
+     * ({@code SsoSessionBindingAuthorizationService}).
+     */
+    public String complete(final String userId, final String acr, final HttpServletRequest request,
+                           final HttpServletResponse response) {
         final UserCredentials user = sessionEstablisher.loadUser(userId);
         final Authentication fullAuthentication =
                 UsernamePasswordAuthenticationToken.authenticated(user, null, user.getAuthorities());
@@ -97,6 +111,11 @@ public class FederatedLoginCompleter {
         return switch (progress.type()) {
             case COMPLETED -> {
                 request.changeSessionId(); // new sign-in, new session id (mirrors MagicLinkController)
+                if (acr != null && !acr.isBlank()) {
+                    // Task 3: after rotation, same session object — the code-binding step reads it from here.
+                    session.setAttribute(
+                            io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE, acr);
+                }
                 sessionEstablisher.persist(fullAuthentication, request, response);
                 authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
@@ -105,6 +124,12 @@ public class FederatedLoginCompleter {
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }
             case CHALLENGE -> {
+                // Task 3: stash before the step-up gate — the session id rotates later (FlowController, once
+                // the second factor passes), but it is the SAME session object, so this survives into it.
+                if (acr != null && !acr.isBlank()) {
+                    session.setAttribute(
+                            io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE, acr);
+                }
                 // Hold the user pending the post-broker factor; /flow promotes this to a full session.
                 sessionEstablisher.persist(new MfaAuthentication(fullAuthentication), request, response);
                 LOG.info("Federated login for user {} requires step-up — routing to the flow engine", LogSafe.sanitize(userId));

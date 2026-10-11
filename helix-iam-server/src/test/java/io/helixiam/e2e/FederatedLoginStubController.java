@@ -19,6 +19,9 @@ import org.springframework.web.bind.annotation.RequestParam;
  * as {@code FederationBrokerController} does after validating an upstream assertion, so a browser test can drive the
  * post-broker half of a federated sign-in (session, flow, resumed authorization request) without an upstream IdP.
  * Realm-relative under the broker's (anonymous) path: {@code GET /realms/{realm}/broker/e2e-stub/complete?userId=}.
+ * An optional {@code loa} param stands in for the brokered identity's {@code loa} attribute (Task 3 — eID SAML /
+ * EUDI Wallet LoA reaching the ID token {@code acr}), carried through exactly as {@code FederationBrokerController}
+ * carries it from {@code BrokeredIdentity.attributes().get("loa")}.
  */
 @Controller
 @ConditionalOnProperty(name = "helix.e2e.federation-stub", havingValue = "true")
@@ -31,8 +34,9 @@ public class FederatedLoginStubController {
     }
 
     @GetMapping("/broker/e2e-stub/complete")
-    public String complete(@RequestParam final String userId, final HttpServletRequest request,
-                           final HttpServletResponse response) {
-        return completer.complete(userId, request, response);
+    public String complete(@RequestParam final String userId,
+                           @RequestParam(required = false) final String loa,
+                           final HttpServletRequest request, final HttpServletResponse response) {
+        return completer.complete(userId, loa, request, response);
     }
 }

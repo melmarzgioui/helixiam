@@ -20,5 +20,13 @@ public enum EidScheme {
     EHERKENNING,
 
     /** DigiD — NL citizen eID via Logius. */
-    DIGID
+    DIGID,
+
+    /**
+     * EUDI Wallet (OpenID4VP) — EU Digital Identity Wallet presentation. An audit/display tag only: its
+     * level of assurance is modelled on the SAME eIDAS ladder as {@link #EIDAS} (maintainer decision,
+     * see {@code docs/superpowers/sdd/2026-10-09-eudi-wallet-openid4vp/constraints.md}), never its own —
+     * {@link EidLevelOfAssurance} delegates {@code EUDI_WALLET} lookups to the eIDAS ladder.
+     */
+    EUDI_WALLET
 }

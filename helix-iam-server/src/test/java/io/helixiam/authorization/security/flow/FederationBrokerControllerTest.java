@@ -112,12 +112,13 @@ class FederationBrokerControllerTest {
         request.setParameter("state", "fixed-state");
         request.setParameter("code", "auth-code");
         final MockHttpServletResponse response = new MockHttpServletResponse();
-        when(loginCompleter.complete("user-9", request, response)).thenReturn("redirect:" + SP);
+        when(loginCompleter.complete("user-9", null, request, response)).thenReturn("redirect:" + SP);
 
         final String view = controller.callback(ALIAS, request, response);
 
         assertThat(view).isEqualTo("redirect:" + SP);
-        verify(loginCompleter).complete("user-9", request, response);
+        // No "loa" attribute on this identity (not a brokered-LoA provider): the completer is called with none.
+        verify(loginCompleter).complete("user-9", null, request, response);
         // The provider got the replayed anti-forgery values + the matching redirect URI.
         final ArgumentCaptor<IdentityProvider.CallbackContext> ctx =
                 ArgumentCaptor.forClass(IdentityProvider.CallbackContext.class);
@@ -129,6 +130,32 @@ class FederationBrokerControllerTest {
         assertThat(ctx.getValue().parameters()).containsEntry("code", "auth-code");
         // Anti-forgery values are consumed (single-use).
         assertThat(request.getSession().getAttribute("HELIX_FED_STATE_" + ALIAS)).isNull();
+    }
+
+    /**
+     * Task 3: when the upstream provider asserted a level of assurance (the eID SAML connector stamps it
+     * as {@code loa} on the brokered identity's attributes), the controller passes it to the completer so
+     * it can reach the ID token {@code acr}.
+     */
+    @Test
+    void callbackPassesTheBrokeredLoaToTheLoginCompleter() {
+        when(registry.get(ALIAS)).thenReturn(provider);
+        final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true,
+                Map.of("loa", "http://eidas.europa.eu/LoA/substantial"));
+        when(provider.callback(any())).thenReturn(identity);
+        when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
+
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession().setAttribute("HELIX_FED_STATE_" + ALIAS, "fixed-state");
+        request.setParameter("state", "fixed-state");
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+        when(loginCompleter.complete("user-9", "http://eidas.europa.eu/LoA/substantial", request, response))
+                .thenReturn("redirect:" + SP);
+
+        final String view = controller.callback(ALIAS, request, response);
+
+        assertThat(view).isEqualTo("redirect:" + SP);
+        verify(loginCompleter).complete("user-9", "http://eidas.europa.eu/LoA/substantial", request, response);
     }
 
     @Test
@@ -148,7 +175,7 @@ class FederationBrokerControllerTest {
         assertThat(request.getSession().getAttribute("HELIX_FED_SAML_REQ_ID_" + ALIAS)).isEqualTo("_req-1");
 
         final MockHttpServletResponse response = new MockHttpServletResponse();
-        when(loginCompleter.complete("user-9", request, response)).thenReturn("redirect:" + SP);
+        when(loginCompleter.complete("user-9", null, request, response)).thenReturn("redirect:" + SP);
         controller.callback(ALIAS, request, response);
 
         // The pending request id was handed to the provider for the InResponseTo binding...
@@ -175,6 +202,7 @@ class FederationBrokerControllerTest {
 
         assertThat(view).startsWith("redirect:/login?error");
         verify(loginCompleter, never()).complete(any(), any(), any());
+        verify(loginCompleter, never()).complete(any(), any(), any(), any());
     }
 
     @Test
@@ -191,6 +219,7 @@ class FederationBrokerControllerTest {
 
         assertThat(view).startsWith("redirect:/login?error");
         verify(loginCompleter, never()).complete(any(), any(), any());
+        verify(loginCompleter, never()).complete(any(), any(), any(), any());
         verify(broker, never()).broker(any(), any());
     }
 }

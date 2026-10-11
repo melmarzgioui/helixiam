@@ -44,12 +44,17 @@ public final class EidLevelOfAssurance {
     private EidLevelOfAssurance() {
     }
 
-    /** The rung of this AuthnContextClassRef on the scheme's ladder, or {@code 0} if unrecognised/blank. */
+    /**
+     * The rung of this AuthnContextClassRef on the scheme's ladder, or {@code 0} if unrecognised/blank.
+     * {@link EidScheme#EUDI_WALLET} is an audit/display tag only — it has no ladder of its own and
+     * delegates to {@link EidScheme#EIDAS}'s.
+     */
     public static int rung(final EidScheme scheme, final String authnContextClassRef) {
         if (authnContextClassRef == null || authnContextClassRef.isBlank()) {
             return 0;
         }
-        return LADDERS.getOrDefault(scheme, Map.of()).getOrDefault(authnContextClassRef.trim(), 0);
+        final EidScheme ladderScheme = scheme == EidScheme.EUDI_WALLET ? EidScheme.EIDAS : scheme;
+        return LADDERS.getOrDefault(ladderScheme, Map.of()).getOrDefault(authnContextClassRef.trim(), 0);
     }
 
     /**

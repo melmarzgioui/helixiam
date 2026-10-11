@@ -76,6 +76,27 @@ class SsoSessionBindingAuthorizationServiceTest {
         verify(store).save(authorization);
     }
 
+    /** Task 3: a federated login's brokered level of assurance (stashed as {@code HELIX_ACR}) is bound too. */
+    @Test
+    void codeIssuedInASessionCarryingAnAcr_bindsItTooAlongsideSidAndAuthTime() {
+        final MockHttpServletRequest request = browserRequest("sid-3", 1_700_000_200L);
+        request.getSession(false).setAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE, "http://eidas.europa.eu/LoA/substantial");
+
+        service.save(withCode(false));
+
+        assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.ACR_ATTRIBUTE))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
+
+    @Test
+    void codeIssuedInASessionWithNoAcr_bindsNoAcrAttribute() {
+        browserRequest("sid-4", 1_700_000_300L);
+
+        service.save(withCode(false));
+
+        assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.ACR_ATTRIBUTE)).isNull();
+    }
+
     private static MockHttpServletRequest browserRequest(final String sid, final long authTime) {
         final MockHttpServletRequest request = new MockHttpServletRequest();
         request.getSession(true).setAttribute(AuthTimeStamper.HELIX_SID, sid);

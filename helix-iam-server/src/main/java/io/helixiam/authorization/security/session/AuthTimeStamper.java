@@ -37,6 +37,14 @@ public final class AuthTimeStamper {
     /** Session attribute holding the OIDC {@code sid} of this SSO session (A3). */
     public static final String HELIX_SID = "HELIX_SID";
 
+    /**
+     * Session attribute holding the brokered level of assurance of this login (Task 3), e.g. the eIDAS
+     * LoA URI an eID SAML assertion or an EUDI Wallet presentation asserted. Set at the same
+     * login-completion choke points as {@link #HELIX_SID}/{@link #HELIX_AUTH_TIME}, but only when the
+     * login was brokered through an external IdP that asserted one — a password login never sets it.
+     */
+    public static final String ACR_SESSION_ATTRIBUTE = "HELIX_ACR";
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final LongSupplier nowEpochSeconds;

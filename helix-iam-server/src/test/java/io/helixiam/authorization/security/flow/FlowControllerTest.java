@@ -71,4 +71,37 @@ class FlowControllerTest {
         assertThat(view).isEqualTo("redirect:" + SP);
         assertThat(request.getSession(false).getId()).isNotEqualTo(before);
     }
+
+    /**
+     * Task 3: a federated login that needed a step-up ({@link
+     * io.helixiam.authorization.federation.FederatedLoginCompleter} CHALLENGE branch) stashes {@code
+     * HELIX_ACR} in the session before routing here. This endpoint must not lose it when the second
+     * factor passes and the session id rotates — it still needs to reach the authorization once the
+     * resumed {@code /oauth2/authorize} issues the code.
+     */
+    @Test
+    void completingTheChallenge_keepsTheAcrAFederatedLoginStashedBeforeTheStepUp() {
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+        when(flowExecutor.submit(any(), any(), any(), any())).thenReturn(FlowProgress.completed("user-9"));
+
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+        final HttpSession session = request.getSession(true);
+        session.setAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
+                "http://eidas.europa.eu/LoA/substantial");
+
+        final FlowExecutionState state = new FlowExecutionState("master");
+        state.setUserId("user-9");
+        state.setCurrentChallengeExecutionId("otp-exec");
+        session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
+        session.setAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE, new AuthFlowDefinition());
+
+        final String view = controller.submitChallenge(Map.of("code", "123456"), session,
+                new ExtendedModelMap(), request, response);
+
+        assertThat(view).isEqualTo("redirect:" + SP);
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
 }

@@ -30,6 +30,11 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
     public static final String AUTH_TIME_ATTRIBUTE = "helix.auth_time";
     /** Authorization attribute: id of the browser (HTTP) session that approved the code (String). */
     public static final String HTTP_SESSION_ATTRIBUTE = "helix.http_session";
+    /**
+     * Authorization attribute: the brokered level of assurance of the login that approved the code
+     * (String), when the session has one ({@link AuthTimeStamper#ACR_SESSION_ATTRIBUTE}) — Task 3.
+     */
+    public static final String ACR_ATTRIBUTE = "helix_acr";
 
     private final OAuth2AuthorizationService delegate;
     private final AuthTimeStamper authTimeStamper = new AuthTimeStamper();
@@ -76,20 +81,27 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
         }
         final String sid = AuthTimeStamper.readSid(request);
         final Long authTime = authTimeStamper.read(request);
-        if (sid == null && authTime == null) {
+        final jakarta.servlet.http.HttpSession existingSession = request.getSession(false);
+        final String acr = existingSession != null
+                && existingSession.getAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE) instanceof String value
+                && !value.isBlank() ? value : null;
+        if (sid == null && authTime == null && acr == null) {
             return authorization;
         }
         final OAuth2Authorization.Builder builder = OAuth2Authorization.from(authorization);
         if (sid != null) {
             builder.attribute(SID_ATTRIBUTE, sid);
             // So logout can end exactly this browser login (and not the user's other sessions).
-            final jakarta.servlet.http.HttpSession session = request.getSession(false);
-            if (session != null) {
-                builder.attribute(HTTP_SESSION_ATTRIBUTE, session.getId());
+            if (existingSession != null) {
+                builder.attribute(HTTP_SESSION_ATTRIBUTE, existingSession.getId());
             }
         }
         if (authTime != null) {
             builder.attribute(AUTH_TIME_ATTRIBUTE, authTime);
+        }
+        if (acr != null) {
+            // Task 3: the brokered level of assurance (eID SAML / EUDI Wallet) — never set by a password login.
+            builder.attribute(ACR_ATTRIBUTE, acr);
         }
         return builder.build();
     }

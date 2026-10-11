@@ -62,6 +62,25 @@ class EidLevelOfAssuranceTest {
                 "urn:etoegang:core:assurance-class:loa3", "urn:etoegang:core:assurance-class:loa3")).isTrue();
     }
 
+    // --- EUDI Wallet (delegates to the eIDAS ladder; Task 3 / maintainer decision 2) ----------------
+
+    @Test
+    void eudiWalletDelegatesToTheEidasLadder() {
+        for (final String uri : new String[] {"http://eidas.europa.eu/LoA/low", "http://eidas.europa.eu/LoA/substantial",
+                "http://eidas.europa.eu/LoA/high"}) {
+            assertThat(EidLevelOfAssurance.rung(EidScheme.EUDI_WALLET, uri))
+                    .as("rung(EUDI_WALLET, %s) == rung(EIDAS, %s)", uri, uri)
+                    .isEqualTo(EidLevelOfAssurance.rung(EidScheme.EIDAS, uri));
+        }
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EUDI_WALLET, "http://eidas.europa.eu/LoA/high")).isEqualTo(3);
+    }
+
+    @Test
+    void eudiWalletHighMeetsASubstantialMinimum() {
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EUDI_WALLET,
+                "http://eidas.europa.eu/LoA/high", "http://eidas.europa.eu/LoA/substantial")).isTrue();
+    }
+
     // --- robustness --------------------------------------------------------------------------------
 
     @Test

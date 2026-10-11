@@ -137,4 +137,56 @@ class FederatedLoginCompleterTest {
         completer.complete(USER_ID, request, new MockHttpServletResponse());
         assertThat(request.getSession(false).getId()).isNotEqualTo(before);
     }
+
+    /**
+     * Task 3: the brokered level of assurance (eID SAML {@code loa} attribute / the stub's {@code loa}
+     * param) is carried into the session as {@code HELIX_ACR} so {@link
+     * io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService} can bind it onto
+     * the authorization the same way it binds {@code sid}/{@code auth_time}.
+     */
+    @Test
+    void completedFederatedLoginWithAcr_putsAcrInTheSessionAfterRotation() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, "http://eidas.europa.eu/LoA/substantial", request, new MockHttpServletResponse());
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
+
+    @Test
+    void completedFederatedLoginWithoutAcr_leavesNoAcrInTheSession() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, request, new MockHttpServletResponse()); // old signature: delegates with null acr
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    /**
+     * The step-up (CHALLENGE) path: the session id does not rotate here (it rotates later, at
+     * {@code FlowController} once the second factor passes), but {@code HELIX_ACR} must already be in the
+     * session so it survives into that later rotation and reaches the authorization once the flow completes.
+     */
+    @Test
+    void challengingFederatedLoginWithAcr_putsAcrInTheSessionBeforeTheChallenge() throws Exception {
+        when(establisher.loadUser("user-9")).thenReturn(user("user-9"));
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(null);
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.challenge("otp-form", "browser-otp"));
+
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final String view = completer.complete("user-9", "http://eidas.europa.eu/LoA/substantial", request,
+                new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/flow");
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
 }
