@@ -1,0 +1,100 @@
+{
+  "source": "OpenID for Verifiable Presentations 1.0 (Final, 9 July 2025), Section 7.4 and Appendix D, non-normative examples",
+  "section_7_4_sd_jwt": {
+    "credentials": [
+      {
+        "id": "my_credential",
+        "format": "dc+sd-jwt",
+        "meta": {
+          "vct_values": ["https://credentials.example.com/identity_credential"]
+        },
+        "claims": [
+          {"path": ["last_name"]},
+          {"path": ["first_name"]},
+          {"path": ["address", "street_address"]}
+        ]
+      }
+    ]
+  },
+  "appendix_d_mdoc": {
+    "credentials": [
+      {
+        "id": "my_credential",
+        "format": "mso_mdoc",
+        "meta": {
+          "doctype_value": "org.iso.7367.1.mVRC"
+        },
+        "claims": [
+          {"path": ["org.iso.7367.1", "vehicle_holder"]},
+          {"path": ["org.iso.18013.5.1", "first_name"]}
+        ]
+      }
+    ]
+  },
+  "appendix_d_credential_sets": {
+    "credentials": [
+      {
+        "id": "pid",
+        "format": "dc+sd-jwt",
+        "meta": {"vct_values": ["https://credentials.example.com/identity_credential"]},
+        "claims": [
+          {"path": ["given_name"]},
+          {"path": ["family_name"]},
+          {"path": ["address", "street_address"]}
+        ]
+      },
+      {
+        "id": "other_pid",
+        "format": "dc+sd-jwt",
+        "meta": {"vct_values": ["https://othercredentials.example/pid"]},
+        "claims": [
+          {"path": ["given_name"]},
+          {"path": ["family_name"]},
+          {"path": ["address", "street_address"]}
+        ]
+      },
+      {
+        "id": "pid_reduced_cred_1",
+        "format": "dc+sd-jwt",
+        "meta": {"vct_values": ["https://credentials.example.com/reduced_identity_credential"]},
+        "claims": [
+          {"path": ["family_name"]},
+          {"path": ["given_name"]}
+        ]
+      },
+      {
+        "id": "pid_reduced_cred_2",
+        "format": "dc+sd-jwt",
+        "meta": {"vct_values": ["https://cred.example/residence_credential"]},
+        "claims": [
+          {"path": ["postal_code"]},
+          {"path": ["locality"]},
+          {"path": ["region"]}
+        ]
+      },
+      {
+        "id": "nice_to_have",
+        "format": "dc+sd-jwt",
+        "meta": {"vct_values": ["https://company.example/company_rewards"]},
+        "claims": [
+          {"path": ["rewards_number"]}
+        ]
+      }
+    ],
+    "credential_sets": [
+      {
+        "options": [
+          ["pid"],
+          ["other_pid"],
+          ["pid_reduced_cred_1", "pid_reduced_cred_2"]
+        ]
+      },
+      {
+        "required": false,
+        "options": [
+          ["nice_to_have"]
+        ]
+      }
+    ]
+  }
+}

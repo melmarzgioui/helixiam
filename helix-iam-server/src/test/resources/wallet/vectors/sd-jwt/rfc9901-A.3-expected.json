@@ -1,0 +1,27 @@
+{
+  "source": "RFC 9901 Appendix A.3 (SD-JWT-Based Verifiable Credentials), presentation disclosing nationalities and age_equal_or_over.18",
+  "key_binding_jwt_payload": {
+    "nonce": "1234567890",
+    "aud": "https://verifier.example.org",
+    "iat": 1748537244,
+    "sd_hash": "PjMYfM07VbJdMxLIluvRNb88JFljSX4n-G43Uc_BSRM"
+  },
+  "processed_payload": {
+    "iss": "https://pid-issuer.bund.de.example",
+    "iat": 1683000000,
+    "exp": 1883000000,
+    "vct": "urn:eudi:pid:de:1",
+    "cnf": {
+      "jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "TCAER19Zvu3OHF4j4W4vfSVoHIP1ILilDls7vCeGemc",
+        "y": "ZxjiWWbZMQGHVWKVQ4hbSIirsVfuecCE6t4jT9F2HZQ"
+      }
+    },
+    "age_equal_or_over": {
+      "18": true
+    },
+    "nationalities": ["DE"]
+  }
+}

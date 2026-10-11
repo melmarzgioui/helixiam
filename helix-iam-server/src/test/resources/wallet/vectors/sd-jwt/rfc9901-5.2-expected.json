@@ -1,0 +1,32 @@
+{
+  "source": "RFC 9901 Section 5.2 (Presentation)",
+  "key_binding_jwt_payload": {
+    "nonce": "1234567890",
+    "aud": "https://verifier.example.org",
+    "iat": 1748537244,
+    "sd_hash": "0_Af-2B-EhLWX5ydh_w2xzwmO6iM66B_2QCEanI4fUY"
+  },
+  "processed_payload": {
+    "iss": "https://issuer.example.com",
+    "iat": 1683000000,
+    "exp": 1883000000,
+    "sub": "user_42",
+    "nationalities": ["US"],
+    "cnf": {
+      "jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "TCAER19Zvu3OHF4j4W4vfSVoHIP1ILilDls7vCeGemc",
+        "y": "ZxjiWWbZMQGHVWKVQ4hbSIirsVfuecCE6t4jT9F2HZQ"
+      }
+    },
+    "family_name": "Doe",
+    "address": {
+      "street_address": "123 Main St",
+      "locality": "Anytown",
+      "region": "Anystate",
+      "country": "US"
+    },
+    "given_name": "John"
+  }
+}
