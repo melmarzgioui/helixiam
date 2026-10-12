@@ -23,6 +23,17 @@ question. Newest first within each phase.
   opt-in, `helix.allow-plaintext-secrets`) while it migrates. Such values are then read as stored, each read is logged
   with its entity and attribute (never the value), and the value is encrypted on the entity's next write. The
   startup readiness check lists that mode as an insecure setting; unset it once the rows are rewritten.
+- **security** — The client IP came from a client-controlled header. The rate limiter, the audit log, the adaptive-auth
+  risk signals and the CAPTCHA `remoteip` took the first `X-Forwarded-For` (or `X-Real-IP`) address from any client, so
+  a client could get a fresh sign-in rate-limit budget per request, put any address in the audit log, or claim a
+  known IP. `server.forward-headers-strategy=framework` did the same to `getRemoteAddr()`. One `ClientIpResolver` now
+  decides the client IP everywhere: the TCP peer, read beneath Spring's `ForwardedHeaderFilter`, unless that peer is
+  listed in the new `helix.security.trusted-proxies` (`HELIX_TRUSTED_PROXIES`, comma-separated IPs or CIDR ranges, IPv4
+  or IPv6, default empty). From a trusted proxy, `X-Forwarded-For` is read from the right and the first address that
+  is not a trusted proxy is the client. Header values are parsed as IP literals only. **Operators:** behind an ingress
+  controller, load balancer or the console's nginx, set `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) to the
+  addresses the proxy connects from. Otherwise every request appears to come from the proxy and all clients share one
+  sign-in rate-limit bucket. `X-Forwarded-Proto`/`-Host` handling is unchanged.
 
 ## v1.0.0-rc.7 (security hotfix)
 

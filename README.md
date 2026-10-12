@@ -204,8 +204,9 @@ CSS variables contract, file themes, the CSP and migration from 1.0.
 
 ### Rate limits
 
-Sensitive POST endpoints are rate limited **per client IP address** (the first `X-Forwarded-For` address
-when present) and endpoint group, in memory on each replica (token bucket):
+Sensitive POST endpoints are rate limited **per client IP address** and endpoint group, in memory on each
+replica (token bucket). The client IP is the TCP peer's address, unless that peer is one of
+`HELIX_TRUSTED_PROXIES` (see [Client IP behind a reverse proxy](#client-ip-behind-a-reverse-proxy)):
 
 | Endpoints | Burst | Refill | Properties |
 |---|---|---|---|
@@ -215,8 +216,22 @@ when present) and endpoint group, in memory on each replica (token bucket):
 Excess requests get `429 Too Many Requests`. **In-cluster callers usually share one egress or pod IP**, so
 several backend services using `client_credentials` or token exchange from the same node count against one
 bucket: raise `helix.ratelimit.token.*` for such deployments (or put HelixIAM behind a proxy that forwards
-the real client address in `X-Forwarded-For`), and size it for your peak token traffic. `helix.ratelimit.enabled=false` turns
+the real client address in `X-Forwarded-For`, and list that proxy in `HELIX_TRUSTED_PROXIES`), and size it for your
+peak token traffic. `helix.ratelimit.enabled=false` turns
 the limiter off (only behind another rate-limiting layer). The limit is not per OAuth client in 1.0.
+
+### Client IP behind a reverse proxy
+
+Rate limits, audit events, risk signals and the CAPTCHA check use the client's IP address. `X-Forwarded-For` and
+`X-Real-IP` are written by whoever sends the request, so HelixIAM reads them **only when the TCP peer is a trusted
+proxy**: `HELIX_TRUSTED_PROXIES` (`helix.security.trusted-proxies`) lists those proxies as comma-separated IP
+addresses or CIDR ranges, IPv4 or IPv6, and is empty by default. From a trusted proxy, `X-Forwarded-For` is read from
+the right, and the first address that is not a trusted proxy is the client.
+
+Behind an ingress controller, a load balancer or the console's nginx, set it to the addresses those proxies connect
+from (for example the ingress controller's pod CIDR); the Helm chart's `config.trustedProxies` sets it. Left empty,
+every request appears to come from the proxy, so all clients share one rate-limit bucket and the audit log records
+the proxy's address. Do not list addresses that clients can connect from directly.
 
 ### Memory
 

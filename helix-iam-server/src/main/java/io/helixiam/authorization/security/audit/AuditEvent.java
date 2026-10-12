@@ -20,7 +20,7 @@ import java.util.Map;
  * @param type         specific event type (e.g. {@code LOGIN_SUCCESS}, {@code CLIENT_SECRET_ROTATE})
  * @param realm        realm id, or {@code null} when not realm-scoped
  * @param actor        who caused it (username, {@code admin-api}, or {@code anonymous})
- * @param sourceIp     client IP (X-Forwarded-For first hop, else remote addr)
+ * @param sourceIp     client IP (see {@link io.helixiam.authorization.security.net.ClientIpResolver})
  * @param resourceType the kind of thing acted on (e.g. {@code user}, {@code client}), or {@code null}
  * @param resourceId   the id of that thing, or {@code null}
  * @param outcome      {@code SUCCESS}, {@code FAILURE} or {@code DENIED}

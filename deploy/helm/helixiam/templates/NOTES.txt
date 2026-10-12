@@ -19,3 +19,10 @@ Its password comes from Secret "{{ .Values.secrets.existingSecret }}" key "{{ .V
 No admin password key configured: a strong random password was generated once and written to the
 server logs — read it with `kubectl logs` and change it after first sign-in.
 {{- end }}
+{{- if and .Values.ingress.enabled (not .Values.config.trustedProxies) }}
+
+WARNING: the ingress is enabled but config.trustedProxies is empty. HelixIAM then ignores X-Forwarded-For, so every
+request appears to come from the ingress controller: all clients share one sign-in rate-limit bucket and the audit log
+records the controller's address. Set config.trustedProxies to the addresses the ingress controller connects from
+(for example its pod CIDR).
+{{- end }}

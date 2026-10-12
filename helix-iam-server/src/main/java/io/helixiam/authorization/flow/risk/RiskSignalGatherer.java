@@ -5,8 +5,10 @@
 
 package io.helixiam.authorization.flow.risk;
 
+import io.helixiam.authorization.security.net.ClientIpResolver;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -30,29 +32,27 @@ public class RiskSignalGatherer {
     public record RawSignals(String ip, String userAgent, String deviceFingerprint, String rawDeviceToken) {
     }
 
+    private final ClientIpResolver clientIps;
+
+    /** Resolves the client IP with the application's {@link ClientIpResolver} at request time. */
+    public RiskSignalGatherer() {
+        this(null);
+    }
+
+    @Autowired
+    public RiskSignalGatherer(final ClientIpResolver clientIps) {
+        this.clientIps = clientIps;
+    }
+
     public RawSignals gather(final HttpServletRequest request) {
         if (request == null) {
             return new RawSignals(null, null, null, null);
         }
-        final String ip = clientIp(request);
+        final String ip = (clientIps == null ? ClientIpResolver.current() : clientIps).resolve(request);
         final String userAgent = request.getHeader("User-Agent");
         final String rawToken = deviceCookie(request);
         final String fingerprint = rawToken == null ? null : sha256(rawToken);
         return new RawSignals(ip, userAgent, fingerprint, rawToken);
-    }
-
-    /** Honour {@code X-Forwarded-For} (first hop), else {@code X-Real-IP}, else the socket address. */
-    public static String clientIp(final HttpServletRequest request) {
-        final String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            final int comma = forwarded.indexOf(',');
-            return (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
-        }
-        final String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
-        }
-        return request.getRemoteAddr();
     }
 
     private static String deviceCookie(final HttpServletRequest request) {

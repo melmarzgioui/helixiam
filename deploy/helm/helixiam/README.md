@@ -36,6 +36,13 @@ helm install helixiam deploy/helm/helixiam \
   --set secrets.existingSecret=helixiam-secrets
 ```
 
+## Behind an ingress: trusted proxies
+HelixIAM takes the client IP (rate limits, audit log, risk signals, CAPTCHA) from `X-Forwarded-For` only when the
+TCP peer is a trusted proxy. With `ingress.enabled`, set `config.trustedProxies` to the addresses the ingress
+controller connects to the pods from, for example `--set 'config.trustedProxies={10.42.0.0/16}'` (the controller's
+pod CIDR). Left empty, every request appears to come from the controller, so all clients share one sign-in rate-limit
+bucket. Do not list ranges that clients can reach the pods from directly.
+
 ## Running without Redis
 Redis is used by exactly two things, both selectable:
 

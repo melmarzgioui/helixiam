@@ -81,16 +81,34 @@ class RateLimitFilterTest {
     }
 
     @Test
-    void honoursXForwardedFor_forPerIpBudget() throws Exception {
+    void aSpoofedXForwardedFor_fromAnUntrustedPeer_doesNotBuyANewBudget() throws Exception {
         final RateLimitFilter filter = filter(1);
 
+        final MockHttpServletRequest a = postLogin("198.51.100.20");
+        a.addHeader("X-Forwarded-For", "203.0.113.5");
+        filter.doFilter(a, new MockHttpServletResponse(), new MockFilterChain());
+
+        // Same client, a fresh made-up forwarded address: still the same budget.
+        final MockHttpServletRequest b = postLogin("198.51.100.20");
+        b.addHeader("X-Forwarded-For", "198.51.100.7");
+        final MockHttpServletResponse res = new MockHttpServletResponse();
+        filter.doFilter(b, res, new MockFilterChain());
+        assertThat(res.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void honoursXForwardedFor_fromATrustedProxy_forPerIpBudget() throws Exception {
+        final RateLimitFilter filter = new RateLimitFilter(true,
+                Map.of("/login", new RateLimiter(1, 1, 60_000, 1000, () -> 0L)),
+                new io.helixiam.authorization.security.net.ClientIpResolver("10.0.0.0/8"));
+
         final MockHttpServletRequest a = postLogin("10.0.0.1");
-        a.addHeader("X-Forwarded-For", "203.0.113.5, 10.0.0.1");
+        a.addHeader("X-Forwarded-For", "203.0.113.5");
         filter.doFilter(a, new MockHttpServletResponse(), new MockFilterChain());
 
         // Same proxy socket, different forwarded client → independent budget, so allowed.
         final MockHttpServletRequest b = postLogin("10.0.0.1");
-        b.addHeader("X-Forwarded-For", "198.51.100.7, 10.0.0.1");
+        b.addHeader("X-Forwarded-For", "198.51.100.7");
         final MockHttpServletResponse res = new MockHttpServletResponse();
         filter.doFilter(b, res, new MockFilterChain());
         assertThat(res.getStatus()).isEqualTo(HttpServletResponse.SC_OK);

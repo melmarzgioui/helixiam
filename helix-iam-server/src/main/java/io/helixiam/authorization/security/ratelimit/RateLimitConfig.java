@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.security.ratelimit;
 
+import io.helixiam.authorization.security.net.ClientIpResolver;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -46,7 +47,7 @@ public class RateLimitConfig {
     }
 
     @Bean
-    public RateLimitFilter rateLimitFilter() {
+    public RateLimitFilter rateLimitFilter(final ClientIpResolver clientIps) {
         final long minute = 60_000L;
         final RateLimiter loginLimiter = new RateLimiter(loginBurst, loginRefillPerMin, minute);
         final RateLimiter tokenLimiter = new RateLimiter(tokenBurst, tokenRefillPerMin, minute);
@@ -58,7 +59,7 @@ public class RateLimitConfig {
         limiters.put("/register", loginLimiter);
         limiters.put("/reset/password", loginLimiter);
         limiters.put("/oauth2/token", tokenLimiter);
-        return new RateLimitFilter(enabled, limiters);
+        return new RateLimitFilter(enabled, limiters, clientIps);
     }
 
     @Bean
