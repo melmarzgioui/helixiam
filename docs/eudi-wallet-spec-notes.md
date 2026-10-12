@@ -411,7 +411,9 @@ listed claim (`DcqlQueryBuilder`, `DcqlResultMatcher`).
 
 - The attribute-tuple subject (used only with `subject.acknowledgeWeakSubject=true`) has a field set fixed by
   configuration: `issuing_country`, `family_name`, `given_name`, `birthdate`, plus `place_of_birth.country/.region/
-  .locality` exactly when `pid.requestedClaims` includes `place_of_birth`. Every configured field is required.
+  .locality` exactly when `pid.requestedClaims` includes `place_of_birth`. The four base fields are required; when
+  configured, the `place_of_birth` object must have at least one part, and missing parts are encoded as empty strings
+  (fixed order), so the field set never shrinks.
   **Adding or removing `place_of_birth` in `pid.requestedClaims` changes every tuple subject of that provider and
   orphans its existing tuple links** (users link their wallet again). `WalletConfigValidator` has no warnings channel,
   so this is documented here and on `WalletProviderConfig.Subject` instead of being reported as a warning.

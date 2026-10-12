@@ -56,7 +56,7 @@ public sealed interface WalletSubject {
         /** The provider's subject strategy is not implemented ({@code NONE}, verify-only step-up). */
         STRATEGY_NOT_SUPPORTED,
         /** No administrative number, and the PID lacks a configured tuple field (names, birth date, issuing
-         *  country, and the place-of-birth parts when configured). */
+         *  country, and a place-of-birth object with at least one part when configured). */
         MISSING_IDENTITY_ATTRIBUTES,
         /** The subject is valid but no account is linked to it, and it may not create one: the user must sign in
          *  another way and link the wallet from the account console. */

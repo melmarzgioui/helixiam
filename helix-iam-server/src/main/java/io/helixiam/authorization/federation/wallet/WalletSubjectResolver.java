@@ -45,9 +45,11 @@ import java.util.regex.Pattern;
  * refuses {@code ATTRIBUTE_TUPLE} without it) is the tuple computed at all. Its field set is fixed by CONFIGURATION,
  * never by what a presentation happens to contain, so the same person always gets the same tuple:
  * {@code issuing_country, family_name, given_name, birthdate}, plus {@code place_of_birth.country, .region,
- * .locality} exactly when the provider's {@code pid.requestedClaims} include {@code place_of_birth}. Every configured
- * field is required: one that is missing, or empty after normalisation, makes the tuple unavailable
- * ({@link WalletSubject.Reason#MISSING_IDENTITY_ATTRIBUTES}); a shorter tuple is never computed. The subject is
+ * .locality} exactly when the provider's {@code pid.requestedClaims} include {@code place_of_birth}. The four base
+ * fields are required: one that is missing, or empty after normalisation, makes the tuple unavailable
+ * ({@link WalletSubject.Reason#MISSING_IDENTITY_ATTRIBUTES}). When configured, the place-of-birth object must have at
+ * least one non-empty part (the Rulebook guarantees "at least one"); all three parts are always encoded, a missing
+ * one as the empty string, so the field set never shrinks; a PID without the object is unavailable too. The subject is
  * {@code hex(HMAC-SHA256(realmPepper, encode(fields)))}, each value normalised: Unicode NFC, lower-cased with
  * {@link Locale#ROOT} (no case folding: {@code ß} stays {@code ß}), internal whitespace runs (NBSP and tabs included)
  * collapsed to one space, trimmed. The encoding is unambiguous: the tag {@code helix-wallet-tuple-v1;}, then for each
@@ -201,16 +203,26 @@ public class WalletSubjectResolver {
         return List.copyOf(fields);
     }
 
-    /** The encoded tuple, or {@code null} when any configured field is missing or empty after normalisation. */
+    /**
+     * The encoded tuple, or {@code null} when a configured base field is missing or empty after normalisation, or the
+     * place of birth is configured but has no non-empty part. Place-of-birth parts are always encoded, a missing one as
+     * the empty string (the Rulebook guarantees only "at least one" part).
+     */
     private static String tupleInput(final Map<String, String> attributes, final List<String> fields) {
         final StringBuilder input = new StringBuilder(TUPLE_VERSION);
+        boolean placeOfBirthPart = false;
         for (final String field : fields) {
             final String raw = attributes.get(field);
             final String value = raw == null ? "" : normalise(raw);
-            if (value.isEmpty()) {
+            final boolean placeOfBirth = PLACE_OF_BIRTH_TUPLE_FIELDS.contains(field);
+            if (value.isEmpty() && !placeOfBirth) {
                 return null;
             }
+            placeOfBirthPart |= placeOfBirth && !value.isEmpty();
             input.append(field).append('=').append(value.length()).append(':').append(value).append(';');
+        }
+        if (fields.containsAll(PLACE_OF_BIRTH_TUPLE_FIELDS) && !placeOfBirthPart) {
+            return null;
         }
         return input.toString();
     }

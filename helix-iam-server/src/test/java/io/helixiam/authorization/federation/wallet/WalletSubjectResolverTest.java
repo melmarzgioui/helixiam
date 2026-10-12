@@ -439,7 +439,7 @@ class WalletSubjectResolverTest {
     }
 
     @Test
-    void placeOfBirthConfigured_everyPartIsRequiredAndCounts() {
+    void placeOfBirthConfigured_everyPartCounts() {
         final WalletSubjectResolver resolver = resolver(PEPPER);
         final String berlin = subjectOf(resolver.resolve(REALM,
                 sdJwt(bornIn(Map.of("country", "DE", "region", "Berlin", "locality", "Berlin"))), NUMBER_ELSE_LINK,
@@ -448,15 +448,31 @@ class WalletSubjectResolverTest {
         assertThat(subjectOf(resolver.resolve(REALM,
                 sdJwt(bornIn(Map.of("country", "DE", "region", "Berlin", "locality", "Pankow"))), NUMBER_ELSE_LINK,
                 WITH_PLACE_OF_BIRTH))).isNotEqualTo(berlin);
-        for (final String missing : List.of("country", "region", "locality")) {
-            final Map<String, String> partial = new LinkedHashMap<>(
-                    Map.of("country", "DE", "region", "Berlin", "locality", "Berlin"));
-            partial.remove(missing);
-            assertThat(resolver.resolve(REALM, sdJwt(bornIn(partial)), NUMBER_ELSE_LINK, WITH_PLACE_OF_BIRTH))
-                    .as(missing)
-                    .isEqualTo(new WalletSubject.Unavailable(WalletSubject.Reason.MISSING_IDENTITY_ATTRIBUTES));
-        }
+        // a part that is missing is not the same as a part that is present
+        assertThat(subjectOf(resolver.resolve(REALM,
+                sdJwt(bornIn(Map.of("country", "DE", "locality", "Berlin"))), NUMBER_ELSE_LINK,
+                WITH_PLACE_OF_BIRTH))).isNotEqualTo(berlin);
+    }
+
+    @Test
+    void placeOfBirthConfigured_anObjectWithOnlyLocality_encodesTheMissingPartsAsEmpty() {
+        // ruling: missing parts are empty strings, fixed order:
+        // ... + "place_of_birth.country=0:;place_of_birth.region=0:;place_of_birth.locality=6:berlin;"
+        assertThat(subjectOf(resolver(PEPPER).resolve(REALM, sdJwt(bornIn(Map.of("locality", "Berlin"))),
+                NUMBER_ELSE_LINK, WITH_PLACE_OF_BIRTH)))
+                .isEqualTo("0a875dca659312c2fa3d9856a7cfa5f2edfca06ae27abb4c54073529c411808f");
+    }
+
+    @Test
+    void placeOfBirthConfigured_noObjectOrAnEmptyOne_isSubjectUnavailable() {
+        final WalletSubjectResolver resolver = resolver(PEPPER);
+
         assertThat(resolver.resolve(REALM, sdJwt(pid("Erika", "M")), NUMBER_ELSE_LINK, WITH_PLACE_OF_BIRTH))
+                .isEqualTo(new WalletSubject.Unavailable(WalletSubject.Reason.MISSING_IDENTITY_ATTRIBUTES));
+        assertThat(resolver.resolve(REALM, sdJwt(bornIn(Map.of())), NUMBER_ELSE_LINK, WITH_PLACE_OF_BIRTH))
+                .isEqualTo(new WalletSubject.Unavailable(WalletSubject.Reason.MISSING_IDENTITY_ATTRIBUTES));
+        assertThat(resolver.resolve(REALM, sdJwt(bornIn(Map.of("locality", " "))), NUMBER_ELSE_LINK,
+                WITH_PLACE_OF_BIRTH))
                 .isEqualTo(new WalletSubject.Unavailable(WalletSubject.Reason.MISSING_IDENTITY_ATTRIBUTES));
     }
 
