@@ -8,6 +8,7 @@ package io.helixiam.authorization.federation.wallet;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.authorization.federation.ProviderSecretKeys;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
 import io.helixiam.authorization.federation.wallet.dcql.PidQuerySpec;
 import io.helixiam.authorization.federation.wallet.mdoc.CborLimits;
@@ -33,9 +34,14 @@ import java.util.function.Function;
  * <h2>Differences from the spec §9 block (recorded rulings)</h2>
  * <ul>
  *   <li>{@code accessKeyRef} (a {@link io.helixiam.authorization.service.key.RealmSigningKeys} reference such as
- *       {@code software:<realm>/<name>}) replaces {@code accessCertificateKeyRef}; {@code accessCertificatePrivateKey}
- *       (a raw PEM) is accepted only in the dev profile and is a provider secret
- *       ({@link io.helixiam.authorization.federation.ProviderSecretKeys}); {@link #toString} never shows it.</li>
+ *       {@code software:<realm>/<name>}) replaces {@code accessCertificateKeyRef}. The spec name is still bound and
+ *       stored so that the validator can refuse it ("renamed to accessKeyRef") instead of silently ignoring it.
+ *       {@code accessCertificatePrivateKey} (a raw PEM) is accepted only in the dev profile and is a provider secret
+ *       ({@link ProviderSecretKeys}): {@link #toStored} never emits it (only {@link #storedSecrets} does) and
+ *       {@link #toString} never shows it.</li>
+ *   <li>{@code accessCertificateChain} is optional with {@code accessKeyRef}: the key's own chain
+ *       ({@code SigningKeyHandle.certificateChain()}) is the single source of the request object's {@code x5c}; a
+ *       configured chain must equal it.</li>
  *   <li>{@code clientIdScheme} defaults to {@code x509_hash} (the scheme HAIP guarantees); {@code invocationScheme}
  *       defaults to {@code haip-vp}.</li>
  *   <li>{@code pid.sdJwtVcts} defaults to the base PID type plus the national type recorded in the spec notes (§7.1);
@@ -48,10 +54,15 @@ import java.util.function.Function;
  * {@code limits.maxJwtBytes}, ...), lists as JSON arrays of strings ({@code credentialFormats}, {@code pid.sdJwtVcts},
  * {@code pid.requestedClaims}, {@code statusList.allowedHosts}, {@code customCredentialQueries}), PEM bundles as plain
  * strings, enums case-insensitive by name or wire value ({@code x509_hash}, {@code direct_post.jwt}). An absent or
- * blank value means the default.
+ * blank value means the default. Malformed values are collected per field: {@link #fromStored} throws them together as
+ * a {@link WalletConfigFormatException}, {@link WalletConfigValidator#validateStored} returns them as field errors.
+ *
+ * <p>Lists keep null elements (YAML or programmatic construction) so that the validator reports them as field errors
+ * instead of failing with a {@link NullPointerException} here.
  */
 public record WalletProviderConfig(String alias, String displayName, ClientIdScheme clientIdScheme,
-        String clientIdHost, String accessCertificateChain, String accessKeyRef, String accessCertificatePrivateKey,
+        String clientIdHost, String accessCertificateChain, String accessKeyRef, String accessCertificateKeyRef,
+        String accessCertificatePrivateKey,
         String registrationCertificate, String invocationScheme, ResponseMode responseMode,
         RequestUriMethod requestUriMethod, Integer transactionTtlSeconds, List<String> credentialFormats, Pid pid,
         List<String> customCredentialQueries, String trustAnchors, TrustAnchors.RevocationMode revocationChecking,
@@ -66,6 +77,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
     public static final int DEFAULT_CLOCK_SKEW_SECONDS = 60;
 
     private static final ObjectMapper JSON = new ObjectMapper();
+    /** The protocol whose secret keys {@link #toStored} leaves out (the same set for every wallet alias). */
+    private static final String SECRET_PROTOCOL = "eudi-wallet";
 
     public WalletProviderConfig {
         clientIdScheme = clientIdScheme == null ? ClientIdScheme.X509_HASH : clientIdScheme;
@@ -73,9 +86,9 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         responseMode = responseMode == null ? ResponseMode.DIRECT_POST_JWT : responseMode;
         requestUriMethod = requestUriMethod == null ? RequestUriMethod.GET : requestUriMethod;
         transactionTtlSeconds = transactionTtlSeconds == null ? DEFAULT_TRANSACTION_TTL_SECONDS : transactionTtlSeconds;
-        credentialFormats = credentialFormats == null ? DEFAULT_FORMATS : List.copyOf(credentialFormats);
+        credentialFormats = credentialFormats == null ? DEFAULT_FORMATS : copy(credentialFormats);
         pid = pid == null ? new Pid(null, null, null) : pid;
-        customCredentialQueries = customCredentialQueries == null ? List.of() : List.copyOf(customCredentialQueries);
+        customCredentialQueries = customCredentialQueries == null ? List.of() : copy(customCredentialQueries);
         revocationChecking = revocationChecking == null ? TrustAnchors.RevocationMode.SOFT_FAIL : revocationChecking;
         statusList = statusList == null ? new StatusList(false, null, null, null) : statusList;
         subject = subject == null ? new Subject(null, false) : subject;
@@ -146,9 +159,9 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         public static final List<String> DEFAULT_REQUESTED_CLAIMS = List.of("given_name", "family_name", "birthdate");
 
         public Pid {
-            sdJwtVcts = sdJwtVcts == null ? DEFAULT_SD_JWT_VCTS : List.copyOf(sdJwtVcts);
+            sdJwtVcts = sdJwtVcts == null ? DEFAULT_SD_JWT_VCTS : copy(sdJwtVcts);
             mdocDoctype = isBlank(mdocDoctype) ? PidQuerySpec.DEFAULT_MDOC_DOCTYPE : mdocDoctype.trim();
-            requestedClaims = requestedClaims == null ? DEFAULT_REQUESTED_CLAIMS : List.copyOf(requestedClaims);
+            requestedClaims = requestedClaims == null ? DEFAULT_REQUESTED_CLAIMS : copy(requestedClaims);
         }
 
         /** What {@link DcqlQueryBuilder#pidQuery} requests. */
@@ -183,7 +196,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         public StatusList {
             onUnavailable = onUnavailable == null ? StatusPolicy.OnUnavailable.FAIL_CLOSED : onUnavailable;
             maxCacheSeconds = maxCacheSeconds == null ? DEFAULT_MAX_CACHE_SECONDS : maxCacheSeconds;
-            allowedHosts = allowedHosts == null ? List.of() : List.copyOf(allowedHosts);
+            allowedHosts = allowedHosts == null ? List.of() : copy(allowedHosts);
         }
 
         /** The policy {@link io.helixiam.authorization.federation.wallet.status.TokenStatusListClient} enforces. */
@@ -241,39 +254,80 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
      * A config from a stored identity provider: its alias and display name plus the flat settings map (see the class
      * comment).
      *
-     * @throws IllegalArgumentException for a malformed list, number, boolean or enum value; the message names the key
-     *                                  and never echoes the value
+     * @throws WalletConfigFormatException carrying every malformed field (list, number, boolean or enum value); the
+     *                                     messages name the key and never echo the value
      */
     public static WalletProviderConfig fromStored(final String alias, final String displayName,
                                                   final Map<String, String> stored) {
-        final Map<String, String> c = stored == null ? Map.of() : stored;
-        return new WalletProviderConfig(alias, displayName,
-                enumValue(c, "clientIdScheme", ClientIdScheme.class, ClientIdScheme::value),
-                text(c, "clientIdHost"), text(c, "accessCertificateChain"), text(c, "accessKeyRef"),
-                text(c, "accessCertificatePrivateKey"), text(c, "registrationCertificate"),
-                text(c, "invocationScheme"),
-                enumValue(c, "responseMode", ResponseMode.class, ResponseMode::value),
-                enumValue(c, "requestUriMethod", RequestUriMethod.class, RequestUriMethod::value),
-                integer(c, "transactionTtlSeconds"), list(c, "credentialFormats"),
-                new Pid(list(c, "pid.sdJwtVcts"), text(c, "pid.mdocDoctype"), list(c, "pid.requestedClaims")),
-                list(c, "customCredentialQueries"), text(c, "trustAnchors"),
-                enumValue(c, "revocationChecking", TrustAnchors.RevocationMode.class, Enum::name),
-                new StatusList(bool(c, "statusList.required"),
-                        enumValue(c, "statusList.onUnavailable", StatusPolicy.OnUnavailable.class, Enum::name),
-                        integer(c, "statusList.maxCacheSeconds"), list(c, "statusList.allowedHosts")),
-                new Subject(enumValue(c, "subject.strategy", Subject.Strategy.class, Enum::name),
-                        bool(c, "subject.acknowledgeWeakSubject")),
-                text(c, "minimumLoa"), integer(c, "clockSkewSeconds"), bool(c, "allowLegacyVcSdJwtTyp"),
-                new Limits(integer(c, "limits.maxJwtBytes"), integer(c, "limits.cborMaxDepth"),
-                        integer(c, "limits.cborMaxItems"), integer(c, "limits.cborMaxBytes")));
+        final Parsed parsed = parseStored(alias, displayName, stored);
+        if (!parsed.fieldErrors().isEmpty()) {
+            throw new WalletConfigFormatException(parsed.fieldErrors());
+        }
+        return parsed.config();
     }
 
     /**
-     * The stored flat map, {@link #fromStored} round-trips it. It includes {@code accessCertificatePrivateKey} when set:
-     * persist it only through {@link io.helixiam.authorization.federation.ProviderSecretKeys#split}, which moves it to
-     * the encrypted secrets.
+     * Reads the stored map without throwing: a malformed field is recorded in {@code fieldErrors} and takes its
+     * default in {@code config}.
+     */
+    static Parsed parseStored(final String alias, final String displayName, final Map<String, String> stored) {
+        final Reader r = new Reader(stored == null ? Map.of() : stored);
+        final WalletProviderConfig config = new WalletProviderConfig(alias, displayName,
+                r.enumValue("clientIdScheme", ClientIdScheme.class, ClientIdScheme::value),
+                r.text("clientIdHost"), r.text("accessCertificateChain"), r.text("accessKeyRef"),
+                r.text("accessCertificateKeyRef"), r.text("accessCertificatePrivateKey"),
+                r.text("registrationCertificate"), r.text("invocationScheme"),
+                r.enumValue("responseMode", ResponseMode.class, ResponseMode::value),
+                r.enumValue("requestUriMethod", RequestUriMethod.class, RequestUriMethod::value),
+                r.integer("transactionTtlSeconds"), r.list("credentialFormats"),
+                new Pid(r.list("pid.sdJwtVcts"), r.text("pid.mdocDoctype"), r.list("pid.requestedClaims")),
+                r.list("customCredentialQueries"), r.text("trustAnchors"),
+                r.enumValue("revocationChecking", TrustAnchors.RevocationMode.class, Enum::name),
+                new StatusList(r.bool("statusList.required"),
+                        r.enumValue("statusList.onUnavailable", StatusPolicy.OnUnavailable.class, Enum::name),
+                        r.integer("statusList.maxCacheSeconds"), r.list("statusList.allowedHosts")),
+                new Subject(r.enumValue("subject.strategy", Subject.Strategy.class, Enum::name),
+                        r.bool("subject.acknowledgeWeakSubject")),
+                r.text("minimumLoa"), r.integer("clockSkewSeconds"), r.bool("allowLegacyVcSdJwtTyp"),
+                new Limits(r.integer("limits.maxJwtBytes"), r.integer("limits.cborMaxDepth"),
+                        r.integer("limits.cborMaxItems"), r.integer("limits.cborMaxBytes")));
+        return new Parsed(config, Collections.unmodifiableMap(r.errors));
+    }
+
+    /** A stored map read leniently: the config (malformed fields defaulted) and field → message for each one. */
+    record Parsed(WalletProviderConfig config, Map<String, String> fieldErrors) {
+    }
+
+    /**
+     * The plain (non-secret) stored settings; {@link #fromStored} round-trips them together with
+     * {@link #storedSecrets}. Secret keys ({@link ProviderSecretKeys#isSecret}) are never in this map, so returning it
+     * from an admin API or writing it to {@code config_json} cannot leak the dev private key.
      */
     public Map<String, String> toStored() {
+        final Map<String, String> plain = new LinkedHashMap<>();
+        allStored().forEach((k, v) -> {
+            if (!ProviderSecretKeys.isSecret(SECRET_PROTOCOL, k)) {
+                plain.put(k, v);
+            }
+        });
+        return plain;
+    }
+
+    /**
+     * The secret stored settings (today only the dev-only {@code accessCertificatePrivateKey}), to be written only to
+     * the encrypted {@code secret_json} ({@link ProviderSecretKeys}); empty when none is set.
+     */
+    public Map<String, String> storedSecrets() {
+        final Map<String, String> secrets = new LinkedHashMap<>();
+        allStored().forEach((k, v) -> {
+            if (ProviderSecretKeys.isSecret(SECRET_PROTOCOL, k)) {
+                secrets.put(k, v);
+            }
+        });
+        return secrets;
+    }
+
+    private Map<String, String> allStored() {
         final Map<String, String> m = new LinkedHashMap<>();
         put(m, "alias", alias);
         put(m, "displayName", displayName);
@@ -281,6 +335,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         put(m, "clientIdHost", clientIdHost);
         put(m, "accessCertificateChain", accessCertificateChain);
         put(m, "accessKeyRef", accessKeyRef);
+        put(m, "accessCertificateKeyRef", accessCertificateKeyRef);
         put(m, "accessCertificatePrivateKey", accessCertificatePrivateKey);
         put(m, "registrationCertificate", registrationCertificate);
         put(m, "invocationScheme", invocationScheme);
@@ -333,78 +388,93 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         }
     }
 
-    private static String text(final Map<String, String> c, final String key) {
-        final String v = c.get(key);
-        return isBlank(v) ? null : v;
+    /** A copy that keeps null elements (reported by the validator) and cannot be modified. */
+    private static List<String> copy(final List<String> values) {
+        return Collections.unmodifiableList(new ArrayList<>(values));
     }
 
-    private static Integer integer(final Map<String, String> c, final String key) {
-        final String v = text(c, key);
-        if (v == null) {
+    /** Reads stored values; a malformed one is recorded (first message per key) and read as absent. */
+    private static final class Reader {
+        private final Map<String, String> c;
+        private final Map<String, String> errors = new LinkedHashMap<>();
+
+        Reader(final Map<String, String> c) {
+            this.c = c;
+        }
+
+        private <T> T fail(final String key, final String message) {
+            errors.putIfAbsent(key, message);
             return null;
         }
-        try {
-            return Integer.valueOf(v.trim());
-        } catch (final NumberFormatException e) {
-            throw new IllegalArgumentException(key + " must be a whole number");
-        }
-    }
 
-    private static boolean bool(final Map<String, String> c, final String key) {
-        final String v = text(c, key);
-        if (v == null) {
-            return false;
+        String text(final String key) {
+            final String v = c.get(key);
+            return isBlank(v) ? null : v;
         }
-        if ("true".equalsIgnoreCase(v.trim())) {
-            return true;
-        }
-        if ("false".equalsIgnoreCase(v.trim())) {
-            return false;
-        }
-        throw new IllegalArgumentException(key + " must be true or false");
-    }
 
-    private static <E extends Enum<E>> E enumValue(final Map<String, String> c, final String key, final Class<E> type,
-                                                   final Function<E, String> wire) {
-        final String v = text(c, key);
-        if (v == null) {
-            return null;
-        }
-        final String wanted = v.trim();
-        for (final E e : type.getEnumConstants()) {
-            if (e.name().equalsIgnoreCase(wanted) || wire.apply(e).equalsIgnoreCase(wanted)) {
-                return e;
+        Integer integer(final String key) {
+            final String v = text(key);
+            if (v == null) {
+                return null;
+            }
+            try {
+                return Integer.valueOf(v.trim());
+            } catch (final NumberFormatException e) {
+                return fail(key, key + " must be a whole number");
             }
         }
-        final List<String> allowed = new ArrayList<>();
-        for (final E e : type.getEnumConstants()) {
-            allowed.add(wire.apply(e));
-        }
-        throw new IllegalArgumentException(key + " must be one of " + allowed);
-    }
 
-    private static List<String> list(final Map<String, String> c, final String key) {
-        final String v = text(c, key);
-        if (v == null) {
-            return null;
-        }
-        final JsonNode node;
-        try {
-            node = JSON.readTree(v);
-        } catch (final JsonProcessingException e) {
-            throw new IllegalArgumentException(key + " must be a JSON array of strings");
-        }
-        if (node == null || !node.isArray()) {
-            throw new IllegalArgumentException(key + " must be a JSON array of strings");
-        }
-        final List<String> out = new ArrayList<>();
-        for (final JsonNode element : node) {
-            if (!element.isTextual()) {
-                throw new IllegalArgumentException(key + " must be a JSON array of strings");
+        boolean bool(final String key) {
+            final String v = text(key);
+            if (v == null || "false".equalsIgnoreCase(v.trim())) {
+                return false;
             }
-            out.add(element.textValue());
+            if ("true".equalsIgnoreCase(v.trim())) {
+                return true;
+            }
+            fail(key, key + " must be true or false");
+            return false;
         }
-        return out;
+
+        <E extends Enum<E>> E enumValue(final String key, final Class<E> type, final Function<E, String> wire) {
+            final String v = text(key);
+            if (v == null) {
+                return null;
+            }
+            final String wanted = v.trim();
+            final List<String> allowed = new ArrayList<>();
+            for (final E e : type.getEnumConstants()) {
+                if (e.name().equalsIgnoreCase(wanted) || wire.apply(e).equalsIgnoreCase(wanted)) {
+                    return e;
+                }
+                allowed.add(wire.apply(e));
+            }
+            return fail(key, key + " must be one of " + allowed);
+        }
+
+        List<String> list(final String key) {
+            final String v = text(key);
+            if (v == null) {
+                return null;
+            }
+            final JsonNode node;
+            try {
+                node = JSON.readTree(v);
+            } catch (final JsonProcessingException e) {
+                return fail(key, key + " must be a JSON array of strings");
+            }
+            if (node == null || !node.isArray()) {
+                return fail(key, key + " must be a JSON array of strings");
+            }
+            final List<String> out = new ArrayList<>();
+            for (final JsonNode element : node) {
+                if (!element.isTextual()) {
+                    return fail(key, key + " must be a JSON array of strings");
+                }
+                out.add(element.textValue());
+            }
+            return out;
+        }
     }
 
     private static String json(final List<String> values) {

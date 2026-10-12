@@ -241,24 +241,12 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
             throw new IllegalArgumentException("The private key does not match the certificate (the first certificate "
                     + "of the chain must be the leaf for this key)");
         }
-        try {
-            leaf.checkValidity();
-        } catch (final CertificateExpiredException e) {
-            throw new IllegalArgumentException("The leaf certificate has expired (notAfter " + leaf.getNotAfter() + ")");
-        } catch (final CertificateNotYetValidException e) {
-            throw new IllegalArgumentException("The leaf certificate is not yet valid (notBefore "
-                    + leaf.getNotBefore() + ")");
-        }
+        checkLeafValidity(leaf);
         if (verifiesWithOwnKey(leaf)) { // by key alone: an issuer DN != subject must not hide it
             throw new IllegalArgumentException("The verifier access certificate must not be self-signed (HAIP); "
                     + "import a certificate issued by a CA, with its chain");
         }
-        for (int i = 0; i + 1 < parsed.size(); i++) {
-            if (!issuedBy(parsed.get(i), parsed.get(i + 1))) {
-                throw new IllegalArgumentException("The certificate chain must be ordered leaf first, each certificate "
-                        + "issued by the next one (certificate " + (i + 2) + " did not issue certificate " + (i + 1) + ")");
-            }
-        }
+        checkLeafFirstOrder(parsed);
         final List<X509Certificate> stored = new ArrayList<>(parsed);
         if (stored.size() > 1 && isSelfSigned(stored.get(stored.size() - 1))) {
             stored.remove(stored.size() - 1); // the trust anchor never goes into x5c
@@ -274,6 +262,43 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
      */
     public static boolean verifiesWithOwnKey(final X509Certificate cert) {
         return verifiesWith(cert, cert.getPublicKey());
+    }
+
+    /**
+     * The import's validity check: the leaf is currently valid.
+     *
+     * @throws IllegalArgumentException "The leaf certificate has expired (notAfter …)" or "… is not yet valid (notBefore
+     *                                  …)"
+     */
+    public static void checkLeafValidity(final X509Certificate leaf) {
+        try {
+            leaf.checkValidity();
+        } catch (final CertificateExpiredException e) {
+            throw new IllegalArgumentException("The leaf certificate has expired (notAfter " + leaf.getNotAfter() + ")");
+        } catch (final CertificateNotYetValidException e) {
+            throw new IllegalArgumentException("The leaf certificate is not yet valid (notBefore "
+                    + leaf.getNotBefore() + ")");
+        }
+    }
+
+    /**
+     * The import's order check: the chain is leaf first, each certificate issued (DN and signature) by the next one.
+     *
+     * @throws IllegalArgumentException naming the first pair that is out of order
+     */
+    public static void checkLeafFirstOrder(final List<X509Certificate> chain) {
+        for (int i = 0; i + 1 < chain.size(); i++) {
+            if (!issuedBy(chain.get(i), chain.get(i + 1))) {
+                throw new IllegalArgumentException("The certificate chain must be ordered leaf first, each certificate "
+                        + "issued by the next one (certificate " + (i + 2) + " did not issue certificate " + (i + 1) + ")");
+            }
+        }
+    }
+
+    /** A root: subject equals issuer and the signature verifies with its own key. x5c never carries one. */
+    public static boolean isSelfSigned(final X509Certificate cert) {
+        return cert.getSubjectX500Principal().equals(cert.getIssuerX500Principal())
+                && verifiesWith(cert, cert.getPublicKey());
     }
 
     /**
@@ -340,11 +365,6 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
         } catch (final GeneralSecurityException e) {
             return false;
         }
-    }
-
-    private static boolean isSelfSigned(final X509Certificate cert) {
-        return cert.getSubjectX500Principal().equals(cert.getIssuerX500Principal())
-                && verifiesWith(cert, cert.getPublicKey());
     }
 
     private static boolean issuedBy(final X509Certificate cert, final X509Certificate issuer) {

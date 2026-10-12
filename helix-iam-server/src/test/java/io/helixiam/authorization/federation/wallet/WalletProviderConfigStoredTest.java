@@ -148,27 +148,30 @@ class WalletProviderConfigStoredTest {
     @Test
     void storedRoundTrip_isLossless() {
         final WalletProviderConfig original = full();
-        assertThat(WalletProviderConfig.fromStored(original.toStored())).isEqualTo(original);
+        final Map<String, String> merged = new LinkedHashMap<>(original.toStored());
+        merged.putAll(original.storedSecrets());
+        assertThat(WalletProviderConfig.fromStored(merged)).isEqualTo(original);
     }
 
     @Test
-    void storedRoundTrip_neverEmitsThePrivateKeyInPlainText() {
+    void toStored_neverEmitsThePrivateKey() {
         final WalletProviderConfig original = full();
-        final ProviderSecretKeys.Split split = ProviderSecretKeys.split("eudi-wallet", original.toStored());
+        final Map<String, String> plain = original.toStored();
 
-        assertThat(split.secrets()).containsOnlyKeys("accessCertificatePrivateKey");
-        assertThat(split.plain()).doesNotContainKey("accessCertificatePrivateKey");
-        assertThat(split.plain().values()).noneMatch(v -> v != null && v.contains("PRIVATE KEY"));
-        assertThat(String.join("", split.plain().values())).doesNotContain(PRIVATE_PEM.substring(40, 80));
-
-        // The runtime merges the decrypted secret back into one map (IdentityProviderConfigService).
-        final Map<String, String> merged = new LinkedHashMap<>(split.plain());
-        merged.putAll(split.secrets());
-        assertThat(WalletProviderConfig.fromStored(merged)).isEqualTo(original);
-        // Every wallet protocol alias treats it as a secret.
+        assertThat(plain).doesNotContainKey("accessCertificatePrivateKey");
+        assertThat(plain.values()).noneMatch(v -> v.contains("PRIVATE KEY"));
+        assertThat(plain.toString()).doesNotContain("PRIVATE KEY").doesNotContain(PRIVATE_PEM.substring(40, 80));
+        // Every key toStored emits is a plain (non-secret) key for every wallet protocol alias.
+        for (final String protocol : List.of("eudi-wallet", "openid4vp", "wallet")) {
+            assertThat(plain.keySet()).noneMatch(k -> ProviderSecretKeys.isSecret(protocol, k));
+            assertThat(ProviderSecretKeys.split(protocol, plain).secrets()).isEmpty();
+        }
+        // The secret is only available from the explicitly named accessor, and it is a declared provider secret.
+        assertThat(original.storedSecrets()).containsOnlyKeys("accessCertificatePrivateKey");
         for (final String protocol : List.of("eudi-wallet", "openid4vp", "wallet", "EUDI-WALLET")) {
             assertThat(ProviderSecretKeys.isSecret(protocol, "accessCertificatePrivateKey")).isTrue();
         }
+        assertThat(WalletProviderConfig.fromStored(Map.of()).storedSecrets()).isEmpty();
     }
 
     @Test
@@ -176,6 +179,8 @@ class WalletProviderConfigStoredTest {
         final String s = full().toString();
         assertThat(s).doesNotContain("PRIVATE KEY").doesNotContain(PRIVATE_PEM.substring(40, 80));
         assertThat(s).contains("eudi-wallet");
+        assertThat(full().pid().toString() + full().statusList() + full().subject() + full().limits())
+                .doesNotContain("PRIVATE KEY");
     }
 
     @Test

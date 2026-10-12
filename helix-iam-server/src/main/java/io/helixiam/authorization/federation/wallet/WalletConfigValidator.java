@@ -36,18 +36,30 @@ import java.util.regex.Pattern;
 /**
  * Checks a {@link WalletProviderConfig} before it is used (spec §9: at startup and on store refresh, fail fast).
  * {@link #validate} returns field → message (the admin API's {@code fieldErrors} shape, field names as in the stored
- * map); {@link #requireValid} throws with all of them. Messages never echo PEM content or key material.
+ * map); {@link #validateStored} does the same for a raw stored map, so malformed values (bad JSON list, unknown enum,
+ * bad number or boolean) are field errors too and nothing is thrown; {@link #requireValid} throws with all of them.
+ * Messages never echo PEM content or key material, and an exception without a message gets a fixed one.
  *
- * <p>Rules: alias present; access certificate parses and is not self-signed (judged by its signature verifying with its
- * own key, {@link SoftwareRealmSigningKeys#verifiesWithOwnKey}); for {@code x509_san_dns} the leaf has
- * {@code clientIdHost} as a DNS subjectAltName; exactly one signing key: {@code accessKeyRef} (resolved in the realm,
- * and proven to sign for the certificate's public key) or, in the dev profile only, {@code accessCertificatePrivateKey}
- * (proven to match the certificate); {@code registrationCertificate} parses when set; at least one acceptable trust
- * anchor; at least one known, non-repeated credential format; known, non-repeated PID claims that
- * {@link DcqlQueryBuilder} can request for the configured formats; {@code direct_post} only in dev; TTL 60–900 s;
- * clock skew 0–60 s; positive limits; status cache 0–900 s and bare host names; {@code ATTRIBUTE_TUPLE} only with
- * {@code acknowledgeWeakSubject}; {@code NONE} and {@code customCredentialQueries} not supported yet; {@code minimumLoa}
- * on the eIDAS ladder ({@link EidScheme#EUDI_WALLET} delegates to it).
+ * <h2>Access certificate chain</h2>
+ * With {@code accessKeyRef}, the key's own chain ({@link SigningKeyHandle#certificateChain()}) is the single source of
+ * the request object's {@code x5c}; a configured {@code accessCertificateChain} must equal it. With the dev-only
+ * {@code accessCertificatePrivateKey}, the configured chain is required. The effective chain must be leaf first, each
+ * certificate issued by the next, without the root; its leaf must be currently valid and not self-signed (judged by
+ * its signature verifying with its own key). These checks reuse Task 5's import checks
+ * ({@link SoftwareRealmSigningKeys#checkLeafValidity}, {@link SoftwareRealmSigningKeys#verifiesWithOwnKey},
+ * {@link SoftwareRealmSigningKeys#checkLeafFirstOrder}, {@link SoftwareRealmSigningKeys#isSelfSigned}).
+ *
+ * <h2>Other rules</h2>
+ * alias present; the spec name {@code accessCertificateKeyRef} refused as renamed; for {@code x509_san_dns} the leaf
+ * has {@code clientIdHost} as a DNS subjectAltName; exactly one signing key, which must belong to the leaf (the
+ * {@code accessKeyRef} key, resolved in the realm, signs a probe that verifies with the leaf's public key; the dev PEM
+ * is matched to it); a key that cannot be resolved or used is a field error; {@code registrationCertificate} parses
+ * when set; at least one acceptable trust anchor; at least one known, non-repeated, non-empty credential format;
+ * known, non-repeated, non-empty PID claims that {@link DcqlQueryBuilder} can request for the configured formats;
+ * {@code direct_post} only in dev; TTL 60–900 s; clock skew 0–60 s; positive limits; status cache 0–900 s and bare
+ * host names; {@code ATTRIBUTE_TUPLE} only with {@code acknowledgeWeakSubject}; {@code NONE} and
+ * {@code customCredentialQueries} not supported yet; {@code minimumLoa} on the eIDAS ladder ({@link EidScheme#EUDI_WALLET}
+ * delegates to it).
  */
 @Component
 public class WalletConfigValidator {
@@ -65,6 +77,10 @@ public class WalletConfigValidator {
     private static final int MAX_CLOCK_SKEW = 60;
     private static final int MAX_STATUS_CACHE = 900;
 
+    private static final String CHAIN = "accessCertificateChain";
+    private static final String KEY_REF = "accessKeyRef";
+    private static final String DEV_KEY = "accessCertificatePrivateKey";
+
     private final RealmSigningKeys keys;
     private final DeploymentProfile profile;
 
@@ -73,17 +89,33 @@ public class WalletConfigValidator {
         this.profile = profile;
     }
 
+    /**
+     * Field → message for a raw stored map (the admin console's form): malformed values first, then every rule of
+     * {@link #validate} on the config with those values defaulted. Never throws for bad input, so an admin write can
+     * answer {@code 400 {message, fieldErrors}} instead of reaching {@code /error}.
+     *
+     * <p>Chosen over catching {@link WalletConfigFormatException} because the console needs format and rule problems
+     * in one response; {@link WalletProviderConfig#fromStored} still throws (typed, with the same field map) for
+     * runtime callers that must not build a provider from a malformed record.
+     */
+    public Map<String, String> validateStored(final String realmId, final String alias, final String displayName,
+                                              final Map<String, String> stored) {
+        final WalletProviderConfig.Parsed parsed = WalletProviderConfig.parseStored(alias, displayName, stored);
+        final Map<String, String> errors = new LinkedHashMap<>(parsed.fieldErrors());
+        validate(realmId, parsed.config()).forEach(errors::putIfAbsent);
+        return errors;
+    }
+
     /** Field → message for every problem (empty when the config is usable in {@code realmId}). */
     public Map<String, String> validate(final String realmId, final WalletProviderConfig c) {
         final Errors e = new Errors();
         if (c.alias() == null || c.alias().isBlank()) {
             e.add("alias", "alias is required");
         }
-        final X509Certificate leaf = accessCertificate(c, e);
-        if (leaf != null && c.clientIdScheme() == WalletProviderConfig.ClientIdScheme.X509_SAN_DNS) {
-            checkSan(c, leaf, e);
+        if (c.accessCertificateKeyRef() != null && !c.accessCertificateKeyRef().isBlank()) {
+            e.add("accessCertificateKeyRef", "accessCertificateKeyRef was renamed to accessKeyRef");
         }
-        checkKey(realmId, c, leaf, e);
+        checkAccessKeyAndChain(realmId, c, e);
         if (c.registrationCertificate() != null) {
             try {
                 SoftwareRealmSigningKeys.parseCertificateChain(c.registrationCertificate());
@@ -105,7 +137,7 @@ public class WalletConfigValidator {
         try {
             TrustAnchors.fromPem(c.trustAnchors(), null, c.revocationChecking());
         } catch (final IllegalArgumentException ex) {
-            e.add("trustAnchors", ex.getMessage()); // field-safe by contract (TrustAnchors.fromPem)
+            e.add("trustAnchors", message(ex, "The trust anchors are not acceptable")); // field-safe by contract
         }
         checkStatusList(c.statusList(), e);
         checkSubject(c.subject(), e);
@@ -130,25 +162,86 @@ public class WalletConfigValidator {
         }
     }
 
-    // ------------------------------------------------------------------------------------------------ certificate
+    // ------------------------------------------------------------------------------------------------ key and chain
 
-    private static X509Certificate accessCertificate(final WalletProviderConfig c, final Errors e) {
+    private void checkAccessKeyAndChain(final String realmId, final WalletProviderConfig c, final Errors e) {
+        final List<X509Certificate> configured = configuredChain(c, e);
+        final boolean hasRef = c.accessKeyRef() != null && !c.accessKeyRef().isBlank();
+        final boolean hasPem = c.accessCertificatePrivateKey() != null && !c.accessCertificatePrivateKey().isBlank();
+        List<X509Certificate> effective = configured;
+        String chainField = CHAIN;
+        if (hasPem && !profile.isDev()) {
+            e.add(DEV_KEY, "A raw private key is accepted only in the dev profile; import it and set accessKeyRef");
+        } else if (hasRef && hasPem) {
+            e.add(DEV_KEY, "Set either accessKeyRef or accessCertificatePrivateKey, not both");
+        } else if (!hasRef && !hasPem) {
+            e.add(KEY_REF, "accessKeyRef is required (a signing key imported into this realm)");
+        } else if (hasPem) {
+            if (c.accessCertificateChain() == null) {
+                e.add(CHAIN, "accessCertificateChain (PEM, leaf first) is required with accessCertificatePrivateKey");
+            } else if (configured != null) {
+                checkDevKey(c.accessCertificatePrivateKey(), configured.get(0), e);
+            }
+        } else {
+            final SigningKeyHandle handle = resolve(realmId, c.accessKeyRef(), e);
+            if (handle != null) {
+                final List<X509Certificate> keyChain = handle.certificateChain();
+                if (keyChain == null || keyChain.isEmpty()) {
+                    e.add(KEY_REF, "The key behind accessKeyRef has no certificate chain");
+                    return;
+                }
+                if (c.accessCertificateChain() != null && configured != null && !configured.equals(keyChain)) {
+                    e.add(CHAIN, "accessCertificateChain must equal the certificate chain of the key behind accessKeyRef");
+                }
+                if (!signsFor(handle, keyChain.get(0))) {
+                    e.add(KEY_REF, "The key behind accessKeyRef does not match the access certificate");
+                }
+                effective = keyChain;
+                chainField = c.accessCertificateChain() == null ? KEY_REF : CHAIN;
+            }
+        }
+        if (effective != null) {
+            checkChain(effective, chainField, e);
+            if (c.clientIdScheme() == WalletProviderConfig.ClientIdScheme.X509_SAN_DNS) {
+                checkSan(c, effective.get(0), e);
+            }
+        }
+    }
+
+    /** The configured chain, parsed; null when absent or unparseable (then reported). */
+    private static List<X509Certificate> configuredChain(final WalletProviderConfig c, final Errors e) {
         if (c.accessCertificateChain() == null) {
-            e.add("accessCertificateChain", "accessCertificateChain (PEM, leaf first) is required");
             return null;
         }
-        final List<X509Certificate> chain;
         try {
-            chain = SoftwareRealmSigningKeys.parseCertificateChain(c.accessCertificateChain());
+            return SoftwareRealmSigningKeys.parseCertificateChain(c.accessCertificateChain());
         } catch (final IllegalArgumentException ex) {
-            e.add("accessCertificateChain", "accessCertificateChain could not be parsed as PEM certificates");
+            e.add(CHAIN, "accessCertificateChain could not be parsed as PEM certificates");
             return null;
         }
+    }
+
+    /** Task 5's import rules on the chain that goes into x5c. */
+    private static void checkChain(final List<X509Certificate> chain, final String field, final Errors e) {
         final X509Certificate leaf = chain.get(0);
-        if (SoftwareRealmSigningKeys.verifiesWithOwnKey(leaf)) {
-            e.add("accessCertificateChain", "The access certificate must not be self-signed (HAIP)");
+        try {
+            SoftwareRealmSigningKeys.checkLeafValidity(leaf);
+        } catch (final IllegalArgumentException ex) {
+            e.add(field, message(ex, "The access certificate is not currently valid"));
         }
-        return leaf;
+        if (SoftwareRealmSigningKeys.verifiesWithOwnKey(leaf)) {
+            e.add(field, "The access certificate must not be self-signed (HAIP)");
+            return;
+        }
+        try {
+            SoftwareRealmSigningKeys.checkLeafFirstOrder(chain);
+        } catch (final IllegalArgumentException ex) {
+            e.add(field, message(ex, "The certificate chain must be ordered leaf first"));
+        }
+        if (chain.size() > 1 && SoftwareRealmSigningKeys.isSelfSigned(chain.get(chain.size() - 1))) {
+            e.add(field, "The certificate chain must not include the root (self-signed) certificate; "
+                    + "x5c never carries it");
+        }
     }
 
     private static void checkSan(final WalletProviderConfig c, final X509Certificate leaf, final Errors e) {
@@ -157,7 +250,7 @@ public class WalletConfigValidator {
             return;
         }
         final String host = c.clientIdHost().trim();
-        if (!dnsNames(leaf).stream().anyMatch(host::equalsIgnoreCase)) {
+        if (dnsNames(leaf).stream().noneMatch(host::equalsIgnoreCase)) {
             e.add("clientIdHost", "clientIdHost must be a DNS subjectAltName of the access certificate (x509_san_dns)");
         }
     }
@@ -180,58 +273,29 @@ public class WalletConfigValidator {
         return names;
     }
 
-    // ------------------------------------------------------------------------------------------------ signing key
-
-    private void checkKey(final String realmId, final WalletProviderConfig c, final X509Certificate leaf,
-                          final Errors e) {
-        final boolean hasRef = c.accessKeyRef() != null && !c.accessKeyRef().isBlank();
-        final boolean hasPem = c.accessCertificatePrivateKey() != null && !c.accessCertificatePrivateKey().isBlank();
-        if (hasPem && !profile.isDev()) {
-            e.add("accessCertificatePrivateKey",
-                    "A raw private key is accepted only in the dev profile; import it and set accessKeyRef");
-            return;
-        }
-        if (hasRef && hasPem) {
-            e.add("accessCertificatePrivateKey", "Set either accessKeyRef or accessCertificatePrivateKey, not both");
-            return;
-        }
-        if (!hasRef && !hasPem) {
-            e.add("accessKeyRef", "accessKeyRef is required (a signing key imported into this realm)");
-            return;
-        }
-        if (hasPem) {
-            checkDevKey(c.accessCertificatePrivateKey(), leaf, e);
-        } else {
-            checkKeyRef(realmId, c.accessKeyRef(), leaf, e);
-        }
-    }
-
     private static void checkDevKey(final String pem, final X509Certificate leaf, final Errors e) {
         try {
-            final boolean matches = SoftwareRealmSigningKeys.privateKeyMatches(pem, leaf == null ? null
-                    : leaf.getPublicKey());
-            if (leaf != null && !matches) {
-                e.add("accessCertificatePrivateKey", "accessCertificatePrivateKey does not match the access certificate");
+            if (!SoftwareRealmSigningKeys.privateKeyMatches(pem, leaf.getPublicKey())) {
+                e.add(DEV_KEY, "accessCertificatePrivateKey does not match the access certificate");
             }
         } catch (final IllegalArgumentException ex) {
-            e.add("accessCertificatePrivateKey", ex.getMessage()); // field-safe by contract, never the PEM
+            e.add(DEV_KEY, message(ex, "accessCertificatePrivateKey could not be read")); // field-safe, never the PEM
         }
     }
 
-    private void checkKeyRef(final String realmId, final String keyRef, final X509Certificate leaf, final Errors e) {
-        final SigningKeyHandle handle;
+    /** The realm's key, or null with a field error: a missing / foreign / unsupported ref, or a key that is unusable. */
+    private SigningKeyHandle resolve(final String realmId, final String keyRef, final Errors e) {
         try {
-            handle = keys.resolve(realmId, keyRef);
+            return keys.resolve(realmId, keyRef);
         } catch (final NoSuchElementException | IllegalArgumentException | UnsupportedOperationException ex) {
-            e.add("accessKeyRef", ex.getMessage());
-            return;
+            e.add(KEY_REF, message(ex, "accessKeyRef could not be resolved"));
+        } catch (final RuntimeException ex) { // corrupt or undecryptable stored key (IllegalStateException, ...)
+            e.add(KEY_REF, "The key behind accessKeyRef cannot be used");
         }
-        if (leaf != null && !signsFor(handle, leaf)) {
-            e.add("accessKeyRef", "The key behind accessKeyRef does not match the access certificate");
-        }
+        return null;
     }
 
-    /** The key proves itself: a probe it signs verifies with the configured leaf's public key. */
+    /** The key proves itself: a probe it signs verifies with the leaf's public key. */
     private static boolean signsFor(final SigningKeyHandle handle, final X509Certificate leaf) {
         if (!(leaf.getPublicKey() instanceof ECPublicKey publicKey)) {
             return false;
@@ -243,6 +307,10 @@ public class WalletConfigValidator {
         } catch (final JOSEException ex) {
             return false;
         }
+    }
+
+    private static String message(final RuntimeException ex, final String fallback) {
+        return ex.getMessage() == null || ex.getMessage().isBlank() ? fallback : ex.getMessage();
     }
 
     // ------------------------------------------------------------------------------------------------ request
@@ -262,6 +330,10 @@ public class WalletConfigValidator {
         }
         final Set<String> seen = new HashSet<>();
         for (final String format : formats) {
+            if (format == null || format.isBlank()) {
+                e.add("credentialFormats", "credentialFormats must not contain empty entries");
+                return false;
+            }
             if (!FORMATS.contains(format)) {
                 e.add("credentialFormats", "Unknown credential format: " + format + " (dc+sd-jwt or mso_mdoc)");
                 return false;
@@ -283,6 +355,11 @@ public class WalletConfigValidator {
         }
         final Set<String> seen = new HashSet<>();
         for (final String claim : pid.requestedClaims()) {
+            if (claim == null || claim.isBlank()) {
+                e.add("pid.requestedClaims", "pid.requestedClaims must not contain empty entries");
+                claimsOk = false;
+                break;
+            }
             if (!DcqlQueryBuilder.isPidClaim(claim)) {
                 e.add("pid.requestedClaims", "Not a PID claim: " + claim);
                 claimsOk = false;
@@ -303,7 +380,8 @@ public class WalletConfigValidator {
             try { // the builder's remaining rules, e.g. an mdoc query left without any mdoc claim
                 new DcqlQueryBuilder().pidQuery(pid.toQuerySpec(), c.credentialFormats());
             } catch (final IllegalArgumentException ex) {
-                e.add("pid.requestedClaims", "The PID claims cannot be requested in these formats: " + ex.getMessage());
+                e.add("pid.requestedClaims", "The PID claims cannot be requested in these formats: "
+                        + message(ex, "refused by the query builder"));
             }
         }
     }

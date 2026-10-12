@@ -8,6 +8,9 @@ package io.helixiam.authorization.federation.wallet;
 import io.helixiam.authorization.federation.FederationProviderProperties;
 import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
+import io.helixiam.authorization.service.key.RealmSigningKeys;
+import io.helixiam.authorization.service.key.SigningKeyHandle;
+import io.helixiam.common.startup.DeploymentProfile;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -20,6 +23,7 @@ import org.springframework.core.io.ByteArrayResource;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -138,5 +142,30 @@ class WalletProviderConfigYamlTest {
         final FederationProviderProperties p = new FederationProviderProperties();
         p.setWallet(null);
         assertThat(p.getWallet()).isNotNull().isEmpty();
+    }
+
+    @Test
+    void specKeyNameAccessCertificateKeyRef_isBound_andRefusedAsRenamed() throws Exception {
+        final WalletProviderConfig c = bind("""
+                helix:
+                  federation:
+                    wallet:
+                      - alias: w
+                        accessCertificateKeyRef: kms://realm/eudi-access-key
+                """).getWallet().get(0);
+        assertThat(c.accessCertificateKeyRef()).isEqualTo("kms://realm/eudi-access-key");
+        final WalletConfigValidator validator = new WalletConfigValidator(new RealmSigningKeys() {
+            @Override
+            public SigningKeyHandle resolve(final String realmId, final String keyRef) {
+                throw new NoSuchElementException("Signing key not found in this realm");
+            }
+
+            @Override
+            public String importKey(final String realmId, final String name, final String key, final String chain) {
+                throw new UnsupportedOperationException();
+            }
+        }, DeploymentProfile.production());
+        assertThat(validator.validate("acme", c)).containsEntry("accessCertificateKeyRef",
+                "accessCertificateKeyRef was renamed to accessKeyRef");
     }
 }
