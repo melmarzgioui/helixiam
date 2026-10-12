@@ -78,7 +78,7 @@ class FederationProviderFactoryTest {
         final FederationProviderProperties props = new FederationProviderProperties();
         props.setEid(List.of(new EidProviderConfig(EidScheme.DIGID, "digid", "DigiD", "https://digid/sso",
                 "https://digid/entity", "https://helix/sp", "https://helix/acs", "idp-cert", "sp-key",
-                "sp-sign-key", "sp-cert", "urn:loa", "bsn")));
+                "sp-sign-key", "sp-cert", "urn:nl-eid-gdi:1.0:LoA:Substantial", "bsn")));
 
         final List<IdentityProvider> providers = factory.build(props);
 
@@ -129,7 +129,7 @@ class FederationProviderFactoryTest {
                 new io.helixiam.authorization.amqp.federation.IdentityProviderConfig("gov", "digid", "digid", "DigiD", true,
                         java.util.Map.of("ssoUrl", "https://digid/sso", "idpEntityId", "https://digid/entity",
                                 "spEntityId", "https://helix/sp", "assertionConsumerServiceUrl", "https://helix/acs",
-                                "minimumLoa", "urn:nl-eid-gdi:1.0:LoA:Substantieel", "subjectAttribute", "bsn"));
+                                "minimumLoa", "urn:nl-eid-gdi:1.0:LoA:Substantial", "subjectAttribute", "bsn"));
 
         final IdentityProvider provider = factory.fromStored(stored);
 
@@ -144,5 +144,41 @@ class FederationProviderFactoryTest {
                         java.util.Map.of());
 
         assertThatThrownBy(() -> factory.fromStored(stored)).isInstanceOf(IllegalArgumentException.class);
+    }
+    // --- eID minimum level of assurance is validated when the provider is built ---
+
+    private static io.helixiam.authorization.amqp.federation.IdentityProviderConfig storedEid(final String protocol,
+                                                                                             final String minimumLoa) {
+        return new io.helixiam.authorization.amqp.federation.IdentityProviderConfig("gov", "digid", protocol, "DigiD",
+                true, java.util.Map.of("ssoUrl", "https://digid/sso", "idpEntityId", "https://digid/entity",
+                        "spEntityId", "https://helix/sp", "assertionConsumerServiceUrl", "https://helix/acs",
+                        "minimumLoa", minimumLoa, "subjectAttribute", "bsn"));
+    }
+
+    @Test
+    void fromStored_rejectsAnUnknownEidMinimumLoa() {
+        assertThatThrownBy(() -> factory.fromStored(storedEid("digid", "urn:nl-eid-gdi:1.0:LoA:Substantieel")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("minimumLoa");
+    }
+
+    @Test
+    void fromStored_mapsTheConsoleLoaKeywordToTheSchemeUrn() {
+        final EidProviderConfig config = FederationProviderFactory.eidFromStored(storedEid("digid", "loa3"), "digid",
+                storedEid("digid", "loa3").config());
+
+        assertThat(config.minimumLoa()).isEqualTo("urn:nl-eid-gdi:1.0:LoA:Substantial");
+    }
+
+    @Test
+    void build_rejectsAnUnknownEidMinimumLoa() {
+        final FederationProviderProperties props = new FederationProviderProperties();
+        props.setEid(List.of(new EidProviderConfig(EidScheme.EIDAS, "eidas", "eIDAS", "https://node/sso",
+                "https://node/entity", "https://helix/sp", "https://helix/acs", "idp-cert", "sp-key",
+                "sp-sign-key", "sp-cert", "http://eidas.europa.eu/LoA/medium", "pid")));
+
+        assertThatThrownBy(() -> factory.build(props))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("minimumLoa");
     }
 }

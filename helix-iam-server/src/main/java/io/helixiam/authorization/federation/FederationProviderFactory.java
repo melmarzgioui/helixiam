@@ -66,7 +66,9 @@ public class FederationProviderFactory {
                     () -> "_" + token(), () -> Instant.now().toString()));
         }
         for (final EidProviderConfig config : properties.getEid()) {
-            providers.add(new EidSamlIdentityProvider(config, eidAssertionValidator, eidArtifactResolver));
+            providers.add(new EidSamlIdentityProvider(
+                    config.withMinimumLoa(requireMinimumLoa(config.scheme(), config.alias(), config.minimumLoa())),
+                    eidAssertionValidator, eidArtifactResolver));
         }
         return providers;
     }
@@ -142,7 +144,7 @@ public class FederationProviderFactory {
                 c.get("singleLogoutServiceUrl"), Boolean.parseBoolean(c.get("allowIdpInitiated")));
     }
 
-    private static EidProviderConfig eidFromStored(
+    static EidProviderConfig eidFromStored(
             final io.helixiam.authorization.amqp.federation.IdentityProviderConfig stored, final String protocol,
             final Map<String, String> c) {
         final io.helixiam.authorization.federation.eid.EidScheme scheme = eidScheme(protocol, c.get("scheme"));
@@ -154,18 +156,26 @@ public class FederationProviderFactory {
         return new EidProviderConfig(scheme, stored.alias(), stored.displayName(), c.get("ssoUrl"),
                 c.get("idpEntityId"), c.get("spEntityId"), c.get("assertionConsumerServiceUrl"),
                 c.get("idpSigningCertificate"), c.get("spDecryptionPrivateKey"), c.get("spSigningPrivateKey"),
-                c.get("spSigningCertificate"), c.get("minimumLoa"), c.get("subjectAttribute"), binding,
+                c.get("spSigningCertificate"), requireMinimumLoa(scheme, stored.alias(), c.get("minimumLoa")),
+                c.get("subjectAttribute"), binding,
                 null, responseBinding, c.get("artifactResolutionServiceUrl"), c.get("singleLogoutServiceUrl"));
     }
 
     private static io.helixiam.authorization.federation.eid.EidScheme eidScheme(final String protocol, final String override) {
-        final String value = override == null || override.isBlank() ? protocol : override;
-        return switch (value.toLowerCase()) {
-            case "eidas" -> io.helixiam.authorization.federation.eid.EidScheme.EIDAS;
-            case "eherkenning" -> io.helixiam.authorization.federation.eid.EidScheme.EHERKENNING;
-            case "digid", "eid" -> io.helixiam.authorization.federation.eid.EidScheme.DIGID;
-            default -> throw new IllegalArgumentException("Unknown eID scheme: " + value);
-        };
+        return io.helixiam.authorization.federation.eid.EidScheme.of(protocol, override);
+    }
+
+    /**
+     * The scheme URN of an eID connection's minimum level of assurance (a console keyword is mapped to its
+     * URN), or null when none is set. An unrecognised minimum is refused: it would otherwise be met by any level.
+     */
+    private static String requireMinimumLoa(final io.helixiam.authorization.federation.eid.EidScheme scheme,
+                                            final String alias, final String minimumLoa) {
+        if (!io.helixiam.authorization.federation.eid.EidLevelOfAssurance.isValidMinimum(scheme, minimumLoa)) {
+            throw new IllegalArgumentException("eID provider '" + alias + "': minimumLoa is not a known "
+                    + scheme + " level of assurance");
+        }
+        return io.helixiam.authorization.federation.eid.EidLevelOfAssurance.canonicalMinimum(scheme, minimumLoa);
     }
 
     private static OidcProviderConfig socialConfig(final FederationProviderProperties.SocialEntry entry) {

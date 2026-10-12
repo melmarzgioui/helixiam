@@ -85,4 +85,43 @@ class EidLevelOfAssuranceTest {
         assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
                 "urn:nl-eid-gdi:1.0:LoA:Low", "  ")).isTrue();
     }
+    // --- fail closed on an unrecognised minimum ----------------------------------------------------
+
+    @Test
+    void anUnrecognisedMinimumIsNeverMet() {
+        // A typo or another scheme's URN must not silently lower the bar to "anything goes".
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EIDAS,
+                "http://eidas.europa.eu/LoA/high", "urn:something:unrecognised")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:High", "http://eidas.europa.eu/LoA/low")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:High", "urn:nl-eid-gdi:1.0:LoA:Substantieel")).isFalse();
+    }
+
+    @Test
+    void theConsoleKeywordsAreRecognisedMinimums() {
+        // The admin console stores the scheme's short keyword (loa1..loa4, low/substantial/high).
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.DIGID, "loa3"))
+                .isEqualTo("urn:nl-eid-gdi:1.0:LoA:Substantial");
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EHERKENNING, "LoA3"))
+                .isEqualTo("urn:etoegang:core:assurance-class:loa3");
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "substantial"))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/high"))
+                .isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:High", "loa3")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:Midden", "loa3")).isFalse();
+    }
+
+    @Test
+    void anUnknownMinimumHasNoCanonicalForm_andABlankOneIsNoMinimum() {
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.DIGID, "loa9")).isNull();
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "loa3")).isNull();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, "loa9")).isFalse();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, "loa1")).isTrue();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, null)).isTrue();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, "  ")).isTrue();
+    }
 }

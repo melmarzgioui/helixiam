@@ -3,6 +3,17 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.7`)
+
+- **security** — An eID connection (DigiD, eHerkenning, eIDAS) whose minimum level of assurance was not a level Helix
+  knows accepted every asserted level: `EidLevelOfAssurance.meetsMinimum` ranked the unknown minimum as rung 0, so any
+  recognised level met it. An unrecognised non-blank minimum is now never met (fail closed); a blank minimum still
+  means "no minimum". The keywords the console stores (`loa1`–`loa4` for DigiD, `loa2`/`loa2plus`/`loa3`/`loa4` for
+  eHerkenning, `low`/`substantial`/`high` for eIDAS) were never mapped, so the console's default `loa3` was such an
+  unknown minimum; they are now mapped to the scheme's URN, which the AuthnRequest also asks for. An unknown minimum is
+  refused when the connection is saved (`400` with `fieldErrors.minimumLoa`) and when it is built (a stored connection
+  is skipped with a warning; a connection in `helix.federation.eid` fails startup).
+
 ## v1.0.0-rc.7 (security hotfix)
 
 - **security** — Nimbus JOSE + JWT is pinned to **10.10** (CVE-2025-53864 / GHSA-xwmg-2g98-w7v9). Nimbus before

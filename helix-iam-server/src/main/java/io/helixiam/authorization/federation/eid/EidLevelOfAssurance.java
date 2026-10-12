@@ -22,6 +22,10 @@ import java.util.Map;
  *
  * Comparison is by rung, so it is independent of the exact URN strings. An unknown/blank asserted
  * level is rung 0 and meets no minimum; a blank minimum means "any successful level is acceptable".
+ * A configured minimum may also be the short keyword the admin console stores ({@code loa1}..{@code loa4}
+ * for DigiD, {@code loa2}/{@code loa2plus}/{@code loa3}/{@code loa4} for eHerkenning, {@code low}/{@code
+ * substantial}/{@code high} for eIDAS). An unrecognised non-blank minimum is never met (fail closed) and is
+ * refused when a connection is saved or built.
  */
 public final class EidLevelOfAssurance {
 
@@ -41,6 +45,23 @@ public final class EidLevelOfAssurance {
                     "urn:etoegang:core:assurance-class:loa3", 3,
                     "urn:etoegang:core:assurance-class:loa4", 4));
 
+    /** The console's short keywords for a minimum, mapped to the scheme's URN (matched case-insensitively). */
+    private static final Map<EidScheme, Map<String, String>> KEYWORDS = Map.of(
+            EidScheme.EIDAS, Map.of(
+                    "low", "http://eidas.europa.eu/LoA/low",
+                    "substantial", "http://eidas.europa.eu/LoA/substantial",
+                    "high", "http://eidas.europa.eu/LoA/high"),
+            EidScheme.DIGID, Map.of(
+                    "loa1", "urn:nl-eid-gdi:1.0:LoA:Low",
+                    "loa2", "urn:nl-eid-gdi:1.0:LoA:Midden",
+                    "loa3", "urn:nl-eid-gdi:1.0:LoA:Substantial",
+                    "loa4", "urn:nl-eid-gdi:1.0:LoA:High"),
+            EidScheme.EHERKENNING, Map.of(
+                    "loa2", "urn:etoegang:core:assurance-class:loa2",
+                    "loa2plus", "urn:etoegang:core:assurance-class:loa2plus",
+                    "loa3", "urn:etoegang:core:assurance-class:loa3",
+                    "loa4", "urn:etoegang:core:assurance-class:loa4"));
+
     private EidLevelOfAssurance() {
     }
 
@@ -53,13 +74,38 @@ public final class EidLevelOfAssurance {
     }
 
     /**
+     * The scheme URN for a configured minimum: the URN itself when it is on the ladder, the URN a console
+     * keyword stands for, or {@code null} when the value is blank or not recognised for this scheme.
+     */
+    public static String canonicalMinimum(final EidScheme scheme, final String minimum) {
+        if (minimum == null || minimum.isBlank()) {
+            return null;
+        }
+        final String value = minimum.trim();
+        if (LADDERS.getOrDefault(scheme, Map.of()).containsKey(value)) {
+            return value;
+        }
+        return KEYWORDS.getOrDefault(scheme, Map.of()).get(value.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /** Whether {@code minimum} may be configured for this scheme: blank (no minimum) or a recognised level. */
+    public static boolean isValidMinimum(final EidScheme scheme, final String minimum) {
+        return minimum == null || minimum.isBlank() || canonicalMinimum(scheme, minimum) != null;
+    }
+
+    /**
      * Whether {@code asserted} is at least as strong as {@code minimum}. A blank minimum is always
-     * met; a blank/unknown asserted level never meets a non-blank minimum.
+     * met; a blank/unknown asserted level never meets a non-blank minimum, and an unrecognised
+     * non-blank minimum is never met (fail closed: it must not lower the bar to "any level").
      */
     public static boolean meetsMinimum(final EidScheme scheme, final String asserted, final String minimum) {
         if (minimum == null || minimum.isBlank()) {
             return true;
         }
-        return rung(scheme, asserted) >= rung(scheme, minimum) && rung(scheme, asserted) > 0;
+        final int required = rung(scheme, canonicalMinimum(scheme, minimum));
+        if (required == 0) {
+            return false;
+        }
+        return rung(scheme, asserted) >= required;
     }
 }

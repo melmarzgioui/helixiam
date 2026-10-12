@@ -100,4 +100,57 @@ class IdentityProviderAdminControllerTest {
         assertThat(controller.delete("gov", "digid").getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(controller.delete("gov", "ghost").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
+    // --- an eID connection's minimum level of assurance must be one the scheme knows ---
+
+    @Test
+    void create_rejectsAnUnknownEidMinimumLoa_withAFieldError_andSavesNothing() {
+        final IdentityProviderRequest body = new IdentityProviderRequest(
+                "digid", "digid", "DigiD", true, Map.of("minimumLoa", "loa9"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.create("gov", body))
+                .isInstanceOf(ProviderValidationException.class)
+                .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors()).containsKey("minimumLoa"));
+        org.mockito.Mockito.verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void update_rejectsAnUnknownEidMinimumLoa() {
+        final IdentityProviderRequest body = new IdentityProviderRequest(
+                "x", "eidas", "eIDAS", true, Map.of("minimumLoa", "urn:nl-eid-gdi:1.0:LoA:High"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.update("gov", "eidas", body))
+                .isInstanceOf(ProviderValidationException.class);
+        org.mockito.Mockito.verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void create_acceptsTheConsoleKeywordsAndABlankMinimum() {
+        when(publisher.save(any(IdentityProviderConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(controller.create("gov", new IdentityProviderRequest("digid", "digid", "DigiD", true,
+                Map.of("minimumLoa", "loa3"))).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(controller.create("gov", new IdentityProviderRequest("eh", "eherkenning", "eH", true,
+                Map.of("minimumLoa", "urn:etoegang:core:assurance-class:loa4"))).getStatusCode())
+                .isEqualTo(HttpStatus.CREATED);
+        assertThat(controller.create("gov", new IdentityProviderRequest("eidas", "eidas", "eIDAS", true,
+                Map.of())).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        // Not an eID connection: minimumLoa means nothing there and is left alone.
+        assertThat(controller.create("gov", new IdentityProviderRequest("corp", "saml", "Corp", true,
+                Map.of("minimumLoa", "whatever"))).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    @Test
+    void anUnknownEidMinimumLoaIsA400WithAFieldError_notA500() throws Exception {
+        final org.springframework.test.web.servlet.MockMvc mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(controller).setControllerAdvice(new AdminValidationAdvice()).build();
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/admin/realms/gov/identity-providers")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"alias\":\"digid\",\"protocol\":\"digid\",\"displayName\":\"DigiD\","
+                                + "\"enabled\":true,\"config\":{\"minimumLoa\":\"loa9\"}}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.fieldErrors.minimumLoa").exists());
+    }
 }

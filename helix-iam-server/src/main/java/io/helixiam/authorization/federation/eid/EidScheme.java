@@ -20,5 +20,29 @@ public enum EidScheme {
     EHERKENNING,
 
     /** DigiD — NL citizen eID via Logius. */
-    DIGID
+    DIGID;
+
+    /**
+     * The scheme of a stored connection: its {@code scheme} setting when set, else its protocol
+     * ({@code eid} means DigiD).
+     *
+     * @throws IllegalArgumentException when the value names no scheme
+     */
+    public static EidScheme of(final String protocol, final String override) {
+        final String value = override == null || override.isBlank() ? protocol : override;
+        return switch (value == null ? "" : value.toLowerCase(java.util.Locale.ROOT)) {
+            case "eidas" -> EIDAS;
+            case "eherkenning" -> EHERKENNING;
+            case "digid", "eid" -> DIGID;
+            default -> throw new IllegalArgumentException("Unknown eID scheme: " + value);
+        };
+    }
+
+    /** Whether a stored connection's protocol is one of the eID schemes. */
+    public static boolean isEidProtocol(final String protocol) {
+        return protocol != null && switch (protocol.toLowerCase(java.util.Locale.ROOT)) {
+            case "eid", "digid", "eherkenning", "eidas" -> true;
+            default -> false;
+        };
+    }
 }
