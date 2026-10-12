@@ -53,6 +53,9 @@ config:
   # server sees plain HTTP (http:// issuer and redirects) and every request appears to come from the ingress (one
   # shared rate-limit bucket). Never list ranges clients can connect from directly.
   trustedProxies: []             # HELIX_TRUSTED_PROXIES
+  # Host names the server answers to besides the hosts of idpBaseUrl and spBaseUrl, e.g. the in-cluster service name
+  # (helixiam.<namespace>.svc) when relying parties call it directly. Any other Host gets 400. Probes are unaffected.
+  allowedHosts: []               # HELIX_ALLOWED_HOSTS
   extraEnv: []                   # list of {name, value} or {name, valueFrom}
 
 database:

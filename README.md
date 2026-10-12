@@ -236,6 +236,15 @@ every request appears to come from the proxy, so all clients share one rate-limi
 the proxy's address; and behind a TLS-terminating proxy the server sees plain HTTP, so the request-derived issuer
 and redirects become `http://`. Do not list addresses that clients can connect from directly.
 
+Outside the `dev` profile the server also answers only for its own host names: the hosts of `IDP_BASE_URL` and
+`SP_BASE_URL` plus `HELIX_ALLOWED_HOSTS` (comma-separated, e.g. an in-cluster service name relying parties call).
+Any other `Host` (after trusted forwarded-header processing) gets `400`, so the issuer and URLs derived from the
+request cannot be steered. Probes keep working: the connection's own address, `localhost` from a loopback peer and
+`/actuator/health/**` are always accepted. When `IDP_BASE_URL` is https but requests arrive as plain http, the server
+logs an ERROR (at most once a minute) pointing at `HELIX_TRUSTED_PROXIES`.
+
+Only `server.forward-headers-strategy=framework` (the default) is supported.
+
 ### Memory
 
 Measured at `-Xmx512m`: about 590 MB RSS idle and 650 MB under light load. The container image sizes the heap

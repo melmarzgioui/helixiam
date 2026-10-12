@@ -5,6 +5,28 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.7`)
 
+> **BREAKING — upgrade checklist (reverse proxies and host names).** The server now trusts forwarded headers only
+> from `HELIX_TRUSTED_PROXIES` and, outside `dev`, answers only for its own host names. Before upgrading:
+> 1. Behind any TLS-terminating proxy (ingress, external load balancer, Gateway API, service mesh), set
+>    `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) to the addresses it connects from. Otherwise issuers
+>    and redirects become `http://` (relying parties then reject the tokens' `iss`) and all clients share one
+>    rate-limit bucket. The server logs an ERROR once a minute when an https `IDP_BASE_URL` is reached over http.
+> 2. List every other host name clients use to reach the server in `HELIX_ALLOWED_HOSTS` (Helm:
+>    `config.allowedHosts`), e.g. the in-cluster service name relying parties call for tokens or JWKS. The hosts of
+>    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already; any other `Host` gets `400`. Probes are unaffected.
+> 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
+>    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
+> 4. eID connections must name a minimum level of assurance the server knows (see below).
+
+- **security** — **BREAKING.** The request-derived issuer could be steered with the `Host` header itself: a server
+  reached directly answered `Host: evil.example` with issuer `http://evil.example/realms/...`. Outside the `dev`
+  profile, a request whose host (after trusted forwarded-header processing) is not the host of `IDP_BASE_URL` or
+  `SP_BASE_URL` or listed in the new `HELIX_ALLOWED_HOSTS` now gets `400` before any issuer or URL is derived. The
+  connection's own address (kubelet probes send the pod IP), `localhost` from a loopback peer (Docker
+  `HEALTHCHECK`) and `/actuator/health/**` stay reachable. An https `IDP_BASE_URL` reached over plain http logs an
+  ERROR (once a minute) that names `HELIX_TRUSTED_PROXIES`. The Helm install notes now warn whenever
+  `config.trustedProxies` is empty (not only with the chart's ingress), and the chart gains `config.allowedHosts`.
+  The SAS issuer is not pinned. Only `server.forward-headers-strategy=framework` is supported.
 - **security** — A federated sign-in (OIDC, SAML or eID broker) skipped the post-broker second factor. The realm's
   browser flow gates the TOTP step with the `mfa-enabled` condition, which read the user from the security context;
   `FederatedLoginCompleter` starts that flow before anyone is in the context, so the condition answered "MFA not

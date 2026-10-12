@@ -42,4 +42,21 @@ public class ForwardedHeadersConfig {
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;
     }
+
+    /**
+     * Host allow-list, right after the forwarded headers (so a trusted proxy's {@code X-Forwarded-Host} is what is
+     * checked) and before anything derives an issuer or URL. Off in the {@code dev} profile.
+     */
+    @Bean
+    public FilterRegistrationBean<HostAllowListFilter> hostAllowListFilter(
+            final org.springframework.core.env.Environment environment,
+            @Value("${idp.base.url:}") final String idpBaseUrl, @Value("${sp.base.url:}") final String spBaseUrl,
+            @Value("${helix.security.allowed-hosts:}") final String allowedHosts) {
+        final boolean dev = java.util.Arrays.asList(environment.getActiveProfiles()).contains("dev");
+        final FilterRegistrationBean<HostAllowListFilter> registration = new FilterRegistrationBean<>(
+                HostAllowListFilter.of(idpBaseUrl, spBaseUrl, allowedHosts, !dev, java.time.Clock.systemUTC()));
+        registration.setDispatcherTypes(DispatcherType.REQUEST);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
+        return registration;
+    }
 }

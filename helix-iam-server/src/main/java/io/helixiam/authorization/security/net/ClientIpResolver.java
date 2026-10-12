@@ -129,6 +129,11 @@ public class ClientIpResolver {
         return false;
     }
 
+    /** The TCP peer's address text, read from the container's request beneath any wrappers. */
+    static String containerPeer(final HttpServletRequest request) {
+        return containerRequest(request).getRemoteAddr();
+    }
+
     /** The request the container created, beneath any wrappers (Spring's ForwardedHeaderFilter among them). */
     private static HttpServletRequest containerRequest(final HttpServletRequest request) {
         ServletRequest current = request;
