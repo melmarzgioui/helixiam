@@ -26,7 +26,8 @@ class FederationStoreRefresherTest {
 
     private final FederationProviderFactory factory = new FederationProviderFactory(
             mock(OidcTokenClient.class), mock(SamlAssertionValidator.class), mock(EidAssertionValidator.class),
-            mock(io.helixiam.authorization.federation.eid.EidArtifactResolver.class));
+            mock(io.helixiam.authorization.federation.eid.EidArtifactResolver.class),
+            mock(io.helixiam.authorization.federation.wallet.WalletIdentityProviders.class));
 
     private static IdentityProviderConfig oidc(final String alias, final boolean enabled) {
         return new IdentityProviderConfig("gov", alias, "oidc", alias, enabled,

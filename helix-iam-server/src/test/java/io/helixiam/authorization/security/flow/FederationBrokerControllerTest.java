@@ -251,4 +251,57 @@ class FederationBrokerControllerTest {
         verify(loginCompleter, never()).complete(any(), any(), any(), any());
         verify(broker, never()).broker(any(), any());
     }
+
+    // ------------------------------------------------------------------ browser binding (EUDI wallet, ruling 1)
+
+    @Test
+    void startBindsTheLoginToThisBrowserAndPassesTheHashToTheProvider() {
+        when(registry.get(ALIAS)).thenReturn(provider);
+        when(provider.start(any())).thenReturn(new IdentityProvider.RedirectResponse("/realms/gov/broker/corp/wallet?tx=t",
+                Map.of()));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        controller.start(ALIAS, request, new org.springframework.ui.ConcurrentModel());
+
+        final ArgumentCaptor<IdentityProvider.AuthnRequestContext> ctx =
+                ArgumentCaptor.forClass(IdentityProvider.AuthnRequestContext.class);
+        verify(provider).start(ctx.capture());
+        assertThat(ctx.getValue().browserBindingHash()).isNotBlank()
+                .isEqualTo(BrowserBinding.current(request.getSession(), ALIAS))
+                .isNotEqualTo(request.getSession().getId());
+    }
+
+    @Test
+    void callbackRecomputesTheBindingAfterSessionIdRotationAndClearsItOnSuccess() {
+        when(registry.get(ALIAS)).thenReturn(provider);
+        when(provider.start(any())).thenReturn(new IdentityProvider.RedirectResponse("/wallet", Map.of()));
+        when(provider.callback(any())).thenReturn(new BrokeredIdentity(ALIAS, "ext-1", null, false, Map.of()));
+        when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        controller.start(ALIAS, request, new org.springframework.ui.ConcurrentModel());
+        final String bound = BrowserBinding.current(request.getSession(), ALIAS);
+        request.changeSessionId(); // Task 2 rotates ids; the binding must not depend on them
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.callback(ALIAS, request, response);
+
+        final ArgumentCaptor<IdentityProvider.CallbackContext> ctx =
+                ArgumentCaptor.forClass(IdentityProvider.CallbackContext.class);
+        verify(provider).callback(ctx.capture());
+        assertThat(ctx.getValue().browserBindingHash()).isEqualTo(bound);
+        assertThat(BrowserBinding.current(request.getSession(), ALIAS)).as("cleared after success").isNull();
+    }
+
+    @Test
+    void aFailedCallbackKeepsTheBinding() {
+        when(registry.get(ALIAS)).thenReturn(provider);
+        when(provider.callback(any())).thenThrow(new IllegalStateException("refused"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final String bound = BrowserBinding.begin(request.getSession(), ALIAS);
+
+        final String view = controller.callback(ALIAS, request, new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/login?error=federation");
+        assertThat(BrowserBinding.current(request.getSession(), ALIAS)).isEqualTo(bound);
+    }
 }

@@ -8,6 +8,10 @@ package io.helixiam.authorization.controller.admin;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfigPublisher;
 import io.helixiam.authorization.amqp.federation.IdentityProviderRef;
+import io.helixiam.authorization.federation.wallet.WalletConfigValidator;
+import io.helixiam.authorization.federation.wallet.testwallet.TestAccessKeys;
+import io.helixiam.authorization.federation.wallet.testwallet.TestPki;
+import io.helixiam.common.startup.DeploymentProfile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -134,5 +138,89 @@ class IdentityProviderAdminControllerTest {
                 .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors())
                         .containsKey("config.clearClientSecret"));
         verify(publisher, never()).save(any(IdentityProviderConfig.class));
+    }
+
+    // ------------------------------------------------------------------ EUDI wallet (Task 19): validated writes
+
+    private static final TestPki ACCESS_PKI = TestPki.create("Admin Access");
+    private static final TestPki.Leaf ACCESS = ACCESS_PKI.issueLeaf(TestPki.LeafSpec.defaults());
+    private static final TestPki PID_ISSUERS = TestPki.create("Admin PID Provider");
+
+    private IdentityProviderAdminController walletController(final DeploymentProfile profile) {
+        final TestAccessKeys keys = new TestAccessKeys(ACCESS, "eudi-access", "gov");
+        return new IdentityProviderAdminController(publisher, new WalletConfigValidator(keys, profile));
+    }
+
+    private static Map<String, String> walletSettings() {
+        final Map<String, String> m = new java.util.HashMap<>();
+        m.put("accessKeyRef", "software:gov/eudi-access");
+        m.put("trustAnchors", PID_ISSUERS.rootPem());
+        return m;
+    }
+
+    @Test
+    void aWalletConnectionIsValidatedPerField_andAnInvalidOneIsNotSaved() {
+        final Map<String, String> settings = walletSettings();
+        settings.put("transactionTtlSeconds", "5");
+        settings.put("credentialFormats", "not a list");
+        settings.put("accessKeyRef", "software:other/eudi-access"); // another realm's key
+        final IdentityProviderRequest body = new IdentityProviderRequest("eudi", "openid4vp", "Wallet", true, settings);
+
+        assertThatThrownBy(() -> walletController(DeploymentProfile.production()).create("gov", body))
+                .isInstanceOf(ProviderValidationException.class)
+                .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors())
+                        .containsKeys("config.transactionTtlSeconds", "config.credentialFormats",
+                                "config.accessKeyRef"));
+        verify(publisher, never()).save(any(IdentityProviderConfig.class));
+    }
+
+    @Test
+    void aValidWalletConnectionIsSaved() {
+        when(publisher.save(any(IdentityProviderConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+        final IdentityProviderRequest body = new IdentityProviderRequest("eudi", "eudi-wallet", "Wallet", true,
+                walletSettings());
+
+        assertThat(walletController(DeploymentProfile.production()).create("gov", body).getStatusCode())
+                .isEqualTo(HttpStatus.CREATED);
+        verify(publisher).save(any(IdentityProviderConfig.class));
+    }
+
+    @Test
+    void aWalletUpdateKeepingTheStoredDevKeyIsValidatedWithIt() {
+        when(publisher.save(any(IdentityProviderConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+        final Map<String, String> stored = walletSettings();
+        stored.remove("accessKeyRef");
+        stored.put("accessCertificateChain", TestPki.pem(ACCESS.certificate()) + TestPki.pem(ACCESS.chain().get(1)));
+        stored.put("accessCertificatePrivateKey", pkcs8(ACCESS.privateKey()));
+        when(publisher.get(new IdentityProviderRef("gov", "eudi")))
+                .thenReturn(new IdentityProviderConfig("gov", "eudi", "wallet", "Wallet", true, stored));
+        final Map<String, String> update = new java.util.HashMap<>(stored);
+        update.remove("accessCertificatePrivateKey"); // write-only: absent keeps the stored one
+
+        assertThat(walletController(DeploymentProfile.development()).update("gov", "eudi",
+                new IdentityProviderRequest("eudi", "wallet", "Wallet", true, update)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        update.put("clearAccessCertificatePrivateKey", "true"); // without the key the connection has none
+        assertThatThrownBy(() -> walletController(DeploymentProfile.development()).update("gov", "eudi",
+                new IdentityProviderRequest("eudi", "wallet", "Wallet", true, update)))
+                .isInstanceOf(ProviderValidationException.class)
+                .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors())
+                        .containsKey("config.accessKeyRef"));
+    }
+
+    @Test
+    void nonWalletConnectionsAreNotRunThroughTheWalletValidator() {
+        when(publisher.save(any(IdentityProviderConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(walletController(DeploymentProfile.production()).create("gov",
+                new IdentityProviderRequest("digid", "saml", "DigiD", true, Map.of("ssoUrl", "https://idp")))
+                .getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    private static String pkcs8(final java.security.PrivateKey key) {
+        return "-----BEGIN PRIVATE KEY-----\n"
+                + java.util.Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(key.getEncoded())
+                + "\n-----END PRIVATE KEY-----\n";
     }
 }

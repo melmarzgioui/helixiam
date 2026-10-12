@@ -16,6 +16,7 @@ import io.helixiam.authorization.amqp.federation.IdentityProviderRef;
 import io.helixiam.authorization.federation.saml.Saml2IdentityProvider;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
+import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
@@ -120,10 +121,13 @@ public class FederationBrokerController {
     public String start(@PathVariable final String alias, final HttpServletRequest request, final Model model) {
         final IdentityProvider provider = registry.get(alias);
         final String state = stateGenerator.get();
-        final IdentityProvider.RedirectResponse redirect =
-                provider.start(new IdentityProvider.AuthnRequestContext(RealmContextHolder.get(), state, callbackUri(alias)));
-
         final HttpSession session = request.getSession();
+        // Ties this login to this browser (a session secret, not the session id, which rotates); the EUDI wallet
+        // provider stores the hash in its transaction and the callback must present the same one.
+        final String browserBindingHash = BrowserBinding.begin(session, alias);
+        final IdentityProvider.RedirectResponse redirect = provider.start(new IdentityProvider.AuthnRequestContext(
+                RealmContextHolder.get(), state, callbackUri(alias), browserBindingHash));
+
         session.setAttribute(STATE_ATTR + alias, state);
         if (redirect.parameters() != null && redirect.parameters().get("nonce") != null) {
             session.setAttribute(NONCE_ATTR + alias, redirect.parameters().get("nonce"));
@@ -175,13 +179,19 @@ public class FederationBrokerController {
             final IdentityProvider provider = registry.get(alias);
             final IdentityProvider.CallbackContext context = new IdentityProvider.CallbackContext(
                     RealmContextHolder.get(), parameters(request), expectedState, expectedNonce,
-                    callbackUri(alias), expectedRequestId);
+                    callbackUri(alias), expectedRequestId, BrowserBinding.current(session, alias));
             identity = provider.callback(context);
+        } catch (final WalletVerificationException e) {
+            // The browser only ever sees error=federation; which check failed is logged, never shown.
+            LOG.warn("Federation: wallet callback refused for provider {}: reason={} detail={}",
+                    LogSafe.sanitize(alias), e.code().reason(), LogSafe.sanitize(e.getMessage()));
+            return LOGIN_ERROR;
         } catch (final RuntimeException e) {
             LOG.warn("Federation: callback validation failed for provider {}: {}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
             return LOGIN_ERROR;
         }
+        BrowserBinding.clear(session, alias);
 
         // B5: apply this provider's configured attribute/claim mappers during link/JIT provisioning.
         final BrokerResult result = broker.broker(identity, policy, mapperConfigFor(alias));

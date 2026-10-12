@@ -15,6 +15,7 @@ import io.helixiam.authorization.federation.wallet.VerificationContext;
 import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
+import io.helixiam.authorization.federation.wallet.status.CredentialIssuer;
 import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
 import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
 import io.helixiam.authorization.federation.wallet.status.StatusReference;
@@ -713,6 +714,28 @@ class SdJwtVcPresentationVerifierTest {
         verify(presentAll(wallet, pid(wallet)));
 
         assertThat(seen.get()).isSameAs(anchors);
+    }
+
+    @Test
+    void statusEvaluatorReceivesTheIssuerX5cChain() {
+        final AtomicReference<CredentialIssuer> seen = new AtomicReference<>();
+        status = new StatusEvaluator() {
+            @Override
+            public String evaluate(final StatusReference ref, final TrustAnchors a) {
+                throw new AssertionError("the issuer-aware evaluate must be used");
+            }
+
+            @Override
+            public String evaluate(final StatusReference ref, final TrustAnchors a, final CredentialIssuer issuer) {
+                seen.set(issuer);
+                return StatusEvaluator.VALID;
+            }
+        };
+
+        verify(presentAll(wallet, pid(wallet)));
+
+        assertThat(seen.get().chain()).isEqualTo(wallet.issuer().chain());
+        assertThat(seen.get().statusListCertificate()).isNull();
     }
 
     @Test

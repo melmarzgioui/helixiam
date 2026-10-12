@@ -200,23 +200,57 @@ public final class TokenStatusListClient implements StatusEvaluator {
                         "decision", StatusPolicy.OnUnavailable.FAIL_OPEN_WITH_AUDIT.name())));
     }
 
+    /** The policy this client enforces (the provider's, the same instance as in its verification context). */
+    public StatusPolicy policy() {
+        return policy;
+    }
+
     /** Evaluates a reference to a Status List Token in JWT form (SD-JWT VC: "MUST be in JWT format"). */
     @Override
     public String evaluate(final StatusReference ref, final TrustAnchors anchors) {
-        return evaluate(ref, anchors, Form.JWT);
+        return evaluate(ref, anchors, Form.JWT, null);
     }
 
-    /** The same client for Status List Tokens in CWT form ({@code application/statuslist+cwt}, ISO mdoc). */
+    /**
+     * JWT form: the Token Status List draft and SD-JWT VC define no rule binding the list signer to the credential
+     * issuer (the list must chain to the same anchors), so {@code issuer} is not used.
+     */
+    @Override
+    public String evaluate(final StatusReference ref, final TrustAnchors anchors, final CredentialIssuer issuer) {
+        return evaluate(ref, anchors, Form.JWT, null);
+    }
+
+    /**
+     * The same client for Status List Tokens in CWT form ({@code application/statuslist+cwt}, ISO mdoc). Given the
+     * {@link CredentialIssuer} it also enforces the ISO §12.3.6 signer rule ({@link MdocStatusListSigner}), on every
+     * evaluation including cache hits; that refusal always fails closed. Without it (the two-argument form) only the
+     * anchors are checked.
+     */
     public StatusEvaluator cwtEvaluator() {
-        return (ref, anchors) -> evaluate(ref, anchors, Form.CWT);
+        return new StatusEvaluator() {
+            @Override
+            public String evaluate(final StatusReference ref, final TrustAnchors anchors) {
+                return TokenStatusListClient.this.evaluate(ref, anchors, Form.CWT, null);
+            }
+
+            @Override
+            public String evaluate(final StatusReference ref, final TrustAnchors anchors,
+                    final CredentialIssuer issuer) {
+                return TokenStatusListClient.this.evaluate(ref, anchors, Form.CWT, issuer);
+            }
+        };
     }
 
-    private String evaluate(final StatusReference ref, final TrustAnchors anchors, final Form form) {
+    private String evaluate(final StatusReference ref, final TrustAnchors anchors, final Form form,
+            final CredentialIssuer issuer) {
         Objects.requireNonNull(ref, "ref");
         Objects.requireNonNull(anchors, "anchors");
         final StatusListToken token;
         try {
             token = load(ref.uri(), anchors, form);
+            if (issuer != null) {
+                MdocStatusListSigner.check(token.signerChain(), issuer, anchors);
+            }
         } catch (final TransientFailure e) {
             return unavailable(ref.uri(), e.getMessage());
         } catch (final WalletVerificationException e) {

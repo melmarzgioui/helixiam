@@ -8,8 +8,10 @@ package io.helixiam.authorization.controller.admin;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfigPublisher;
 import io.helixiam.authorization.amqp.federation.IdentityProviderRef;
+import io.helixiam.authorization.federation.FederationProviderFactory;
 import io.helixiam.authorization.federation.FederationStoreRefresher;
 import io.helixiam.authorization.federation.ProviderSecretKeys;
+import io.helixiam.authorization.federation.wallet.WalletConfigValidator;
 import io.helixiam.common.log.LogSafe;
 import jakarta.validation.Valid;
 import org.apache.logging.log4j.LogManager;
@@ -51,21 +53,32 @@ public class IdentityProviderAdminController {
     private final IdentityProviderConfigPublisher publisher;
     /** E8.3: present only when helix.federation.store.enabled — refreshes the live registry after a write. */
     private final FederationStoreRefresher refresher;
+    /** Task 19: checks EUDI wallet connections before they are saved; null skips (unit tests of other protocols). */
+    private final WalletConfigValidator walletValidator;
 
     public IdentityProviderAdminController(final IdentityProviderConfigPublisher publisher) {
-        this(publisher, (FederationStoreRefresher) null);
+        this(publisher, (FederationStoreRefresher) null, (WalletConfigValidator) null);
+    }
+
+    /** Tests: wallet connections validated by {@code walletValidator}, no registry refresh. */
+    public IdentityProviderAdminController(final IdentityProviderConfigPublisher publisher,
+                                           final WalletConfigValidator walletValidator) {
+        this(publisher, (FederationStoreRefresher) null, walletValidator);
     }
 
     @Autowired
     public IdentityProviderAdminController(final IdentityProviderConfigPublisher publisher,
-                                           final ObjectProvider<FederationStoreRefresher> refresher) {
-        this(publisher, refresher.getIfAvailable());
+                                           final ObjectProvider<FederationStoreRefresher> refresher,
+                                           final ObjectProvider<WalletConfigValidator> walletValidator) {
+        this(publisher, refresher.getIfAvailable(), walletValidator.getIfAvailable());
     }
 
     private IdentityProviderAdminController(final IdentityProviderConfigPublisher publisher,
-                                            final FederationStoreRefresher refresher) {
+                                            final FederationStoreRefresher refresher,
+                                            final WalletConfigValidator walletValidator) {
         this.publisher = publisher;
         this.refresher = refresher;
+        this.walletValidator = walletValidator;
     }
 
     @GetMapping
@@ -84,6 +97,7 @@ public class IdentityProviderAdminController {
     public ResponseEntity<IdentityProviderAdminView> create(@PathVariable final String realmId,
                                                          @Valid @RequestBody final IdentityProviderRequest request) {
         checkSecrets(request);
+        checkWallet(realmId, request.alias(), request);
         final IdentityProviderConfig saved = publisher.save(toConfig(realmId, request.alias(), request));
         refresh(realmId);
         return ResponseEntity.status(HttpStatus.CREATED).body(IdentityProviderAdminView.of(saved));
@@ -94,6 +108,7 @@ public class IdentityProviderAdminController {
                                                          @PathVariable final String alias,
                                                          @Valid @RequestBody final IdentityProviderRequest request) {
         checkSecrets(request);
+        checkWallet(realmId, alias, request);
         final IdentityProviderConfig saved = publisher.save(toConfig(realmId, alias, request));
         refresh(realmId);
         return ResponseEntity.ok(IdentityProviderAdminView.of(saved));
@@ -136,6 +151,53 @@ public class IdentityProviderAdminController {
         }
         if (!errors.isEmpty()) {
             throw new ProviderValidationException(errors);
+        }
+    }
+
+    /**
+     * Task 19: an EUDI wallet connection is checked by {@link WalletConfigValidator#validateStored} as it will be
+     * stored (a secret left out of the write keeps the stored one, a clear flag removes it), and refused with
+     * {@code 400 {message, fieldErrors}}: config fields as {@code config.<field>}, alias and display name as
+     * themselves.
+     */
+    private void checkWallet(final String realmId, final String alias, final IdentityProviderRequest request) {
+        if (walletValidator == null || !FederationProviderFactory.isWallet(request.protocol())) {
+            return;
+        }
+        final Map<String, String> effective = new LinkedHashMap<>();
+        if (request.config() != null) {
+            request.config().forEach((k, v) -> {
+                if (k != null && !ProviderSecretKeys.isControlKey(k)) {
+                    effective.put(k, v);
+                }
+            });
+        }
+        final Map<String, String> stored = storedSecrets(realmId, alias);
+        for (final String key : ProviderSecretKeys.keysFor(request.protocol())) {
+            final String given = effective.get(key);
+            if ((given == null || given.isBlank()) && !ProviderSecretKeys.clears(request.config(), key)
+                    && stored.get(key) != null) {
+                effective.put(key, stored.get(key));
+            }
+        }
+        final Map<String, String> errors = new LinkedHashMap<>();
+        walletValidator.validateStored(realmId, alias, request.displayName(), effective).forEach((field, message) ->
+                errors.put("alias".equals(field) || "displayName".equals(field) ? field : "config." + field, message));
+        if (!errors.isEmpty()) {
+            throw new ProviderValidationException(errors);
+        }
+    }
+
+    /** The stored connection's secrets (empty when there is none, or it cannot be read now). */
+    private Map<String, String> storedSecrets(final String realmId, final String alias) {
+        try {
+            final IdentityProviderConfig stored = publisher.get(new IdentityProviderRef(realmId, alias));
+            return stored == null || stored.config() == null ? Map.of()
+                    : ProviderSecretKeys.split(stored.protocol(), stored.config()).secrets();
+        } catch (final RuntimeException e) {
+            LOG.warn("Could not read the stored identity provider {} in realm {} to validate the write: {}",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
+            return Map.of();
         }
     }
 

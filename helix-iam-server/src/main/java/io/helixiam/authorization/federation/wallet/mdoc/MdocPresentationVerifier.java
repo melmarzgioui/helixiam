@@ -10,6 +10,7 @@ import io.helixiam.authorization.federation.wallet.VerificationContext;
 import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
+import io.helixiam.authorization.federation.wallet.status.CredentialIssuer;
 import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
 import io.helixiam.authorization.federation.wallet.status.StatusCheck;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
@@ -195,7 +196,8 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
         if (msoBytes == null) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "IssuerAuth payload is detached");
         }
-        final X509Certificate leaf = trust.validate(issuerAuth.x5chain(), ctx.anchors(), ctx.now());
+        final List<X509Certificate> issuerChain = issuerAuth.x5chain();
+        final X509Certificate leaf = trust.validate(issuerChain, ctx.anchors(), ctx.now());
         if (!issuerAuth.verify(leaf.getPublicKey(), null)) {
             throw fail(WalletErrorCode.ISSUER_SIGNATURE_INVALID, "IssuerAuth signature is invalid");
         }
@@ -214,7 +216,7 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
         verifyDeviceAuth(document, docType, mso.deviceKey(), ctx);
 
         // ---- Status (only after holder binding)
-        final String statusResult = checkStatus(mso.status(), ctx);
+        final String statusResult = checkStatus(mso.status(), issuerChain, ctx);
 
         return new VerifiedPresentation(FORMAT, docType, Collections.unmodifiableMap(claims),
                 leaf.getSubjectX500Principal().getName(), leaf.getSerialNumber().toString(16), statusResult);
@@ -503,14 +505,17 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
     // ------------------------------------------------------------------------------------------- status
 
     /** Status policy via the shared {@link StatusCheck} (identical to the SD-JWT VC verifier). */
-    private String checkStatus(final MobileSecurityObject.Status msoStatus, final VerificationContext ctx) {
+    private String checkStatus(final MobileSecurityObject.Status msoStatus, final List<X509Certificate> issuerChain,
+            final VerificationContext ctx) {
         if (msoStatus == null) {
             return StatusCheck.absent(ctx.statusPolicy(), "MSO has no status");
         }
         if (!(msoStatus instanceof MobileSecurityObject.StatusList list)) {
             return StatusCheck.notEvaluable(ctx.statusPolicy(), "MSO status mechanism cannot be evaluated");
         }
-        return StatusCheck.evaluate(status, list.reference(), ctx.anchors(), ctx.statusPolicy());
+        // ISO §12.3.6: the evaluator binds the list signer to the MSO signer, or to status_list.certificate
+        return StatusCheck.evaluate(status, list.reference(), ctx.anchors(),
+                new CredentialIssuer(issuerChain, list.certificate()), ctx.statusPolicy());
     }
 
     private static WalletVerificationException fail(final WalletErrorCode code, final String safeDetail) {

@@ -108,6 +108,17 @@ public class WalletConfigValidator {
 
     /** Field → message for every problem (empty when the config is usable in {@code realmId}). */
     public Map<String, String> validate(final String realmId, final WalletProviderConfig c) {
+        return validate(realmId, c, null);
+    }
+
+    /**
+     * As {@link #validate(String, WalletProviderConfig)}, judging the given signing key instead of resolving
+     * {@code accessKeyRef} again: the provider factory resolves the key once and validates the very handle that will
+     * sign (so under {@code x509_san_dns} the leaf whose SAN was checked is the leaf that signs). For the dev PEM path
+     * the handle must be the one built from the configured chain and key. A null {@code signingKey} resolves as usual.
+     */
+    public Map<String, String> validate(final String realmId, final WalletProviderConfig c,
+                                        final SigningKeyHandle signingKey) {
         final Errors e = new Errors();
         if (c.alias() == null || c.alias().isBlank()) {
             e.add("alias", "alias is required");
@@ -115,7 +126,7 @@ public class WalletConfigValidator {
         if (c.accessCertificateKeyRef() != null && !c.accessCertificateKeyRef().isBlank()) {
             e.add("accessCertificateKeyRef", "accessCertificateKeyRef was renamed to accessKeyRef");
         }
-        checkAccessKeyAndChain(realmId, c, e);
+        checkAccessKeyAndChain(realmId, c, signingKey, e);
         if (c.registrationCertificate() != null) {
             try {
                 SoftwareRealmSigningKeys.parseCertificateChain(c.registrationCertificate());
@@ -154,7 +165,15 @@ public class WalletConfigValidator {
 
     /** @throws IllegalArgumentException naming the alias and every {@code field: message} when the config is invalid */
     public void requireValid(final String realmId, final WalletProviderConfig c) {
-        final Map<String, String> errors = validate(realmId, c);
+        requireValid(realmId, c, null);
+    }
+
+    /**
+     * As {@link #requireValid(String, WalletProviderConfig)} for the given signing key (see
+     * {@link #validate(String, WalletProviderConfig, SigningKeyHandle)}).
+     */
+    public void requireValid(final String realmId, final WalletProviderConfig c, final SigningKeyHandle signingKey) {
+        final Map<String, String> errors = validate(realmId, c, signingKey);
         if (!errors.isEmpty()) {
             final StringBuilder sb = new StringBuilder("Wallet provider '").append(c.alias()).append("' is invalid: ");
             errors.forEach((field, message) -> sb.append(field).append(": ").append(message).append("; "));
@@ -164,7 +183,8 @@ public class WalletConfigValidator {
 
     // ------------------------------------------------------------------------------------------------ key and chain
 
-    private void checkAccessKeyAndChain(final String realmId, final WalletProviderConfig c, final Errors e) {
+    private void checkAccessKeyAndChain(final String realmId, final WalletProviderConfig c,
+                                        final SigningKeyHandle given, final Errors e) {
         final List<X509Certificate> configured = configuredChain(c, e);
         final boolean hasRef = c.accessKeyRef() != null && !c.accessKeyRef().isBlank();
         final boolean hasPem = c.accessCertificatePrivateKey() != null && !c.accessCertificatePrivateKey().isBlank();
@@ -181,9 +201,13 @@ public class WalletConfigValidator {
                 e.add(CHAIN, "accessCertificateChain (PEM, leaf first) is required with accessCertificatePrivateKey");
             } else if (configured != null) {
                 checkDevKey(c.accessCertificatePrivateKey(), configured.get(0), e);
+                if (given != null && (!configured.equals(given.certificateChain())
+                        || !signsFor(given, configured.get(0)))) {
+                    e.add(DEV_KEY, "The signing key is not the configured accessCertificatePrivateKey and chain");
+                }
             }
         } else {
-            final SigningKeyHandle handle = resolve(realmId, c.accessKeyRef(), e);
+            final SigningKeyHandle handle = given != null ? given : resolve(realmId, c.accessKeyRef(), e);
             if (handle != null) {
                 final List<X509Certificate> keyChain = handle.certificateChain();
                 if (keyChain == null || keyChain.isEmpty()) {

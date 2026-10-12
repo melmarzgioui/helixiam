@@ -818,6 +818,86 @@ class TokenStatusListClientTest {
                 WalletErrorCode.LIMIT_EXCEEDED);
     }
 
+    // ------------------------------------------------------------------------------------------- ISO §12.3.6 signer
+    // docs/eudi-wallet-spec-notes.md §6.5: without a status_list "certificate" the list's signer must belong to the
+    // MSO signer's issuer; with one, the list must chain to that certificate. Both under either policy.
+
+    /** Anchors trusting the status PKI and an unrelated second PKI. */
+    private static TrustAnchors bothRoots(final TestPki other) {
+        return new TrustAnchors(java.util.Set.of(new java.security.cert.TrustAnchor(pki.root(), null),
+                new java.security.cert.TrustAnchor(other.root(), null)), List.of(), TrustAnchors.RevocationMode.OFF);
+    }
+
+    @Test
+    void mdocListSignedByAnUnrelatedTrustedCaIsRefusedWithoutCertificate() {
+        final TestPki other = TestPki.create("Unrelated Status");
+        final Leaf otherSigner = other.issueLeaf(LeafSpec.defaults());
+        final Leaf msoSigner = pki.issueLeaf(LeafSpec.defaults());
+        final TrustAnchors trusted = bothRoots(other);
+        stub.serveCwt(cwt(otherSigner, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
+        final StatusEvaluator cwt = client(failOpen()).cwtEvaluator();
+        final StatusReference ref = new StatusReference(0, uri("/cwt/1"));
+
+        assertThat(cwt.evaluate(ref, trusted)).as("the list itself is trusted").isEqualTo(StatusEvaluator.VALID);
+        assertCode(() -> cwt.evaluate(ref, trusted, new CredentialIssuer(msoSigner.chain(), null)),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(audits).as("a signer refusal is never fail-open").isEmpty();
+    }
+
+    @Test
+    void mdocListSignedUnderTheMsoSignersIssuerIsAccepted() {
+        final Leaf msoSigner = pki.issueLeaf(LeafSpec.defaults());
+        stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
+
+        assertThat(client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors,
+                new CredentialIssuer(msoSigner.chain(), null))).isEqualTo(StatusEvaluator.VALID);
+    }
+
+    @Test
+    void mdocListSignedByTheMsoSignerItselfIsAccepted() {
+        stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
+
+        assertThat(client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors,
+                new CredentialIssuer(List.of(signer.certificate()), null))).isEqualTo(StatusEvaluator.VALID);
+    }
+
+    @Test
+    void mdocListMustChainToTheStatusListCertificateWhenOneIsGiven() throws Exception {
+        final TestPki other = TestPki.create("Delegated Status");
+        final Leaf otherSigner = other.issueLeaf(LeafSpec.defaults());
+        final Leaf msoSigner = pki.issueLeaf(LeafSpec.defaults());
+        final TrustAnchors trusted = bothRoots(other);
+        final byte[] certificate = other.intermediate().getEncoded();
+        final StatusEvaluator cwt = client(failClosed()).cwtEvaluator();
+
+        stub.serveCwt(cwt(otherSigner, uri("/cwt/delegated"), 1, new int[] {0}, Map.of()));
+        assertThat(cwt.evaluate(new StatusReference(0, uri("/cwt/delegated")), trusted,
+                new CredentialIssuer(msoSigner.chain(), certificate))).isEqualTo(StatusEvaluator.VALID);
+
+        stub.serveCwt(cwt(signer, uri("/cwt/issuer"), 1, new int[] {0}, Map.of()));
+        assertCode(() -> cwt.evaluate(new StatusReference(0, uri("/cwt/issuer")), trusted,
+                new CredentialIssuer(msoSigner.chain(), certificate)), WalletErrorCode.STATUS_UNAVAILABLE);
+    }
+
+    @Test
+    void mdocStatusListCertificateThatIsNotACertificateIsRefused() {
+        stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
+
+        assertCode(() -> client(failOpen()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors,
+                new CredentialIssuer(List.of(signer.certificate()), new byte[] {1, 2, 3})),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+    }
+
+    @Test
+    void jwtListHasNoIssuerBindingRule() {
+        final TestPki other = TestPki.create("JWT Unrelated");
+        final Leaf msoSigner = other.issueLeaf(LeafSpec.defaults());
+        stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}));
+
+        assertThat(client(failClosed()).evaluate(new StatusReference(0, uri("/lists/1")), anchors,
+                new CredentialIssuer(msoSigner.chain(), null))).isEqualTo(StatusEvaluator.VALID);
+    }
+
     @Test
     void jwtAndCwtAreCachedSeparately() {
         final String token = jwt(uri("/lists/1"), 1, new int[] {0});

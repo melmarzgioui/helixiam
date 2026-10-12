@@ -225,6 +225,39 @@ class WalletConfigValidatorTest {
         assertThat(v.validate(REALM, WalletProviderConfig.fromStored(byRef))).containsKey("accessKeyRef");
     }
 
+    // ------------------------------------------------------------------ a given signing key (Task 19)
+
+    @Test
+    void aGivenKeyIsJudgedInsteadOfResolvingAgain() {
+        final Map<String, String> m = valid();
+        m.remove("accessCertificateChain");
+        m.put("clientIdScheme", "x509_san_dns");
+        m.put("clientIdHost", HOST);
+        final WalletProviderConfig config = WalletProviderConfig.fromStored(m);
+        // The store's key has the SAN, the given one (OTHER's chain has HOST too, but its key is ACCESS') does not fit:
+        final SigningKeyHandle mismatched = new FakeKeys(ACCESS, OTHER.chain(), null).resolve(REALM, KEY_REF);
+        assertThat(production.validate(REALM, config)).isEmpty();
+        assertThat(production.validate(REALM, config, mismatched)).containsEntry("accessKeyRef",
+                "The key behind accessKeyRef does not match the access certificate");
+
+        final TestPki.Leaf noSan = PKI.issueLeaf(TestPki.LeafSpec.defaults());
+        final SigningKeyHandle withoutSan = new FakeKeys(noSan).resolve(REALM, KEY_REF);
+        assertThat(production.validate(REALM, config, withoutSan)).containsKey("clientIdHost");
+    }
+
+    @Test
+    void aGivenKeyForTheDevPemMustBeTheConfiguredKeyAndChain() {
+        final Map<String, String> m = valid();
+        m.remove("accessKeyRef");
+        m.put("accessCertificatePrivateKey", pkcs8Pem(ACCESS.privateKey()));
+        final WalletProviderConfig config = WalletProviderConfig.fromStored(m);
+
+        assertThat(dev.validate(REALM, config, new FakeKeys(ACCESS).resolve(REALM, KEY_REF))).isEmpty();
+        assertThat(dev.validate(REALM, config, new FakeKeys(OTHER).resolve(REALM, KEY_REF)))
+                .containsEntry("accessCertificatePrivateKey",
+                        "The signing key is not the configured accessCertificatePrivateKey and chain");
+    }
+
     @Test
     void chainNotLeafFirst_isRefused() {
         final Map<String, String> m = valid();

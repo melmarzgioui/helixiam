@@ -180,6 +180,36 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
         }
     }
 
+    /**
+     * A handle over a raw PEM private key and its PEM chain (leaf first), for the dev-only wallet access key
+     * ({@code accessCertificatePrivateKey}, which never enters the store). It signs through the same restricted signer
+     * as a stored key, so the private key is never exposed; {@code label} is its {@link SigningKeyHandle#keyRef()}.
+     * Nothing beyond parsing is checked here: the caller validates the chain and the key/leaf match first.
+     *
+     * @throws IllegalArgumentException when the key or the chain cannot be parsed, or the key is not EC P-256/384/521
+     *                                  (field-safe message, never the PEM)
+     */
+    public static SigningKeyHandle softwareHandle(final String label, final String privateKeyPem,
+                                                  final String certificateChainPem) {
+        if (privateKeyPem == null || privateKeyPem.isBlank()) {
+            throw new IllegalArgumentException("A PEM private key is required");
+        }
+        final PrivateKey privateKey = parsePrivateKey(privateKeyPem);
+        if (!(privateKey instanceof ECPrivateKey ec)) {
+            throw new IllegalArgumentException("Only EC P-256, P-384 or P-521 private keys are supported");
+        }
+        final JWSAlgorithm alg = algorithmFor(ec);
+        final List<X509Certificate> chain = List.copyOf(parseCertificateChain(certificateChainPem));
+        if (chain.isEmpty()) {
+            throw new IllegalArgumentException("A certificate chain is required");
+        }
+        try {
+            return new Handle(label, alg, chain, new RestrictedSigner(new ECDSASigner(ec), alg));
+        } catch (final JOSEException e) {
+            throw new IllegalArgumentException("The private key cannot sign");
+        }
+    }
+
     private static NoSuchElementException notFound(final String realmId, final String keyRef) {
         LOG.debug("Verifier signing key not found realm={} ref={}", LogSafe.sanitize(realmId), LogSafe.sanitize(keyRef));
         return new NoSuchElementException("Signing key not found in this realm");

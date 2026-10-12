@@ -16,7 +16,8 @@ package io.helixiam.authorization.federation.spi;
  */
 public record IdpMetadata(String alias, Protocol protocol, String displayName, String iconKey, String logoUrl) {
 
-    public enum Protocol { OIDC, SAML2, LDAP, SOCIAL }
+    /** {@code WALLET}: an EUDI Wallet (OpenID4VP verifier) connection; added last, so existing ordinals are kept. */
+    public enum Protocol { OIDC, SAML2, LDAP, SOCIAL, WALLET }
 
     /** Bare metadata with no presentation hints (icon/logo resolved elsewhere, or a plain text button). */
     public static IdpMetadata of(final String alias, final Protocol protocol, final String displayName) {

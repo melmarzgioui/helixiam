@@ -112,15 +112,22 @@ public final class StatusListToken {
     private final Duration ttl;
     private final int bits;
     private final byte[] list;
+    private final List<X509Certificate> signerChain;
 
     private StatusListToken(final String subject, final Instant issuedAt, final Instant expiresAt,
-            final Duration ttl, final int bits, final byte[] list) {
+            final Duration ttl, final int bits, final byte[] list, final List<X509Certificate> signerChain) {
+        this.signerChain = List.copyOf(signerChain);
         this.subject = subject;
         this.issuedAt = issuedAt;
         this.expiresAt = expiresAt;
         this.ttl = ttl;
         this.bits = bits;
         this.list = list;
+    }
+
+    /** The validated signer chain as the token carried it ({@code x5c} / {@code x5chain}), leaf first. */
+    public List<X509Certificate> signerChain() {
+        return signerChain;
     }
 
     /** {@code sub}: the URI this list claims to be. */
@@ -179,7 +186,8 @@ public final class StatusListToken {
                     "Status List Token alg is not allowed");
         }
         final JWSAlgorithm alg = JWSAlgorithm.parse(algName);
-        final X509Certificate leaf = trust.validate(x5c(header.get("x5c")), anchors, now);
+        final List<X509Certificate> chain = x5c(header.get("x5c"));
+        final X509Certificate leaf = trust.validate(chain, anchors, now);
         final JWSVerifier verifier = jwsVerifier(leaf.getPublicKey(), alg);
         try {
             if (!JWSObject.parse(compact.trim()).verify(verifier)) {
@@ -206,7 +214,7 @@ public final class StatusListToken {
         } catch (final IllegalArgumentException e) {
             throw invalid("Status List Token lst is not base64url");
         }
-        return build(sub, iat, exp, ttl, bitsValue, compressed, now);
+        return build(sub, iat, exp, ttl, bitsValue, compressed, now, chain);
     }
 
     // ------------------------------------------------------------------------------------------- CWT
@@ -232,7 +240,8 @@ public final class StatusListToken {
             throw new WalletVerificationException(WalletErrorCode.ALGORITHM_NOT_ALLOWED,
                     "Status List Token COSE alg is not allowed");
         }
-        final X509Certificate leaf = trust.validate(cose.protectedX5chain(), anchors, now);
+        final List<X509Certificate> chain = cose.protectedX5chain();
+        final X509Certificate leaf = trust.validate(chain, anchors, now);
         if (!cose.verify(leaf.getPublicKey(), null, CWT_ALGORITHMS)) {
             throw signatureInvalid();
         }
@@ -251,7 +260,7 @@ public final class StatusListToken {
                 || !(statusList.get("lst").orElse(null) instanceof CborValue.Bytes lst)) {
             throw invalid("Status List Token status list is malformed");
         }
-        return build(sub, iat, exp, ttl, bitsValue.value(), lst.value(), now);
+        return build(sub, iat, exp, ttl, bitsValue.value(), lst.value(), now, chain);
     }
 
     // ------------------------------------------------------------------------------------------- list
@@ -308,7 +317,7 @@ public final class StatusListToken {
     // ------------------------------------------------------------------------------------------- helpers
 
     private static StatusListToken build(final String sub, final Instant iat, final Instant exp, final Duration ttl,
-            final long bits, final byte[] compressed, final Instant now) {
+            final long bits, final byte[] compressed, final Instant now, final List<X509Certificate> chain) {
         if (sub == null || sub.isBlank()) {
             throw invalid("Status List Token has no sub");
         }
@@ -321,7 +330,7 @@ public final class StatusListToken {
         if (!ALLOWED_BITS.contains(bits)) {
             throw invalid("Status List Token bits is not 1, 2, 4 or 8");
         }
-        return new StatusListToken(sub, iat, exp, ttl, (int) bits, inflate(compressed));
+        return new StatusListToken(sub, iat, exp, ttl, (int) bits, inflate(compressed), chain);
     }
 
     private static boolean typIs(final String typ) {

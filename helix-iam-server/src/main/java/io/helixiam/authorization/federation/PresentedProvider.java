@@ -27,6 +27,11 @@ public final class PresentedProvider implements IdentityProvider {
         this.logoUrl = logoUrl;
     }
 
+    /** The wrapped broker (e.g. to reach a wallet provider's verifier components). */
+    public IdentityProvider delegate() {
+        return delegate;
+    }
+
     @Override
     public IdpMetadata metadata() {
         return delegate.metadata().withPresentation(iconKey, logoUrl);

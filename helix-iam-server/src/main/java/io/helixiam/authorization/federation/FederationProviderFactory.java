@@ -17,6 +17,12 @@ import io.helixiam.authorization.federation.saml.Saml2IdentityProvider;
 import io.helixiam.authorization.federation.saml.SamlAssertionValidator;
 import io.helixiam.authorization.federation.saml.SamlProviderConfig;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
+import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
+import io.helixiam.authorization.federation.wallet.WalletIdentityProviders;
+import io.helixiam.authorization.federation.wallet.WalletProviderConfig;
+import io.helixiam.common.log.LogSafe;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;
@@ -31,26 +37,32 @@ import java.util.Map;
  * Generic OIDC and SAML2 entries map straight onto their broker; social entries resolve to a built-in
  * {@link SocialProviders} preset so the operator supplies only a client id + secret. The shared
  * back-channel collaborators (OIDC token client, SAML assertion validator) are injected beans; the
- * per-request nonce / request-id / instant suppliers are cryptographically random.
+ * per-request nonce / request-id / instant suppliers are cryptographically random. EUDI wallet entries (YAML or stored
+ * protocol {@code eudi-wallet} / {@code openid4vp} / {@code wallet}) are built and validated by
+ * {@link WalletIdentityProviders}.
  */
 @Component
 public class FederationProviderFactory {
 
+    private static final Logger LOG = LogManager.getLogger(FederationProviderFactory.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OidcTokenClient oidcTokenClient;
     private final SamlAssertionValidator samlAssertionValidator;
     private final EidAssertionValidator eidAssertionValidator;
     private final EidArtifactResolver eidArtifactResolver;
+    private final WalletIdentityProviders walletProviders;
 
     public FederationProviderFactory(final OidcTokenClient oidcTokenClient,
                                      final SamlAssertionValidator samlAssertionValidator,
                                      final EidAssertionValidator eidAssertionValidator,
-                                     final EidArtifactResolver eidArtifactResolver) {
+                                     final EidArtifactResolver eidArtifactResolver,
+                                     final WalletIdentityProviders walletProviders) {
         this.oidcTokenClient = oidcTokenClient;
         this.samlAssertionValidator = samlAssertionValidator;
         this.eidAssertionValidator = eidAssertionValidator;
         this.eidArtifactResolver = eidArtifactResolver;
+        this.walletProviders = walletProviders;
     }
 
     public List<IdentityProvider> build(final FederationProviderProperties properties) {
@@ -67,6 +79,16 @@ public class FederationProviderFactory {
         }
         for (final EidProviderConfig config : properties.getEid()) {
             providers.add(new EidSamlIdentityProvider(config, eidAssertionValidator, eidArtifactResolver));
+        }
+        for (final WalletProviderConfig config : properties.getWallet()) {
+            // An invalid wallet entry is logged with its field errors and skipped, like a malformed stored provider
+            // (FederationStoreRefresher): one bad wallet config must not stop the server. Its key lives in master.
+            try {
+                providers.add(walletProviders.build(WalletIdentityProviders.YAML_REALM, config));
+            } catch (final RuntimeException e) {
+                LOG.warn("Skipping invalid wallet provider '{}' from helix.federation.wallet: {}",
+                        LogSafe.sanitize(config.alias()), LogSafe.sanitize(e.getMessage()));
+            }
         }
         return providers;
     }
@@ -85,6 +107,10 @@ public class FederationProviderFactory {
             case "saml", "saml2" -> new Saml2IdentityProvider(samlFromStored(stored, c), samlAssertionValidator,
                     () -> "_" + token(), () -> Instant.now().toString());
             case "eid", "digid", "eherkenning", "eidas" -> new EidSamlIdentityProvider(eidFromStored(stored, protocol, c), eidAssertionValidator, eidArtifactResolver);
+            // EUDI wallet: malformed or invalid settings throw (IllegalArgumentException naming the fields), so the
+            // refresher logs and skips the connection; the key is resolved in the connection's own realm.
+            case "eudi-wallet", "openid4vp", "wallet" -> walletProviders.build(stored.realmId(),
+                    WalletProviderConfig.fromStored(stored.alias(), stored.displayName(), c));
             default -> throw new IllegalArgumentException("Unknown stored provider protocol: " + stored.protocol());
         };
         // Login-button branding: an explicit iconKey/logoUrl set in the console wins; otherwise infer the
@@ -98,6 +124,9 @@ public class FederationProviderFactory {
 
     /** The built-in brand-mark key for a stored connection: explicit eID scheme, name/alias hint, else protocol. */
     static String inferIconKey(final String protocol, final String alias, final String displayName) {
+        if (isWallet(protocol)) { // the protocol decides: never an eID mark for a wallet, whatever its name
+            return WalletIdentityProvider.ICON_KEY;
+        }
         final String hay = ((alias == null ? "" : alias) + " " + (displayName == null ? "" : displayName)).toLowerCase();
         if ("digid".equals(protocol) || hay.contains("digid")) {
             return "digid";
@@ -114,6 +143,12 @@ public class FederationProviderFactory {
             case "ldap", "ad" -> "ldap";
             default -> null;
         };
+    }
+
+    /** Whether {@code protocol} (case-insensitive) names an EUDI wallet connection: eudi-wallet, openid4vp, wallet. */
+    public static boolean isWallet(final String protocol) {
+        final String p = protocol == null ? "" : protocol.trim().toLowerCase(java.util.Locale.ROOT);
+        return "eudi-wallet".equals(p) || "openid4vp".equals(p) || "wallet".equals(p);
     }
 
     private static String blankToNull(final String v) {

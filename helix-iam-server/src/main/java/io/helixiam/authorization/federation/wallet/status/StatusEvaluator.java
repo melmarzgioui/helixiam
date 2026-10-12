@@ -28,4 +28,16 @@ public interface StatusEvaluator {
      * @return {@link #VALID}
      */
     String evaluate(StatusReference ref, TrustAnchors anchors);
+
+    /**
+     * As {@link #evaluate(StatusReference, TrustAnchors)}, knowing who issued the credential, so an evaluator can bind
+     * the list signer to the credential issuer (ISO/IEC 18013-5 §12.3.6, docs/eudi-wallet-spec-notes.md §6.5). The
+     * presentation verifiers always call this form. The default ignores {@code issuer}: evaluators without a signer
+     * rule (and test lambdas) need not implement it; {@link TokenStatusListClient#cwtEvaluator()} enforces the rule.
+     *
+     * @param issuer the credential's issuer chain and, for mdoc, the optional {@code status_list.certificate}
+     */
+    default String evaluate(final StatusReference ref, final TrustAnchors anchors, final CredentialIssuer issuer) {
+        return evaluate(ref, anchors);
+    }
 }

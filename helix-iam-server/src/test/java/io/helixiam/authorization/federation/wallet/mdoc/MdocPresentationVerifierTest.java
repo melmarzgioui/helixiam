@@ -10,6 +10,7 @@ import io.helixiam.authorization.federation.wallet.VerificationContext;
 import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
+import io.helixiam.authorization.federation.wallet.status.CredentialIssuer;
 import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
 import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
 import io.helixiam.authorization.federation.wallet.status.StatusReference;
@@ -728,6 +729,34 @@ class MdocPresentationVerifierTest {
         verify(presentAll(pid()));
 
         assertThat(seen.get()).isSameAs(anchors);
+    }
+
+    @Test
+    void statusEvaluatorReceivesTheIssuerAuthChainAndTheStatusListCertificate() throws Exception {
+        final AtomicReference<CredentialIssuer> seen = new AtomicReference<>();
+        status = new StatusEvaluator() {
+            @Override
+            public String evaluate(final StatusReference ref, final TrustAnchors a) {
+                throw new AssertionError("the issuer-aware evaluate must be used");
+            }
+
+            @Override
+            public String evaluate(final StatusReference ref, final TrustAnchors a, final CredentialIssuer issuer) {
+                seen.set(issuer);
+                return StatusEvaluator.VALID;
+            }
+        };
+        final byte[] certificate = wallet.pki().intermediate().getEncoded();
+        final MdocCredential withCertificate = pidWithMso(mso -> mso.put("status", Map.of("status_list",
+                Map.of("idx", 42, "uri", "https://status.example/lists/1", "certificate", certificate))));
+
+        verify(presentAll(pid()));
+        assertThat(seen.get().chain()).isEqualTo(wallet.issuer().chain());
+        assertThat(seen.get().statusListCertificate()).isNull();
+
+        verify(presentAll(withCertificate));
+        assertThat(seen.get().chain()).isEqualTo(wallet.issuer().chain());
+        assertThat(seen.get().statusListCertificate()).isEqualTo(certificate);
     }
 
     @Test

@@ -50,9 +50,19 @@ public final class StatusCheck {
     /** Evaluates {@code ref} against {@code anchors}. */
     public static String evaluate(final StatusEvaluator evaluator, final StatusReference ref,
             final TrustAnchors anchors, final StatusPolicy policy) {
+        return evaluate(evaluator, ref, anchors, null, policy);
+    }
+
+    /**
+     * Evaluates {@code ref} against {@code anchors} for the credential issued by {@code issuer} (the presentation
+     * verifiers' form, see {@link StatusEvaluator#evaluate(StatusReference, TrustAnchors, CredentialIssuer)}); a null
+     * {@code issuer} calls the issuer-less form.
+     */
+    public static String evaluate(final StatusEvaluator evaluator, final StatusReference ref,
+            final TrustAnchors anchors, final CredentialIssuer issuer, final StatusPolicy policy) {
         final String result;
         try {
-            result = evaluator.evaluate(ref, anchors);
+            result = issuer == null ? evaluator.evaluate(ref, anchors) : evaluator.evaluate(ref, anchors, issuer);
         } catch (final WalletVerificationException e) {
             throw e;
         } catch (final RuntimeException e) {
