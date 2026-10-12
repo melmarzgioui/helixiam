@@ -27,16 +27,33 @@ class DcqlQueryBuilderTest {
     private static final PidQuerySpec PRESET = new PidQuerySpec(List.of("urn:eudi:pid:1"),
             PidQuerySpec.DEFAULT_MDOC_DOCTYPE, List.of("given_name", "family_name", "birthdate"));
 
+    /**
+     * Task 21a: the subject claims {@code personal_administrative_number} and {@code issuing_country} are requested
+     * OPTIONALLY through {@code claim_sets} (OpenID4VP §6.1, §6.3: claims inside claim_sets carry ids), in order of
+     * preference: requested + both, requested + issuing_country, requested only.
+     */
+    private static final String CLAIM_SETS = """
+              "claim_sets": [ ["given_name", "family_name", "birthdate", "personal_administrative_number", "issuing_country"],
+                              ["given_name", "family_name", "birthdate", "issuing_country"],
+                              ["given_name", "family_name", "birthdate"] ]""";
     private static final String SD_JWT_QUERY = """
             { "id": "pid_sd_jwt", "format": "dc+sd-jwt",
               "meta": { "vct_values": ["urn:eudi:pid:1"] },
-              "claims": [ {"path": ["given_name"]}, {"path": ["family_name"]}, {"path": ["birthdate"]} ] }""";
+              "claims": [ {"id": "given_name", "path": ["given_name"]}, {"id": "family_name", "path": ["family_name"]},
+                          {"id": "birthdate", "path": ["birthdate"]},
+                          {"id": "personal_administrative_number", "path": ["personal_administrative_number"]},
+                          {"id": "issuing_country", "path": ["issuing_country"]} ],
+            %s }""".formatted(CLAIM_SETS);
     private static final String MDOC_QUERY = """
             { "id": "pid_mdoc", "format": "mso_mdoc",
               "meta": { "doctype_value": "eu.europa.ec.eudi.pid.1" },
-              "claims": [ {"path": ["eu.europa.ec.eudi.pid.1", "given_name"]},
-                          {"path": ["eu.europa.ec.eudi.pid.1", "family_name"]},
-                          {"path": ["eu.europa.ec.eudi.pid.1", "birth_date"]} ] }""";
+              "claims": [ {"id": "given_name", "path": ["eu.europa.ec.eudi.pid.1", "given_name"]},
+                          {"id": "family_name", "path": ["eu.europa.ec.eudi.pid.1", "family_name"]},
+                          {"id": "birthdate", "path": ["eu.europa.ec.eudi.pid.1", "birth_date"]},
+                          {"id": "personal_administrative_number",
+                           "path": ["eu.europa.ec.eudi.pid.1", "personal_administrative_number"]},
+                          {"id": "issuing_country", "path": ["eu.europa.ec.eudi.pid.1", "issuing_country"]} ],
+            %s }""".formatted(CLAIM_SETS);
 
     private static JsonNode json(final String text) throws Exception {
         return JSON.readTree(text);
@@ -103,18 +120,64 @@ class DcqlQueryBuilderTest {
 
         final ObjectNode query = build(spec, List.of(SD_JWT, MDOC));
 
+        // personal_administrative_number is requested outright here, so only issuing_country stays optional.
         assertThat(query.at("/credentials/0/claims")).isEqualTo(json("""
-                [ {"path": ["nationalities"]}, {"path": ["place_of_birth"]}, {"path": ["address", "street_address"]},
-                  {"path": ["address", "locality"]}, {"path": ["personal_administrative_number"]},
-                  {"path": ["picture"]}, {"path": ["email"]} ]"""));
+                [ {"id": "nationalities", "path": ["nationalities"]}, {"id": "place_of_birth", "path": ["place_of_birth"]},
+                  {"id": "address_street_address", "path": ["address", "street_address"]},
+                  {"id": "address_locality", "path": ["address", "locality"]},
+                  {"id": "personal_administrative_number", "path": ["personal_administrative_number"]},
+                  {"id": "picture", "path": ["picture"]}, {"id": "email", "path": ["email"]},
+                  {"id": "issuing_country", "path": ["issuing_country"]} ]"""));
         assertThat(query.at("/credentials/1/claims")).isEqualTo(json("""
-                [ {"path": ["eu.europa.ec.eudi.pid.1", "nationality"]},
-                  {"path": ["eu.europa.ec.eudi.pid.1", "place_of_birth"]},
-                  {"path": ["eu.europa.ec.eudi.pid.1", "resident_street"]},
-                  {"path": ["eu.europa.ec.eudi.pid.1", "resident_city"]},
-                  {"path": ["eu.europa.ec.eudi.pid.1", "personal_administrative_number"]},
-                  {"path": ["eu.europa.ec.eudi.pid.1", "portrait"]},
-                  {"path": ["eu.europa.ec.eudi.pid.1", "email_address"]} ]"""));
+                [ {"id": "nationalities", "path": ["eu.europa.ec.eudi.pid.1", "nationality"]},
+                  {"id": "place_of_birth", "path": ["eu.europa.ec.eudi.pid.1", "place_of_birth"]},
+                  {"id": "address_street_address", "path": ["eu.europa.ec.eudi.pid.1", "resident_street"]},
+                  {"id": "address_locality", "path": ["eu.europa.ec.eudi.pid.1", "resident_city"]},
+                  {"id": "personal_administrative_number",
+                   "path": ["eu.europa.ec.eudi.pid.1", "personal_administrative_number"]},
+                  {"id": "picture", "path": ["eu.europa.ec.eudi.pid.1", "portrait"]},
+                  {"id": "email", "path": ["eu.europa.ec.eudi.pid.1", "email_address"]},
+                  {"id": "issuing_country", "path": ["eu.europa.ec.eudi.pid.1", "issuing_country"]} ]"""));
+        final String requested = "\"nationalities\", \"place_of_birth\", \"address_street_address\", "
+                + "\"address_locality\", \"personal_administrative_number\", \"picture\", \"email\"";
+        final JsonNode claimSets = json("[ [%s, \"issuing_country\"], [%s] ]".formatted(requested, requested));
+        assertThat(query.at("/credentials/0/claim_sets")).isEqualTo(claimSets);
+        assertThat(query.at("/credentials/1/claim_sets")).isEqualTo(claimSets);
+    }
+
+    @Test
+    void bothSubjectClaimsRequestedOutright_leaveNothingOptional_soNoClaimSetsAndNoIds() throws Exception {
+        final PidQuerySpec spec = new PidQuerySpec(List.of("urn:eudi:pid:1"), PidQuerySpec.DEFAULT_MDOC_DOCTYPE,
+                List.of("given_name", "issuing_country", "personal_administrative_number"));
+
+        assertThat((JsonNode) build(spec, List.of(SD_JWT))).isEqualTo(json("""
+                { "credentials": [ { "id": "pid_sd_jwt", "format": "dc+sd-jwt",
+                    "meta": { "vct_values": ["urn:eudi:pid:1"] },
+                    "claims": [ {"path": ["given_name"]}, {"path": ["issuing_country"]},
+                                {"path": ["personal_administrative_number"]} ] } ] }"""));
+    }
+
+    @Test
+    void issuingCountryRequestedOutright_leavesOnlyTheNumberOptional() throws Exception {
+        final PidQuerySpec spec = new PidQuerySpec(List.of("urn:eudi:pid:1"), PidQuerySpec.DEFAULT_MDOC_DOCTYPE,
+                List.of("given_name", "issuing_country"));
+
+        assertThat(build(spec, List.of(SD_JWT)).at("/credentials/0/claim_sets")).isEqualTo(json("""
+                [ ["given_name", "issuing_country", "personal_administrative_number"],
+                  ["given_name", "issuing_country"] ]"""));
+    }
+
+    @Test
+    void anSdJwtOnlyClaimIsInTheSdJwtClaimSetsButNotTheMdocOnes() throws Exception {
+        final PidQuerySpec spec = new PidQuerySpec(List.of("urn:eudi:pid:1"), PidQuerySpec.DEFAULT_MDOC_DOCTYPE,
+                List.of("given_name", "address.house_number"));
+
+        final ObjectNode query = build(spec, List.of(SD_JWT, MDOC));
+
+        assertThat(query.at("/credentials/0/claim_sets/2")).isEqualTo(json("[\"given_name\", \"address_house_number\"]"));
+        assertThat(query.at("/credentials/1/claim_sets")).isEqualTo(json("""
+                [ ["given_name", "personal_administrative_number", "issuing_country"],
+                  ["given_name", "issuing_country"], ["given_name"] ]"""));
     }
 
     @Test
@@ -124,8 +187,9 @@ class DcqlQueryBuilderTest {
 
         final ObjectNode query = build(spec, List.of(SD_JWT, MDOC));
 
-        assertThat(query.at("/credentials/0/claims")).hasSize(2);
-        assertThat(query.at("/credentials/1/claims")).hasSize(1);
+        // + the two optional subject claims in each format
+        assertThat(query.at("/credentials/0/claims")).hasSize(4);
+        assertThat(query.at("/credentials/1/claims")).hasSize(3);
         assertThat(query.at("/credentials/1/claims/0/path/1").asText()).isEqualTo("given_name");
     }
 

@@ -397,6 +397,16 @@ Format-specific `meta`:
 
 (The ids are our choice; only the field names and identifier values are normative.)
 
+**Task 21a update (optional subject claims):** each Credential Query above additionally lists
+`personal_administrative_number` and `issuing_country`, and every claim gets an `id` (§6.3: required when
+`claim_sets` is present; Helix uses the canonical claim name with `.` replaced by `_`). A `claim_sets` array then
+gives the options in order of preference (§6.1 / §6.4.1; that the wallet returns the first option it can satisfy is
+from §6.4.1 but is NOT quoted in these notes: UNVERIFIED, re-check against the pinned text):
+`[requested + personal_administrative_number + issuing_country]`, `[requested + issuing_country]`, `[requested]`.
+Options that coincide (a subject claim already requested outright) appear once; with a single option left, the query
+keeps the plain form above. The verifier accepts a presentation that fully satisfies some option and keeps every
+listed claim (`DcqlQueryBuilder`, `DcqlResultMatcher`).
+
 ### 1.5 Response modes, `direct_post`, `direct_post.jwt`, `redirect_uri`
 
 §8.2:

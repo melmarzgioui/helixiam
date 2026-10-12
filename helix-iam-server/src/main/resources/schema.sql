@@ -1086,3 +1086,10 @@ CREATE TABLE IF NOT EXISTS verifier_signing_key (
     created_at            timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
     PRIMARY KEY (realm_id, name)
 );
+-- EUDI Wallet (same as Flyway V77): the per-realm 256-bit pepper of the wallet subject HMAC, created lazily, the base64
+-- value encrypted at rest (DB_ENCRYPTION, AttributeEncryption). Never exported.
+CREATE TABLE IF NOT EXISTS realm_wallet_pepper (
+    realm_id   character varying(255) NOT NULL PRIMARY KEY,
+    pepper     text                   NOT NULL,
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
+);

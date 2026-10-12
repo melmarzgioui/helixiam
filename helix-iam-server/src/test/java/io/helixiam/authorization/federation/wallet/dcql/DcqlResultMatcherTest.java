@@ -511,6 +511,103 @@ class DcqlResultMatcherTest {
         assertRefused(() -> match("{\"pid_mdoc\": [\"" + raw + "\"]}"), WalletErrorCode.DCQL_NOT_SATISFIED);
     }
 
+    // ------------------------------------------------------------------------------------------- claim_sets (Task 21a)
+
+    private static Map<String, Object> withSubjectClaims(final Map<String, Object> claims, final boolean number,
+            final boolean country) {
+        final Map<String, Object> out = new LinkedHashMap<>(claims);
+        if (number) {
+            out.put("personal_administrative_number", "123456789");
+        }
+        if (country) {
+            out.put("issuing_country", "NL");
+        }
+        return out;
+    }
+
+    @Test
+    void claimSets_theFirstOption_requestedPlusBothSubjectClaims_isSatisfiedAndBothAreKept() {
+        final String raw = give(presentation(SD_JWT, PID_VCT, withSubjectClaims(sdJwtPid(), true, true)));
+
+        final MatchedPresentations result = match("{\"pid_sd_jwt\": [\"" + raw + "\"]}");
+
+        assertThat(result.presentations().get(0).claims()).isEqualTo(withSubjectClaims(sdJwtPid(), true, true));
+        assertThat(result.droppedClaimNames()).isEmpty();
+    }
+
+    @Test
+    void claimSets_theLastOption_requestedOnly_isSatisfied() {
+        final String raw = give(presentation(SD_JWT, PID_VCT, sdJwtPid()));
+
+        assertThat(match("{\"pid_sd_jwt\": [\"" + raw + "\"]}").presentations().get(0).claims())
+                .isEqualTo(sdJwtPid());
+    }
+
+    @Test
+    void claimSets_requestedPlusCountryOnly_isSatisfied() {
+        final String raw = give(presentation(SD_JWT, PID_VCT, withSubjectClaims(sdJwtPid(), false, true)));
+
+        assertThat(match("{\"pid_sd_jwt\": [\"" + raw + "\"]}").presentations().get(0).claims())
+                .containsEntry("issuing_country", "NL");
+    }
+
+    @Test
+    void claimSets_bothOptionalClaimsCountAsRequested_soTheNumberAloneIsKeptNotDropped() {
+        final String raw = give(presentation(SD_JWT, PID_VCT, withSubjectClaims(sdJwtPid(), true, false)));
+
+        final MatchedPresentations result = match("{\"pid_sd_jwt\": [\"" + raw + "\"]}");
+
+        assertThat(result.presentations().get(0).claims()).containsEntry("personal_administrative_number", "123456789");
+        assertThat(result.droppedClaimNames()).isEmpty();
+    }
+
+    @Test
+    void claimSets_aMissingRequestedClaimIsNotSatisfiedEvenWithBothSubjectClaims() {
+        final Map<String, Object> claims = withSubjectClaims(sdJwtPid(), true, true);
+        claims.remove("given_name");
+        final String raw = give(presentation(SD_JWT, PID_VCT, claims));
+
+        assertRefused(() -> match("{\"pid_sd_jwt\": [\"" + raw + "\"]}"), WalletErrorCode.DCQL_NOT_SATISFIED);
+    }
+
+    @Test
+    void claimSets_aNullRequestedClaimIsStillNotSatisfied() {
+        final Map<String, Object> claims = withSubjectClaims(sdJwtPid(), true, true);
+        claims.put("family_name", null);
+        final String raw = give(presentation(SD_JWT, PID_VCT, claims));
+
+        assertRefused(() -> match("{\"pid_sd_jwt\": [\"" + raw + "\"]}"), WalletErrorCode.DCQL_NOT_SATISFIED);
+    }
+
+    @Test
+    void claimSets_mdocWithBothSubjectElements_keepsThem() {
+        final String raw = give(presentation(MDOC, NS, mdocPid(Map.of("personal_administrative_number", "123456789",
+                "issuing_country", "NL", "resident_city", "Arnhem"))));
+
+        final MatchedPresentations result = match("{\"pid_mdoc\": [\"" + raw + "\"]}");
+
+        assertThat(result.presentations().get(0).claims()).isEqualTo(mdocPid(Map.of(
+                "personal_administrative_number", "123456789", "issuing_country", "NL")));
+        assertThat(result.droppedClaimNames()).containsExactly(NS + "/resident_city");
+    }
+
+    @Test
+    void claimSets_anOptionIsSatisfiedOnlyWhenAllItsClaimsArePresent() {
+        final ObjectNode query = query("""
+                { "credentials": [ { "id": "a", "format": "dc+sd-jwt", "meta": { "vct_values": ["urn:eudi:pid:1"] },
+                    "claims": [ {"id": "g", "path": ["given_name"]}, {"id": "f", "path": ["family_name"]},
+                                {"id": "b", "path": ["birthdate"]} ],
+                    "claim_sets": [ ["g", "f"], ["b"] ] } ] }""");
+        final String onlyGiven = give(presentation(SD_JWT, PID_VCT, Map.of("given_name", "Erika")));
+        final String givenAndFamily = give(presentation(SD_JWT, PID_VCT,
+                Map.of("given_name", "Erika", "family_name", "Mustermann")));
+        final String onlyBirthdate = give(presentation(SD_JWT, PID_VCT, Map.of("birthdate", "1964-08-12")));
+
+        assertRefused(() -> match(json("{\"a\": [\"" + onlyGiven + "\"]}"), query), WalletErrorCode.DCQL_NOT_SATISFIED);
+        assertThat(match(json("{\"a\": [\"" + givenAndFamily + "\"]}"), query).presentations()).hasSize(1);
+        assertThat(match(json("{\"a\": [\"" + onlyBirthdate + "\"]}"), query).presentations()).hasSize(1);
+    }
+
     // ------------------------------------------------------------------------------------------- our own queries
 
     @Test
@@ -520,7 +617,19 @@ class DcqlResultMatcherTest {
                     %s } ] }""";
         final String raw = sdJwt();
         for (final String unsupported : List.of(
-                "\"claims\": [ {\"id\": \"x\", \"path\": [\"given_name\"]} ], \"claim_sets\": [[\"x\"]]",
+                // claim_sets is supported (Task 21a) but must be well-formed: ids known, present on every claim,
+                // unique, non-empty options
+                "\"claims\": [ {\"id\": \"x\", \"path\": [\"given_name\"]} ], \"claim_sets\": [[\"y\"]]",
+                "\"claims\": [ {\"path\": [\"given_name\"]} ], \"claim_sets\": [[\"x\"]]",
+                "\"claims\": [ {\"id\": \"x\", \"path\": [\"given_name\"]}, {\"path\": [\"birthdate\"]} ], "
+                        + "\"claim_sets\": [[\"x\"]]",
+                "\"claims\": [ {\"id\": \"x\", \"path\": [\"given_name\"]}, {\"id\": \"x\", \"path\": [\"birthdate\"]} ], "
+                        + "\"claim_sets\": [[\"x\"]]",
+                "\"claims\": [ {\"id\": \"x\", \"path\": [\"given_name\"]} ], \"claim_sets\": []",
+                "\"claims\": [ {\"id\": \"x\", \"path\": [\"given_name\"]} ], \"claim_sets\": [[]]",
+                "\"claims\": [ {\"id\": \"x\", \"path\": [\"given_name\"]} ], \"claim_sets\": [\"x\"]",
+                "\"claims\": [ {\"id\": \"x y\", \"path\": [\"given_name\"]} ], \"claim_sets\": [[\"x y\"]]",
+                "\"claim_sets\": [[\"x\"]]",
                 "\"claims\": [ {\"path\": [\"given_name\"], \"values\": [\"Erika\"]} ]",
                 "\"claims\": [ {\"path\": [\"nationalities\", null]} ]",
                 "\"claims\": [ {\"path\": [\"nationalities\", 0]} ]",
@@ -562,7 +671,9 @@ class DcqlResultMatcherTest {
         final TestWallet wallet = TestWallet.create();
         final Map<String, Object> pid = new LinkedHashMap<>(sdJwtPid());
         pid.put("nationalities", List.of("DE"));
-        pid.put("personal_administrative_number", "PAN-0001");
+        // Task 21a: personal_administrative_number is requested now (optionally), so another unrequested claim
+        // stands in for the over-disclosure.
+        pid.put("document_number", "DOC-0001");
         final Instant now = Instant.now();
         final TestWallet.SdJwtCredential cred = wallet.sdJwtPid(pid, now.minusSeconds(3600),
                 now.plus(Duration.ofDays(30)), Optional.empty());
@@ -580,7 +691,7 @@ class DcqlResultMatcherTest {
         try (LogCapture log = LogCapture.of(DcqlResultMatcher.class)) {
             result = new DcqlResultMatcher().match(json("{\"pid_sd_jwt\": [\"" + vp + "\"]}"), PRESET,
                     Map.of(SD_JWT, new SdJwtVcPresentationVerifier(new IssuerTrustValidator(), neverCalled)), ctx);
-            assertThat(log.text()).contains("personal_administrative_number").doesNotContain("PAN-0001");
+            assertThat(log.text()).contains("document_number").doesNotContain("DOC-0001");
         }
 
         assertThat(result.presentations()).singleElement().satisfies(p -> {
@@ -588,7 +699,7 @@ class DcqlResultMatcherTest {
             assertThat(p.claims()).isEqualTo(sdJwtPid());
         });
         assertThat(result.droppedClaimNames())
-                .containsExactlyInAnyOrder("nationalities", "personal_administrative_number");
+                .containsExactlyInAnyOrder("nationalities", "document_number");
     }
 
     @Test

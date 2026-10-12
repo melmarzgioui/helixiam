@@ -168,7 +168,22 @@ public final class WalletAttributeMapper {
         if (!satisfiesMinimumLoa(minimumLoa)) {
             throw fail("the asserted level of assurance does not meet the configured minimum");
         }
+        return new BrokeredIdentity(idpAlias, externalSubject, null, false, attributes(matched), LOA_HIGH);
+    }
 
+    /**
+     * The mapped PID attributes of {@code matched} alone (the {@link #map} attributes, cross-format check included),
+     * for callers that need the normalised identity without a {@link BrokeredIdentity}, such as
+     * {@link WalletSubjectResolver}. {@code personal_administrative_number} is not among them (see the class
+     * javadoc).
+     *
+     * @throws WalletVerificationException {@code INVALID_RESPONSE} as for {@link #map}, minus the LoA check
+     */
+    public static Map<String, String> pidAttributes(final MatchedPresentations matched) {
+        return attributes(Objects.requireNonNull(matched, "matched"));
+    }
+
+    private static Map<String, String> attributes(final MatchedPresentations matched) {
         VerifiedPresentation sdJwt = null;
         VerifiedPresentation mdoc = null;
         for (final VerifiedPresentation vp : matched.presentations()) {
@@ -204,9 +219,7 @@ public final class WalletAttributeMapper {
         }
         attributes.put("helix_wallet_format", format);
         attributes.put("helix_wallet_issuer", issuerDn);
-
-        return new BrokeredIdentity(idpAlias, externalSubject, null, false, Collections.unmodifiableMap(attributes),
-                LOA_HIGH);
+        return Collections.unmodifiableMap(attributes);
     }
 
     // ------------------------------------------------------------------------------------------- per-source

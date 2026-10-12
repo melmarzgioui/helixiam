@@ -39,6 +39,36 @@ public class FederatedLinkService {
         repository.save(new FederatedLinkEntity(idpAlias, externalSubject, userId));
     }
 
+    /**
+     * Task 21a: record the link only if this (alias, subject) is not linked yet, race-safely (insert-if-absent, then
+     * re-read); an existing link is never overwritten. The result names the user the subject is linked to afterwards
+     * (another user when it already belonged to someone else) and whether this call created the link.
+     */
+    @Transactional
+    public LinkIfAbsent linkIfAbsent(final String idpAlias, final String externalSubject, final String userId) {
+        final String id = FederatedLinkEntity.key(idpAlias, externalSubject);
+        final boolean created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId) == 1;
+        final String owner = repository.findUserIdById(id)
+                .orElseThrow(() -> new IllegalStateException("The federated link could not be stored"));
+        return new LinkIfAbsent(owner, created);
+    }
+
+    /** The outcome of {@link #linkIfAbsent}: the subject's user afterwards, and whether this call linked it. */
+    public record LinkIfAbsent(String ownerUserId, boolean created) {
+    }
+
+    /**
+     * Task 21a: remove every link {@code userId} has for {@code idpAlias} (a user can only ever unlink their own
+     * links); returns how many were removed.
+     */
+    @Transactional
+    public int unlinkAll(final String userId, final String idpAlias) {
+        final java.util.List<FederatedLinkEntity> mine = repository.findAllByUserId(userId).stream()
+                .filter(l -> idpAlias.equals(l.getIdpAlias())).toList();
+        repository.deleteAll(mine);
+        return mine.size();
+    }
+
     /** B9: every federated identity a user has connected — for the account console's "Connected accounts". */
     @Transactional(readOnly = true)
     public java.util.List<io.helixiam.authorization.domain.federation.FederatedLinkView> linksForUser(final String userId) {

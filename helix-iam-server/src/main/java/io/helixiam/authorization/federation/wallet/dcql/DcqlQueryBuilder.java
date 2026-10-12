@@ -25,10 +25,25 @@ import java.util.Set;
  * ({@code mso_mdoc}, {@code meta.doctype_value} = the configured doctype, used as given). With two formats a single
  * required {@code credential_sets} entry lets either one satisfy the request; with one format there is no
  * {@code credential_sets}, so that query is simply required (§6.4.2). Nothing else is emitted: no {@code multiple},
- * {@code claim_sets}, claim {@code values}, {@code trusted_authorities} or
- * {@code require_cryptographic_holder_binding} (its default, {@code true}, is what we want), and claim paths are only
- * strings (at most two), never {@code null} wildcards or array indexes. Without {@code claim_sets} every listed claim
- * is requested (§6.4.1), so {@link DcqlResultMatcher} treats each as required.
+ * claim {@code values}, {@code trusted_authorities} or {@code require_cryptographic_holder_binding} (its default,
+ * {@code true}, is what we want), and claim paths are only strings (at most two), never {@code null} wildcards or
+ * array indexes.
+ *
+ * <p><b>Optional subject claims (Task 21a).</b> The wallet's subject (maintainer decision 1: administrative number,
+ * else an explicit link) needs {@code personal_administrative_number} and {@code issuing_country}, but a PID need not
+ * carry the number. So both are requested <em>optionally</em> through the Credential Query's {@code claim_sets}
+ * (§6.1; §6.4.1: the wallet returns the first option, in the verifier's order of preference, that it can satisfy):
+ * <ol>
+ *   <li>the requested claims + {@link #SUBJECT_CLAIMS} (administrative-number subject);</li>
+ *   <li>the requested claims + {@code issuing_country} (so the attribute-tuple subject still gets the country);</li>
+ *   <li>the requested claims only.</li>
+ * </ol>
+ * Options that coincide (a subject claim the admin already requests outright) are emitted once; when only one option
+ * remains there is nothing optional and the query keeps its plain form (no {@code claim_sets}, no claim ids, every
+ * listed claim required). With {@code claim_sets} every claim carries an {@code id} (§6.3: required then): its
+ * canonical name with {@code .} replaced by {@code _} (e.g. {@code address_locality}), the same id in both formats.
+ * {@link DcqlResultMatcher} accepts a presentation that fully satisfies <em>some</em> option and keeps every claim the
+ * query lists.
  *
  * <p><b>Claim names.</b> Requested claims use Helix's canonical names: the SD-JWT VC claim names of the ARF PID
  * Rulebook (Annex 3.01 v1.7, 17 July 2026, notes §7.2), nested members dotted (spec §8.1 uses the same names). Each
@@ -46,6 +61,12 @@ public final class DcqlQueryBuilder {
     public static final String MDOC_QUERY_ID = "pid_mdoc";
     /** ARF Annex 2 PID_05: the namespace of the EU PID attributes. */
     public static final String PID_NAMESPACE = "eu.europa.ec.eudi.pid.1";
+    /** The PID claim holding the administrative number the wallet subject prefers (Task 21a). */
+    public static final String ADMINISTRATIVE_NUMBER_CLAIM = "personal_administrative_number";
+    /** The PID claim holding the issuing member state, part of every wallet subject (Task 21a). */
+    public static final String ISSUING_COUNTRY_CLAIM = "issuing_country";
+    /** The claims requested optionally for the wallet subject, in emitted order (see the class javadoc). */
+    public static final List<String> SUBJECT_CLAIMS = List.of(ADMINISTRATIVE_NUMBER_CLAIM, ISSUING_COUNTRY_CLAIM);
 
     /** Canonical (SD-JWT VC) claim name -> mdoc element identifier, or {@code null} when the mdoc PID has none. */
     private static final Map<String, String> PID_CLAIMS = pidClaims();
@@ -102,16 +123,16 @@ public final class DcqlQueryBuilder {
         if (formats == null || formats.isEmpty() || new HashSet<>(formats).size() != formats.size()) {
             throw new IllegalArgumentException("formats must be a non-empty list without duplicates");
         }
-        final List<String> claims = checkedClaims(spec.requestedClaims());
+        final List<List<String>> claimOptions = claimOptions(checkedClaims(spec.requestedClaims()));
         final ObjectNode query = JsonNodeFactory.instance.objectNode();
         final ArrayNode credentials = query.putArray("credentials");
         final List<String> ids = new ArrayList<>();
         for (final String format : formats) {
             if (SD_JWT_FORMAT.equals(format)) {
-                credentials.add(sdJwtQuery(spec, claims));
+                credentials.add(sdJwtQuery(spec, claimOptions));
                 ids.add(SD_JWT_QUERY_ID);
             } else if (MDOC_FORMAT.equals(format)) {
-                credentials.add(mdocQuery(spec, claims));
+                credentials.add(mdocQuery(spec, claimOptions));
                 ids.add(MDOC_QUERY_ID);
             } else {
                 throw new IllegalArgumentException("unsupported format: " + format);
@@ -140,40 +161,96 @@ public final class DcqlQueryBuilder {
         return requested;
     }
 
-    private static ObjectNode sdJwtQuery(final PidQuerySpec spec, final List<String> claims) {
+    /**
+     * The claim options in order of preference (see the class javadoc), as canonical names; the first is the full
+     * claim list. Coinciding options are kept once.
+     */
+    private static List<List<String>> claimOptions(final List<String> requested) {
+        final List<List<String>> options = new ArrayList<>();
+        addOption(options, withMissing(requested, SUBJECT_CLAIMS));
+        addOption(options, withMissing(requested, List.of(ISSUING_COUNTRY_CLAIM)));
+        addOption(options, requested);
+        return options;
+    }
+
+    private static List<String> withMissing(final List<String> requested, final List<String> extra) {
+        final List<String> out = new ArrayList<>(requested);
+        extra.stream().filter(name -> !out.contains(name)).forEach(out::add);
+        return List.copyOf(out);
+    }
+
+    private static void addOption(final List<List<String>> options, final List<String> option) {
+        if (!options.contains(option)) {
+            options.add(option);
+        }
+    }
+
+    /** The DCQL claim id for a canonical claim name (§6.3: alphanumeric, '_' or '-'). */
+    static String claimId(final String name) {
+        return name.replace('.', '_');
+    }
+
+    private static ObjectNode sdJwtQuery(final PidQuerySpec spec, final List<List<String>> options) {
         if (spec.sdJwtVcts().isEmpty() || spec.sdJwtVcts().stream().anyMatch(v -> v == null || v.isBlank())) {
             throw new IllegalArgumentException("dc+sd-jwt needs at least one vct and no blank one");
         }
         final ObjectNode q = credentialQuery(SD_JWT_QUERY_ID, SD_JWT_FORMAT);
         final ArrayNode vcts = q.putObject("meta").putArray("vct_values");
         spec.sdJwtVcts().forEach(vcts::add);
+        final boolean withIds = options.size() > 1;
         final ArrayNode claimQueries = q.putArray("claims");
-        for (final String name : claims) {
-            final ArrayNode path = claimQueries.addObject().putArray("path");
+        for (final String name : options.get(0)) {
+            final ObjectNode claim = claimQueries.addObject();
+            if (withIds) {
+                claim.put("id", claimId(name));
+            }
+            final ArrayNode path = claim.putArray("path");
             for (final String segment : name.split("\\.")) {
                 path.add(segment);
             }
         }
+        if (withIds) {
+            putClaimSets(q, options);
+        }
         return q;
     }
 
-    private static ObjectNode mdocQuery(final PidQuerySpec spec, final List<String> claims) {
+    private static ObjectNode mdocQuery(final PidQuerySpec spec, final List<List<String>> options) {
         if (spec.mdocDoctype() == null || spec.mdocDoctype().isBlank()) {
             throw new IllegalArgumentException("mso_mdoc needs a doctype");
         }
-        final ObjectNode q = credentialQuery(MDOC_QUERY_ID, MDOC_FORMAT);
-        q.putObject("meta").put("doctype_value", spec.mdocDoctype());
-        final ArrayNode claimQueries = q.putArray("claims");
-        for (final String name : claims) {
-            final String element = PID_CLAIMS.get(name);
-            if (element != null) {
-                claimQueries.addObject().putArray("path").add(PID_NAMESPACE).add(element);
-            }
+        // Only the claims an mdoc PID has an element for; options that then coincide are kept once.
+        final List<List<String>> mdocOptions = new ArrayList<>();
+        for (final List<String> option : options) {
+            addOption(mdocOptions, option.stream().filter(name -> PID_CLAIMS.get(name) != null).toList());
         }
-        if (claimQueries.isEmpty()) {
+        if (mdocOptions.get(mdocOptions.size() - 1).isEmpty()) {
+            // the last option is the requested claims alone
             throw new IllegalArgumentException("none of the requested claims exists in an mdoc PID");
         }
+        final ObjectNode q = credentialQuery(MDOC_QUERY_ID, MDOC_FORMAT);
+        q.putObject("meta").put("doctype_value", spec.mdocDoctype());
+        final boolean withIds = mdocOptions.size() > 1;
+        final ArrayNode claimQueries = q.putArray("claims");
+        for (final String name : mdocOptions.get(0)) {
+            final ObjectNode claim = claimQueries.addObject();
+            if (withIds) {
+                claim.put("id", claimId(name));
+            }
+            claim.putArray("path").add(PID_NAMESPACE).add(PID_CLAIMS.get(name));
+        }
+        if (withIds) {
+            putClaimSets(q, mdocOptions);
+        }
         return q;
+    }
+
+    private static void putClaimSets(final ObjectNode q, final List<List<String>> options) {
+        final ArrayNode claimSets = q.putArray("claim_sets");
+        for (final List<String> option : options) {
+            final ArrayNode ids = claimSets.addArray();
+            option.forEach(name -> ids.add(claimId(name)));
+        }
     }
 
     private static ObjectNode credentialQuery(final String id, final String format) {
