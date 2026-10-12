@@ -47,11 +47,27 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     public RateLimitFilter(final boolean enabled, final Map<String, RateLimiter> limiters,
                            final java.util.Set<String> anyMethodGroups) {
+        this(enabled, limiters, anyMethodGroups, java.util.List.of());
+    }
+
+    public RateLimitFilter(final boolean enabled, final Map<String, RateLimiter> limiters,
+                           final java.util.Set<String> anyMethodGroups, final java.util.List<Rule> rules) {
         this.enabled = enabled;
         // Insertion-ordered so the most specific prefixes are listed first.
         this.limiters = new LinkedHashMap<>(limiters);
         this.anyMethodGroups = java.util.Set.copyOf(anyMethodGroups);
+        this.rules = java.util.List.copyOf(rules);
     }
+
+    /**
+     * Task 18 fix round 1: a limit a path prefix cannot express, for any method, keyed by client IP + {@code group}
+     * (e.g. only the broker starts of EUDI wallet providers). Rules are checked before the prefix groups; the first
+     * that applies decides.
+     */
+    public record Rule(String group, java.util.function.Predicate<HttpServletRequest> applies, RateLimiter limiter) {
+    }
+
+    private final java.util.List<Rule> rules;
 
     @Override
     protected void doFilterInternal(final HttpServletRequest request, final HttpServletResponse response,
@@ -59,6 +75,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (!enabled) {
             chain.doFilter(request, response);
             return;
+        }
+        for (final Rule rule : rules) {
+            if (rule.applies().test(request)) {
+                final RateLimiter.Decision decision = rule.limiter().check(clientIp(request) + "|" + rule.group());
+                if (decision.allowed()) {
+                    chain.doFilter(request, response);
+                } else {
+                    tooMany(request, response, decision, rule.group());
+                }
+                return;
+            }
         }
         final String path = request.getServletPath();
         final String group = anyMethodGroup(path);
@@ -77,7 +104,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        LOG.warn("Rate limit exceeded for {} on {}", LogSafe.sanitize(clientIp(request)), LogSafe.sanitize(path));
+        tooMany(request, response, decision, path);
+    }
+
+    private static void tooMany(final HttpServletRequest request, final HttpServletResponse response,
+                                final RateLimiter.Decision decision, final String what) throws IOException {
+        LOG.warn("Rate limit exceeded for {} on {}", LogSafe.sanitize(clientIp(request)), LogSafe.sanitize(what));
         response.setStatus(429); // 429 Too Many Requests (no SC_ constant in the jakarta servlet API)
         response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
         response.setContentType("text/plain;charset=UTF-8");

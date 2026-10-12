@@ -2,8 +2,9 @@
 <html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
 <!--/*
   Task 18: "Sign in with EUDI Wallet" (WalletPageController). walletState:
-    active      - the QR code (cross-device invocation, server-rendered SVG) + "Open wallet app" (same-device), polling
-    pending     - the wallet has the request; polling continues
+    active      - "Open wallet app" (same-device) + the QR code (cross-device invocation, server-rendered SVG), polling;
+                  desktop shows the QR code first, a phone (<= 640 px) the same-device button first (CSS order)
+    opened      - the wallet fetched the request (status WALLET_OPENED): "confirm in your wallet app", polling
     failed      - the wallet declined or the presentation was refused: retry
     unknown     - expired or unknown transaction (404): retry
     unavailable - the transaction store is full (503): retry later
@@ -13,7 +14,7 @@
 */-->
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead(#{wallet.page.title}, false)}"></th:block>
-    <script th:if="${walletState == 'active' or walletState == 'pending'}" defer th:src="@{/js/wallet-poll.js}"></script>
+    <script th:if="${walletState == 'active' or walletState == 'opened'}" defer th:src="@{/js/wallet-poll.js}"></script>
 </head>
 <body>
 <div class="mainWrapper">
@@ -31,14 +32,10 @@
         </div>
         <div class="container">
             <article id="wallet" class="hx-wallet"
-                     th:data-status-url="${walletState == 'active' or walletState == 'pending'} ? ${statusUrl} : null"
-                     th:data-expires-at="${walletState == 'active' or walletState == 'pending'} ? ${expiresAt} : null">
+                     th:data-status-url="${walletState == 'active' or walletState == 'opened'} ? ${statusUrl} : null"
+                     th:data-expires-at="${walletState == 'active' or walletState == 'opened'} ? ${expiresAt} : null">
 
                 <div id="walletActive" class="hx-wallet-grid" th:if="${walletState == 'active'}">
-                    <figure class="hx-wallet-qr">
-                        <img id="walletQr" th:src="${qrCode}" th:alt="#{wallet.qr.alt}" alt="QR code" width="240" height="240">
-                        <figcaption th:text="#{wallet.scan.caption}">Scan with the wallet app on your phone</figcaption>
-                    </figure>
                     <div class="hx-wallet-device">
                         <h2 th:text="#{wallet.sameDevice.heading}">Wallet on this device?</h2>
                         <p class="hx-muted" th:text="#{wallet.sameDevice.description}">Open the wallet app here instead of scanning.</p>
@@ -48,16 +45,23 @@
                             </a>
                         </div>
                     </div>
+                    <figure class="hx-wallet-qr">
+                        <figcaption class="hx-wallet-narrow" th:text="#{wallet.scan.otherDevice}">Using another device? Scan this code with its wallet app.</figcaption>
+                        <img id="walletQr" th:src="${qrCode}" th:alt="#{wallet.qr.alt}" alt="QR code" width="240" height="240">
+                        <figcaption class="hx-wallet-wide" th:text="#{wallet.scan.caption}">Scan with the wallet app on your phone</figcaption>
+                    </figure>
                 </div>
 
                 <th:block th:switch="${walletState}">
-                    <p th:case="'unknown'" class="hx-lead" th:text="#{wallet.unknown.description}">This wallet sign-in is expired or unknown.</p>
+                    <p th:case="'unknown'" class="hx-alert hx-alert-error" role="alert" th:text="#{wallet.unknown.description}">This wallet sign-in is expired or unknown.</p>
                     <p th:case="'unavailable'" class="hx-lead" th:text="#{wallet.unavailable.description}">Too many wallet sign-ins right now.</p>
                     <p th:case="'link'" id="walletLinkRequired" class="hx-lead"
                        th:text="#{${'wallet.link.' + linkReason}}">Link your wallet from your account settings.</p>
-                    <p th:case="*" id="walletStatus" class="hx-wallet-status" role="status" aria-live="polite"
-                       th:attr="data-msg-completed=#{wallet.status.completed},data-msg-completed-elsewhere=#{wallet.status.completedElsewhere},data-msg-failed=#{wallet.status.failed},data-msg-expired=#{wallet.status.expired}"
-                       th:text="${walletState == 'failed'} ? #{wallet.status.failed} : (${walletState == 'pending'} ? #{wallet.status.pending} : #{wallet.status.waiting})">Waiting for your wallet…</p>
+                    <p th:case="'failed'" id="walletStatus" class="hx-alert hx-alert-error" role="alert"
+                       th:text="#{wallet.status.failed}">Your wallet did not share your identity.</p>
+                    <p th:case="*" id="walletStatus" class="hx-wallet-status is-waiting" role="status" aria-live="polite"
+                       th:attr="data-msg-waiting=#{wallet.status.waiting},data-msg-opened=#{wallet.status.opened},data-msg-completed=#{wallet.status.completed},data-msg-completed-elsewhere=#{wallet.status.completedElsewhere},data-msg-failed=#{wallet.status.failed},data-msg-expired=#{wallet.status.expired}"
+                       th:text="${walletState == 'opened'} ? #{wallet.status.opened} : #{wallet.status.waiting}">Waiting for your wallet…</p>
                 </th:block>
 
                 <noscript th:if="${walletState == 'active'}">
@@ -67,7 +71,7 @@
                 <div class="buttonHolder hx-wallet-actions">
                     <a th:if="${walletState != 'link'}" id="walletRetry" class="button"
                        th:href="@{/broker/{alias}(alias=${alias})}"
-                       th:attr="hidden=${walletState == 'active' or walletState == 'pending'} ? 'hidden' : null">
+                       th:attr="hidden=${walletState == 'active' or walletState == 'opened'} ? 'hidden' : null,autofocus=${walletState == 'failed' or walletState == 'unknown'} ? 'autofocus' : null">
                         <span th:text="#{wallet.retry}">Try again</span>
                     </a>
                     <a class="button secondary" th:href="@{/login}"><span th:text="#{wallet.back}">Back to sign in</span></a>

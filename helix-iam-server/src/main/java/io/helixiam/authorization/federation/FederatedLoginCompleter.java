@@ -62,8 +62,8 @@ public class FederatedLoginCompleter {
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
-    /** Task 18: makes a connector's pending commit once the login has succeeded; absent → a pending commit refuses. */
-    private FederatedLoginCommit loginCommit;
+    /** Task 18: make a connector's pending commit once the login has succeeded; none → a pending commit refuses. */
+    private java.util.List<FederatedLoginCommit> loginCommits = java.util.List.of();
 
     public FederatedLoginCompleter(final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher,
                                    final AuthFlowMapper authFlowMapper,
@@ -80,8 +80,8 @@ public class FederatedLoginCompleter {
 
     /** Task 18: the committer of {@link #complete(String, String, HttpServletRequest, HttpServletResponse, java.io.Serializable)}. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    public void setLoginCommit(final FederatedLoginCommit loginCommit) {
-        this.loginCommit = loginCommit;
+    public void setLoginCommits(final java.util.List<FederatedLoginCommit> loginCommits) {
+        this.loginCommits = loginCommits == null ? java.util.List.of() : java.util.List.copyOf(loginCommits);
     }
 
     /** Complete a federated login for the broker-resolved {@code userId}; returns the redirect view. */
@@ -111,9 +111,10 @@ public class FederatedLoginCompleter {
 
     /**
      * Task 18: as {@link #complete(String, String, HttpServletRequest, HttpServletResponse)}, carrying a connector's
-     * {@code pendingCommit} ({@link FederatedLoginCommit}): made only once the post-broker flow has COMPLETED, right
-     * before the full session is established (here, or in {@code FlowController} after a step-up). A refused commit
-     * (or one with no committer wired) ends the login with no session; a FAILED flow never commits.
+     * {@code pendingCommit} ({@link FederatedLoginCommit}): made only once the post-broker flow has COMPLETED and the
+     * full session has been persisted (here, or in {@code FlowController} after a step-up). A refused commit (or one no
+     * committer supports) drops that session again and ends the login; a FAILED flow, or a failed persist, never
+     * commits.
      */
     public String complete(final String userId, final String acr, final HttpServletRequest request,
                            final HttpServletResponse response, final java.io.Serializable pendingCommit) {
@@ -144,17 +145,17 @@ public class FederatedLoginCompleter {
 
         return switch (progress.type()) {
             case COMPLETED -> {
-                if (pendingCommit != null && (loginCommit == null || !loginCommit.commit(pendingCommit, userId))) {
-                    // Task 18: the login succeeded but its pending commit was refused (e.g. another account claimed
-                    // the wallet's number meanwhile): no session at all.
-                    session.removeAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
-                    session.removeAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE);
+                request.changeSessionId(); // new sign-in, new session id (mirrors MagicLinkController)
+                sessionEstablisher.persist(fullAuthentication, request, response);
+                if (pendingCommit != null && !FederatedLoginCommit.commit(loginCommits, pendingCommit, userId)) {
+                    // Task 18: the login succeeded, but its pending commit (made only now that the session exists)
+                    // was refused, e.g. another account claimed the wallet's number meanwhile: undo the session.
+                    org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                    request.getSession().invalidate();
                     LOG.warn("Federated login for user {} refused: its pending commit was not accepted",
                             LogSafe.sanitize(userId));
                     yield LOGIN_ERROR;
                 }
-                request.changeSessionId(); // new sign-in, new session id (mirrors MagicLinkController)
-                sessionEstablisher.persist(fullAuthentication, request, response);
                 authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
                 if (acr != null && !acr.isBlank()) {
                     // Task 3 fix round 1: set AFTER stamp (which just cleared any stale value) — the

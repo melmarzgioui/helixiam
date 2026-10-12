@@ -121,4 +121,17 @@ class InMemoryWalletTransactionStoreTest extends AbstractWalletTransactionStoreT
                 .contains(SecretHash.of(v.code()), SecretHash.of(v.tx().responseId()));
         assertThat(store.byTransactionId(v.tx().transactionId()).orElseThrow().responseCode()).isNull();
     }
+
+    /** Task 18 fix round 1: a discarded transaction frees its slot under the cap. */
+    @Test
+    void discard_freesTheSlot() {
+        final InMemoryWalletTransactionStore capped = new InMemoryWalletTransactionStore(clock, 1, null);
+        final WalletTransaction first = newTransaction();
+        capped.create(first);
+        assertThatThrownBy(() -> capped.create(newTransaction()))
+                .isInstanceOf(WalletTransactionCapacityException.class);
+
+        assertThat(capped.discard(first.transactionId())).isTrue();
+        capped.create(newTransaction());
+    }
 }

@@ -33,6 +33,11 @@ public class WalletPendingLinkCommit implements FederatedLoginCommit {
     }
 
     @Override
+    public boolean supports(final Serializable pending) {
+        return pending instanceof WalletLinkService.PendingLink;
+    }
+
+    @Override
     public boolean commit(final Serializable pending, final String userId) {
         if (!(pending instanceof WalletLinkService.PendingLink link) || userId == null
                 || !userId.equals(link.userId())) {

@@ -49,8 +49,8 @@ public class FlowController {
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
-    /** Task 18: makes a federated login's pending commit when its step-up completes. */
-    private io.helixiam.authorization.federation.FederatedLoginCommit loginCommit;
+    /** Task 18: make a federated login's pending commit when its step-up completes. */
+    private java.util.List<io.helixiam.authorization.federation.FederatedLoginCommit> loginCommits = java.util.List.of();
 
     public FlowController(final FlowExecutor flowExecutor, final AuthFlowMapper authFlowMapper,
                           final MfaService mfaService, @Value("${sp.base.url}") final String spBaseUrl,
@@ -64,10 +64,11 @@ public class FlowController {
         this.sessionPolicyApplier = sessionPolicyApplier;
     }
 
-    /** Task 18: the committer of a federated login's pending commit (absent → such a login is refused). */
+    /** Task 18: the committers of a federated login's pending commit (none → such a login is refused). */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    public void setLoginCommit(final io.helixiam.authorization.federation.FederatedLoginCommit loginCommit) {
-        this.loginCommit = loginCommit;
+    public void setLoginCommits(
+            final java.util.List<io.helixiam.authorization.federation.FederatedLoginCommit> loginCommits) {
+        this.loginCommits = loginCommits == null ? java.util.List.of() : java.util.List.copyOf(loginCommits);
     }
 
     @GetMapping("/flow")
@@ -117,16 +118,16 @@ public class FlowController {
 
         return switch (progress.type()) {
             case COMPLETED -> {
-                if (state.pendingCommit() != null
-                        && (loginCommit == null || !loginCommit.commit(state.pendingCommit(), state.userId()))) {
-                    // Task 18: a federated login whose pending commit is refused must not stay half signed in: drop
-                    // the session holding the MFA gate and the flow state.
-                    org.springframework.security.core.context.SecurityContextHolder.clearContext();
-                    session.invalidate();
-                    yield REDIRECT_PREFIX + flowPath("/login?error=federation");
-                }
                 request.changeSessionId(); // post-broker step-up just completed: rotate before promoting the context
                 mfaService.unlockUser(); // restore the fully authenticated token
+                if (state.pendingCommit() != null && !io.helixiam.authorization.federation.FederatedLoginCommit
+                        .commit(loginCommits, state.pendingCommit(), state.userId())) {
+                    // Task 18: committed only once the session is fully signed in; refused → drop that session
+                    // (context and session) so the login does not stay signed in.
+                    org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                    request.getSession().invalidate();
+                    yield REDIRECT_PREFIX + flowPath("/login?error=federation");
+                }
                 authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
                 // Task 3 fix round 1: promote THIS flow's pending acr (if a federated login set one) only
                 // now that THIS SAME flow has reached COMPLETED, and only AFTER stamp() cleared any stale

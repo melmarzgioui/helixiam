@@ -76,6 +76,12 @@ public final class WalletIdentityProvider implements IdentityProvider {
     public static final String ICON_KEY = "eudi-wallet";
     /** The callback parameter carrying the response code (OpenID4VP §8.2 {@code response_code}). */
     public static final String RESPONSE_CODE_PARAM = "response_code";
+    /**
+     * Task 18 fix round 1: the {@link RedirectResponse#parameters()} entry carrying the new transaction's id, so the
+     * broker can remember it in the session and discard it when the same browser starts again (one live wallet login
+     * per browser). Never sent anywhere.
+     */
+    public static final String TRANSACTION_PARAM = "walletTransactionId";
 
     private static final Logger LOG = LogManager.getLogger(WalletIdentityProvider.class);
     private static final int ID_BYTES = 32;
@@ -161,7 +167,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
         }
         LOG.info("Wallet login started: alias={} realm={} tx={}", LogSafe.sanitize(config.alias()),
                 LogSafe.sanitize(context.realmId()), tx.transactionId());
-        return new RedirectResponse(walletPage + "?tx=" + tx.transactionId(), Map.of());
+        return new RedirectResponse(walletPage + "?tx=" + tx.transactionId(),
+                Map.of(TRANSACTION_PARAM, tx.transactionId()));
     }
 
     /** The ephemeral response-decryption key of one transaction (private part included; the store drops it). */

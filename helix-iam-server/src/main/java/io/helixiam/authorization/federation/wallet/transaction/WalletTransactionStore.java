@@ -43,6 +43,16 @@ public interface WalletTransactionStore {
     Optional<WalletTransaction> claimResponse(String responseId);
 
     /**
+     * Task 18 fix round 1: removes a transaction that has not finished (CREATED, REQUEST_FETCHED or
+     * RESPONSE_RECEIVED), atomically. The browser that started it has started another wallet login (one live login per
+     * browser and provider), so its request and response ids stop working and, in the in-memory store, its slot is
+     * freed. VERIFIED, FAILED and REDEEMED transactions are left alone (they end by themselves).
+     *
+     * @return whether a transaction was removed
+     */
+    boolean discard(String transactionId);
+
+    /**
      * Atomic RESPONSE_RECEIVED→VERIFIED. Keeps {@code verifiedIdentityJson} and drops the private decryption key.
      * <ul>
      *   <li>{@link WalletTransaction.Flow#SAME_DEVICE}: {@code responseCode} is required (the {@code direct_post}

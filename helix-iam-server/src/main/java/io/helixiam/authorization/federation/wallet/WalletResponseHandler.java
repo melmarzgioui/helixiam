@@ -55,7 +55,8 @@ import java.util.Set;
  *   <li>The identity, the decision and any {@link WalletLinkService.PendingLink} are stored
  *       ({@link VerifiedIdentityJson#write(BrokeredIdentity, WalletLinkService.Decision)}; a refusal stores no
  *       identity) and the transaction completes: same-device with a fresh 128-bit response code returned to the wallet
- *       in the {@code redirect_uri} (the browser callback, with the login's broker state), cross-device without one
+ *       in the {@code redirect_uri} (the browser callback with only {@code response_code}; the broker's state never reaches
+ *       the wallet), cross-device without one
  *       (the bound browser gets it from the status endpoint).</li>
  * </ol>
  * Any failure after the claim fails the transaction with its {@link WalletErrorCode}; the wallet only ever sees the
@@ -196,7 +197,11 @@ public class WalletResponseHandler {
         return new Result.Accepted(sameDevice ? callback(tx, code) : null);
     }
 
-    /** The browser callback for a same-device login: {@code <base>/realms/<realm>/broker/<alias>/callback?...}. */
+    /**
+     * The browser callback for a same-device login: {@code <base>/realms/<realm>/broker/<alias>/callback?response_code=}
+     * only. The broker's state never goes to the wallet (it is the browser's anti-forgery value); the callback takes
+     * the expected state from the browser's session.
+     */
     private String callback(final WalletTransaction tx, final String code) {
         String base = idpBaseUrl.trim();
         while (base.endsWith("/")) {
@@ -204,8 +209,7 @@ public class WalletResponseHandler {
         }
         return base + "/realms/" + UriUtils.encodePathSegment(tx.realmId(), StandardCharsets.UTF_8) + "/broker/"
                 + UriUtils.encodePathSegment(tx.providerAlias(), StandardCharsets.UTF_8) + "/callback?"
-                + WalletIdentityProvider.RESPONSE_CODE_PARAM + "=" + code + "&state="
-                + UriUtils.encode(tx.helixState(), StandardCharsets.UTF_8);
+                + WalletIdentityProvider.RESPONSE_CODE_PARAM + "=" + code;
     }
 
     private static void requireState(final String state, final String expected) {

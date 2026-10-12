@@ -80,6 +80,8 @@ public class FederationBrokerController {
     public static final String IDP_SOURCE_ATTR = "HELIX_IDP_SOURCE";
     public static final String IDP_SUBJECT_ATTR = "HELIX_IDP_SUBJECT";
     private static final String LOGIN_ERROR = "redirect:/login?error=federation";
+    /** Task 18 fix round 1: the id of this browser's live wallet login per alias (one at a time). */
+    private static final String WALLET_TX_ATTR = "HELIX_WALLET_TX_";
 
     private final IdentityProviderRegistry registry;
     private final IdentityBroker broker;
@@ -134,6 +136,13 @@ public class FederationBrokerController {
         final IdentityProvider provider = registry.get(alias);
         final String state = stateGenerator.get();
         final HttpSession session = request.getSession();
+        // Task 18 fix round 1: one live wallet login per browser and provider: starting again discards the previous
+        // transaction, so one session can never pile transactions up in the store.
+        final WalletIdentityProvider wallet = WalletIdentityProvider.from(provider).orElse(null);
+        if (wallet != null && session.getAttribute(WALLET_TX_ATTR + alias) instanceof String previous) {
+            wallet.transactions().discard(previous);
+            session.removeAttribute(WALLET_TX_ATTR + alias);
+        }
         // Ties this login to this browser (a session secret, not the session id, which rotates); the EUDI wallet
         // provider stores the hash in its transaction and the callback must present the same one.
         final String browserBindingHash = BrowserBinding.begin(session, alias);
@@ -150,6 +159,10 @@ public class FederationBrokerController {
         }
 
         session.setAttribute(STATE_ATTR + alias, state);
+        if (wallet != null && redirect.parameters() != null
+                && redirect.parameters().get(WalletIdentityProvider.TRANSACTION_PARAM) != null) {
+            session.setAttribute(WALLET_TX_ATTR + alias, redirect.parameters().get(WalletIdentityProvider.TRANSACTION_PARAM));
+        }
         if (redirect.parameters() != null && redirect.parameters().get("nonce") != null) {
             session.setAttribute(NONCE_ATTR + alias, redirect.parameters().get("nonce"));
         }
@@ -202,14 +215,14 @@ public class FederationBrokerController {
             final IdentityProvider.CallbackContext context = new IdentityProvider.CallbackContext(
                     RealmContextHolder.get(), parameters(request), expectedState, expectedNonce,
                     callbackUri(alias), expectedRequestId, BrowserBinding.current(session, alias));
-            final WalletIdentityProvider wallet = WalletIdentityProvider.from(provider).orElse(null);
-            if (wallet != null) {
+            final WalletIdentityProvider walletProvider = WalletIdentityProvider.from(provider).orElse(null);
+            if (walletProvider != null) {
                 // Task 18: a wallet login carries the account decision made when the presentation was verified; it
                 // never goes through IdentityBroker (no email linking, no overwriting link).
                 if (walletLoginCompleter == null) {
                     throw new IllegalStateException("EUDI wallet logins are not wired");
                 }
-                walletLogin = wallet.redeem(context);
+                walletLogin = walletProvider.redeem(context);
                 identity = walletLogin.identity();
             } else {
                 identity = provider.callback(context);
@@ -227,11 +240,20 @@ public class FederationBrokerController {
         BrowserBinding.clear(session, alias);
 
         if (walletLogin != null) {
+            session.removeAttribute(WALLET_TX_ATTR + alias); // redeemed: nothing left to discard
             if (!(walletLogin.decision() instanceof WalletLinkService.Decision.Refused)) {
                 session.setAttribute(IDP_SOURCE_ATTR, alias);
                 session.setAttribute(IDP_SUBJECT_ATTR, identity.externalSubject());
             }
-            return walletLoginCompleter.complete(alias, walletLogin, mapperConfigFor(alias), request, response);
+            try {
+                return walletLoginCompleter.complete(alias, walletLogin, mapperConfigFor(alias), request, response);
+            } catch (final RuntimeException e) {
+                // Task 18 fix round 1: e.g. the link store or provisioning failed after a verified login; the browser
+                // only ever sees error=federation (no detail, no PII in the log: the exception type only).
+                LOG.warn("Federation: wallet login for provider {} could not be completed: {}",
+                        LogSafe.sanitize(alias), e.getClass().getSimpleName());
+                return LOGIN_ERROR;
+            }
         }
 
         // B5: apply this provider's configured attribute/claim mappers during link/JIT provisioning.

@@ -34,6 +34,9 @@ public class RateLimitConfig {
     private final long tokenRefillPerMin;
     private final long walletBurst;
     private final long walletRefillPerMin;
+    private final long walletStartBurst;
+    private final long walletStartRefillPerMin;
+    private final org.springframework.beans.factory.ObjectProvider<io.helixiam.authorization.federation.IdentityProviderRegistry> registry;
 
     public RateLimitConfig(@Value("${helix.ratelimit.enabled:true}") final boolean enabled,
                            @Value("${helix.ratelimit.login.burst:20}") final long loginBurst,
@@ -42,7 +45,11 @@ public class RateLimitConfig {
                            @Value("${helix.ratelimit.token.refill-per-minute:120}") final long tokenRefillPerMin,
                            // Task 18: the EUDI wallet endpoints' own budget per client IP (two requests per login)
                            @Value("${helix.ratelimit.wallet.burst:120}") final long walletBurst,
-                           @Value("${helix.ratelimit.wallet.refill-per-minute:120}") final long walletRefillPerMin) {
+                           @Value("${helix.ratelimit.wallet.refill-per-minute:120}") final long walletRefillPerMin,
+                           // Task 18 fix round 1: starting a wallet login (each creates a transaction and an EC key)
+                           @Value("${helix.ratelimit.wallet-start.burst:30}") final long walletStartBurst,
+                           @Value("${helix.ratelimit.wallet-start.refill-per-minute:30}") final long walletStartRefillPerMin,
+                           final org.springframework.beans.factory.ObjectProvider<io.helixiam.authorization.federation.IdentityProviderRegistry> registry) {
         this.enabled = enabled;
         this.loginBurst = loginBurst;
         this.loginRefillPerMin = loginRefillPerMin;
@@ -50,6 +57,9 @@ public class RateLimitConfig {
         this.tokenRefillPerMin = tokenRefillPerMin;
         this.walletBurst = walletBurst;
         this.walletRefillPerMin = walletRefillPerMin;
+        this.walletStartBurst = walletStartBurst;
+        this.walletStartRefillPerMin = walletStartRefillPerMin;
+        this.registry = registry;
     }
 
     @Bean
@@ -67,7 +77,16 @@ public class RateLimitConfig {
         limiters.put("/oauth2/token", tokenLimiter);
         // Task 18: the wallet's OpenID4VP endpoints (GET and POST), keyed per IP for the whole group.
         limiters.put("/oid4vp", new RateLimiter(walletBurst, walletRefillPerMin, minute));
-        return new RateLimitFilter(enabled, limiters, java.util.Set.of("/oid4vp"));
+        // Task 18 fix round 1: GET /broker/<alias> of an EUDI wallet provider creates a wallet transaction (and an EC
+        // key). 30 per minute per client IP (burst 30) is far above what people behind one address start by hand, and
+        // keeps one address from filling the transaction store (a 10 000-entry in-memory store at the 300 s default TTL
+        // would need ~34 starts a second); a browser also only ever holds one live wallet login (the broker discards
+        // the previous one).
+        final RateLimitFilter.Rule walletStart = new RateLimitFilter.Rule("wallet-start",
+                request -> io.helixiam.authorization.federation.wallet.web.WalletStartRequests.isWalletStart(request,
+                        registry.getIfAvailable()),
+                new RateLimiter(walletStartBurst, walletStartRefillPerMin, minute));
+        return new RateLimitFilter(enabled, limiters, java.util.Set.of("/oid4vp"), java.util.List.of(walletStart));
     }
 
     @Bean

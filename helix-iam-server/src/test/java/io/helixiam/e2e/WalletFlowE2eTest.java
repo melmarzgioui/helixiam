@@ -78,6 +78,8 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         final E2eHttp phone = newBrowser();
         final Oid4vpWalletClient.VerifiedRequest request =
                 WalletE2eFixture.fetchRequest(phone, WalletE2eFixture.scanQr(login.page()));
+        assertThat(poll(login).path("status").asText()).as("the browser sees the wallet open the request")
+                .isEqualTo("WALLET_OPENED");
         final E2eHttp.Response posted = wallet.respond(phone, request, WalletE2eFixture.pidWithNumber("PAN-" + UUID.randomUUID()));
 
         assertThat(posted.status()).as(posted.toString()).isEqualTo(200);
@@ -89,7 +91,7 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         final JsonNode done = poll(login);
         assertThat(done.path("status").asText()).isEqualTo("COMPLETED");
         final String next = done.path("next").asText();
-        assertThat(next).startsWith("/realms/" + realm + "/broker/" + alias + "/callback?response_code=");
+        assertThat(next).matches("/realms/" + realm + "/broker/" + alias + "/callback\\?response_code=[A-Za-z0-9_-]+");
         final JsonNode again = poll(login);
         assertThat(again.path("status").asText()).isEqualTo("COMPLETED");
         assertThat(again.has("next")).isFalse();
@@ -102,6 +104,8 @@ class WalletFlowE2eTest extends AbstractE2eTest {
     void sameDevice_openWallet_redirectUriBringsTheBrowserBackSignedIn() {
         final String number = "PAN-" + UUID.randomUUID();
         final Login login = startLogin(newBrowser(), realm, alias);
+        final String helixState = context.getBean(WalletTransactionStore.class)
+                .byTransactionId(WalletE2eFixture.txId(login.pageLocation())).orElseThrow().helixState();
 
         // Same device: the wallet app is opened from the browser's link, and the browser is the one redirected back.
         final Oid4vpWalletClient.VerifiedRequest request =
@@ -112,6 +116,11 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         final String redirectUri = posted.json().path("redirect_uri").asText();
         assertThat(redirectUri).startsWith(baseUrl() + "/realms/" + realm + "/broker/" + alias
                 + "/callback?response_code=");
+        // The broker's anti-forgery state never reaches the wallet: not in the redirect_uri, not in the request.
+        assertThat(OidcFlow.query(URI.create(redirectUri))).containsOnlyKeys("response_code");
+        assertThat(redirectUri).doesNotContain(helixState);
+        assertThat(request.claims().toString()).doesNotContain(helixState);
+        assertThat(posted.body()).doesNotContain(helixState);
         final String sub = finishSignIn(login, redirectUri);
 
         // The same PID again (a returning user) signs in as the same account.
@@ -163,6 +172,19 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         assertThat(replay.json().path("error").asText()).isEqualTo("invalid_request");
         assertThat(replay.json().size()).as("no detail beyond the spec error code").isEqualTo(1);
         assertThat(poll(login).path("status").asText()).as("the first response stands").isEqualTo("COMPLETED");
+    }
+
+    /** Fix round 1: starting again in the same browser discards the earlier wallet login (one live per browser). */
+    @Test
+    void startingAgainInTheSameBrowser_discardsTheEarlierTransaction() {
+        final Login first = startLogin(newBrowser(), realm, alias);
+        final Login second = startLogin(first.browser(), realm, alias);
+
+        assertThat(first.browser().get(statusPath(first), "Accept", "application/json").status()).isEqualTo(404);
+        final String firstRequest = Oid4vpWalletClient.invocationParameters(WalletE2eFixture.scanQr(first.page()))
+                .get("request_uri");
+        assertThat(newBrowser().get(firstRequest, "Accept", "application/oauth-authz-req+jwt").status()).isEqualTo(404);
+        assertThat(poll(second).path("status").asText()).isEqualTo("PENDING");
     }
 
     // ------------------------------------------------------------------------------------------------ failures

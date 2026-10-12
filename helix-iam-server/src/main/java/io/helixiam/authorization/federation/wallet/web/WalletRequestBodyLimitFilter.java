@@ -30,16 +30,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Task 18: the body limit of the OpenID4VP endpoints ({@code /realms/<realm>/oid4vp/**}, reached by wallets without a
- * session): 256 KB by default ({@code helix.wallet.max-request-bytes}). It runs right after the realm routing, before
- * Spring Security and before anything reads the body:
+ * Task 18: the body limit of the OpenID4VP endpoints ({@code /realms/<realm>/oid4vp/...}, reached by wallets without a
+ * session): 256 KB by default ({@code helix.wallet.max-request-bytes}). It runs FIRST, before Spring's
+ * {@code FormContentFilter} (which would read a PUT/PATCH/DELETE form body into memory), before the realm routing and
+ * Spring Security, and before anything reads the body; so it matches the raw request URI.
  *
  * <ul>
- *   <li>a declared {@code Content-Length} over the limit is refused with {@code 413} without reading a byte;</li>
- *   <li>otherwise a POST body is read here, at most the limit plus one byte (a chunked body without a length cannot
- *       make the server buffer more), and refused with {@code 413} when it is longer;</li>
- *   <li>a body within the limit is parsed here once ({@code application/x-www-form-urlencoded}, UTF-8) and handed on as
- *       the request's parameters and input stream, so the container never parses it again.</li>
+ *   <li>Only GET (the request object) and POST (request object by POST, Authorization Response) exist there: any other
+ *       method is {@code 405} without reading a byte.</li>
+ *   <li>A declared {@code Content-Length} over the limit is refused with {@code 413} without reading the body.</li>
+ *   <li>Otherwise a POST body is read here, at most the limit plus one byte (a chunked body without a length cannot
+ *       make the server buffer more), and refused with {@code 413} when it is longer.</li>
+ *   <li>A body within the limit is parsed here once ({@code application/x-www-form-urlencoded}, UTF-8) and handed on as
+ *       the request's ONLY parameters and as its input stream. The query string is never read as parameters: a
+ *       {@code vp_token}, {@code response} or {@code state} in a URL would end up in access and proxy logs, and
+ *       OpenID4VP §8.2 puts them in the form body.</li>
  * </ul>
  * Refusals answer {@code {"error":"invalid_request"}} (OpenID4VP §8.5 codes only, no detail).
  */
@@ -47,7 +52,8 @@ public class WalletRequestBodyLimitFilter extends OncePerRequestFilter {
 
     /** The default body limit (constraints: response body 256 KB). */
     public static final int DEFAULT_MAX_BYTES = 256 * 1024;
-    private static final String PATH_PREFIX = "/oid4vp/";
+    /** {@code /realms/<realm>/oid4vp/...}, matched on the raw URI (this filter runs before the realm routing). */
+    private static final java.util.regex.Pattern WALLET_PATH = java.util.regex.Pattern.compile("^/realms/[^/]+/oid4vp/.*");
     private static final String ERROR_BODY = "{\"error\":\"invalid_request\"}";
     private static final int CHUNK = 8192;
 
@@ -62,18 +68,26 @@ public class WalletRequestBodyLimitFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(final HttpServletRequest request) {
-        final String path = request.getServletPath();
-        return path == null || !path.startsWith(PATH_PREFIX);
+        final String uri = request.getRequestURI();
+        final String context = request.getContextPath() == null ? "" : request.getContextPath();
+        return uri == null || !WALLET_PATH.matcher(uri.startsWith(context) ? uri.substring(context.length()) : uri)
+                .matches();
     }
 
     @Override
     protected void doFilterInternal(final HttpServletRequest request, final HttpServletResponse response,
                                     final FilterChain chain) throws ServletException, IOException {
+        final boolean get = "GET".equalsIgnoreCase(request.getMethod());
+        if (!get && !"POST".equalsIgnoreCase(request.getMethod())) {
+            response.setHeader("Allow", "GET, POST");
+            refuse(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            return;
+        }
         if (request.getContentLengthLong() > maxBytes) {
             refuse(response, 413);
             return;
         }
-        if (!"POST".equalsIgnoreCase(request.getMethod())) {
+        if (get) {
             chain.doFilter(request, response);
             return;
         }
@@ -113,10 +127,9 @@ public class WalletRequestBodyLimitFilter extends OncePerRequestFilter {
         response.getWriter().write(ERROR_BODY);
     }
 
-    /** The query-string parameters, then the form body's (when it is a form), in order. */
+    /** The form body's parameters (when it is a form); never the query string's. */
     private static Map<String, String[]> parameters(final HttpServletRequest request, final byte[] body) {
         final Map<String, List<String>> values = new LinkedHashMap<>();
-        addPairs(values, request.getQueryString());
         final String type = request.getContentType();
         if (type != null && type.toLowerCase(java.util.Locale.ROOT).startsWith("application/x-www-form-urlencoded")) {
             addPairs(values, new String(body, StandardCharsets.UTF_8));

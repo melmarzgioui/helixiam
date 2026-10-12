@@ -152,6 +152,13 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
             return 1
             """, Long.class);
 
+    /** Removes a live, unfinished transaction (its index keys only point at nothing then, and expire with it). */
+    private static final RedisScript<Long> DISCARD = new DefaultRedisScript<>(LIVE + """
+            if status ~= 'CREATED' and status ~= 'REQUEST_FETCHED' and status ~= 'RESPONSE_RECEIVED' then return 0 end
+            redis.call('DEL', KEYS[1])
+            return 1
+            """, Long.class);
+
     /** ARGV[2] = failure code. */
     private static final RedisScript<Long> FAIL = new DefaultRedisScript<>(LIVE + """
             if status ~= 'REQUEST_FETCHED' and status ~= 'RESPONSE_RECEIVED' then return 0 end
@@ -305,6 +312,14 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
         }
         redis.opsForValue().set(CODE_PREFIX + codeHash, transactionId, Duration.ofMillis(ttlMillis));
         return Optional.of(code);
+    }
+
+    @Override
+    public boolean discard(final String transactionId) {
+        if (transactionId == null) {
+            return false;
+        }
+        return Long.valueOf(1L).equals(redis.execute(DISCARD, List.of(TX_PREFIX + transactionId), now()));
     }
 
     @Override

@@ -247,19 +247,19 @@ h1, h2, h3, h4 {
 }
 
 /* ------------------------------------------------- EUDI wallet sign-in (Task 18) -- */
+/* Desktop: the QR code leads (the user is on another device than the wallet). The DOM puts "Open wallet app" first,
+   which is what a phone shows first (below). */
 .hx-wallet-grid {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: calc(var(--hx-space) * 5);
 }
-@media screen and (max-width: 600px) {
-  .hx-wallet-grid {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    text-align: center;
-    gap: calc(var(--hx-space) * 3);
-  }
+.hx-wallet-grid > .hx-wallet-qr {
+  order: -1;
+}
+.hx-wallet-narrow {
+  display: none;
 }
 .hx-wallet-qr {
   margin: 0;
@@ -302,20 +302,73 @@ h1, h2, h3, h4 {
   width: auto;
   padding: 0 calc(var(--hx-space) * 5);
 }
-@media screen and (max-width: 600px) {
+/* A phone (same-device is the natural path there): "Open wallet app" first and full width, the QR code second and
+   smaller, for when the wallet is on another device. */
+@media screen and (max-width: 640px) {
+  .hx-wallet-grid {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: calc(var(--hx-space) * 4);
+  }
+  .hx-wallet-grid > .hx-wallet-qr {
+    order: 0;
+    padding-top: calc(var(--hx-space) * 3);
+    border-top: 1px solid var(--hx-border);
+    width: 100%;
+  }
+  .hx-wallet-qr img {
+    width: 200px;
+    height: 200px;
+  }
+  .hx-wallet-narrow {
+    display: block;
+  }
+  .hx-wallet-wide {
+    display: none;
+  }
   .mainWrapper > main > div.container article .hx-wallet-device .buttonHolder {
     justify-content: center;
+  }
+  .hx-wallet-device {
+    width: 100%;
   }
   .hx-wallet-device .buttonHolder > a.button {
     width: 100%;
   }
 }
 .hx-wallet-status {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 1.5);
   margin: 0;
   padding: calc(var(--hx-space) * 1.5) calc(var(--hx-space) * 2);
   border-radius: var(--hxi-radius-sm);
   background: var(--hx-surface-sunken);
   color: var(--hx-ink);
+}
+/* A small spinner while the page waits for the wallet (an external stylesheet: no inline style, CSP intact). */
+.hx-wallet-status.is-waiting::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid var(--hx-primary);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hx-wallet-spin 0.9s linear infinite;
+}
+@keyframes hx-wallet-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hx-wallet-status.is-waiting::before {
+    animation: none;
+    border-right-color: var(--hx-primary);
+    opacity: 0.6;
+  }
 }
 /* [hidden] must win over the buttons' and the grid's display rules (the polling script toggles it). */
 .hx-wallet [hidden],

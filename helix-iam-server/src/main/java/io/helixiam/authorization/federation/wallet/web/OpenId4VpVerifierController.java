@@ -48,7 +48,8 @@ import java.util.regex.Pattern;
  *       any refusal (the reason is logged, never returned).</li>
  * </ul>
  * A provider that does not serve this realm, or a transaction of another realm or provider, is 404 (a transaction
- * claimed under the wrong realm is failed). Request ids, response ids, codes and nonces are never logged.
+ * claimed under the wrong realm is failed). Any failure after a request was claimed fails the transaction and answers
+ * {@code 400 {"error":"invalid_request"}}. Request ids, response ids, codes and nonces are never logged.
  */
 @RestController
 @RequestMapping("/oid4vp/{alias}")
@@ -59,6 +60,7 @@ public class OpenId4VpVerifierController {
     private static final Logger LOG = LogManager.getLogger(OpenId4VpVerifierController.class);
     private static final Pattern WALLET_NONCE = Pattern.compile("[A-Za-z0-9._~-]{1,256}");
     private static final Map<String, Object> INVALID_REQUEST = Map.of("error", "invalid_request");
+    private static final String INVALID_REQUEST_JSON = "{\"error\":\"invalid_request\"}";
 
     private final IdentityProviderRegistry registry;
     private final WalletResponseHandler responses;
@@ -101,11 +103,16 @@ public class OpenId4VpVerifierController {
         final String jwt;
         try {
             jwt = requests.signedRequestObject(tx, provider.config(), provider.signingKey(), idpBaseUrl, walletNonce);
-        } catch (final IllegalStateException e) {
-            provider.transactions().fail(tx.transactionId(), WalletErrorCode.TRANSACTION_EXPIRED);
-            LOG.warn("Wallet request object not issued: alias={} realm={} tx={} reason={}", LogSafe.sanitize(alias),
-                    LogSafe.sanitize(tx.realmId()), tx.transactionId(), LogSafe.sanitize(e.getMessage()));
-            return notFound();
+        } catch (final RuntimeException e) {
+            // Any failure after the claim (expired within the second, key or KMS failure, ...): the transaction is
+            // spent, so fail it now rather than leave it claimed until its TTL, and answer only the spec code.
+            provider.transactions().fail(tx.transactionId(), e instanceof IllegalStateException
+                    && String.valueOf(e.getMessage()).contains("expire")
+                    ? WalletErrorCode.TRANSACTION_EXPIRED : WalletErrorCode.INVALID_RESPONSE);
+            LOG.warn("Wallet request object not issued: alias={} realm={} tx={} error={}", LogSafe.sanitize(alias),
+                    LogSafe.sanitize(tx.realmId()), tx.transactionId(), e.getClass().getSimpleName());
+            return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                    .contentType(MediaType.APPLICATION_JSON).body(INVALID_REQUEST_JSON);
         }
         LOG.info("Wallet request object served: alias={} realm={} tx={} flow={}", LogSafe.sanitize(alias),
                 LogSafe.sanitize(tx.realmId()), tx.transactionId(), tx.flow());

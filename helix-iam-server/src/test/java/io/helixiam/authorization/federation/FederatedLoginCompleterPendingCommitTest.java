@@ -28,7 +28,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -47,6 +46,8 @@ class FederatedLoginCompleterPendingCommitTest {
     private final AuthFlowMapper authFlowMapper = mock(AuthFlowMapper.class);
     private final FederatedSessionEstablisher establisher = mock(FederatedSessionEstablisher.class);
     private final FederatedLoginCommit commit = mock(FederatedLoginCommit.class);
+    /** A committer for some other connector's pending values: never asked about ours. */
+    private final FederatedLoginCommit other = mock(FederatedLoginCommit.class);
 
     private final FederatedLoginCompleter completer = new FederatedLoginCompleter(
             flowExecutor, authFlowPublisher, authFlowMapper, establisher, SP,
@@ -55,7 +56,8 @@ class FederatedLoginCompleterPendingCommitTest {
 
     @BeforeEach
     void wire() throws Exception {
-        completer.setLoginCommit(commit);
+        completer.setLoginCommits(java.util.List.of(other, commit));
+        when(commit.supports(PENDING)).thenReturn(true);
         when(establisher.loadUser(USER_ID)).thenReturn(new ObjectMapper().readValue(
                 "{\"userId\":\"" + USER_ID + "\",\"username\":\"ada@corp\",\"authorities\":[{\"role\":\"ROLE_USER\"}]}",
                 UserCredentials.class));
@@ -69,7 +71,7 @@ class FederatedLoginCompleterPendingCommitTest {
     }
 
     @Test
-    void completedFlow_commitsBeforeTheSessionIsEstablished() {
+    void completedFlow_commitsOnlyAfterTheSessionWasEstablished() {
         when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
         when(commit.commit(PENDING, USER_ID)).thenReturn(true);
 
@@ -77,12 +79,14 @@ class FederatedLoginCompleterPendingCommitTest {
                 new MockHttpServletResponse(), PENDING);
 
         assertThat(view).isEqualTo("redirect:" + SP);
-        verify(commit).commit(PENDING, USER_ID);
-        verify(establisher).persist(any(), any(), any());
+        final org.mockito.InOrder order = org.mockito.Mockito.inOrder(establisher, commit);
+        order.verify(establisher).persist(any(), any(), any());
+        order.verify(commit).commit(PENDING, USER_ID);
+        verify(other, never()).commit(any(), any());
     }
 
     @Test
-    void aRefusedCommit_endsTheLoginWithoutASession() {
+    void aRefusedCommit_endsTheLogin_andUndoesTheSession() {
         when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
         when(commit.commit(PENDING, USER_ID)).thenReturn(false);
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -90,8 +94,30 @@ class FederatedLoginCompleterPendingCommitTest {
         final String view = completer.complete(USER_ID, null, request, new MockHttpServletResponse(), PENDING);
 
         assertThat(view).isEqualTo("redirect:/login?error=federation");
-        verify(establisher, never()).persist(any(), any(), any());
-        assertThat(request.getSession().getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE)).isNull();
+        assertThat(request.getSession(false)).as("the just-established session is dropped").isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void aPersistFailure_neverCommits() {
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
+        org.mockito.Mockito.doThrow(new IllegalStateException("session store down"))
+                .when(establisher).persist(any(), any(), any());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> completer.complete(USER_ID, null,
+                new MockHttpServletRequest(), new MockHttpServletResponse(), PENDING))
+                .isInstanceOf(IllegalStateException.class);
+        verify(commit, never()).commit(any(), any());
+    }
+
+    @Test
+    void aPendingValueNoCommitterSupports_refusesTheLogin() {
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
+        when(commit.supports(PENDING)).thenReturn(false);
+
+        assertThat(completer.complete(USER_ID, null, new MockHttpServletRequest(), new MockHttpServletResponse(),
+                PENDING)).isEqualTo("redirect:/login?error=federation");
+        verify(commit, never()).commit(any(), any());
     }
 
     @Test
@@ -102,7 +128,7 @@ class FederatedLoginCompleterPendingCommitTest {
         final String view = completer.complete(USER_ID, null, request, new MockHttpServletResponse(), PENDING);
 
         assertThat(view).isEqualTo("redirect:/flow");
-        verifyNoInteractions(commit);
+        verify(commit, never()).commit(any(), any());
         final FlowExecutionState state = (FlowExecutionState) request.getSession()
                 .getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
         assertThat(state.pendingCommit()).isEqualTo(PENDING);
@@ -114,7 +140,7 @@ class FederatedLoginCompleterPendingCommitTest {
 
         assertThat(completer.complete(USER_ID, null, new MockHttpServletRequest(), new MockHttpServletResponse(),
                 PENDING)).isEqualTo("redirect:/login?error=federation");
-        verifyNoInteractions(commit);
+        verify(commit, never()).commit(any(), any());
     }
 
     @Test
@@ -124,8 +150,9 @@ class FederatedLoginCompleterPendingCommitTest {
                 mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
         when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
 
-        assertThat(bare.complete(USER_ID, null, new MockHttpServletRequest(), new MockHttpServletResponse(), PENDING))
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        assertThat(bare.complete(USER_ID, null, request, new MockHttpServletResponse(), PENDING))
                 .isEqualTo("redirect:/login?error=federation");
-        verify(establisher, never()).persist(any(), any(), any());
+        assertThat(request.getSession(false)).isNull();
     }
 }

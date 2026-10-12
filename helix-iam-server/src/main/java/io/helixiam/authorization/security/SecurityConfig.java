@@ -523,8 +523,9 @@ public class SecurityConfig {
     }
 
     /**
-     * Task 18: the body limit of the OpenID4VP verifier endpoints, after the realm routing (so it sees {@code /oid4vp/**})
-     * and before the security chain and anything that would read the body.
+     * Task 18: the body limit of the OpenID4VP verifier endpoints. It runs before every filter that could read a body
+     * (Spring's FormContentFilter parses PUT/PATCH/DELETE forms at order -9900), so it matches the raw
+     * {@code /realms/<realm>/oid4vp/...} URI itself.
      */
     @Bean
     public org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter> walletRequestBodyLimitFilter(
@@ -532,8 +533,8 @@ public class SecurityConfig {
         final org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter> registration =
                 new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
                         new io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter(maxBytes));
-        // RealmRoutingFilter is DEFAULT_FILTER_ORDER - 10, the rate limit - 9, the error pages - 8; the chain is at 0.
-        registration.setOrder(org.springframework.boot.autoconfigure.security.SecurityProperties.DEFAULT_FILTER_ORDER - 7);
+        // Right after the character-encoding filter, before FormContentFilter (-9900) and the realm routing.
+        registration.setOrder(org.springframework.boot.web.servlet.filter.OrderedFormContentFilter.DEFAULT_ORDER - 1);
         registration.addUrlPatterns("/*");
         return registration;
     }

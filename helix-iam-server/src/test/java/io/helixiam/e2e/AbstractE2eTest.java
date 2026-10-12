@@ -134,6 +134,7 @@ public abstract class AbstractE2eTest {
         registry.add("helix.ratelimit.login.burst", () -> "100000");
         registry.add("helix.ratelimit.token.burst", () -> "100000");
         registry.add("helix.ratelimit.wallet.burst", () -> "100000");
+        registry.add("helix.ratelimit.wallet-start.burst", () -> "100000");
         registry.add("helix.e2e.forced-errors", () -> "true"); // ForcedErrorTestController
         registry.add("helix.e2e.capture-magic-links", () -> "true"); // CapturingMagicLinkSender
         registry.add("helix.e2e.capture-backchannel-logout", () -> "true"); // CapturingBackchannelPoster

@@ -220,6 +220,32 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore, A
     }
 
     @Override
+    public boolean discard(final String transactionId) {
+        if (transactionId == null) {
+            return false;
+        }
+        while (true) {
+            final Entry entry = transactions.get(transactionId);
+            if (entry == null || !(entry.tx().status() == Status.CREATED
+                    || entry.tx().status() == Status.REQUEST_FETCHED
+                    || entry.tx().status() == Status.RESPONSE_RECEIVED)) {
+                return false;
+            }
+            // Removes only the entry just checked; a transition in between makes this fail, and the loop looks again.
+            if (transactions.remove(transactionId, entry)) {
+                count.decrementAndGet();
+                index.remove(entry.sameDeviceHash(), transactionId);
+                index.remove(entry.crossDeviceHash(), transactionId);
+                index.remove(entry.responseHash(), transactionId);
+                if (entry.codeHash() != null) {
+                    index.remove(entry.codeHash(), transactionId);
+                }
+                return true;
+            }
+        }
+    }
+
+    @Override
     public boolean fail(final String transactionId, final WalletErrorCode code) {
         return transition(transactionId, entry -> entry.tx().status() == Status.REQUEST_FETCHED
                 || entry.tx().status() == Status.RESPONSE_RECEIVED

@@ -12,6 +12,8 @@ import io.helixiam.authorization.federation.DefaultAttributeMapper;
 import io.helixiam.authorization.federation.FederatedIdentityStore;
 import io.helixiam.authorization.federation.FederatedLoginCompleter;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
+import io.helixiam.authorization.security.audit.AuditEvent;
+import io.helixiam.authorization.security.audit.AuditLog;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,11 +53,12 @@ class WalletLoginCompleterTest {
     private final WalletLinkService links = mock(WalletLinkService.class);
     private final UserAdminPublisher users = mock(UserAdminPublisher.class);
     private final FederatedLoginCompleter completer = mock(FederatedLoginCompleter.class);
+    private final AuditLog audit = mock(AuditLog.class);
     private final MockHttpServletRequest request = new MockHttpServletRequest();
     private final MockHttpServletResponse response = new MockHttpServletResponse();
 
     private WalletLoginCompleter walletCompleter(final AccountLinkingPolicy policy) {
-        return new WalletLoginCompleter(store, new DefaultAttributeMapper(), policy, links, users, completer);
+        return new WalletLoginCompleter(store, new DefaultAttributeMapper(), policy, links, users, completer, audit);
     }
 
     private static BrokeredIdentity identity() {
@@ -138,6 +141,15 @@ class WalletLoginCompleterTest {
 
         assertThat(view).isEqualTo("redirect:/done");
         verify(users).delete(new UserAdminRef(REALM, "loser"));
+        // the removal is audited like an admin user deletion, with the reason
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().type()).isEqualTo("USER_DELETE");
+        assertThat(event.getValue().realm()).isEqualTo(REALM);
+        assertThat(event.getValue().resourceType()).isEqualTo("user");
+        assertThat(event.getValue().resourceId()).isEqualTo("loser");
+        assertThat(event.getValue().detail()).containsEntry("reason", "wallet_jit_race_lost")
+                .doesNotContainValue("Erika");
     }
 
     /** JIT race, other shape: the default username (the subject) is unique per realm, so the second insert fails. */
@@ -158,13 +170,54 @@ class WalletLoginCompleterTest {
     }
 
     @Test
-    void provision_whoseInsertFailsWithNoOwnerToFind_isRefused() {
+    void provision_anUnexpectedFailure_propagates_andIsNotTakenForARace() {
         when(store.provisionUser(any(), any())).thenThrow(new IllegalStateException("database down"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> walletCompleter(AccountLinkingPolicy.defaults())
+                .complete(ALIAS, new VerifiedIdentityJson.StoredLogin(identity(),
+                        new WalletLinkService.Decision.Provision()), null, request, response))
+                .isInstanceOf(IllegalStateException.class);
+        verify(links, never()).find(any(), any(), any());
+        verifyNoInteractions(completer, users);
+    }
+
+    /**
+     * A stale user (no link) holds the default username, the subject: provisioning retries ONCE with a suffixed
+     * username and links the new account; the stale user is left alone.
+     */
+    @Test
+    void provision_staleUserHoldingTheUsername_retriesOnceWithASuffixedUsername() {
+        when(store.provisionUser(any(), any()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate username"))
+                .thenReturn("new-user");
+        when(links.find(eq(REALM), eq(ALIAS), any())).thenReturn(Optional.empty());
+        when(links.link(eq(REALM), eq("new-user"), eq(ALIAS), any())).thenReturn(WalletLinkService.LinkResult.LINKED);
+        when(completer.complete("new-user", LOA, request, response, null)).thenReturn("redirect:/done");
+
+        final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
+                new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
+                null, request, response);
+
+        assertThat(view).isEqualTo("redirect:/done");
+        @SuppressWarnings("unchecked")
+        final ArgumentCaptor<Map<String, String>> attributes = ArgumentCaptor.forClass(Map.class);
+        verify(store, org.mockito.Mockito.times(2)).provisionUser(any(), attributes.capture());
+        assertThat(attributes.getAllValues().get(0)).containsEntry("username", SUBJECT);
+        assertThat(attributes.getAllValues().get(1).get("username")).startsWith(SUBJECT + "-")
+                .hasSize(SUBJECT.length() + 1 + 16);
+    }
+
+    @Test
+    void provision_aDuplicateOnTheRetryToo_givesUpWithoutLooping() {
+        when(store.provisionUser(any(), any()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate username"));
         when(links.find(eq(REALM), eq(ALIAS), any())).thenReturn(Optional.empty());
 
-        assertThat(walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
-                new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
-                null, request, response)).isEqualTo("redirect:/login?error=federation");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> walletCompleter(AccountLinkingPolicy.defaults())
+                .complete(ALIAS, new VerifiedIdentityJson.StoredLogin(identity(),
+                        new WalletLinkService.Decision.Provision()), null, request, response))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        verify(store, org.mockito.Mockito.times(2)).provisionUser(any(), any());
         verifyNoInteractions(completer, users);
     }
 

@@ -124,4 +124,33 @@ class RateLimitFilterTest {
         filter.doFilter(otherIp, res, new MockFilterChain());
         assertThat(res.getStatus()).isEqualTo(200);
     }
+
+    /**
+     * Task 18 fix round 1: a request rule limits what a path prefix cannot describe, e.g. only the broker starts of
+     * EUDI wallet providers ({@code GET /broker/<wallet alias>}), keyed by IP + rule.
+     */
+    @Test
+    void aRequestRule_limitsOnlyTheRequestsItApplies_toEveryMethod() throws Exception {
+        final RateLimitFilter filter = new RateLimitFilter(true, Map.of(), java.util.Set.of(), java.util.List.of(
+                new RateLimitFilter.Rule("wallet-start", r -> r.getServletPath().equals("/broker/eudi"),
+                        new RateLimiter(2, 2, 60_000, 1000, () -> 0L))));
+
+        final int[] wallet = new int[3];
+        for (int i = 0; i < 3; i++) {
+            final MockHttpServletRequest req = new MockHttpServletRequest("GET", "/broker/eudi");
+            req.setServletPath("/broker/eudi");
+            req.setRemoteAddr("4.4.4.4");
+            final MockHttpServletResponse res = new MockHttpServletResponse();
+            filter.doFilter(req, res, new MockFilterChain());
+            wallet[i] = res.getStatus();
+        }
+        assertThat(wallet).containsExactly(200, 200, 429);
+
+        final MockHttpServletRequest oidc = new MockHttpServletRequest("GET", "/broker/corp");
+        oidc.setServletPath("/broker/corp");
+        oidc.setRemoteAddr("4.4.4.4");
+        final MockHttpServletResponse res = new MockHttpServletResponse();
+        filter.doFilter(oidc, res, new MockFilterChain());
+        assertThat(res.getStatus()).as("another provider's start is not limited").isEqualTo(200);
+    }
 }

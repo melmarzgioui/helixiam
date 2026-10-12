@@ -31,8 +31,8 @@ class WalletRequestBodyLimitFilterTest {
     private final WalletRequestBodyLimitFilter filter = new WalletRequestBodyLimitFilter(LIMIT);
 
     private static MockHttpServletRequest post(final String path) {
+        // The filter runs before the realm routing (and Spring's FormContentFilter): it matches the raw URI.
         final MockHttpServletRequest request = new MockHttpServletRequest("POST", "/realms/acme" + path);
-        request.setServletPath(path);
         request.setContentType("application/x-www-form-urlencoded");
         return request;
     }
@@ -111,6 +111,63 @@ class WalletRequestBodyLimitFilterTest {
     void otherPaths_areNotTouched() throws Exception {
         final MockHttpServletRequest request = post("/login");
         request.addHeader("Content-Length", String.valueOf(300 * 1024));
+        final MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+        assertThat(chain.getRequest()).isSameAs(request);
+    }
+
+    /** Body only (OpenID4VP §8.2): a vp_token or state in the URL would end up in access logs, so it is not read. */
+    @Test
+    void queryStringParameters_areNotParameters() throws Exception {
+        final MockHttpServletRequest request = post("/oid4vp/eudi/response/r1");
+        request.setQueryString("vp_token=from-url&state=from-url");
+        request.addParameter("vp_token", "from-url"); // what the container would have parsed
+        request.setContent("response=jwe".getBytes(StandardCharsets.UTF_8));
+        final MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+        final HttpServletRequest passed = (HttpServletRequest) chain.getRequest();
+        assertThat(passed.getParameterMap()).containsOnlyKeys("response");
+        assertThat(passed.getParameter("vp_token")).isNull();
+        assertThat(passed.getParameter("state")).isNull();
+    }
+
+    /** Only GET and POST exist here: any other method is refused before a byte of its body is read. */
+    @Test
+    void otherMethods_are405_withoutReadingTheBody() throws Exception {
+        for (final String method : java.util.List.of("PUT", "PATCH", "DELETE", "OPTIONS")) {
+            final AtomicLong read = new AtomicLong();
+            final MockHttpServletRequest raw = new MockHttpServletRequest(method, "/realms/acme/oid4vp/eudi/response/r1");
+            raw.setContentType("application/x-www-form-urlencoded");
+            final HttpServletRequest chunked = new jakarta.servlet.http.HttpServletRequestWrapper(raw) {
+                @Override
+                public long getContentLengthLong() {
+                    return -1;
+                }
+
+                @Override
+                public ServletInputStream getInputStream() {
+                    return endless(read);
+                }
+            };
+            final MockHttpServletResponse response = new MockHttpServletResponse();
+            final MockFilterChain chain = new MockFilterChain();
+
+            filter.doFilter(chunked, response, chain);
+
+            assertThat(response.getStatus()).as(method).isEqualTo(405);
+            assertThat(response.getHeader("Allow")).isEqualTo("GET, POST");
+            assertThat(chain.getRequest()).isNull();
+            assertThat(read.get()).isZero();
+        }
+    }
+
+    @Test
+    void aGet_passesWithoutBuffering() throws Exception {
+        final MockHttpServletRequest request = new MockHttpServletRequest("GET", "/realms/acme/oid4vp/eudi/request/q1");
         final MockFilterChain chain = new MockFilterChain();
 
         filter.doFilter(request, new MockHttpServletResponse(), chain);

@@ -127,6 +127,40 @@ abstract class AbstractWalletTransactionStoreTest {
         return store.byTransactionId(tx.transactionId()).map(WalletTransaction::status).orElse(null);
     }
 
+    // ------------------------------------------------------------------------------------------------ discard
+
+    /** Task 18 fix round 1: a browser has one live wallet login; starting another discards the previous one. */
+    @Test
+    void discard_removesALiveTransaction_andItsIdsStopWorking() {
+        final WalletTransaction created = created();
+        final WalletTransaction fetched = requestFetched();
+        final WalletTransaction received = responseReceived(Flow.CROSS_DEVICE);
+
+        assertThat(store.discard(created.transactionId())).isTrue();
+        assertThat(store.discard(fetched.transactionId())).isTrue();
+        assertThat(store.discard(received.transactionId())).isTrue();
+
+        assertThat(store.byTransactionId(created.transactionId())).isEmpty();
+        assertThat(store.claimRequest(created.crossDeviceRequestId())).isEmpty();
+        assertThat(store.claimResponse(fetched.responseId())).isEmpty();
+        assertThat(store.complete(received.transactionId(), null, IDENTITY)).isFalse();
+        assertThat(store.discard(created.transactionId())).as("already gone").isFalse();
+    }
+
+    @Test
+    void discard_leavesFinishedTransactionsAndUnknownIdsAlone() {
+        final Verified verified = verified();
+        final WalletTransaction failed = requestFetched();
+        assertThat(store.fail(failed.transactionId(), WalletErrorCode.WALLET_ERROR)).isTrue();
+
+        assertThat(store.discard(verified.tx().transactionId())).isFalse();
+        assertThat(store.discard(failed.transactionId())).isFalse();
+        assertThat(store.discard(random())).isFalse();
+        assertThat(store.discard(null)).isFalse();
+        assertThat(statusOf(verified.tx())).isEqualTo(Status.VERIFIED);
+        assertThat(statusOf(failed)).isEqualTo(Status.FAILED);
+    }
+
     // ------------------------------------------------------------------------------------------------ create/lookup
 
     @Test

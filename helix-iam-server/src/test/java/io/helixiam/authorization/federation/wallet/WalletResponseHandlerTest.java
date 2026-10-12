@@ -163,9 +163,11 @@ class WalletResponseHandlerTest {
                 form("response", Oid4vpWalletClient.respond(request, vpToken(request))));
 
         final String redirect = ((WalletResponseHandler.Result.Accepted) result).redirectUri();
-        assertThat(redirect).startsWith(BASE + "/realms/acme/broker/eudi-wallet/callback?response_code=")
-                .endsWith("&state=" + HELIX_STATE);
-        final String code = redirect.substring(redirect.indexOf("response_code=") + 14, redirect.indexOf("&state"));
+        // only the code: the broker's state never reaches the wallet (the callback takes it from the session)
+        assertThat(redirect).matches(java.util.regex.Pattern.quote(BASE
+                + "/realms/acme/broker/eudi-wallet/callback?response_code=") + "[A-Za-z0-9_-]{22}")
+                .doesNotContain("state").doesNotContain(HELIX_STATE);
+        final String code = redirect.substring(redirect.indexOf("response_code=") + 14);
         assertThat(code).matches("[A-Za-z0-9_-]{22,}");
         assertThat(store.redeem(code, HELIX_STATE, BINDING)).isPresent();
     }

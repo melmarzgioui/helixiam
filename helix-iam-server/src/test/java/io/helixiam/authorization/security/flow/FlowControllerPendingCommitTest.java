@@ -28,7 +28,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -55,7 +54,8 @@ class FlowControllerPendingCommitTest {
     }
 
     private MockHttpServletRequest pending(final FlowProgress progress) {
-        controller.setLoginCommit(commit);
+        controller.setLoginCommits(java.util.List.of(commit));
+        when(commit.supports("pending-link")).thenReturn(true);
         when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
         when(flowExecutor.submit(any(), any(), any(), any())).thenReturn(progress);
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -79,8 +79,9 @@ class FlowControllerPendingCommitTest {
                 new ExtendedModelMap(), request, new MockHttpServletResponse());
 
         assertThat(view).isEqualTo("redirect:" + SP);
-        verify(commit).commit("pending-link", "user-9");
-        verify(mfaService).unlockUser();
+        final org.mockito.InOrder order = org.mockito.Mockito.inOrder(mfaService, commit);
+        order.verify(mfaService).unlockUser(); // the session is promoted first...
+        order.verify(commit).commit("pending-link", "user-9"); // ...then the commit
     }
 
     @Test
@@ -93,8 +94,8 @@ class FlowControllerPendingCommitTest {
                 new ExtendedModelMap(), request, new MockHttpServletResponse());
 
         assertThat(view).isEqualTo("redirect:/login?error=federation");
-        verify(mfaService, never()).unlockUser();
-        assertThat(request.getSession(false)).as("the session holding the MFA gate is gone").isNull();
+        assertThat(request.getSession(false)).as("the half-signed-in session is gone").isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test
@@ -104,6 +105,6 @@ class FlowControllerPendingCommitTest {
         controller.submitChallenge(Map.of("code", "000000"), request.getSession(), new ExtendedModelMap(), request,
                 new MockHttpServletResponse());
 
-        verifyNoInteractions(commit);
+        verify(commit, never()).commit(any(), any());
     }
 }

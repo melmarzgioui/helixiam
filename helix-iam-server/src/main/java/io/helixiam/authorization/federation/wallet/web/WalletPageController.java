@@ -46,11 +46,14 @@ import java.util.Optional;
  *       code of the <b>cross-device</b> invocation URL (server-side SVG, {@link QrCodeSvg}) and an "Open wallet" link
  *       with the <b>same-device</b> URL; {@code /js/wallet-poll.js} then polls the status. A failed login offers a
  *       retry; an expired or unknown one (or one of another browser or realm) is a 404 page that says so.</li>
- *   <li>{@code GET /wallet/status?tx=}: {@code {"status": "PENDING" | "COMPLETED" | "FAILED", "next"?}}, never cached.
- *       {@code PENDING} covers created, request fetched and response received; {@code COMPLETED} covers verified and
- *       redeemed (the store's {@code VERIFIED}); {@code FAILED} is a refused or wallet-declined login. On the first
+ *   <li>{@code GET /wallet/status?tx=}: {@code {"status": "PENDING" | "WALLET_OPENED" | "COMPLETED" | "FAILED",
+ *       "next"?}}, never cached. {@code PENDING}: created, the wallet has not fetched the request yet;
+ *       {@code WALLET_OPENED}: the wallet fetched the request (or its answer is being checked), so the page can say
+ *       "confirm in your wallet app"; {@code COMPLETED} covers verified and redeemed (the store's {@code VERIFIED});
+ *       {@code FAILED} is a refused or wallet-declined login. On the first
  *       poll after a CROSS_DEVICE transaction was verified, {@code next} is the broker callback with a fresh response
- *       code ({@code WalletTransactionStore#issueResponseCode}, once: a later poll has no {@code next}). A same-device
+ *       code only ({@code WalletTransactionStore#issueResponseCode}, once: a later poll has no {@code next}; the
+ *       callback takes the state from the session). A same-device
  *       login's code went to the wallet's {@code redirect_uri}, so its poll never has a {@code next}.</li>
  *   <li>{@code GET /wallet/unavailable}: the store is full (the provider's {@code start} sends the browser here),
  *       a friendly 503.</li>
@@ -77,7 +80,7 @@ public class WalletPageController {
     }
 
     /** The client-facing status names (see the class comment). */
-    enum ClientStatus { PENDING, COMPLETED, FAILED }
+    enum ClientStatus { PENDING, WALLET_OPENED, COMPLETED, FAILED }
 
     @GetMapping("/broker/{alias}/wallet")
     public String page(@PathVariable final String alias, @RequestParam(name = "tx", required = false) final String txId,
@@ -97,18 +100,14 @@ public class WalletPageController {
         model.addAttribute("expiresAt", tx.expiresAt().toEpochMilli());
         switch (status(tx)) {
             case FAILED -> model.addAttribute("walletState", "failed");
-            case COMPLETED -> model.addAttribute("walletState", "pending");
+            case WALLET_OPENED, COMPLETED -> model.addAttribute("walletState", "opened"); // the wallet has it; poll
             case PENDING -> {
-                if (tx.status() == WalletTransaction.Status.CREATED) {
-                    final String crossDevice = requests.invocationUrl(tx, provider.config(), provider.signingKey(),
-                            WalletTransaction.Flow.CROSS_DEVICE, idpBaseUrl);
-                    model.addAttribute("walletState", "active");
-                    model.addAttribute("qrCode", QrCodeSvg.dataUri(crossDevice));
-                    model.addAttribute("sameDeviceUrl", requests.invocationUrl(tx, provider.config(),
-                            provider.signingKey(), WalletTransaction.Flow.SAME_DEVICE, idpBaseUrl));
-                } else {
-                    model.addAttribute("walletState", "pending"); // the wallet has it; keep polling
-                }
+                final String crossDevice = requests.invocationUrl(tx, provider.config(), provider.signingKey(),
+                        WalletTransaction.Flow.CROSS_DEVICE, idpBaseUrl);
+                model.addAttribute("walletState", "active");
+                model.addAttribute("qrCode", QrCodeSvg.dataUri(crossDevice));
+                model.addAttribute("sameDeviceUrl", requests.invocationUrl(tx, provider.config(),
+                        provider.signingKey(), WalletTransaction.Flow.SAME_DEVICE, idpBaseUrl));
             }
         }
         return VIEW;
@@ -130,9 +129,10 @@ public class WalletPageController {
                 && tx.flow() == WalletTransaction.Flow.CROSS_DEVICE) {
             bound.get().provider().transactions().issueResponseCode(tx.transactionId(), bound.get().binding())
                     .ifPresent(code -> {
+                        // only the code, like the same-device redirect_uri: the callback reads the state from the
+                        // session
                         body.put("next", request.getContextPath() + "/broker/" + segment(alias) + "/callback?"
-                                + WalletIdentityProvider.RESPONSE_CODE_PARAM + "=" + code + "&state="
-                                + UriUtils.encodeQueryParam(tx.helixState(), StandardCharsets.UTF_8));
+                                + WalletIdentityProvider.RESPONSE_CODE_PARAM + "=" + code);
                         LOG.info("Wallet response code issued to the bound browser: alias={} tx={}",
                                 LogSafe.sanitize(alias), tx.transactionId());
                     });
@@ -170,8 +170,8 @@ public class WalletPageController {
             return Optional.empty();
         }
         final WalletTransaction tx = provider.get().transactions().byTransactionId(txId).orElse(null);
-        if (!WalletEndpoints.ownedHere(tx, provider.get())) {
-            return Optional.empty();
+        if (!WalletEndpoints.ownedHere(tx, provider.get()) || tx.status() == WalletTransaction.Status.EXPIRED) {
+            return Optional.empty(); // ruling 1: expired reads as unknown, whatever the store says
         }
         final HttpSession session = request.getSession(false);
         final String binding = BrowserBinding.current(session, alias);
@@ -182,11 +182,13 @@ public class WalletPageController {
         return Optional.of(new Bound(provider.get(), tx, binding));
     }
 
+    /** Never called with EXPIRED: {@link #bound} treats it as absent (404). */
     private static ClientStatus status(final WalletTransaction tx) {
         return switch (tx.status()) {
+            case CREATED -> ClientStatus.PENDING;
+            case REQUEST_FETCHED, RESPONSE_RECEIVED -> ClientStatus.WALLET_OPENED;
             case VERIFIED, REDEEMED -> ClientStatus.COMPLETED;
             case FAILED, EXPIRED -> ClientStatus.FAILED;
-            case CREATED, REQUEST_FETCHED, RESPONSE_RECEIVED -> ClientStatus.PENDING;
         };
     }
 
