@@ -441,7 +441,7 @@ class AuthorizationRequestFactoryTest {
     @Test
     void x509Hash_knownAnswer_forAFixedCertificate() throws Exception {
         final String pem;
-        try (var in = getClass().getResourceAsStream("/wallet/vectors/openid4vp/x509-hash-known-answer-leaf.pem")) {
+        try (var in = getClass().getResourceAsStream("/wallet/vectors/openid4vp/x509-hash-known-answer-leaf.crt")) {
             pem = new String(java.util.Objects.requireNonNull(in).readAllBytes(), StandardCharsets.US_ASCII);
         }
         final X509Certificate cert = com.nimbusds.jose.util.X509CertUtils.parse(pem);
