@@ -60,7 +60,7 @@ public final class VerifiedIdentityJson {
     public static final int VERSION = 1;
 
     private static final Set<String> MEMBERS = Set.of("v", "externalSubject", "email", "emailVerified", "attributes",
-            "levelOfAssurance", "decision", "link");
+            "levelOfAssurance", "decision", "link", "format", "issuerDn");
     private static final Set<String> PENDING_LINK_MEMBERS = Set.of("realmId", "alias", "subject", "userId");
     private static final String KIND = "kind";
     private static final String EXISTING = "existing";
@@ -74,8 +74,25 @@ public final class VerifiedIdentityJson {
     /**
      * A stored wallet login: the mapped identity ({@code null} for a {@link WalletLinkService.Decision.Refused}) and
      * the account decision made when the presentation was verified.
+     *
+     * <p>Task 22 audit context: {@code format} (the presentation's {@code dc+sd-jwt}/{@code mso_mdoc}) and
+     * {@code issuerDn} (the issuer certificate's subject DN — public certificate data, never a PID value) round-trip
+     * through the stored JSON ({@link #write(BrokeredIdentity, WalletLinkService.Decision, String, String)}); they are
+     * {@code null} when not supplied. {@code transactionId} never does — it is already known to whoever redeemed the
+     * transaction, so it is attached afterwards with {@link #withTransactionId}, never serialized.
      */
-    public record StoredLogin(BrokeredIdentity identity, WalletLinkService.Decision decision) {
+    public record StoredLogin(BrokeredIdentity identity, WalletLinkService.Decision decision, String format,
+            String issuerDn, String transactionId) {
+
+        /** Back-compat: no format/issuerDn/transactionId. */
+        public StoredLogin(final BrokeredIdentity identity, final WalletLinkService.Decision decision) {
+            this(identity, decision, null, null, null);
+        }
+
+        /** This login's transaction id attached (the redeeming provider's own knowledge, never from the JSON). */
+        public StoredLogin withTransactionId(final String transactionId) {
+            return new StoredLogin(identity, decision, format, issuerDn, transactionId);
+        }
     }
 
     private VerifiedIdentityJson() {
@@ -94,6 +111,17 @@ public final class VerifiedIdentityJson {
      * @throws IllegalArgumentException when a non-refused decision comes without an identity
      */
     public static String write(final BrokeredIdentity identity, final WalletLinkService.Decision decision) {
+        return write(identity, decision, null, null);
+    }
+
+    /**
+     * As {@link #write(BrokeredIdentity, WalletLinkService.Decision)}, additionally carrying the verified
+     * presentation's {@code format} and issuer certificate {@code issuerDn} (Task 22 audit context; both nullable,
+     * e.g. when not supplied). Stored even for a {@link WalletLinkService.Decision.Refused}: the presentation was
+     * still cryptographically verified, only the account decision refused.
+     */
+    public static String write(final BrokeredIdentity identity, final WalletLinkService.Decision decision,
+            final String format, final String issuerDn) {
         java.util.Objects.requireNonNull(decision, "decision");
         final ObjectNode node;
         if (decision instanceof WalletLinkService.Decision.Refused) {
@@ -106,6 +134,12 @@ public final class VerifiedIdentityJson {
                 throw new IllegalArgumentException("A wallet login that may sign in needs its identity");
             }
             node = identityNode(identity);
+        }
+        if (format != null) {
+            node.put("format", format);
+        }
+        if (issuerDn != null) {
+            node.put("issuerDn", issuerDn);
         }
         node.set("decision", decisionNode(decision));
         return toJson(node);
@@ -253,14 +287,16 @@ public final class VerifiedIdentityJson {
             throw invalid();
         }
         final WalletLinkService.Decision decision = decision(node.get("decision"));
+        final String format = node.has("format") ? text(node, "format") : null;
+        final String issuerDn = node.has("issuerDn") ? text(node, "issuerDn") : null;
         if (decision instanceof WalletLinkService.Decision.Refused) {
             if (node.has("externalSubject") || node.has("email") || node.has("levelOfAssurance")
                     || node.get("attributes").size() != 0) {
                 throw invalid();
             }
-            return new StoredLogin(null, decision);
+            return new StoredLogin(null, decision, format, issuerDn, null);
         }
-        return new StoredLogin(identity(idpAlias, node), decision);
+        return new StoredLogin(identity(idpAlias, node), decision, format, issuerDn, null);
     }
 
     /** The strictly parsed top-level object, its shape checked except for the subject. */
@@ -286,7 +322,9 @@ public final class VerifiedIdentityJson {
                 || node.has("externalSubject") && !node.get("externalSubject").isTextual()
                 || !node.path("emailVerified").isBoolean() || !node.path("attributes").isObject()
                 || node.has("email") && !node.get("email").isTextual()
-                || node.has("levelOfAssurance") && !node.get("levelOfAssurance").isTextual()) {
+                || node.has("levelOfAssurance") && !node.get("levelOfAssurance").isTextual()
+                || node.has("format") && !node.get("format").isTextual()
+                || node.has("issuerDn") && !node.get("issuerDn").isTextual()) {
             throw invalid();
         }
         if (node.has("decision")) {

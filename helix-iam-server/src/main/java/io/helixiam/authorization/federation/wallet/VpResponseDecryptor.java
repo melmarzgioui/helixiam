@@ -136,8 +136,10 @@ public final class VpResponseDecryptor {
             }
             // OpenID4VP §8.5: the wallet's error response, surfaced distinctly from a malformed response.
             // error_description is wallet-controlled free text and is deliberately left out of the exception
-            // detail.
-            throw fail(WalletErrorCode.WALLET_ERROR, "wallet returned an error response");
+            // detail. Task 22 (spec §15): "access_denied" gets its own code, distinct from any other wallet error.
+            final WalletErrorCode code = "access_denied".equals(error.textValue()) ? WalletErrorCode.WALLET_ACCESS_DENIED
+                    : WalletErrorCode.WALLET_ERROR;
+            throw fail(code, "wallet returned an error response");
         }
 
         final JsonNode vpToken = root.get("vp_token");

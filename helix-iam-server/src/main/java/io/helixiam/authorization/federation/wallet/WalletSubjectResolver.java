@@ -247,9 +247,9 @@ public class WalletSubjectResolver {
 
     private static WalletSubject resolved(final String realmId, final WalletSubject subject) {
         final String kind = subject instanceof WalletSubject.AdminNumber ? "ADMIN_NUMBER" : "TUPLE";
-        final String value = subject instanceof WalletSubject.AdminNumber a ? a.value()
-                : ((WalletSubject.Tuple) subject).value();
-        LOG.info("wallet: subject resolved, realm={} kind={} subject={}", LogSafe.sanitize(realmId), kind, value);
+        // Task 22: never the subject value itself — it is the HMAC of the normalised PID attribute(s) ("the subject
+        // hash"), which must never reach the logs even though it is not the raw PID value.
+        LOG.info("wallet: subject resolved, realm={} kind={}", LogSafe.sanitize(realmId), kind);
         return subject;
     }
 

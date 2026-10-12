@@ -97,17 +97,18 @@ public class WalletLoginCompleter {
         final String realm = RealmContextHolder.get();
         return switch (login.decision()) {
             case WalletLinkService.Decision.Existing existing ->
-                    completer.complete(existing.userId(), login.identity().levelOfAssurance(), request, response,
-                            existing.pendingNumberLink());
-            case WalletLinkService.Decision.Provision provision -> provision(realm, alias, login.identity(),
-                    mapperConfig, request, response);
+                    completeLogin(existing.userId(), login.identity().levelOfAssurance(), request, response,
+                            existing.pendingNumberLink(), realm, alias, login);
+            case WalletLinkService.Decision.Provision provision -> provision(realm, alias, login, mapperConfig,
+                    request, response);
             case WalletLinkService.Decision.Refused refused -> linkPage(alias, refused.reason());
         };
     }
 
-    private String provision(final String realm, final String alias, final BrokeredIdentity identity,
+    private String provision(final String realm, final String alias, final VerifiedIdentityJson.StoredLogin login,
                              final String mapperConfig, final HttpServletRequest request,
                              final HttpServletResponse response) {
+        final BrokeredIdentity identity = login.identity();
         if (!policy.jitProvision()) {
             // the policy changed since the presentation was verified
             return linkPage(alias, WalletSubject.Reason.LINK_REQUIRED);
@@ -125,7 +126,8 @@ public class WalletLoginCompleter {
             if (owner.isPresent()) {
                 LOG.info("wallet: a concurrent login provisioned this number first; signing in as its account, "
                         + "realm={} alias={}", LogSafe.sanitize(realm), LogSafe.sanitize(alias));
-                return completer.complete(owner.get(), identity.levelOfAssurance(), request, response, null);
+                return completeLogin(owner.get(), identity.levelOfAssurance(), request, response, null, realm, alias,
+                        login);
             }
             // A stale user holds the username: provision once more under a suffixed username (no loop: a second
             // conflict propagates to the federation error). The stale user is left for an admin to clean up.
@@ -143,7 +145,7 @@ public class WalletLoginCompleter {
         if (linked != WalletLinkService.LinkResult.LINKED_TO_ANOTHER_USER) {
             LOG.info("wallet: provisioned user {} in realm {} for provider {}", LogSafe.sanitize(created),
                     LogSafe.sanitize(realm), LogSafe.sanitize(alias));
-            return completer.complete(created, identity.levelOfAssurance(), request, response, null);
+            return completeLogin(created, identity.levelOfAssurance(), request, response, null, realm, alias, login);
         }
         // Lost the race: another login linked this number first. The number wins; remove the fresh account.
         final Optional<String> owner = links.find(realm, alias, subject);
@@ -153,8 +155,31 @@ public class WalletLoginCompleter {
                         "idpAlias", alias)));
         LOG.info("wallet: number already linked by a concurrent login; removed the fresh user {} in realm {}",
                 LogSafe.sanitize(created), LogSafe.sanitize(realm));
-        return owner.map(userId -> completer.complete(userId, identity.levelOfAssurance(), request, response, null))
-                .orElse(LOGIN_ERROR);
+        return owner.map(userId -> completeLogin(userId, identity.levelOfAssurance(), request, response, null, realm,
+                alias, login)).orElse(LOGIN_ERROR);
+    }
+
+    /**
+     * Task 22: delegates to the shared {@link FederatedLoginCompleter}, then — only when it actually reached a
+     * completed login (not a failed or still-pending step-up one, told apart by its return view) — emits
+     * {@code WALLET_LOGIN_SUCCESS}. {@code actor} is the resolved local user id, never a PID value.
+     */
+    private String completeLogin(final String userId, final String acr, final HttpServletRequest request,
+                                 final HttpServletResponse response, final java.io.Serializable pendingCommit,
+                                 final String realm, final String alias,
+                                 final VerifiedIdentityJson.StoredLogin login) {
+        final String view = completer.complete(userId, acr, request, response, pendingCommit);
+        if (isCompletedLogin(view)) {
+            audit.emit(WalletLoginAudit.success(realm, userId, login.transactionId(), alias, login.format(),
+                    login.issuerDn()));
+        }
+        return view;
+    }
+
+    /** A completed login's view is neither the shared failure redirect nor the pending-step-up one. */
+    private static boolean isCompletedLogin(final String view) {
+        return view != null && !view.equals(FederatedLoginCompleter.LOGIN_ERROR_VIEW)
+                && !view.equals(FederatedLoginCompleter.STEP_UP_VIEW);
     }
 
     /** 8 random bytes as 16 lower-case hex characters. */

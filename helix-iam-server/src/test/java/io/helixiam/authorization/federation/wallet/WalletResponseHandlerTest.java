@@ -62,7 +62,7 @@ class WalletResponseHandlerTest {
     WalletResponseHandlerTest() {
         when(pepper.pepper(any())).thenReturn(new byte[32]);
         handler = new WalletResponseHandler(new WalletSubjectResolver(pepper), new WalletLinkService(identities),
-                AccountLinkingPolicy.defaults(), BASE);
+                AccountLinkingPolicy.defaults(), BASE, mock(AuditLog.class));
     }
 
     private WalletIdentityProvider provider(final DeploymentProfile profile, final Map<String, String> extra) {
@@ -155,6 +155,9 @@ class WalletResponseHandlerTest {
         assertThat(stored.identity().externalSubject()).matches("[0-9a-f]{64}");
         assertThat(tx.verifiedIdentityJson()).as("never the vp_token or the number").doesNotContain("~")
                 .doesNotContain("PAN-0001");
+        // Task 22: the matched presentation's format and issuer DN are kept for the login's audit event.
+        assertThat(stored.format()).isEqualTo("dc+sd-jwt");
+        assertThat(stored.issuerDn()).isNotBlank();
         assertThat(store.issueResponseCode(tx.transactionId(), BINDING)).isPresent();
     }
 
@@ -239,6 +242,17 @@ class WalletResponseHandlerTest {
                 form("error", "access_denied", "error_description", "user said no", "state", request.state())))
                 .isEqualTo(new WalletResponseHandler.Result.WalletErrorRecorded());
         assertThat(tx(request).status()).isEqualTo(WalletTransaction.Status.FAILED);
+        assertThat(tx(request).failureCode()).isEqualTo(WalletErrorCode.WALLET_ACCESS_DENIED);
+    }
+
+    @Test
+    void aWalletErrorResponse_otherThanAccessDenied_isStillWalletError() {
+        final WalletIdentityProvider provider = provider();
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(provider, WalletTransaction.Flow.CROSS_DEVICE);
+
+        assertThat(handler.handle(provider, REALM, responseId(request),
+                form("error", "invalid_request", "state", request.state())))
+                .isEqualTo(new WalletResponseHandler.Result.WalletErrorRecorded());
         assertThat(tx(request).failureCode()).isEqualTo(WalletErrorCode.WALLET_ERROR);
     }
 

@@ -315,10 +315,22 @@ class VpResponseDecryptorTest {
     // ---- wallet error response (§8.5) ----
 
     @Test
-    void walletErrorResponseIsSurfacedDistinctly() throws Exception {
+    void walletAccessDeniedIsSurfacedDistinctly() throws Exception {
         final ECKey key = transactionKey();
         final String jwe = encrypt(key.toPublicJWK(), KID, EncryptionMethod.A128GCM,
                 "{\"error\":\"access_denied\",\"error_description\":\"nope\",\"state\":\"s1\"}");
+
+        assertThatThrownBy(() -> decryptor.decrypt(jwe, key, ALLOWED_ENC))
+                .isInstanceOf(WalletVerificationException.class)
+                .extracting(e -> ((WalletVerificationException) e).code())
+                .isEqualTo(WalletErrorCode.WALLET_ACCESS_DENIED);
+    }
+
+    @Test
+    void anyOtherWalletErrorIsSurfacedGenerically() throws Exception {
+        final ECKey key = transactionKey();
+        final String jwe = encrypt(key.toPublicJWK(), KID, EncryptionMethod.A128GCM,
+                "{\"error\":\"invalid_request\",\"state\":\"s1\"}");
 
         assertThatThrownBy(() -> decryptor.decrypt(jwe, key, ALLOWED_ENC))
                 .isInstanceOf(WalletVerificationException.class)

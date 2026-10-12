@@ -24,6 +24,7 @@ import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionCapacityException;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
+import io.helixiam.authorization.security.audit.AuditLog;
 import io.helixiam.authorization.service.key.SigningKeyHandle;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
@@ -101,12 +102,13 @@ public final class WalletIdentityProvider implements IdentityProvider {
     private final VpResponseDecryptor decryptor = new VpResponseDecryptor();
     private final WalletTransactionStore transactions;
     private final Clock clock;
+    private final AuditLog audit;
     private final SecureRandom random = new SecureRandom();
 
     WalletIdentityProvider(final WalletProviderConfig config, final String keyRealm, final SigningKeyHandle signingKey,
                            final TrustAnchors trustAnchors, final StatusPolicy statusPolicy,
                            final TokenStatusListClient statusClient, final Map<String, PresentationVerifier> verifiers,
-                           final WalletTransactionStore transactions, final Clock clock) {
+                           final WalletTransactionStore transactions, final Clock clock, final AuditLog audit) {
         this.config = Objects.requireNonNull(config, "config");
         this.keyRealm = keyRealm;
         this.signingKey = Objects.requireNonNull(signingKey, "signingKey");
@@ -116,6 +118,7 @@ public final class WalletIdentityProvider implements IdentityProvider {
         this.verifiers = Map.copyOf(verifiers);
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.audit = Objects.requireNonNull(audit, "audit");
     }
 
     /** The wallet provider behind {@code provider} (unwrapping a {@link PresentedProvider}), if it is one. */
@@ -225,7 +228,9 @@ public final class WalletIdentityProvider implements IdentityProvider {
      */
     public VerifiedIdentityJson.StoredLogin redeem(final CallbackContext context) {
         final WalletTransaction tx = redeemTransaction(context, WalletTransaction.Purpose.LOGIN);
-        return VerifiedIdentityJson.readLogin(config.alias(), tx.verifiedIdentityJson());
+        // Task 22: the transaction id is this method's own knowledge (never serialized into the stored JSON).
+        return VerifiedIdentityJson.readLogin(config.alias(), tx.verifiedIdentityJson())
+                .withTransactionId(tx.transactionId());
     }
 
     /** Task 21b: what {@link #redeemLink} returns: the user who started the link and the wallet's resolved subject. */
@@ -246,36 +251,49 @@ public final class WalletIdentityProvider implements IdentityProvider {
                                                 final WalletTransaction.Purpose purpose) {
         final String code = context.parameters() == null ? null : context.parameters().get(RESPONSE_CODE_PARAM);
         if (blank(code)) {
-            throw refused(WalletErrorCode.INVALID_RESPONSE, "the callback has no response_code", null);
+            throw refused(context.realmId(), purpose, WalletErrorCode.INVALID_RESPONSE,
+                    "the callback has no response_code", null);
         }
         if (blank(context.expectedState())) {
-            throw refused(WalletErrorCode.STATE_MISMATCH, "no wallet login is pending in this session", null);
+            throw refused(context.realmId(), purpose, WalletErrorCode.STATE_MISMATCH,
+                    "no wallet login is pending in this session", null);
         }
         if (blank(context.browserBindingHash())) {
-            throw refused(WalletErrorCode.BROWSER_MISMATCH, "this browser holds no wallet login binding", null);
+            throw refused(context.realmId(), purpose, WalletErrorCode.BROWSER_MISMATCH,
+                    "this browser holds no wallet login binding", null);
         }
         final WalletTransaction tx = transactions.redeem(code, context.expectedState(), context.browserBindingHash())
-                .orElseThrow(() -> refused(WalletErrorCode.REPLAY,
+                .orElseThrow(() -> refused(context.realmId(), purpose, WalletErrorCode.REPLAY,
                         "response code unknown, expired, already used, or not this login's state and browser", null));
         if (!config.alias().equals(tx.providerAlias()) || !Objects.equals(tx.realmId(), context.realmId())) {
-            throw refused(WalletErrorCode.INVALID_RESPONSE, "the transaction belongs to another provider or realm",
-                    tx.transactionId());
+            throw refused(context.realmId(), purpose, WalletErrorCode.INVALID_RESPONSE,
+                    "the transaction belongs to another provider or realm", tx.transactionId());
         }
         if (tx.purpose() != purpose) {
             // Task 21b: a LINK transaction never signs anyone in, and a login is never a link (the code is spent).
-            throw refused(WalletErrorCode.INVALID_RESPONSE, "the transaction is not a " + purpose + " transaction",
-                    tx.transactionId());
+            throw refused(context.realmId(), purpose, WalletErrorCode.INVALID_RESPONSE,
+                    "the transaction is not a " + purpose + " transaction", tx.transactionId());
         }
         LOG.info("Wallet login redeemed: alias={} realm={} tx={}", LogSafe.sanitize(config.alias()),
                 LogSafe.sanitize(tx.realmId()), tx.transactionId());
         return tx;
     }
 
-    private WalletVerificationException refused(final WalletErrorCode code, final String safeDetail,
+    /**
+     * Task 22: every LOGIN redemption refusal (the callback path) is audited here, the one place all of
+     * {@link #redeemTransaction} routes through — never a presentation's format/issuer DN (unknown at this layer, a
+     * redemption refusal is about the code/state/binding handshake, not the presentation content). A LINK redemption
+     * (Task 21b, the account console) is never audited as a wallet login: it is not one.
+     */
+    private WalletVerificationException refused(final String realmId, final WalletTransaction.Purpose purpose,
+                                                final WalletErrorCode code, final String safeDetail,
                                                 final String transactionId) {
         // DEBUG only: the broker logs the refusal once, at WARN, with its reason
         LOG.debug("Wallet callback refused: alias={} tx={} reason={}", LogSafe.sanitize(config.alias()),
                 transactionId == null ? "-" : transactionId, code.reason());
+        if (purpose == WalletTransaction.Purpose.LOGIN) {
+            audit.emit(WalletLoginAudit.failure(realmId, transactionId, config.alias(), null, null, code));
+        }
         return new WalletVerificationException(code, safeDetail);
     }
 

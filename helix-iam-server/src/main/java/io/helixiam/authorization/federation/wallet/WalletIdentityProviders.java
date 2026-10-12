@@ -54,23 +54,28 @@ public class WalletIdentityProviders {
     private final OutboundUrlGuard guard;
     private final TokenStatusListClient.AuditSink auditSink;
     private final Clock clock;
+    /** Task 22: the built provider's own audit log (WALLET_LOGIN_SUCCESS/FAILURE), distinct from {@link #auditSink}. */
+    private final AuditLog auditLog;
 
     @Autowired
     public WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
                                    final WalletTransactionStore transactions, final OutboundUrlGuard guard,
                                    final AuditLog auditLog) {
-        this(validator, keys, transactions, guard, TokenStatusListClient.auditLogSink(auditLog), Clock.systemUTC());
+        this(validator, keys, transactions, guard, TokenStatusListClient.auditLogSink(auditLog), Clock.systemUTC(),
+                auditLog);
     }
 
     WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
                             final WalletTransactionStore transactions, final OutboundUrlGuard guard,
-                            final TokenStatusListClient.AuditSink auditSink, final Clock clock) {
+                            final TokenStatusListClient.AuditSink auditSink, final Clock clock,
+                            final AuditLog auditLog) {
         this.validator = Objects.requireNonNull(validator, "validator");
         this.keys = Objects.requireNonNull(keys, "keys");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.guard = Objects.requireNonNull(guard, "guard");
         this.auditSink = Objects.requireNonNull(auditSink, "auditSink");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.auditLog = Objects.requireNonNull(auditLog, "auditLog");
     }
 
     /**
@@ -117,7 +122,7 @@ public class WalletIdentityProviders {
             }
         }
         return new WalletIdentityProvider(config, keyRealm, signingKey, anchors, statusPolicy, statusClient, verifiers,
-                transactions, clock);
+                transactions, clock, auditLog);
     }
 
     /**

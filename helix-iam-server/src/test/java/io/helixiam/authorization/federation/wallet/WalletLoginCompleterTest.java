@@ -87,6 +87,31 @@ class WalletLoginCompleterTest {
         assertThat(view).isEqualTo("redirect:/done");
         verifyNoInteractions(store, users);
         verify(links, never()).link(any(), any(), any(), any());
+        // Task 22: a completed login audits WALLET_LOGIN_SUCCESS, actor = the resolved local user id.
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().type()).isEqualTo("WALLET_LOGIN_SUCCESS");
+        assertThat(event.getValue().realm()).isEqualTo(REALM);
+        assertThat(event.getValue().actor()).isEqualTo("user-7");
+        assertThat(event.getValue().outcome()).isEqualTo("SUCCESS");
+        assertThat(event.getValue().detail()).containsEntry("alias", ALIAS).containsEntry("result", "SUCCESS")
+                .doesNotContainKey("transactionId").doesNotContainKey("format").doesNotContainKey("issuerDn")
+                .doesNotContainValue("Erika");
+    }
+
+    @Test
+    void existing_withTransactionFormatAndIssuerDn_carriesThemOnTheSuccessEvent() {
+        when(completer.complete("user-7", LOA, request, response, null)).thenReturn("redirect:/done");
+        final VerifiedIdentityJson.StoredLogin login = new VerifiedIdentityJson.StoredLogin(identity(),
+                new WalletLinkService.Decision.Existing("user-7"), "dc+sd-jwt", "CN=Issuer", null)
+                .withTransactionId("tx-9");
+
+        walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS, login, null, request, response);
+
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().detail()).containsEntry("transactionId", "tx-9")
+                .containsEntry("format", "dc+sd-jwt").containsEntry("issuerDn", "CN=Issuer");
     }
 
     @Test
@@ -100,6 +125,8 @@ class WalletLoginCompleterTest {
 
         assertThat(view).isEqualTo("redirect:/flow");
         verify(links, never()).commitPendingLink(any());
+        // a pending step-up is not yet a completed login: no success audit yet
+        verifyNoInteractions(audit);
     }
 
     @Test
@@ -141,15 +168,19 @@ class WalletLoginCompleterTest {
 
         assertThat(view).isEqualTo("redirect:/done");
         verify(users).delete(new UserAdminRef(REALM, "loser"));
-        // the removal is audited like an admin user deletion, with the reason
+        // the removal is audited like an admin user deletion, with the reason, AND the winner's login succeeded
         final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
-        verify(audit).emit(event.capture());
-        assertThat(event.getValue().type()).isEqualTo("USER_DELETE");
-        assertThat(event.getValue().realm()).isEqualTo(REALM);
-        assertThat(event.getValue().resourceType()).isEqualTo("user");
-        assertThat(event.getValue().resourceId()).isEqualTo("loser");
-        assertThat(event.getValue().detail()).containsEntry("reason", "wallet_jit_race_lost")
-                .doesNotContainValue("Erika");
+        verify(audit, org.mockito.Mockito.times(2)).emit(event.capture());
+        final AuditEvent delete = event.getAllValues().stream().filter(e -> "USER_DELETE".equals(e.type()))
+                .findFirst().orElseThrow();
+        assertThat(delete.realm()).isEqualTo(REALM);
+        assertThat(delete.resourceType()).isEqualTo("user");
+        assertThat(delete.resourceId()).isEqualTo("loser");
+        assertThat(delete.detail()).containsEntry("reason", "wallet_jit_race_lost").doesNotContainValue("Erika");
+        final AuditEvent success = event.getAllValues().stream().filter(e -> "WALLET_LOGIN_SUCCESS".equals(e.type()))
+                .findFirst().orElseThrow();
+        assertThat(success.actor()).isEqualTo("winner");
+        assertThat(success.detail()).containsEntry("alias", ALIAS).containsEntry("result", "SUCCESS");
     }
 
     /** JIT race, other shape: the default username (the subject) is unique per realm, so the second insert fails. */

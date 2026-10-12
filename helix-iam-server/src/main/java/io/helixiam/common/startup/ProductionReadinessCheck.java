@@ -15,6 +15,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
+import io.helixiam.authorization.federation.FederationProviderProperties;
+import io.helixiam.authorization.federation.wallet.WalletProviderConfig;
+
 import jakarta.annotation.PostConstruct;
 
 /**
@@ -27,6 +30,14 @@ import jakarta.annotation.PostConstruct;
  *       plaintext. Set the key, or explicitly accept the risk with {@code HELIX_ALLOW_PLAINTEXT_SECRETS=true}.</li>
  *   <li>{@code IDP_BASE_URL} / {@code SP_BASE_URL} unset — the server would otherwise fall back to
  *       placeholder URLs and mint tokens/redirects for the wrong host.</li>
+ *   <li>Task 22: a YAML-configured EUDI Wallet ({@code helix.federation.wallet[*]}) with {@code responseMode:
+ *       direct_post} (unencrypted) — allowed only in {@code dev}; outside it, {@link WalletConfigValidator} would
+ *       otherwise just skip the provider silently (it throws, the factory logs and moves on), leaving the operator
+ *       with a server that started but a wallet login button that is quietly missing.</li>
+ *   <li>Task 22: a YAML-configured wallet provider while {@code DB_ENCRYPTION} is unset — never downgradable with
+ *       {@code HELIX_ALLOW_PLAINTEXT_SECRETS}, unlike the general plaintext-secrets risk above: the wallet's peppers,
+ *       transaction keys and transactions themselves all refuse to work without at-rest encryption, so starting
+ *       "successfully" here would only be confusing.</li>
  * </ul>
  *
  * <p>It always logs a one-line "production readiness" summary of any remaining insecure-but-allowed
@@ -48,6 +59,8 @@ public class ProductionReadinessCheck {
     private final boolean cookieSecure;
     private final boolean springdocPublic;
     private final boolean egressAllowPrivate;
+    /** Task 22: YAML wallet providers (never null; checked for direct_post and for running without encryption). */
+    private final List<WalletProviderConfig> walletProviders;
 
     public ProductionReadinessCheck(
             final Environment env,
@@ -59,7 +72,8 @@ public class ProductionReadinessCheck {
             @Value("${helix.actuator.prometheus-anonymous:false}") final boolean prometheusAnonymous,
             @Value("${helix.security.cookie-secure:true}") final boolean cookieSecure,
             @Value("${helix.springdoc.public:false}") final boolean springdocPublic,
-            @Value("${helix.egress.allow-private:false}") final boolean egressAllowPrivate) {
+            @Value("${helix.egress.allow-private:false}") final boolean egressAllowPrivate,
+            final FederationProviderProperties federation) {
         this.devProfile = Arrays.asList(env.getActiveProfiles()).contains("dev");
         this.encryptionKey = encryptionKey;
         this.allowPlaintextSecrets = allowPlaintextSecrets;
@@ -70,6 +84,8 @@ public class ProductionReadinessCheck {
         this.cookieSecure = cookieSecure;
         this.springdocPublic = springdocPublic;
         this.egressAllowPrivate = egressAllowPrivate;
+        this.walletProviders = federation == null || federation.getWallet() == null ? List.of()
+                : List.copyOf(federation.getWallet());
     }
 
     @PostConstruct
@@ -95,6 +111,23 @@ public class ProductionReadinessCheck {
             }
             if (isBlank(spBaseUrl)) {
                 fatal.add("SP_BASE_URL is not set: the server needs the console/SP origin (CORS, redirects).");
+            }
+            // Task 22: a direct_post wallet provider is dev-only; WalletConfigValidator refuses it too, but only by
+            // skipping that one provider (logged, not fatal) — so without this check the server starts "successfully"
+            // with a wallet login button that silently does not work.
+            final List<String> directPost = walletProviders.stream()
+                    .filter(w -> w.responseMode() == WalletProviderConfig.ResponseMode.DIRECT_POST)
+                    .map(WalletProviderConfig::alias).toList();
+            if (!directPost.isEmpty()) {
+                fatal.add("wallet provider(s) " + directPost + " use responseMode direct_post (unencrypted), "
+                        + "which is allowed only in the dev profile.");
+            }
+            // Task 22: a wallet provider cannot function without at-rest encryption (peppers, transaction keys and
+            // transactions themselves all refuse), so — unlike the general plaintext-secrets risk below — this is
+            // never downgradable with HELIX_ALLOW_PLAINTEXT_SECRETS.
+            if (encryptionOff && !walletProviders.isEmpty()) {
+                fatal.add("a wallet provider is configured but DB_ENCRYPTION is not set: wallet peppers, "
+                        + "transaction keys and transactions themselves refuse to work without at-rest encryption.");
             }
         }
 

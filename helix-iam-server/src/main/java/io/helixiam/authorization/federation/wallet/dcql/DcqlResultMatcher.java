@@ -136,7 +136,12 @@ public final class DcqlResultMatcher {
                 throw fail(WalletErrorCode.INVALID_RESPONSE, "no verifier for the credential query's format");
             }
             for (final String raw : raws) {
-                matched.add(matchOne(cq, verifier.verify(raw, ctx), dropped));
+                try {
+                    matched.add(matchOne(cq, verifier.verify(raw, ctx), dropped));
+                } catch (final WalletVerificationException e) {
+                    // Task 22: tag the failure with this query's format for audit, unless a deeper layer already did.
+                    throw e.withFormat(cq.format());
+                }
             }
         }
         return new MatchedPresentations(matched, dropped);

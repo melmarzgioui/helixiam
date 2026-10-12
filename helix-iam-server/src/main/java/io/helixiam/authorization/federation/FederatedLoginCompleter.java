@@ -51,7 +51,18 @@ public class FederatedLoginCompleter {
 
     private static final Logger LOG = LogManager.getLogger(FederatedLoginCompleter.class);
 
-    private static final String LOGIN_ERROR = "redirect:/login?error=federation";
+    /**
+     * The redirect view on a FAILED post-broker flow (never a completed login). Public so a connector (e.g.
+     * {@code WalletLoginCompleter}, Task 22) can tell a completed login apart from a failed or still-pending one by
+     * comparing its own return value, without this class knowing anything about that connector.
+     */
+    public static final String LOGIN_ERROR_VIEW = "redirect:/login?error=federation";
+    /**
+     * The redirect view while a post-broker step-up is pending (not yet a completed login): see
+     * {@link #LOGIN_ERROR_VIEW}.
+     */
+    public static final String STEP_UP_VIEW = "redirect:/flow";
+    private static final String LOGIN_ERROR = LOGIN_ERROR_VIEW;
 
     private final FlowExecutor flowExecutor;
     private final AuthFlowPublisher authFlowPublisher;
@@ -172,7 +183,7 @@ public class FederatedLoginCompleter {
                 // Hold the user pending the post-broker factor; /flow promotes this to a full session.
                 sessionEstablisher.persist(new MfaAuthentication(fullAuthentication), request, response);
                 LOG.info("Federated login for user {} requires step-up — routing to the flow engine", LogSafe.sanitize(userId));
-                yield "redirect:/flow";
+                yield STEP_UP_VIEW;
             }
             case FAILED -> {
                 LOG.warn("Federated login post-broker flow failed for user {}", LogSafe.sanitize(userId));

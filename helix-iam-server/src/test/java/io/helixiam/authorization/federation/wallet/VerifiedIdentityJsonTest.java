@@ -102,6 +102,58 @@ class VerifiedIdentityJsonTest {
                 VerifiedIdentityJson.write(walletIdentity(), provision)).decision()).isEqualTo(provision);
     }
 
+    // ------------------------------------------------------------------------------------------- Task 22: audit context
+
+    @Test
+    void roundTripsFormatAndIssuerDn_onANonRefusedDecision() {
+        final WalletLinkService.Decision decision = new WalletLinkService.Decision.Provision();
+
+        final String json = VerifiedIdentityJson.write(walletIdentity(), decision, "dc+sd-jwt", "CN=Issuer");
+        final VerifiedIdentityJson.StoredLogin read = VerifiedIdentityJson.readLogin("eudi-wallet", json);
+
+        assertThat(read.format()).isEqualTo("dc+sd-jwt");
+        assertThat(read.issuerDn()).isEqualTo("CN=Issuer");
+        assertThat(read.transactionId()).as("never stored; attached by the redeeming caller").isNull();
+    }
+
+    @Test
+    void roundTripsFormatAndIssuerDn_onARefusedDecisionToo_thePresentationWasStillVerified() {
+        final WalletLinkService.Decision refused =
+                new WalletLinkService.Decision.Refused(WalletSubject.Reason.LINK_REQUIRED);
+
+        final String json = VerifiedIdentityJson.write(null, refused, "mso_mdoc", "CN=Other Issuer");
+        final VerifiedIdentityJson.StoredLogin read = VerifiedIdentityJson.readLogin("eudi-wallet", json);
+
+        assertThat(read.identity()).isNull();
+        assertThat(read.format()).isEqualTo("mso_mdoc");
+        assertThat(read.issuerDn()).isEqualTo("CN=Other Issuer");
+    }
+
+    @Test
+    void absentFormatAndIssuerDn_readAsNull_andTheTwoArgWriteOmitsThem() {
+        final String json = VerifiedIdentityJson.write(walletIdentity(), new WalletLinkService.Decision.Provision());
+
+        assertThat(json).doesNotContain("\"format\"").doesNotContain("\"issuerDn\"");
+        final VerifiedIdentityJson.StoredLogin read = VerifiedIdentityJson.readLogin("eudi-wallet", json);
+        assertThat(read.format()).isNull();
+        assertThat(read.issuerDn()).isNull();
+    }
+
+    @Test
+    void withTransactionId_attachesItWithoutChangingAnythingElse() {
+        final VerifiedIdentityJson.StoredLogin read = VerifiedIdentityJson.readLogin("eudi-wallet",
+                VerifiedIdentityJson.write(walletIdentity(), new WalletLinkService.Decision.Provision(), "dc+sd-jwt",
+                        "CN=Issuer"));
+
+        final VerifiedIdentityJson.StoredLogin withTx = read.withTransactionId("tx-42");
+
+        assertThat(withTx.transactionId()).isEqualTo("tx-42");
+        assertThat(withTx.identity()).isEqualTo(read.identity());
+        assertThat(withTx.decision()).isEqualTo(read.decision());
+        assertThat(withTx.format()).isEqualTo("dc+sd-jwt");
+        assertThat(withTx.issuerDn()).isEqualTo("CN=Issuer");
+    }
+
     @Test
     void aRefusedDecisionStoresNoIdentityAtAll() {
         final WalletLinkService.Decision refused =

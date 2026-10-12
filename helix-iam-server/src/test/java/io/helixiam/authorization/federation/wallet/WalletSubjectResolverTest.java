@@ -478,14 +478,20 @@ class WalletSubjectResolverTest {
 
     // ------------------------------------------------------------------------------------------- logging
 
+    /**
+     * Task 22 (log hygiene): neither the raw number/tuple NOR the subject hash itself is logged — only the kind of
+     * subject resolved. Earlier (Task 20b) the hash was logged on the theory that a one-way HMAC is safe to keep;
+     * Task 22 tightens this (the hash is still PID-derived correlation data an attacker could match against a
+     * database dump), so the hash is asserted absent here too, not present.
+     */
     @Test
-    void onlyTheSubjectHashIsLogged_neverTheNumberOrTheTuple() {
+    void neitherTheRawValueNorTheSubjectHashIsLogged() {
         try (LogCapture log = LogCapture.of(WalletSubjectResolver.class)) {
             final String admin = subjectOf(resolve(PEPPER,
                     sdJwt(withNumber(pid("Erika", "Mustermann"), "NL", "123456789")), NUMBER_ONLY));
             final String tuple = subjectOf(resolve(PEPPER, sdJwt(pid("Erika", "Mustermann")), NUMBER_ELSE_LINK));
 
-            assertThat(log.text()).contains(admin).contains(tuple).doesNotContain("123456789")
+            assertThat(log.text()).doesNotContain(admin).doesNotContain(tuple).doesNotContain("123456789")
                     .doesNotContain("Erika").doesNotContain("Mustermann").doesNotContain("1964");
         }
     }

@@ -15,6 +15,7 @@ import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.wallet.dcql.MatchedPresentations;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
+import io.helixiam.authorization.security.audit.AuditLog;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -75,14 +76,17 @@ public class WalletResponseHandler {
     private final WalletLinkService links;
     private final AccountLinkingPolicy policy;
     private final String idpBaseUrl;
+    private final AuditLog audit;
     private final SecureRandom random = new SecureRandom();
 
     public WalletResponseHandler(final WalletSubjectResolver subjects, final WalletLinkService links,
-                                 final AccountLinkingPolicy policy, @Value("${idp.base.url}") final String idpBaseUrl) {
+                                 final AccountLinkingPolicy policy, @Value("${idp.base.url}") final String idpBaseUrl,
+                                 final AuditLog audit) {
         this.subjects = subjects;
         this.links = links;
         this.policy = policy;
         this.idpBaseUrl = idpBaseUrl;
+        this.audit = audit;
     }
 
     /** What the response endpoint answers. */
@@ -125,6 +129,8 @@ public class WalletResponseHandler {
         if (tx == null) {
             LOG.warn("Wallet response refused: alias={} realm={} reason={}", LogSafe.sanitize(alias),
                     LogSafe.sanitize(realmId), WalletErrorCode.REPLAY.reason());
+            // Task 22: no transaction to name (already claimed/consumed by the first POST, or never existed).
+            audit.emit(WalletLoginAudit.failure(realmId, null, alias, null, null, WalletErrorCode.REPLAY));
             return new Result.Rejected(WalletErrorCode.REPLAY);
         }
         if (!Objects.equals(tx.realmId(), realmId) || !Objects.equals(tx.providerAlias(), alias)) {
@@ -137,7 +143,9 @@ public class WalletResponseHandler {
             return verify(provider, tx, parsed);
         } catch (final WalletVerificationException e) {
             store.fail(tx.transactionId(), e.code());
-            if (e.code() == WalletErrorCode.WALLET_ERROR) {
+            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, e.format(), e.issuerDn(),
+                    e.code()));
+            if (e.code() == WalletErrorCode.WALLET_ERROR || e.code() == WalletErrorCode.WALLET_ACCESS_DENIED) {
                 LOG.info("Wallet answered with an error: alias={} realm={} tx={}", LogSafe.sanitize(alias),
                         LogSafe.sanitize(realmId), tx.transactionId());
                 return new Result.WalletErrorRecorded();
@@ -148,6 +156,8 @@ public class WalletResponseHandler {
         } catch (final RuntimeException e) {
             // Our side failed (pepper, query, store): never a login, never detail for the wallet.
             store.fail(tx.transactionId(), WalletErrorCode.INVALID_RESPONSE);
+            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, null, null,
+                    WalletErrorCode.INVALID_RESPONSE));
             LOG.error("Wallet response could not be processed: alias={} realm={} tx={} error={}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(realmId), tx.transactionId(), e.getClass().getSimpleName());
             return new Result.Rejected(WalletErrorCode.INVALID_RESPONSE);
@@ -159,7 +169,10 @@ public class WalletResponseHandler {
         final String expectedState = AuthorizationRequestFactory.walletState(tx.transactionId());
         if (form.error() != null) {
             requireState(form.state(), expectedState);
-            throw new WalletVerificationException(WalletErrorCode.WALLET_ERROR, "wallet returned an error response");
+            // §15: "wallet access_denied" gets its own code, distinct from any other wallet-reported error.
+            final WalletErrorCode code = "access_denied".equals(form.error()) ? WalletErrorCode.WALLET_ACCESS_DENIED
+                    : WalletErrorCode.WALLET_ERROR;
+            throw new WalletVerificationException(code, "wallet returned an error response");
         }
         if (!form.fitsMode(config.responseMode())) {
             throw new WalletVerificationException(WalletErrorCode.INVALID_RESPONSE,
@@ -179,6 +192,12 @@ public class WalletResponseHandler {
                 provider.verifiers(), context);
         final BrokeredIdentity mapped = WalletAttributeMapper.map(config.alias(), null, matched, config.minimumLoa());
         final WalletSubject subject = subjects.resolve(tx.realmId(), matched, config);
+        // Task 22: the primary (and, per the default DCQL credential_sets, only) matched presentation's format and
+        // issuer DN — public certificate data, never a PID value — kept for the login's audit event.
+        final VerifiedPresentation primary = matched.presentations().isEmpty() ? null
+                : matched.presentations().get(0);
+        final String format = primary == null ? null : primary.format();
+        final String issuerDn = primary == null ? null : primary.issuerSubjectDn();
         final String identityJson;
         final String outcome;
         if (tx.purpose() == WalletTransaction.Purpose.LINK) {
@@ -189,9 +208,9 @@ public class WalletResponseHandler {
         } else {
             final WalletLinkService.Decision decision = links.decide(tx.realmId(), config.alias(), subject, policy);
             identityJson = decision instanceof WalletLinkService.Decision.Refused
-                    ? VerifiedIdentityJson.write(null, decision)
+                    ? VerifiedIdentityJson.write(null, decision, format, issuerDn)
                     : VerifiedIdentityJson.write(new BrokeredIdentity(config.alias(), subjectValue(subject), null,
-                            false, mapped.attributes(), mapped.levelOfAssurance()), decision);
+                            false, mapped.attributes(), mapped.levelOfAssurance()), decision, format, issuerDn);
             outcome = decision.getClass().getSimpleName();
         }
 
