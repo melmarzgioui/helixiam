@@ -100,37 +100,46 @@ public final class TestPki {
      * key-usage extension. {@code crlUrl} / {@code ocspUrl} are {@code null} for none.
      */
     public record LeafSpec(String subject, KeyType keyType, Integer keyUsage, Instant notBefore, Instant notAfter,
-            String crlUrl, String ocspUrl) {
+            String crlUrl, String ocspUrl, List<String> dnsNames) {
+
+        public LeafSpec {
+            dnsNames = dnsNames == null ? List.of() : List.copyOf(dnsNames);
+        }
 
         /** EC P-256, {@code digitalSignature}, valid from one day ago for a year, no revocation pointers. */
         public static LeafSpec defaults() {
             final Instant now = Instant.now();
             return new LeafSpec("CN=Test PID Issuer,O=HelixIAM Test", KeyType.EC_P256, KeyUsage.digitalSignature,
-                    now.minus(Duration.ofDays(1)), now.plus(Duration.ofDays(365)), null, null);
+                    now.minus(Duration.ofDays(1)), now.plus(Duration.ofDays(365)), null, null, List.of());
         }
 
         public LeafSpec withSubject(final String value) {
-            return new LeafSpec(value, keyType, keyUsage, notBefore, notAfter, crlUrl, ocspUrl);
+            return new LeafSpec(value, keyType, keyUsage, notBefore, notAfter, crlUrl, ocspUrl, dnsNames);
         }
 
         public LeafSpec withKeyType(final KeyType value) {
-            return new LeafSpec(subject, value, keyUsage, notBefore, notAfter, crlUrl, ocspUrl);
+            return new LeafSpec(subject, value, keyUsage, notBefore, notAfter, crlUrl, ocspUrl, dnsNames);
         }
 
         public LeafSpec withKeyUsage(final Integer value) {
-            return new LeafSpec(subject, keyType, value, notBefore, notAfter, crlUrl, ocspUrl);
+            return new LeafSpec(subject, keyType, value, notBefore, notAfter, crlUrl, ocspUrl, dnsNames);
         }
 
         public LeafSpec withValidity(final Instant from, final Instant to) {
-            return new LeafSpec(subject, keyType, keyUsage, from, to, crlUrl, ocspUrl);
+            return new LeafSpec(subject, keyType, keyUsage, from, to, crlUrl, ocspUrl, dnsNames);
         }
 
         public LeafSpec withCrlUrl(final String value) {
-            return new LeafSpec(subject, keyType, keyUsage, notBefore, notAfter, value, ocspUrl);
+            return new LeafSpec(subject, keyType, keyUsage, notBefore, notAfter, value, ocspUrl, dnsNames);
         }
 
         public LeafSpec withOcspUrl(final String value) {
-            return new LeafSpec(subject, keyType, keyUsage, notBefore, notAfter, crlUrl, value);
+            return new LeafSpec(subject, keyType, keyUsage, notBefore, notAfter, crlUrl, value, dnsNames);
+        }
+
+        /** dNSName subjectAltName entries (e.g. a verifier access certificate for {@code x509_san_dns}). */
+        public LeafSpec withDnsNames(final String... value) {
+            return new LeafSpec(subject, keyType, keyUsage, notBefore, notAfter, crlUrl, ocspUrl, List.of(value));
         }
     }
 
@@ -199,6 +208,10 @@ public final class TestPki {
                             ext.createAuthorityKeyIdentifier(intermediateKeys.getPublic()));
             if (spec.keyUsage() != null) {
                 builder.addExtension(Extension.keyUsage, true, new KeyUsage(spec.keyUsage()));
+            }
+            if (!spec.dnsNames().isEmpty()) {
+                builder.addExtension(Extension.subjectAlternativeName, false, new GeneralNames(spec.dnsNames().stream()
+                        .map(n -> new GeneralName(GeneralName.dNSName, n)).toArray(GeneralName[]::new)));
             }
             addRevocationPointers(builder, spec.crlUrl(), spec.ocspUrl());
         } catch (final Exception e) {

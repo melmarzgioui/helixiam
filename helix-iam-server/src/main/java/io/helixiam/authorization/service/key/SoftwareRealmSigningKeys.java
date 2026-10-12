@@ -249,7 +249,7 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
             throw new IllegalArgumentException("The leaf certificate is not yet valid (notBefore "
                     + leaf.getNotBefore() + ")");
         }
-        if (verifiesWith(leaf, leaf.getPublicKey())) { // by key alone: an issuer DN != subject must not hide it
+        if (verifiesWithOwnKey(leaf)) { // by key alone: an issuer DN != subject must not hide it
             throw new IllegalArgumentException("The verifier access certificate must not be self-signed (HAIP); "
                     + "import a certificate issued by a CA, with its chain");
         }
@@ -264,6 +264,45 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
             stored.remove(stored.size() - 1); // the trust anchor never goes into x5c
         }
         return stored;
+    }
+
+    // ------------------------------------------------------------------------------------------------ shared checks
+
+    /**
+     * The HAIP "must not be self-signed" test used by {@link #importKey}: {@code cert}'s signature verifies with its own
+     * public key, whatever its issuer DN says. Also used to validate a wallet provider's configured access certificate.
+     */
+    public static boolean verifiesWithOwnKey(final X509Certificate cert) {
+        return verifiesWith(cert, cert.getPublicKey());
+    }
+
+    /**
+     * Parses a PEM certificate chain with the import rules (only {@code CERTIFICATE} blocks, at least one).
+     *
+     * @throws IllegalArgumentException with a field-safe message (never PEM content or parser detail)
+     */
+    public static List<X509Certificate> parseCertificateChain(final String pem) {
+        if (pem == null || pem.isBlank()) {
+            throw new IllegalArgumentException("A PEM certificate chain is required");
+        }
+        return parseChain(pem);
+    }
+
+    /**
+     * Whether the PEM private key (PKCS#8 or SEC1, EC P-256/P-384/P-521) belongs to {@code publicKey}, proven by
+     * signing and verifying a probe, as {@link #importKey} does.
+     *
+     * @throws IllegalArgumentException when the key cannot be parsed or is not an allowed EC key (field-safe message)
+     */
+    public static boolean privateKeyMatches(final String privateKeyPem, final PublicKey publicKey) {
+        if (privateKeyPem == null || privateKeyPem.isBlank()) {
+            throw new IllegalArgumentException("A PEM private key is required");
+        }
+        final PrivateKey privateKey = parsePrivateKey(privateKeyPem);
+        if (!(privateKey instanceof ECPrivateKey ec)) {
+            throw new IllegalArgumentException("Only EC P-256, P-384 or P-521 private keys are supported");
+        }
+        return matches(ec, publicKey, algorithmFor(ec));
     }
 
     // ------------------------------------------------------------------------------------------------ crypto helpers

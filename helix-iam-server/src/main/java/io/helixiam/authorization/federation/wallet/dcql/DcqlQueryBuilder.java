@@ -83,6 +83,15 @@ public final class DcqlQueryBuilder {
     }
 
     /**
+     * Whether {@code name} is a PID claim this builder can request (a canonical SD-JWT VC name, nested members
+     * dotted). Configuration validation uses it so that a stored {@code pid.requestedClaims} never reaches
+     * {@link #pidQuery} with a name it would refuse.
+     */
+    public static boolean isPidClaim(final String name) {
+        return name != null && PID_CLAIMS.containsKey(name);
+    }
+
+    /**
      * The PID preset for {@code formats} (a non-empty, duplicate-free list of {@code dc+sd-jwt} and/or
      * {@code mso_mdoc}). Returns a fresh JSON object to place in the request's {@code dcql_query}.
      *

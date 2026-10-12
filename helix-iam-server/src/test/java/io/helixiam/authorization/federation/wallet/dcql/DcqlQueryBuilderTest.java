@@ -183,4 +183,14 @@ class DcqlQueryBuilderTest {
 
         assertThat(builder.pidQuery(PRESET, List.of(SD_JWT)).has("credentials")).isTrue();
     }
+
+    @Test
+    void isPidClaim_knowsTheCanonicalNames_only() {
+        assertThat(DcqlQueryBuilder.isPidClaim("birthdate")).isTrue();
+        assertThat(DcqlQueryBuilder.isPidClaim("address.locality")).isTrue();
+        assertThat(DcqlQueryBuilder.isPidClaim("address.house_number")).isTrue();
+        assertThat(DcqlQueryBuilder.isPidClaim("birth_date")).isFalse(); // the mdoc name, not the canonical one
+        assertThat(DcqlQueryBuilder.isPidClaim("age_over_18")).isFalse();
+        assertThat(DcqlQueryBuilder.isPidClaim(null)).isFalse();
+    }
 }
