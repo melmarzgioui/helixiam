@@ -27,10 +27,7 @@ question. Newest first within each phase.
   plaintext row, a value written under another key, or an altered value was read as if it were the secret. The read
   now fails with an `IllegalStateException` that names the cause (not encrypted, or the key changed or the value was
   altered), never the value. The legacy AES format still decrypts. **Operators:** a deployment that ran without
-  `DB_ENCRYPTION` and then set it may hold plaintext rows; it sets `HELIX_ALLOW_PLAINTEXT_SECRETS=true` (the existing
-  opt-in, `helix.allow-plaintext-secrets`) while it migrates. Such values are then read as stored, each read is logged
-  with its entity and attribute (never the value), and the value is encrypted on the entity's next write. The
-  startup readiness check lists that mode as an insecure setting; unset it once the rows are rewritten.
+  `DB_ENCRYPTION` and then set it may hold plaintext rows; it uses the migration mode below while it migrates.
 - **security** — The client IP came from a client-controlled header. The rate limiter, the audit log, the adaptive-auth
   risk signals and the CAPTCHA `remoteip` took the first `X-Forwarded-For` (or `X-Real-IP`) address from any client, so
   a client could get a fresh sign-in rate-limit budget per request, put any address in the audit log, or claim a
@@ -60,6 +57,14 @@ question. Newest first within each phase.
 - **security** — When a `/flow` sign-in completes, the pending authentication is promoted only if it belongs to the
   user the flow completed for; otherwise nothing is promoted, the session is invalidated and the user is sent back to
   sign in. The completed sign-in also gets a new session id (`changeSessionId`).
+- **security** — Reading plaintext secret rows is its own, loud, time-boxed migration mode instead of a side effect
+  of `HELIX_ALLOW_PLAINTEXT_SECRETS` (an install that had set that flag and later added a key would have been in the
+  mode without noticing). `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true` reads undecryptable secret columns as stored
+  (a WARN per read, naming entity and column where known; encrypted on the next write), logs an ERROR banner at
+  startup and every hour, and outside `dev` the server refuses to start unless `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` is
+  a date at most 30 days ahead. `HELIX_ALLOW_PLAINTEXT_SECRETS` again only accepts running without a key, and an
+  empty `DB_ENCRYPTION` now means "no key" (it failed startup with "Empty key" before). The per-thread record of
+  plaintext reads is removed after each entity load and at the end of each transaction.
 
 ## v1.0.0-rc.7 (security hotfix)
 

@@ -34,10 +34,11 @@ import java.util.Set;
  * <p>A stored value that neither format can decrypt is never returned as if it were the secret: the read fails
  * with an {@link IllegalStateException} that names the cause (the value is not encrypted, or the key changed or
  * the value was altered), never the value. A deployment that ran without {@code DB_ENCRYPTION} and still holds
- * plaintext rows sets {@code helix.allow-plaintext-secrets=true} ({@code HELIX_ALLOW_PLAINTEXT_SECRETS}) while it
- * migrates: undecryptable values are then read as stored, each read is logged with its entity and attribute
- * ({@link PlaintextReadLogger}), and the value is encrypted on the entity's next write. That mode also hides a
- * changed key, so it is turned off once the rows are re-encrypted.
+ * plaintext rows sets {@code helix.security.db-encryption.migrate-plaintext=true}
+ * ({@code HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT}, its own flag, time-boxed by {@code ProductionReadinessCheck})
+ * while it migrates: undecryptable values are then read as stored, each read is logged (with its entity and
+ * attribute by {@link PlaintextReadLogger}), and the value is encrypted on the entity's next write. That mode also
+ * hides a changed key, so it is turned off once the rows are re-encrypted. A blank key means no key.
  */
 @Converter
 public class AttributeEncryption implements AttributeConverter<String, String> {
@@ -49,8 +50,7 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
     private static final int GCM_TAG_LENGTH = 128; // 128-bit authentication tag
 
     /** Values read as stored (plaintext) on this thread, by identity, until {@link PlaintextReadLogger} names them. */
-    private static final ThreadLocal<Set<String>> PLAINTEXT_READS =
-            ThreadLocal.withInitial(() -> Collections.newSetFromMap(new IdentityHashMap<>()));
+    private static final ThreadLocal<Set<String>> PLAINTEXT_READS = new ThreadLocal<>();
     /** Bound on {@link #PLAINTEXT_READS}: values read outside an entity load are never claimed. */
     private static final int MAX_TRACKED_PLAINTEXT_READS = 64;
 
@@ -70,9 +70,10 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
 
     @Autowired
     public AttributeEncryption(@Value("${database.encryption:#{null}}") final String password,
-                               @Value("${helix.allow-plaintext-secrets:false}") final boolean allowPlaintextRead) {
+                               @Value("${helix.security.db-encryption.migrate-plaintext:false}")
+                               final boolean allowPlaintextRead) {
         this.allowPlaintextRead = allowPlaintextRead;
-        if (password == null) {
+        if (password == null || password.isBlank()) { // DB_ENCRYPTION unset arrives as "": no key
             // Security review H2: with no key, every value below is stored/read as plaintext. That is a
             // legitimate opt-out for local dev, but it must never be silent — these columns hold realm
             // private signing keys and TOTP secrets.
@@ -170,19 +171,22 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
      */
     private String undecryptable(final String data) {
         if (allowPlaintextRead) {
-            final Set<String> reads = PLAINTEXT_READS.get();
-            if (reads.size() >= MAX_TRACKED_PLAINTEXT_READS) {
-                reads.clear();
+            Set<String> reads = PLAINTEXT_READS.get();
+            if (reads == null || reads.size() >= MAX_TRACKED_PLAINTEXT_READS) {
+                reads = Collections.newSetFromMap(new IdentityHashMap<>());
+                PLAINTEXT_READS.set(reads);
             }
             reads.add(data);
-            LOG.debug("Read an encrypted column's stored value as plaintext (helix.allow-plaintext-secrets=true)");
+            LOG.warn("Read a plaintext value from an encrypted column (HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true); it is "
+                    + "encrypted on the entity's next write");
             return data;
         }
         final String cause = looksLikeCiphertext(data)
                 ? "it cannot be decrypted with the current DB_ENCRYPTION key (the key changed, or the value was "
                         + "altered). Restore the key the value was written with"
                 : "it is not encrypted (written before DB_ENCRYPTION was set). To read and re-encrypt such rows, "
-                        + "set helix.allow-plaintext-secrets=true (HELIX_ALLOW_PLAINTEXT_SECRETS) until they are rewritten";
+                        + "set HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true (helix.security.db-encryption.migrate-plaintext) "
+                        + "with HELIX_DB_ENCRYPTION_MIGRATE_UNTIL until they are rewritten";
         throw new IllegalStateException("An encrypted database column could not be read: " + cause + ".");
     }
 
@@ -197,7 +201,19 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
     }
 
     /** The values this thread read as plaintext and that no entity load has claimed yet (identity set). */
-    static Set<String> plaintextReadsOnThisThread() {
+    /** Forgets this thread's unclaimed plaintext reads (removes the ThreadLocal). */
+    static void clearPlaintextReads() {
+        PLAINTEXT_READS.remove();
+    }
+
+    /** This thread's unclaimed plaintext reads, or null when there are none (no ThreadLocal is created). */
+    static Set<String> trackedPlaintextReads() {
         return PLAINTEXT_READS.get();
+    }
+
+    /** This thread's unclaimed plaintext reads (identity set; empty when none). */
+    static Set<String> plaintextReadsOnThisThread() {
+        final Set<String> reads = PLAINTEXT_READS.get();
+        return reads == null ? Set.of() : reads;
     }
 }

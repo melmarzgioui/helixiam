@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * The at-rest converter for secret columns (TOTP secrets, realm signing keys, client secrets, …). A value that
  * cannot be decrypted is never handed back as if it were the secret: by default the read fails with a message that
  * names the cause but never the value. Reading legacy plaintext rows (written before DB_ENCRYPTION was set) is an
- * explicit, logged migration mode ({@code helix.allow-plaintext-secrets=true}).
+ * explicit, logged and time-boxed migration mode ({@code helix.security.db-encryption.migrate-plaintext=true}).
  */
 class AttributeEncryptionTest {
 
@@ -31,7 +31,7 @@ class AttributeEncryptionTest {
 
     @AfterEach
     void clearPlaintextReads() {
-        AttributeEncryption.plaintextReadsOnThisThread().clear();
+        AttributeEncryption.clearPlaintextReads();
     }
 
     @Test
@@ -73,7 +73,7 @@ class AttributeEncryptionTest {
         assertThatThrownBy(() -> enc.convertToEntityAttribute(pem))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not encrypted")
-                .hasMessageContaining("helix.allow-plaintext-secrets")
+                .hasMessageContaining("HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT")
                 .satisfies(e -> assertThat(e.getMessage()).doesNotContain("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"));
         assertThatThrownBy(() -> enc.convertToEntityAttribute(SECRET)).isInstanceOf(IllegalStateException.class);
     }
@@ -128,5 +128,58 @@ class AttributeEncryptionTest {
         assertThat(PlaintextReadLogger.plaintextAttributes(state, new String[] {"realmId", "kid", "privateKey"}))
                 .containsExactly("privateKey");
         assertThat(AttributeEncryption.plaintextReadsOnThisThread()).isEmpty();
+    }
+
+    // --- review #11: an empty DB_ENCRYPTION is "no key" -----------------------------------------------
+
+    @Test
+    void anEmptyOrBlankKey_isNoKey() {
+        for (final String blank : new String[] {"", "  "}) {
+            final AttributeEncryption enc = new AttributeEncryption(blank, false);
+            assertThat(enc.convertToDatabaseColumn(SECRET)).isEqualTo(SECRET);
+            assertThat(enc.convertToEntityAttribute(SECRET)).isEqualTo(SECRET);
+        }
+    }
+
+    // --- review #12: the per-thread record of plaintext reads is removed after use -------------------
+
+    @Test
+    void claimingTheLastPlaintextRead_removesTheThreadLocal() {
+        final String read = new AttributeEncryption(KEY, true).convertToEntityAttribute(SECRET);
+        assertThat(AttributeEncryption.trackedPlaintextReads()).isNotNull();
+
+        PlaintextReadLogger.plaintextAttributes(new Object[] {read}, new String[] {"secret"});
+
+        assertThat(AttributeEncryption.trackedPlaintextReads()).as("ThreadLocal removed").isNull();
+    }
+
+    @Test
+    void theEndOfATransaction_removesAnyUnclaimedPlaintextReads() {
+        new AttributeEncryption(KEY, true).convertToEntityAttribute(SECRET);
+
+        new PlaintextReadLogger().afterTransactionCompletion(null);
+
+        assertThat(AttributeEncryption.trackedPlaintextReads()).isNull();
+    }
+
+    @Test
+    void noPlaintextRead_createsNoThreadLocal() {
+        PlaintextReadLogger.plaintextAttributes(new Object[] {"x"}, new String[] {"a"});
+        new AttributeEncryption(KEY, false).convertToEntityAttribute(new AttributeEncryption(KEY, false)
+                .convertToDatabaseColumn(SECRET));
+
+        assertThat(AttributeEncryption.trackedPlaintextReads()).isNull();
+    }
+
+    // --- review #4: plaintext reads have their own flag ----------------------------------------------
+
+    @Test
+    void theSpringConstructor_readsTheDedicatedMigrationFlag_notAllowPlaintextSecrets() throws Exception {
+        final java.lang.reflect.Constructor<AttributeEncryption> ctor =
+                AttributeEncryption.class.getConstructor(String.class, boolean.class);
+        final org.springframework.beans.factory.annotation.Value flag =
+                ctor.getParameters()[1].getAnnotation(org.springframework.beans.factory.annotation.Value.class);
+
+        assertThat(flag.value()).isEqualTo("${helix.security.db-encryption.migrate-plaintext:false}");
     }
 }

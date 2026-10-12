@@ -118,7 +118,8 @@ Everything is environment-driven. The essentials (sourced from
 | `DB_USERNAME` / `DB_PASSWORD` | PostgreSQL credentials |
 | `DB_RO_HOST` | optional read-replica host (defaults to `DB_HOST`) |
 | `DB_ENCRYPTION` | hex key encrypting secrets at rest (TOTP seeds, signing keys, IdP secrets); keep stable for the life of the install. A stored secret that cannot be decrypted with it (a changed key, an altered value, a row written before the key was set) fails the read |
-| `HELIX_ALLOW_PLAINTEXT_SECRETS` | `false` by default. Without `DB_ENCRYPTION`: accept plaintext secrets outside the `dev` profile. With `DB_ENCRYPTION`: migration mode for rows written before the key was set; they are read as plaintext, logged by entity and column, and encrypted on their next write. Unset it once they are re-encrypted, since it also hides a changed key |
+| `HELIX_ALLOW_PLAINTEXT_SECRETS` | `false` by default. Accepts running **without** `DB_ENCRYPTION` (an empty value is no key) outside the `dev` profile: secrets are then stored in plaintext. It has no effect when a key is set |
+| `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` | `false` / empty. Migration mode after setting `DB_ENCRYPTION` on an install that ran without it: secret columns that still hold plaintext are read as stored, logged by entity and column, and encrypted on their next write. It also hides a changed key, so it is loud (an ERROR banner at startup and every hour) and time-boxed: outside `dev` the server refuses to start unless `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` is a date (`yyyy-MM-dd`) at most 30 days ahead. Unset both once the rows are rewritten |
 
 **Session store (Redis)**
 
