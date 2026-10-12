@@ -8,6 +8,8 @@ package io.helixiam.authorization.federation.wallet.transaction;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,6 +50,51 @@ class InMemoryWalletTransactionStoreTest extends AbstractWalletTransactionStoreT
 
         assertThat(small.size()).isEqualTo(1);
         assertThat(store.claimRequest(fresh.crossDeviceRequestId())).isPresent();
+    }
+
+    @Test
+    void createsRacingForTheLastSlots_neverOvershootTheCap() throws Exception {
+        final InMemoryWalletTransactionStore small = new InMemoryWalletTransactionStore(clock, CAP);
+        store = small;
+        final List<WalletTransaction> candidates = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            candidates.add(newTransaction());
+        }
+
+        final List<Boolean> created = race(20, i -> {
+            try {
+                small.create(candidates.get(i));
+                return true;
+            } catch (final IllegalStateException full) {
+                return false;
+            }
+        });
+
+        assertThat(created.stream().filter(Boolean::booleanValue).count()).isEqualTo(CAP);
+        assertThat(small.size()).isEqualTo(CAP);
+    }
+
+    @Test
+    void theScheduledSweep_dropsExpiredTransactions_withoutAnyAccess() throws Exception {
+        try (InMemoryWalletTransactionStore swept =
+                     new InMemoryWalletTransactionStore(clock, 100, Duration.ofMillis(20))) {
+            store = swept;
+            created();
+            final WalletTransaction live = newTransaction();
+            clock.advance(TTL.minusSeconds(1));
+            swept.create(copy(live, live.sameDeviceRequestId(), live.crossDeviceRequestId(), live.responseId(),
+                    clock.instant(), clock.instant().plus(TTL)));
+            clock.advance(Duration.ofSeconds(1));
+
+            final long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (swept.size() > 1 && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+
+            assertThat(swept.size()).isEqualTo(1);
+            assertThat(swept.indexSize()).isEqualTo(3);
+            assertThat(store.byTransactionId(live.transactionId())).isPresent();
+        }
     }
 
     @Test

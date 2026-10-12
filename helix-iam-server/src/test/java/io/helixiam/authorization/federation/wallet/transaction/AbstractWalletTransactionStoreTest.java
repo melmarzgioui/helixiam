@@ -75,23 +75,49 @@ abstract class AbstractWalletTransactionStoreTest {
     }
 
     WalletTransaction requestFetched() {
+        return requestFetched(Flow.CROSS_DEVICE);
+    }
+
+    WalletTransaction requestFetched(final Flow flow) {
         final WalletTransaction tx = created();
-        assertThat(store.claimRequest(tx.crossDeviceRequestId())).isPresent();
+        assertThat(store.claimRequest(flow == Flow.SAME_DEVICE ? tx.sameDeviceRequestId()
+                : tx.crossDeviceRequestId())).isPresent();
         return tx;
     }
 
+    /** Same-device: the {@code direct_post} handler supplies the response code to {@code complete}. */
     WalletTransaction responseReceived() {
-        final WalletTransaction tx = requestFetched();
+        return responseReceived(Flow.SAME_DEVICE);
+    }
+
+    WalletTransaction responseReceived(final Flow flow) {
+        final WalletTransaction tx = requestFetched(flow);
         assertThat(store.claimResponse(tx.responseId())).isPresent();
         return tx;
     }
 
-    /** Returns the transaction as created; the response code is the second element. */
+    /** A same-device transaction completed with a response code (returned as {@link Verified#code()}). */
     Verified verified() {
-        final WalletTransaction tx = responseReceived();
+        final WalletTransaction tx = responseReceived(Flow.SAME_DEVICE);
         final String code = random();
         assertThat(store.complete(tx.transactionId(), code, IDENTITY)).isTrue();
         return new Verified(tx, code);
+    }
+
+    /** A cross-device transaction completed without a code; no code has been issued yet. */
+    WalletTransaction verifiedCrossDevice() {
+        final WalletTransaction tx = responseReceived(Flow.CROSS_DEVICE);
+        assertThat(store.complete(tx.transactionId(), null, IDENTITY)).isTrue();
+        return tx;
+    }
+
+    static WalletTransaction copy(final WalletTransaction tx, final String sameDeviceRequestId,
+                                  final String crossDeviceRequestId, final String responseId, final Instant createdAt,
+                                  final Instant expiresAt) {
+        return new WalletTransaction(tx.transactionId(), sameDeviceRequestId, crossDeviceRequestId, responseId,
+                tx.realmId(), tx.providerAlias(), tx.helixState(), tx.browserBindingHash(), tx.nonce(),
+                tx.encryptionJwkJson(), tx.dcqlQueryJson(), null, Status.CREATED, null, null, null, createdAt,
+                expiresAt);
     }
 
     record Verified(WalletTransaction tx, String code) {
@@ -146,6 +172,45 @@ abstract class AbstractWalletTransactionStoreTest {
         assertThat(store.byTransactionId(tx.transactionId())).isEmpty();
     }
 
+    @Test
+    void create_withALifetimeOutside60To900Seconds_isRefused() {
+        final WalletTransaction tx = newTransaction();
+        final Instant now = clock.instant();
+
+        assertThatThrownBy(() -> store.create(copy(tx, tx.sameDeviceRequestId(), tx.crossDeviceRequestId(),
+                tx.responseId(), now, now.plusSeconds(901)))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> store.create(copy(tx, tx.sameDeviceRequestId(), tx.crossDeviceRequestId(),
+                tx.responseId(), now, now.plusSeconds(59)))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> store.create(copy(tx, tx.sameDeviceRequestId(), tx.crossDeviceRequestId(),
+                tx.responseId(), null, now.plus(TTL)))).isInstanceOf(IllegalArgumentException.class);
+        assertThat(store.byTransactionId(tx.transactionId())).isEmpty();
+
+        store.create(copy(tx, tx.sameDeviceRequestId(), tx.crossDeviceRequestId(), tx.responseId(), now,
+                now.plusSeconds(900)));
+        assertThat(store.byTransactionId(tx.transactionId())).isPresent();
+        final WalletTransaction other = newTransaction();
+        store.create(copy(other, other.sameDeviceRequestId(), other.crossDeviceRequestId(), other.responseId(), now,
+                now.plusSeconds(60)));
+        assertThat(store.byTransactionId(other.transactionId())).isPresent();
+    }
+
+    @Test
+    void create_withRepeatedBearerIds_isRefused() {
+        final WalletTransaction tx = newTransaction();
+        final String a = tx.sameDeviceRequestId();
+        final String b = tx.crossDeviceRequestId();
+        final Instant created = tx.createdAt();
+        final Instant expires = tx.expiresAt();
+
+        assertThatThrownBy(() -> store.create(copy(tx, a, a, tx.responseId(), created, expires)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> store.create(copy(tx, a, b, a, created, expires)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> store.create(copy(tx, a, b, b, created, expires)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(store.byTransactionId(tx.transactionId())).isEmpty();
+    }
+
     // ------------------------------------------------------------------------------------------------ claimRequest
 
     @Test
@@ -186,6 +251,20 @@ abstract class AbstractWalletTransactionStoreTest {
         assertThat(statusOf(tx)).isEqualTo(Status.CREATED);
     }
 
+    /** Same-device and cross-device fetches racing: exactly one wins, and the stored flow is the winner's. */
+    @Test
+    void claimRequest_sameAndCrossDeviceRacing_exactlyOneWins_andFlowMatchesTheWinner() throws Exception {
+        final WalletTransaction tx = created();
+        final List<Optional<WalletTransaction>> results = race(20, i -> store.claimRequest(
+                i % 2 == 0 ? tx.sameDeviceRequestId() : tx.crossDeviceRequestId()));
+
+        final List<WalletTransaction> winners = results.stream().flatMap(Optional::stream).toList();
+        assertThat(winners).hasSize(1);
+        final WalletTransaction stored = store.byTransactionId(tx.transactionId()).orElseThrow();
+        assertThat(stored.status()).isEqualTo(Status.REQUEST_FETCHED);
+        assertThat(stored.flow()).isEqualTo(winners.get(0).flow()).isNotNull();
+    }
+
     // ------------------------------------------------------------------------------------------------ claimResponse
 
     @Test
@@ -220,29 +299,35 @@ abstract class AbstractWalletTransactionStoreTest {
     @Test
     void claimResponse_from20ThreadsAtOnce_exactlyOneWins() throws Exception {
         final WalletTransaction tx = requestFetched();
-        final int threads = 20;
+
+        final List<Optional<WalletTransaction>> results = race(20, i -> store.claimResponse(tx.responseId()));
+
+        assertThat(results.stream().filter(Optional::isPresent).count()).isEqualTo(1);
+        assertThat(statusOf(tx)).isEqualTo(Status.RESPONSE_RECEIVED);
+    }
+
+    /** Runs {@code action} on {@code threads} threads released together by one latch; returns every result. */
+    static <T> List<T> race(final int threads, final java.util.function.IntFunction<T> action) throws Exception {
         final CountDownLatch ready = new CountDownLatch(threads);
         final CountDownLatch go = new CountDownLatch(1);
         final ExecutorService pool = Executors.newFixedThreadPool(threads);
         try {
-            final List<Future<Optional<WalletTransaction>>> results = new ArrayList<>();
+            final List<Future<T>> futures = new ArrayList<>();
             for (int i = 0; i < threads; i++) {
-                results.add(pool.submit(() -> {
+                final int index = i;
+                futures.add(pool.submit(() -> {
                     ready.countDown();
                     go.await();
-                    return store.claimResponse(tx.responseId());
+                    return action.apply(index);
                 }));
             }
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
             go.countDown();
-            int winners = 0;
-            for (final Future<Optional<WalletTransaction>> result : results) {
-                if (result.get(30, TimeUnit.SECONDS).isPresent()) {
-                    winners++;
-                }
+            final List<T> results = new ArrayList<>();
+            for (final Future<T> future : futures) {
+                results.add(future.get(30, TimeUnit.SECONDS));
             }
-            assertThat(winners).isEqualTo(1);
-            assertThat(statusOf(tx)).isEqualTo(Status.RESPONSE_RECEIVED);
+            return results;
         } finally {
             pool.shutdownNow();
         }
@@ -312,6 +397,101 @@ abstract class AbstractWalletTransactionStoreTest {
         assertThat(store.fail(failed.transactionId(), WalletErrorCode.REPLAY)).isFalse();
         assertThat(store.byTransactionId(failed.transactionId()).orElseThrow().failureCode())
                 .isEqualTo(WalletErrorCode.WALLET_ACCESS_DENIED);
+    }
+
+    @Test
+    void complete_sameDevice_requiresAResponseCode() {
+        final WalletTransaction tx = responseReceived(Flow.SAME_DEVICE);
+
+        assertThat(store.complete(tx.transactionId(), null, IDENTITY)).isFalse();
+        assertThat(statusOf(tx)).isEqualTo(Status.RESPONSE_RECEIVED);
+        assertThat(store.issueResponseCode(tx.transactionId(), tx.browserBindingHash())).isEmpty();
+    }
+
+    @Test
+    void complete_crossDevice_takesNoResponseCode() {
+        final WalletTransaction tx = responseReceived(Flow.CROSS_DEVICE);
+        final String walletSideCode = random();
+
+        assertThat(store.complete(tx.transactionId(), walletSideCode, IDENTITY)).isFalse();
+        assertThat(statusOf(tx)).isEqualTo(Status.RESPONSE_RECEIVED);
+
+        assertThat(store.complete(tx.transactionId(), null, IDENTITY)).isTrue();
+        final WalletTransaction read = store.byTransactionId(tx.transactionId()).orElseThrow();
+        assertThat(read.status()).isEqualTo(Status.VERIFIED);
+        assertThat(read.encryptionJwkJson()).isNull();
+        assertThat(store.redeem(walletSideCode, tx.helixState(), tx.browserBindingHash())).isEmpty();
+    }
+
+    // ------------------------------------------------------------------------------------------------ issueResponseCode
+
+    @Test
+    void issueResponseCode_crossDeviceVerified_returnsACodeOnce_thatRedeems() {
+        final WalletTransaction tx = verifiedCrossDevice();
+
+        final String code = store.issueResponseCode(tx.transactionId(), tx.browserBindingHash()).orElseThrow();
+
+        assertThat(Base64.getUrlDecoder().decode(code)).hasSize(16);
+        assertThat(store.issueResponseCode(tx.transactionId(), tx.browserBindingHash())).isEmpty();
+        assertThat(store.byTransactionId(tx.transactionId()).orElseThrow().responseCode()).isNull();
+        final WalletTransaction redeemed = store.redeem(code, tx.helixState(), tx.browserBindingHash()).orElseThrow();
+        assertThat(redeemed.verifiedIdentityJson()).isEqualTo(IDENTITY);
+        assertThat(store.redeem(code, tx.helixState(), tx.browserBindingHash())).isEmpty();
+    }
+
+    @Test
+    void issueResponseCode_withAWrongBinding_isEmpty_andDoesNotUseUpTheIssue() {
+        final WalletTransaction tx = verifiedCrossDevice();
+
+        assertThat(store.issueResponseCode(tx.transactionId(), random())).isEmpty();
+        assertThat(store.issueResponseCode(tx.transactionId(), null)).isEmpty();
+
+        assertThat(store.issueResponseCode(tx.transactionId(), tx.browserBindingHash())).isPresent();
+    }
+
+    @Test
+    void issueResponseCode_forASameDeviceTransaction_isEmpty() {
+        final Verified v = verified();
+
+        assertThat(store.issueResponseCode(v.tx().transactionId(), v.tx().browserBindingHash())).isEmpty();
+        assertThat(store.redeem(v.code(), v.tx().helixState(), v.tx().browserBindingHash())).isPresent();
+    }
+
+    @Test
+    void issueResponseCode_beforeVerifiedOrAfterFailure_isEmpty() {
+        final WalletTransaction created = created();
+        final WalletTransaction fetched = requestFetched(Flow.CROSS_DEVICE);
+        final WalletTransaction received = responseReceived(Flow.CROSS_DEVICE);
+        final WalletTransaction failed = requestFetched(Flow.CROSS_DEVICE);
+        assertThat(store.fail(failed.transactionId(), WalletErrorCode.WALLET_ACCESS_DENIED)).isTrue();
+
+        for (final WalletTransaction tx : List.of(created, fetched, received, failed)) {
+            assertThat(store.issueResponseCode(tx.transactionId(), tx.browserBindingHash())).as(tx.toString())
+                    .isEmpty();
+        }
+        assertThat(store.issueResponseCode(random(), random())).isEmpty();
+        assertThat(store.issueResponseCode(null, null)).isEmpty();
+    }
+
+    @Test
+    void issueResponseCode_expired_isEmpty() {
+        final WalletTransaction tx = verifiedCrossDevice();
+
+        clock.advance(TTL);
+
+        assertThat(store.issueResponseCode(tx.transactionId(), tx.browserBindingHash())).isEmpty();
+    }
+
+    @Test
+    void issueResponseCode_from20ThreadsAtOnce_exactlyOneCode() throws Exception {
+        final WalletTransaction tx = verifiedCrossDevice();
+
+        final List<Optional<String>> results = race(20,
+                i -> store.issueResponseCode(tx.transactionId(), tx.browserBindingHash()));
+
+        final List<String> codes = results.stream().flatMap(Optional::stream).toList();
+        assertThat(codes).hasSize(1);
+        assertThat(store.redeem(codes.get(0), tx.helixState(), tx.browserBindingHash())).isPresent();
     }
 
     // ------------------------------------------------------------------------------------------------ redeem

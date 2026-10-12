@@ -22,7 +22,9 @@ import java.time.Instant;
  *
  * <p>The request ids, {@link #responseId} and {@link #responseCode} are bearer secrets. Stores index them by their
  * SHA-256 only, and keep {@link #responseCode} only as its hash: a transaction read back from a store always has
- * {@code responseCode == null}. The caller of {@link WalletTransactionStore#complete} is the only holder of the code.
+ * {@code responseCode == null}. The only holder of a code is whoever created it: the {@code direct_post} handler for
+ * same-device (passed to {@link WalletTransactionStore#complete}), or the bound browser for cross-device (returned once
+ * by {@link WalletTransactionStore#issueResponseCode}).
  * {@link #encryptionJwkJson} is the ephemeral private decryption key; stores drop it when the transaction ends
  * (VERIFIED or FAILED). {@link #verifiedIdentityJson} is the mapped identity plus an audit summary, never the
  * {@code vp_token}.

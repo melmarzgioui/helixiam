@@ -8,14 +8,22 @@ package io.helixiam.authorization.federation.wallet.transaction;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction.Flow;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction.Status;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
 
@@ -28,17 +36,24 @@ import java.util.function.UnaryOperator;
  *       concurrent claims of the same transaction serialise and only the first sees the expected state.</li>
  *   <li><b>Bearer secrets:</b> the request, response and code indexes are keyed by SHA-256, and the response code is
  *       kept only as its hash, exactly like the Redis store.</li>
- *   <li><b>Bounded:</b> expired transactions read as absent and are removed on access; {@code create} also sweeps
- *       every expired one once the store holds half its cap. At the cap ({@code maxEntries}, default
- *       {@value #DEFAULT_MAX_ENTRIES}) a new transaction is refused rather than evicting a live one, so a burst of
- *       starts cannot cancel other users' logins.</li>
+ *   <li><b>Bounded in time:</b> an expired transaction reads as absent and is removed on access; a background sweep
+ *       (every {@value #DEFAULT_SWEEP_SECONDS} s by default) removes the ones nobody touches again, so an abandoned
+ *       login's private key and identity do not stay in the heap.</li>
+ *   <li><b>Bounded in size:</b> a slot is reserved atomically before the insert, so concurrent creates never exceed
+ *       {@code maxEntries} (default {@value #DEFAULT_MAX_ENTRIES}). At the cap, {@code create} sweeps expired entries
+ *       (at most once a second) and otherwise refuses rather than evicting a live transaction, so a burst of starts
+ *       cannot cancel other users' logins.</li>
  *   <li><b>Not encrypted:</b> objects stay in process memory next to the key that would encrypt them, so encryption at
  *       rest would add nothing here.</li>
  * </ul>
  */
-public class InMemoryWalletTransactionStore implements WalletTransactionStore {
+public class InMemoryWalletTransactionStore implements WalletTransactionStore, AutoCloseable {
+
+    private static final Logger LOG = LogManager.getLogger(InMemoryWalletTransactionStore.class);
 
     public static final int DEFAULT_MAX_ENTRIES = 10_000;
+    public static final int DEFAULT_SWEEP_SECONDS = 60;
+    private static final long MIN_MILLIS_BETWEEN_CAP_SWEEPS = 1_000;
 
     /** A transaction plus the hashes of its bearer secrets. */
     private record Entry(WalletTransaction tx, String sameDeviceHash, String crossDeviceHash, String responseHash,
@@ -47,38 +62,79 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore {
         Entry with(final WalletTransaction next) {
             return new Entry(next, sameDeviceHash, crossDeviceHash, responseHash, codeHash);
         }
+
+        Entry with(final WalletTransaction next, final String newCodeHash) {
+            return new Entry(next, sameDeviceHash, crossDeviceHash, responseHash, newCodeHash);
+        }
     }
 
     private final ConcurrentMap<String, Entry> transactions = new ConcurrentHashMap<>();
     /** SHA-256 of a request id, response id or response code → transaction id. */
     private final ConcurrentMap<String, String> index = new ConcurrentHashMap<>();
+    /** Reserved slots: incremented before an insert, decremented on removal or a failed insert. */
+    private final AtomicInteger count = new AtomicInteger();
+    private final AtomicLong lastCapSweepMillis = new AtomicLong(Long.MIN_VALUE);
     private final Clock clock;
     private final int maxEntries;
+    private final ScheduledExecutorService sweeper;
 
+    /** Production default: system clock, {@value #DEFAULT_MAX_ENTRIES} entries, a sweep every minute. */
     public InMemoryWalletTransactionStore() {
-        this(Clock.systemUTC(), DEFAULT_MAX_ENTRIES);
+        this(Clock.systemUTC(), DEFAULT_MAX_ENTRIES, Duration.ofSeconds(DEFAULT_SWEEP_SECONDS));
     }
 
+    /** Without a background sweep (tests call {@link #evictExpired()} themselves). */
     public InMemoryWalletTransactionStore(final Clock clock, final int maxEntries) {
+        this(clock, maxEntries, null);
+    }
+
+    /**
+     * @param sweepInterval fixed delay between background sweeps of expired entries; {@code null} for none. Stop it
+     *                      with {@link #close()} (Spring does so for the bean).
+     */
+    public InMemoryWalletTransactionStore(final Clock clock, final int maxEntries, final Duration sweepInterval) {
         if (maxEntries < 1) {
             throw new IllegalArgumentException("maxEntries must be positive");
         }
         this.clock = clock;
         this.maxEntries = maxEntries;
+        if (sweepInterval == null) {
+            this.sweeper = null;
+        } else {
+            this.sweeper = Executors.newSingleThreadScheduledExecutor(runnable -> {
+                final Thread thread = new Thread(runnable, "wallet-transaction-sweep");
+                thread.setDaemon(true);
+                return thread;
+            });
+            final long millis = sweepInterval.toMillis();
+            this.sweeper.scheduleWithFixedDelay(this::sweep, millis, millis, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    @Override
+    public void close() {
+        if (sweeper != null) {
+            sweeper.shutdownNow();
+        }
     }
 
     @Override
     public void create(final WalletTransaction tx) {
-        WalletTransactionValidation.requireNew(tx, clock.instant());
-        if (transactions.size() >= maxEntries / 2) {
-            evictExpired();
-        }
-        if (transactions.size() >= maxEntries) {
-            throw new IllegalStateException("Too many wallet logins in progress (" + maxEntries + "); try again later");
+        final Instant now = clock.instant();
+        WalletTransactionValidation.requireNew(tx, now);
+        if (!reserveSlot()) {
+            if (mayCapSweep(now)) {
+                evictExpired();
+            }
+            if (!reserveSlot()) {
+                throw new IllegalStateException("Too many wallet logins in progress (" + maxEntries
+                        + "); try again later");
+            }
         }
         final Entry entry = new Entry(tx, SecretHash.of(tx.sameDeviceRequestId()),
                 SecretHash.of(tx.crossDeviceRequestId()), SecretHash.of(tx.responseId()), null);
         if (transactions.putIfAbsent(tx.transactionId(), entry) != null) {
+            count.decrementAndGet();
             throw new IllegalArgumentException("A wallet transaction with this id already exists");
         }
         index.put(entry.sameDeviceHash(), tx.transactionId());
@@ -131,15 +187,36 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore {
 
     @Override
     public boolean complete(final String transactionId, final String responseCode, final String verifiedIdentityJson) {
-        if (responseCode == null) {
-            return false;
+        final String codeHash = responseCode == null ? null : SecretHash.of(responseCode);
+        final Optional<Entry> done = transition(transactionId, entry -> {
+            final WalletTransaction tx = entry.tx();
+            // Same-device: the direct_post handler hands the wallet the code. Cross-device: no code here; the bound
+            // browser gets one from issueResponseCode.
+            final boolean codeFitsFlow = tx.flow() == Flow.SAME_DEVICE ? codeHash != null : codeHash == null;
+            return tx.status() == Status.RESPONSE_RECEIVED && codeFitsFlow
+                    ? entry.with(tx.verified(verifiedIdentityJson), codeHash) : null;
+        });
+        if (done.isPresent() && codeHash != null) {
+            index.put(codeHash, transactionId);
         }
-        final String codeHash = SecretHash.of(responseCode);
-        final Optional<Entry> done = transition(transactionId, entry -> entry.tx().status() == Status.RESPONSE_RECEIVED
-                ? new Entry(entry.tx().verified(verifiedIdentityJson), entry.sameDeviceHash(),
-                entry.crossDeviceHash(), entry.responseHash(), codeHash) : null);
-        done.ifPresent(entry -> index.put(codeHash, entry.tx().transactionId()));
         return done.isPresent();
+    }
+
+    @Override
+    public Optional<String> issueResponseCode(final String transactionId, final String browserBindingHash) {
+        final String code = SecretHash.newSecret();
+        final String codeHash = SecretHash.of(code);
+        final Optional<Entry> issued = transition(transactionId, entry -> {
+            final WalletTransaction tx = entry.tx();
+            final boolean bindingMatches = SecretHash.matches(browserBindingHash, tx.browserBindingHash());
+            return tx.status() == Status.VERIFIED && tx.flow() == Flow.CROSS_DEVICE && entry.codeHash() == null
+                    && bindingMatches ? entry.with(tx, codeHash) : null;
+        });
+        if (issued.isEmpty()) {
+            return Optional.empty();
+        }
+        index.put(codeHash, transactionId);
+        return Optional.of(code);
     }
 
     @Override
@@ -201,6 +278,34 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore {
         return Optional.ofNullable(applied.get());
     }
 
+    private boolean reserveSlot() {
+        while (true) {
+            final int current = count.get();
+            if (current >= maxEntries) {
+                return false;
+            }
+            if (count.compareAndSet(current, current + 1)) {
+                return true;
+            }
+        }
+    }
+
+    /** At most one sweep a second from {@code create}, so a full store of live entries is not scanned per call. */
+    private boolean mayCapSweep(final Instant now) {
+        final long nowMillis = now.toEpochMilli();
+        final long last = lastCapSweepMillis.get();
+        return (last == Long.MIN_VALUE || nowMillis - last >= MIN_MILLIS_BETWEEN_CAP_SWEEPS)
+                && lastCapSweepMillis.compareAndSet(last, nowMillis);
+    }
+
+    private void sweep() {
+        try {
+            evictExpired();
+        } catch (final RuntimeException e) {
+            LOG.warn("Wallet transaction sweep failed: {}", e.getClass().getSimpleName());
+        }
+    }
+
     /** Removes every expired transaction and its index entries. */
     void evictExpired() {
         final Instant now = clock.instant();
@@ -214,6 +319,7 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore {
     private void remove(final String transactionId) {
         final Entry removed = transactions.remove(transactionId);
         if (removed != null) {
+            count.decrementAndGet();
             index.remove(removed.sameDeviceHash(), transactionId);
             index.remove(removed.crossDeviceHash(), transactionId);
             index.remove(removed.responseHash(), transactionId);

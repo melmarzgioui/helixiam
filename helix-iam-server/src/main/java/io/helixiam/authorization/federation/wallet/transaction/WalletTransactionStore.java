@@ -42,10 +42,16 @@ public interface WalletTransactionStore {
     Optional<WalletTransaction> claimResponse(String responseId);
 
     /**
-     * Atomic RESPONSE_RECEIVED→VERIFIED. Stores {@code responseCode} as its hash only, keeps
-     * {@code verifiedIdentityJson} and drops the private decryption key.
+     * Atomic RESPONSE_RECEIVED→VERIFIED. Keeps {@code verifiedIdentityJson} and drops the private decryption key.
+     * <ul>
+     *   <li>{@link WalletTransaction.Flow#SAME_DEVICE}: {@code responseCode} is required (the {@code direct_post}
+     *       handler returns it to the wallet in the {@code redirect_uri}); it is stored as its hash only.</li>
+     *   <li>{@link WalletTransaction.Flow#CROSS_DEVICE}: {@code responseCode} must be {@code null}; the browser that
+     *       started the login gets a code from {@link #issueResponseCode}.</li>
+     * </ul>
      *
-     * @return {@code false} (and no change) when the transaction is absent, expired or not RESPONSE_RECEIVED
+     * @return {@code false} (and no change) when the transaction is absent, expired or not RESPONSE_RECEIVED, or the
+     *         code does not fit the flow
      */
     boolean complete(String transactionId, String responseCode, String verifiedIdentityJson);
 
@@ -55,6 +61,16 @@ public interface WalletTransactionStore {
      * @return {@code false} (and no change) from any other state, or when absent or expired
      */
     boolean fail(String transactionId, WalletErrorCode code);
+
+    /**
+     * Cross-device only: atomically gives a VERIFIED transaction its response code, for the browser whose binding hash
+     * matches (constant time). The code is 128-bit SecureRandom, base64url; only its hash is stored, and the raw code
+     * is returned exactly once.
+     *
+     * @return empty when the transaction is absent, expired, not VERIFIED, same-device, already has a code, or the
+     *         binding does not match (a wrong binding does not use up the issue)
+     */
+    Optional<String> issueResponseCode(String transactionId, String browserBindingHash);
 
     /**
      * Atomic VERIFIED→REDEEMED iff responseCode, helixState and browserBindingHash all match (compared in constant

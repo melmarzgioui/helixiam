@@ -107,6 +107,9 @@ class RedisWalletTransactionStoreTest extends AbstractWalletTransactionStoreTest
         final Verified v = verified();
         final WalletTransaction tx = v.tx();
         final WalletTransaction fetchedOnly = requestFetched(); // still holds its private key
+        final WalletTransaction cross = verifiedCrossDevice();
+        final String issued = store.issueResponseCode(cross.transactionId(), cross.browserBindingHash())
+                .orElseThrow();
 
         final List<String> dump = dump();
 
@@ -115,8 +118,11 @@ class RedisWalletTransactionStoreTest extends AbstractWalletTransactionStoreTest
             assertThat(entry).isNotNull()
                     .doesNotContain(v.code(), tx.sameDeviceRequestId(), tx.crossDeviceRequestId(), tx.responseId(),
                             fetchedOnly.sameDeviceRequestId(), fetchedOnly.crossDeviceRequestId(),
-                            fetchedOnly.responseId(), privateD, "Erika");
+                            fetchedOnly.responseId(), issued, privateD, "Erika");
         }
+        assertThat(dump).contains("helix:wallet:code:" + SecretHash.of(issued));
+        assertThat(REDIS_TEMPLATE.getExpire("helix:wallet:code:" + SecretHash.of(issued),
+                java.util.concurrent.TimeUnit.MILLISECONDS)).isPositive().isLessThanOrEqualTo(TTL.toMillis());
         // ...and the store still reads everything back.
         final WalletTransaction read = store.byTransactionId(fetchedOnly.transactionId()).orElseThrow();
         assertThat(read.encryptionJwkJson()).isEqualTo(JWK);

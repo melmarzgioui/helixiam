@@ -161,8 +161,8 @@ public class FederationConfig {
         @Bean
         @ConditionalOnMissingBean(WalletTransactionStore.class)
         public WalletTransactionStore inMemoryWalletTransactionStore(
-                @Value("${helix.iam.session-store:}") final String sessionStore) {
-            if (warnsAboutReplicas(sessionStore)) {
+                @Value("${helix.iam.session-store:}") final String sessionStore, final DeploymentProfile profile) {
+            if (warnsAboutReplicas(sessionStore, profile)) {
                 LOG.warn("EUDI wallet logins keep their transactions in process memory (neither HELIX_SESSION_STORE "
                         + "nor HELIX_TOKEN_STORE is redis). With more than one replica a wallet login fails whenever "
                         + "the wallet's requests reach another replica: run one replica, or use Redis for the "
@@ -173,10 +173,11 @@ public class FederationConfig {
 
         /**
          * No replica count reaches the server (the Helm chart sets {@code replicas} on the Deployment only), so the
-         * PostgreSQL session store ({@code queue}), the one other multi-replica setup, is taken as the signal.
+         * PostgreSQL session store ({@code queue}), the one other multi-replica setup, is taken as the signal. Never
+         * under the {@code dev} profile, which defaults to {@code queue} and runs one process.
          */
-        static boolean warnsAboutReplicas(final String sessionStore) {
-            return sessionStore != null && "queue".equals(sessionStore.trim().toLowerCase(Locale.ROOT));
+        static boolean warnsAboutReplicas(final String sessionStore, final DeploymentProfile profile) {
+            return !profile.isDev() && sessionStore != null && "queue".equals(sessionStore.trim().toLowerCase(Locale.ROOT));
         }
     }
 

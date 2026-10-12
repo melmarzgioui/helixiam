@@ -33,7 +33,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p><b>Layout.</b> One hash per transaction, {@code helix:wallet:tx:{transactionId}}, plus string index keys
  * {@code helix:wallet:req:{sha256(requestId)}} (two per transaction), {@code helix:wallet:resp:{sha256(responseId)}}
- * and, once verified, {@code helix:wallet:code:{sha256(responseCode)}}, each holding the transaction id. Every key
+ * and, once a code exists ({@code complete} for same-device, {@code issueResponseCode} for cross-device),
+ * {@code helix:wallet:code:{sha256(responseCode)}}, each holding the transaction id. Every key
  * expires with the transaction. The index keys hold hashes so a key dump gives nobody a request id or a redeemable
  * code; inside the hash the request ids, the response id, the private JWK and the verified identity are encrypted with
  * {@link AttributeEncryption}, and the response code is stored only as its hash.
@@ -121,12 +122,33 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
             return redis.call('HGETALL', KEYS[1])
             """, List.class);
 
-    /** ARGV[2] = sha256(responseCode), ARGV[3] = encrypted identity or '' for none. */
+    /**
+     * ARGV[2] = sha256(responseCode) or '' for none, ARGV[3] = encrypted identity or '' for none. Same-device needs a
+     * code (the direct_post handler hands it to the wallet); cross-device takes none (see ISSUE_CODE).
+     */
     private static final RedisScript<Long> COMPLETE = new DefaultRedisScript<>(LIVE + """
             if status ~= 'RESPONSE_RECEIVED' then return 0 end
-            redis.call('HSET', KEYS[1], 'status', 'VERIFIED', 'codeHash', ARGV[2])
+            local flow = redis.call('HGET', KEYS[1], 'flow')
+            if flow == 'SAME_DEVICE' then
+              if ARGV[2] == '' then return 0 end
+            elseif flow ~= 'CROSS_DEVICE' or ARGV[2] ~= '' then return 0 end
+            redis.call('HSET', KEYS[1], 'status', 'VERIFIED')
+            if ARGV[2] ~= '' then redis.call('HSET', KEYS[1], 'codeHash', ARGV[2]) end
             if ARGV[3] ~= '' then redis.call('HSET', KEYS[1], 'identity', ARGV[3]) end
             redis.call('HDEL', KEYS[1], 'jwk')
+            return 1
+            """, Long.class);
+
+    /**
+     * ARGV[2] = sha256(new code), ARGV[3] = browser binding hash (already compared in constant time by the caller;
+     * re-checked here). Only a VERIFIED cross-device transaction without a code yet gets one.
+     */
+    private static final RedisScript<Long> ISSUE_CODE = new DefaultRedisScript<>(LIVE + """
+            if status ~= 'VERIFIED' then return 0 end
+            if redis.call('HGET', KEYS[1], 'flow') ~= 'CROSS_DEVICE' then return 0 end
+            if redis.call('HEXISTS', KEYS[1], 'codeHash') == 1 then return 0 end
+            if redis.call('HGET', KEYS[1], 'binding') ~= ARGV[3] then return 0 end
+            redis.call('HSET', KEYS[1], 'codeHash', ARGV[2])
             return 1
             """, Long.class);
 
@@ -241,20 +263,48 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
 
     @Override
     public boolean complete(final String transactionId, final String responseCode, final String verifiedIdentityJson) {
-        if (transactionId == null || responseCode == null) {
+        if (transactionId == null) {
             return false;
         }
         final String key = TX_PREFIX + transactionId;
-        final Long ttlMillis = redis.getExpire(key, TimeUnit.MILLISECONDS);
-        if (ttlMillis == null || ttlMillis <= 0) {
-            return false;
+        final String codeHash = responseCode == null ? "" : SecretHash.of(responseCode);
+        if (responseCode != null) {
+            final Long ttlMillis = redis.getExpire(key, TimeUnit.MILLISECONDS);
+            if (ttlMillis == null || ttlMillis <= 0) {
+                return false;
+            }
+            // Index first: the direct_post handler hands the wallet the code as soon as this returns, so the code
+            // must already be redeemable. If the script then refuses, the entry points at a transaction whose
+            // codeHash does not match, so it redeems nothing.
+            redis.opsForValue().set(CODE_PREFIX + codeHash, transactionId, Duration.ofMillis(ttlMillis));
         }
-        final String codeHash = SecretHash.of(responseCode);
-        // Index first: once the status reads VERIFIED the code must already be redeemable. If the script then
-        // refuses, the entry points at a transaction whose codeHash does not match, so it redeems nothing.
-        redis.opsForValue().set(CODE_PREFIX + codeHash, transactionId, Duration.ofMillis(ttlMillis));
         final String identity = verifiedIdentityJson == null ? "" : encrypt(verifiedIdentityJson);
         return Long.valueOf(1L).equals(redis.execute(COMPLETE, List.of(key), now(), codeHash, identity));
+    }
+
+    @Override
+    public Optional<String> issueResponseCode(final String transactionId, final String browserBindingHash) {
+        if (transactionId == null || browserBindingHash == null) {
+            return Optional.empty();
+        }
+        final Optional<Map<String, String>> current = read(transactionId).filter(f -> live(f, clock.instant()));
+        if (current.isEmpty() || !SecretHash.matches(browserBindingHash, current.get().get(BINDING))) {
+            return Optional.empty();
+        }
+        final String key = TX_PREFIX + transactionId;
+        final String code = SecretHash.newSecret();
+        final String codeHash = SecretHash.of(code);
+        if (!Long.valueOf(1L).equals(redis.execute(ISSUE_CODE, List.of(key), now(), codeHash, browserBindingHash))) {
+            return Optional.empty();
+        }
+        // Index after the script: nobody but this caller holds the code yet, so nothing can try to redeem it before
+        // the index exists. It expires with the transaction.
+        final Long ttlMillis = redis.getExpire(key, TimeUnit.MILLISECONDS);
+        if (ttlMillis == null || ttlMillis <= 0) {
+            return Optional.empty();
+        }
+        redis.opsForValue().set(CODE_PREFIX + codeHash, transactionId, Duration.ofMillis(ttlMillis));
+        return Optional.of(code);
     }
 
     @Override

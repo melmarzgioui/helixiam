@@ -47,11 +47,15 @@ class WalletTransactionStoreSelectionTest {
     }
 
     @Test
-    void inMemoryWarns_onlyWithThePostgresSessionStore() {
+    void inMemoryWarns_onlyWithThePostgresSessionStore_andNeverInDev() {
         // No replica count reaches the server; session-store=queue (PostgreSQL) is the multi-replica signal.
-        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas("queue")).isTrue();
-        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas("QUEUE")).isTrue();
-        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas("")).isFalse();
-        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas(null)).isFalse();
+        final DeploymentProfile production = DeploymentProfile.production();
+        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas("queue", production)).isTrue();
+        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas("QUEUE", production)).isTrue();
+        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas("", production)).isFalse();
+        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas(null, production)).isFalse();
+        // dev defaults session-store to queue and runs one process: no WARN.
+        assertThat(FederationConfig.WalletTransactionStores.warnsAboutReplicas("queue",
+                DeploymentProfile.development())).isFalse();
     }
 }

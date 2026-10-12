@@ -8,12 +8,22 @@ package io.helixiam.authorization.federation.wallet.transaction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Base64;
 
-/** SHA-256 (base64url, unpadded) of a bearer secret, and constant-time comparison. Shared by both stores. */
+/** Bearer secrets: generation, SHA-256 (base64url, unpadded) and constant-time comparison. Shared by both stores. */
 final class SecretHash {
 
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     private SecretHash() {
+    }
+
+    /** A new 128-bit random bearer secret, base64url without padding. */
+    static String newSecret() {
+        final byte[] bytes = new byte[16];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     static String of(final String secret) {
