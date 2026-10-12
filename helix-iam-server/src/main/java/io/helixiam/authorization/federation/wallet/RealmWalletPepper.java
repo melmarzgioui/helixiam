@@ -127,10 +127,16 @@ public class RealmWalletPepper {
             return null;
         }
         final String column = rows.get(0);
-        final String plain = encryption.convertToEntityAttribute(column);
+        String plain;
+        try {
+            plain = encryption.convertToEntityAttribute(column);
+        } catch (final RuntimeException e) {
+            plain = column; // the converter refuses what it cannot decrypt (since the security merge): same case below
+        }
         if (encrypted && column.equals(plain)) {
-            // AttributeEncryption hands back what it cannot decrypt as-is: a plaintext (dev) pepper, or one encrypted
-            // under a DB_ENCRYPTION key that has since changed. Either way: fail closed.
+            // A plaintext (dev) pepper, or one encrypted under a DB_ENCRYPTION key that has since changed: the converter
+            // refuses it (older converters handed it back as-is, which this guard still catches). Either way: fail
+            // closed, naming both causes for the operator.
             throw new IllegalStateException("The stored wallet subject pepper cannot be decrypted with the current "
                     + "DB_ENCRYPTION key: it was either created without DB_ENCRYPTION (dev), or DB_ENCRYPTION has "
                     + "changed or rotated since; refusing to use it");
