@@ -36,6 +36,9 @@ import java.util.Map;
 @Controller
 public class FlowController {
 
+    private static final org.apache.logging.log4j.Logger LOG =
+            org.apache.logging.log4j.LogManager.getLogger(FlowController.class);
+
     private static final String REDIRECT_PREFIX = "redirect:";
     private static final String VIEW_PREFIX = "flow/";
 
@@ -109,7 +112,15 @@ public class FlowController {
 
         return switch (progress.type()) {
             case COMPLETED -> {
-                mfaService.unlockUser(); // restore the fully authenticated token
+                // Restore the fully authenticated token — only if it is the user the flow completed for.
+                final String flowUser = progress.userId() != null ? progress.userId() : state.userId();
+                if (!mfaService.unlockUser(flowUser)) {
+                    LOG.warn("Login flow completed for another user than the pending sign-in; refusing it");
+                    org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                    session.invalidate();
+                    yield REDIRECT_PREFIX + flowPath("/login") + "?error";
+                }
+                request.changeSessionId(); // a completed sign-in gets a new session id (no fixation)
                 authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, io.helixiam.authorization.security.realm.RealmContextHolder.get()); // SSO P3
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
