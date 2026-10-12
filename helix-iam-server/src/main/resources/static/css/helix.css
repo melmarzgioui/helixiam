@@ -370,6 +370,46 @@ h1, h2, h3, h4 {
     opacity: 0.6;
   }
 }
+/* Task 21b: "Link your wallet first": three numbered steps (sign in another way, link in the account, sign in with
+   the wallet). Counters in CSS, so the markup stays a plain <ol>. */
+.hx-wallet-steps {
+  list-style: none;
+  counter-reset: hx-wallet-step;
+  margin: calc(var(--hx-space) * 3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 2.5);
+}
+.hx-wallet-steps li {
+  counter-increment: hx-wallet-step;
+  display: grid;
+  grid-template-columns: calc(var(--hx-space) * 7) 1fr;
+  column-gap: calc(var(--hx-space) * 2);
+  row-gap: calc(var(--hx-space) * 0.5);
+  align-items: start;
+}
+.hx-wallet-steps li::before {
+  content: counter(hx-wallet-step);
+  grid-row: span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--hx-space) * 7);
+  height: calc(var(--hx-space) * 7);
+  border-radius: 50%;
+  background: var(--hx-primary-tint);
+  color: var(--hx-primary-strong);
+  font-weight: 700;
+}
+.hx-wallet-steps strong {
+  color: var(--hx-ink);
+  font-weight: 600;
+  padding-top: calc(var(--hx-space) * 0.75);
+}
+.hx-wallet-steps span {
+  color: var(--hx-ink-muted);
+}
 /* [hidden] must win over the buttons' and the grid's display rules (the polling script toggles it). */
 .hx-wallet [hidden],
 .buttonHolder > a.button[hidden] {

@@ -51,7 +51,8 @@ import java.util.Set;
  *   <li>{@code DcqlResultMatcher} with the provider's verifiers and a {@link VerificationContext} from the provider
  *       (nonce, client_id, response_uri, the mdoc SessionTranscript's JWK thumbprint, anchors, status policy, limits,
  *       clock); then {@link WalletAttributeMapper} (minimum LoA) and {@link WalletSubjectResolver} +
- *       {@link WalletLinkService#decide} (pure).</li>
+ *       {@link WalletLinkService#decide} (pure). Task 21b: a LINK transaction (account console) skips the decision and
+ *       stores only the resolved subject ({@link VerifiedIdentityJson#writeLink}): no login, no JIT.</li>
  *   <li>The identity, the decision and any {@link WalletLinkService.PendingLink} are stored
  *       ({@link VerifiedIdentityJson#write(BrokeredIdentity, WalletLinkService.Decision)}; a refusal stores no
  *       identity) and the transaction completes: same-device with a fresh 128-bit response code returned to the wallet
@@ -178,11 +179,21 @@ public class WalletResponseHandler {
                 provider.verifiers(), context);
         final BrokeredIdentity mapped = WalletAttributeMapper.map(config.alias(), null, matched, config.minimumLoa());
         final WalletSubject subject = subjects.resolve(tx.realmId(), matched, config);
-        final WalletLinkService.Decision decision = links.decide(tx.realmId(), config.alias(), subject, policy);
-        final String identityJson = decision instanceof WalletLinkService.Decision.Refused
-                ? VerifiedIdentityJson.write(null, decision)
-                : VerifiedIdentityJson.write(new BrokeredIdentity(config.alias(), subjectValue(subject), null, false,
-                        mapped.attributes(), mapped.levelOfAssurance()), decision);
+        final String identityJson;
+        final String outcome;
+        if (tx.purpose() == WalletTransaction.Purpose.LINK) {
+            // Task 21b: a link from the account console. Only the resolved subject is kept; no login decision, no JIT:
+            // the console's callback links it to the user who started it, and nobody is signed in.
+            identityJson = VerifiedIdentityJson.writeLink(subject);
+            outcome = "link:" + subject.getClass().getSimpleName();
+        } else {
+            final WalletLinkService.Decision decision = links.decide(tx.realmId(), config.alias(), subject, policy);
+            identityJson = decision instanceof WalletLinkService.Decision.Refused
+                    ? VerifiedIdentityJson.write(null, decision)
+                    : VerifiedIdentityJson.write(new BrokeredIdentity(config.alias(), subjectValue(subject), null,
+                            false, mapped.attributes(), mapped.levelOfAssurance()), decision);
+            outcome = decision.getClass().getSimpleName();
+        }
 
         final boolean sameDevice = tx.flow() == WalletTransaction.Flow.SAME_DEVICE;
         final String code = sameDevice ? token() : null;
@@ -192,24 +203,24 @@ public class WalletResponseHandler {
         }
         LOG.info("Wallet presentation verified: alias={} realm={} tx={} flow={} formats={} decision={}",
                 LogSafe.sanitize(config.alias()), LogSafe.sanitize(tx.realmId()), tx.transactionId(), tx.flow(),
-                matched.presentations().stream().map(VerifiedPresentation::format).toList(),
-                decision.getClass().getSimpleName());
+                matched.presentations().stream().map(VerifiedPresentation::format).toList(), outcome);
         return new Result.Accepted(sameDevice ? callback(tx, code) : null);
     }
 
     /**
      * The browser callback for a same-device login: {@code <base>/realms/<realm>/broker/<alias>/callback?response_code=}
-     * only. The broker's state never goes to the wallet (it is the browser's anti-forgery value); the callback takes
-     * the expected state from the browser's session.
+     * only (Task 21b: a link's goes to the account console, {@link WalletIdentityProvider#callbackPath}). The broker's
+     * state never goes to the wallet (it is the browser's anti-forgery value); the callback takes the expected state
+     * from the browser's session.
      */
     private String callback(final WalletTransaction tx, final String code) {
         String base = idpBaseUrl.trim();
         while (base.endsWith("/")) {
             base = base.substring(0, base.length() - 1);
         }
-        return base + "/realms/" + UriUtils.encodePathSegment(tx.realmId(), StandardCharsets.UTF_8) + "/broker/"
-                + UriUtils.encodePathSegment(tx.providerAlias(), StandardCharsets.UTF_8) + "/callback?"
-                + WalletIdentityProvider.RESPONSE_CODE_PARAM + "=" + code;
+        return base + "/realms/" + UriUtils.encodePathSegment(tx.realmId(), StandardCharsets.UTF_8)
+                + WalletIdentityProvider.callbackPath(tx) + "?" + WalletIdentityProvider.RESPONSE_CODE_PARAM + "="
+                + code;
     }
 
     private static void requireState(final String state, final String expected) {

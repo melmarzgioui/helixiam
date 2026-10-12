@@ -614,6 +614,75 @@ abstract class AbstractWalletTransactionStoreTest {
         assertThat(store.claimRequest(tx.crossDeviceRequestId())).isPresent();
     }
 
+    // ------------------------------------------------------------------------------------------------ purpose
+
+    /** Task 21b: a LINK transaction from the account console, started by {@code userId}. */
+    WalletTransaction newLinkTransaction(final String userId) {
+        final WalletTransaction tx = newTransaction();
+        return new WalletTransaction(tx.transactionId(), tx.sameDeviceRequestId(), tx.crossDeviceRequestId(),
+                tx.responseId(), tx.realmId(), tx.providerAlias(), tx.helixState(), tx.browserBindingHash(),
+                tx.nonce(), tx.encryptionJwkJson(), tx.dcqlQueryJson(), null, Status.CREATED, null, null, null,
+                tx.createdAt(), tx.expiresAt(), WalletTransaction.Purpose.LINK, userId);
+    }
+
+    @Test
+    void aLoginTransaction_hasPurposeLogin_andNoInitiatingUser() {
+        final WalletTransaction tx = created();
+
+        final WalletTransaction read = store.byTransactionId(tx.transactionId()).orElseThrow();
+        assertThat(read.purpose()).isEqualTo(WalletTransaction.Purpose.LOGIN);
+        assertThat(read.initiatingUserId()).isNull();
+    }
+
+    @Test
+    void aLinkTransaction_keepsItsPurposeAndInitiatingUser_throughEveryTransition() {
+        final WalletTransaction tx = newLinkTransaction("user-42");
+        store.create(tx);
+        assertLink(store.byTransactionId(tx.transactionId()).orElseThrow());
+
+        assertLink(store.claimRequest(tx.sameDeviceRequestId()).orElseThrow());
+        assertLink(store.claimResponse(tx.responseId()).orElseThrow());
+        final String code = random();
+        assertThat(store.complete(tx.transactionId(), code, IDENTITY)).isTrue();
+        assertLink(store.byTransactionId(tx.transactionId()).orElseThrow());
+        assertLink(store.redeem(code, tx.helixState(), tx.browserBindingHash()).orElseThrow());
+    }
+
+    @Test
+    void aFailedLinkTransaction_keepsItsPurpose() {
+        final WalletTransaction tx = newLinkTransaction("user-42");
+        store.create(tx);
+        assertThat(store.claimRequest(tx.crossDeviceRequestId())).isPresent();
+
+        assertThat(store.fail(tx.transactionId(), WalletErrorCode.WALLET_ERROR)).isTrue();
+
+        assertLink(store.byTransactionId(tx.transactionId()).orElseThrow());
+    }
+
+    @Test
+    void aLinkTransaction_needsItsInitiatingUser_andALogin_mustNotHaveOne() {
+        assertThatThrownBy(() -> store.create(newLinkTransaction(null))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> store.create(newLinkTransaction(" "))).isInstanceOf(IllegalArgumentException.class);
+        final WalletTransaction login = newTransaction();
+        final WalletTransaction loginWithUser = new WalletTransaction(login.transactionId(),
+                login.sameDeviceRequestId(), login.crossDeviceRequestId(), login.responseId(), login.realmId(),
+                login.providerAlias(), login.helixState(), login.browserBindingHash(), login.nonce(),
+                login.encryptionJwkJson(), login.dcqlQueryJson(), null, Status.CREATED, null, null, null,
+                login.createdAt(), login.expiresAt(), WalletTransaction.Purpose.LOGIN, "user-42");
+        assertThatThrownBy(() -> store.create(loginWithUser)).isInstanceOf(IllegalArgumentException.class);
+        final WalletTransaction noPurpose = new WalletTransaction(login.transactionId(),
+                login.sameDeviceRequestId(), login.crossDeviceRequestId(), login.responseId(), login.realmId(),
+                login.providerAlias(), login.helixState(), login.browserBindingHash(), login.nonce(),
+                login.encryptionJwkJson(), login.dcqlQueryJson(), null, Status.CREATED, null, null, null,
+                login.createdAt(), login.expiresAt(), null, null);
+        assertThatThrownBy(() -> store.create(noPurpose)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static void assertLink(final WalletTransaction tx) {
+        assertThat(tx.purpose()).isEqualTo(WalletTransaction.Purpose.LINK);
+        assertThat(tx.initiatingUserId()).isEqualTo("user-42");
+    }
+
     /** A clock tests can move. */
     static final class MutableClock extends Clock {
         private volatile Instant now;

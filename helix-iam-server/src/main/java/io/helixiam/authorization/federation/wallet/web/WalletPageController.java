@@ -57,7 +57,11 @@ import java.util.Optional;
  *       login's code went to the wallet's {@code redirect_uri}, so its poll never has a {@code next}.</li>
  *   <li>{@code GET /wallet/unavailable}: the store is full (the provider's {@code start} sends the browser here),
  *       a friendly 503.</li>
- *   <li>{@code GET /wallet/link?reason=}: the wallet was verified but resolves to no account: how to link it.</li>
+ *   <li>{@code GET /wallet/link?reason=}: the wallet was verified but resolves to no account: how to link it (sign in
+ *       another way, then link the wallet in the account console), never whether an account exists.</li>
+ *   <li>Task 21b: a LINK transaction (account console) uses the same page and status; the page says "link" and leads
+ *       back to the account, and its {@code next} is the console's callback
+ *       ({@link WalletIdentityProvider#callbackPath}).</li>
  * </ul>
  * Status and page belong to the browser that started the login: the session's {@link BrowserBinding} must hash to the
  * transaction's {@code browserBindingHash} (compared in constant time), and the transaction must be of this realm and
@@ -86,6 +90,7 @@ public class WalletPageController {
     public String page(@PathVariable final String alias, @RequestParam(name = "tx", required = false) final String txId,
                        final HttpServletRequest request, final HttpServletResponse response, final Model model) {
         model.addAttribute("alias", alias);
+        model.addAttribute("walletPurpose", "login");
         final Optional<Bound> bound = bound(alias, txId, request);
         if (bound.isEmpty()) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
@@ -94,6 +99,8 @@ public class WalletPageController {
         }
         final WalletIdentityProvider provider = bound.get().provider();
         final WalletTransaction tx = bound.get().tx();
+        // Task 21b: a link from the account console says "link" and leads back to the account, not to sign-in.
+        model.addAttribute("walletPurpose", tx.purpose() == WalletTransaction.Purpose.LINK ? "link" : "login");
         model.addAttribute("providerName", provider.metadata().displayName());
         model.addAttribute("statusUrl", request.getContextPath() + "/broker/" + segment(alias) + "/wallet/status?tx="
                 + UriUtils.encodeQueryParam(tx.transactionId(), StandardCharsets.UTF_8));
@@ -131,7 +138,7 @@ public class WalletPageController {
                     .ifPresent(code -> {
                         // only the code, like the same-device redirect_uri: the callback reads the state from the
                         // session
-                        body.put("next", request.getContextPath() + "/broker/" + segment(alias) + "/callback?"
+                        body.put("next", request.getContextPath() + WalletIdentityProvider.callbackPath(tx) + "?"
                                 + WalletIdentityProvider.RESPONSE_CODE_PARAM + "=" + code);
                         LOG.info("Wallet response code issued to the bound browser: alias={} tx={}",
                                 LogSafe.sanitize(alias), tx.transactionId());

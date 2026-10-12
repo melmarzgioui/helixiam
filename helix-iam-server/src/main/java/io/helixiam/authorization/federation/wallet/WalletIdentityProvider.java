@@ -137,6 +137,26 @@ public final class WalletIdentityProvider implements IdentityProvider {
 
     @Override
     public RedirectResponse start(final AuthnRequestContext context) {
+        return start(context, WalletTransaction.Purpose.LOGIN, null);
+    }
+
+    /**
+     * Task 21b: starts a {@link WalletTransaction.Purpose#LINK} transaction for the signed-in {@code userId} (the
+     * account console's "Link EU Digital Identity Wallet"; the caller enforces the authentication and the recent
+     * sign-in). The same wallet page, request and response endpoints serve it; its response only stores the resolved
+     * subject, and only {@link #redeemLink} can redeem it: it never signs anyone in.
+     *
+     * @throws IllegalStateException without a user, realm, state or binding, or for a stored provider of another realm
+     */
+    public RedirectResponse startLink(final AuthnRequestContext context, final String userId) {
+        if (blank(userId)) {
+            throw new IllegalStateException("A wallet link needs the signed-in user");
+        }
+        return start(context, WalletTransaction.Purpose.LINK, userId);
+    }
+
+    private RedirectResponse start(final AuthnRequestContext context, final WalletTransaction.Purpose purpose,
+                                   final String userId) {
         if (blank(context.realmId()) || blank(context.state())) {
             throw new IllegalStateException("A wallet login needs a realm and a state");
         }
@@ -153,7 +173,7 @@ public final class WalletIdentityProvider implements IdentityProvider {
                 token(ID_BYTES), context.realmId(), config.alias(), context.state(), context.browserBindingHash(),
                 token(NONCE_BYTES), encryptionKey().toJSONString(), dcqlQuery(), null,
                 WalletTransaction.Status.CREATED, null, null, null, now,
-                now.plusSeconds(config.transactionTtlSeconds()));
+                now.plusSeconds(config.transactionTtlSeconds()), purpose, userId);
         // Context-relative: the broker answers "redirect:" + location, which Spring resolves under the realm's virtual
         // context path (/realms/<realm>), like the broker's own /login redirects.
         final String walletPage = "/broker/" + segment(config.alias()) + "/wallet";
@@ -165,8 +185,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
                     LogSafe.sanitize(config.alias()), LogSafe.sanitize(context.realmId()));
             return new RedirectResponse(walletPage + "/unavailable", Map.of());
         }
-        LOG.info("Wallet login started: alias={} realm={} tx={}", LogSafe.sanitize(config.alias()),
-                LogSafe.sanitize(context.realmId()), tx.transactionId());
+        LOG.info("Wallet {} started: alias={} realm={} tx={}", purpose == WalletTransaction.Purpose.LINK ? "link"
+                : "login", LogSafe.sanitize(config.alias()), LogSafe.sanitize(context.realmId()), tx.transactionId());
         return new RedirectResponse(walletPage + "?tx=" + tx.transactionId(),
                 Map.of(TRANSACTION_PARAM, tx.transactionId()));
     }
@@ -194,7 +214,7 @@ public final class WalletIdentityProvider implements IdentityProvider {
 
     @Override
     public BrokeredIdentity callback(final CallbackContext context) {
-        final WalletTransaction tx = redeemTransaction(context);
+        final WalletTransaction tx = redeemTransaction(context, WalletTransaction.Purpose.LOGIN);
         return VerifiedIdentityJson.read(config.alias(), tx.verifiedIdentityJson());
     }
 
@@ -204,11 +224,26 @@ public final class WalletIdentityProvider implements IdentityProvider {
      * refusals as {@link #callback}.
      */
     public VerifiedIdentityJson.StoredLogin redeem(final CallbackContext context) {
-        final WalletTransaction tx = redeemTransaction(context);
+        final WalletTransaction tx = redeemTransaction(context, WalletTransaction.Purpose.LOGIN);
         return VerifiedIdentityJson.readLogin(config.alias(), tx.verifiedIdentityJson());
     }
 
-    private WalletTransaction redeemTransaction(final CallbackContext context) {
+    /** Task 21b: what {@link #redeemLink} returns: the user who started the link and the wallet's resolved subject. */
+    public record LinkRedemption(String initiatingUserId, WalletSubject subject) {
+    }
+
+    /**
+     * Task 21b: redeems a {@link WalletTransaction.Purpose#LINK} transaction's response code, with the same checks as
+     * {@link #callback} (state and browser binding, single use, constant time). A LOGIN transaction's code is refused
+     * here, as a LINK transaction's code is refused by {@link #callback} and {@link #redeem}.
+     */
+    public LinkRedemption redeemLink(final CallbackContext context) {
+        final WalletTransaction tx = redeemTransaction(context, WalletTransaction.Purpose.LINK);
+        return new LinkRedemption(tx.initiatingUserId(), VerifiedIdentityJson.readLink(tx.verifiedIdentityJson()));
+    }
+
+    private WalletTransaction redeemTransaction(final CallbackContext context,
+                                                final WalletTransaction.Purpose purpose) {
         final String code = context.parameters() == null ? null : context.parameters().get(RESPONSE_CODE_PARAM);
         if (blank(code)) {
             throw refused(WalletErrorCode.INVALID_RESPONSE, "the callback has no response_code", null);
@@ -224,6 +259,11 @@ public final class WalletIdentityProvider implements IdentityProvider {
                         "response code unknown, expired, already used, or not this login's state and browser", null));
         if (!config.alias().equals(tx.providerAlias()) || !Objects.equals(tx.realmId(), context.realmId())) {
             throw refused(WalletErrorCode.INVALID_RESPONSE, "the transaction belongs to another provider or realm",
+                    tx.transactionId());
+        }
+        if (tx.purpose() != purpose) {
+            // Task 21b: a LINK transaction never signs anyone in, and a login is never a link (the code is spent).
+            throw refused(WalletErrorCode.INVALID_RESPONSE, "the transaction is not a " + purpose + " transaction",
                     tx.transactionId());
         }
         LOG.info("Wallet login redeemed: alias={} realm={} tx={}", LogSafe.sanitize(config.alias()),
@@ -246,6 +286,22 @@ public final class WalletIdentityProvider implements IdentityProvider {
     }
 
     // ------------------------------------------------------------------------------------------------ Task 18 view
+
+    /** Whether this provider serves {@code realmId}: a YAML provider every realm, a stored one only its own. */
+    public boolean servesRealm(final String realmId) {
+        return !blank(realmId) && (keyRealm == null || keyRealm.equals(realmId));
+    }
+
+    /**
+     * Task 21b: the realm-relative path of the browser callback of {@code tx}: the broker's
+     * {@code /broker/<alias>/callback} for a login, the account console's {@code /account/wallet/<alias>/callback} for
+     * a link. The response code goes on it as {@code ?response_code=}.
+     */
+    public static String callbackPath(final WalletTransaction tx) {
+        final String alias = segment(tx.providerAlias());
+        return tx.purpose() == WalletTransaction.Purpose.LINK ? "/account/wallet/" + alias + "/callback"
+                : "/broker/" + alias + "/callback";
+    }
 
     /** The realm of a stored provider (its key's realm); {@code null} for a YAML provider, usable in every realm. */
     public String keyRealm() {

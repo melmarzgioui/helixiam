@@ -235,6 +235,76 @@ form.hx-account-inline {
   width: auto;
 }
 
+/* ------------------------------------------- EU Digital Identity Wallet -- */
+/* Task 21b: one row per wallet provider of the realm: mark, name and note, state, action (like the sessions list). */
+.hx-wallets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hx-wallets li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hx-space) calc(var(--hx-space) * 3);
+  padding: calc(var(--hx-space) * 2.5) 0;
+  border-top: 1px solid var(--hx-border);
+}
+.hx-wallets li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.hx-wallet-mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--hx-space) * 10);
+  height: calc(var(--hx-space) * 10);
+  border-radius: var(--hxi-radius-sm);
+  background: var(--hx-surface-sunken);
+  border: 1px solid var(--hx-border);
+}
+.hx-wallets li.is-linked .hx-wallet-mark {
+  background: var(--hx-positive-tint);
+  border-color: color-mix(in srgb, var(--hx-positive) 40%, var(--hx-border));
+}
+.hx-wallet-mark img {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+.hx-wallet-what {
+  flex: 1 1 14rem;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 0.5);
+  min-width: 0;
+}
+.hx-wallet-what strong {
+  font-weight: 600;
+  color: var(--hx-ink);
+  overflow-wrap: anywhere;
+}
+.hx-wallet-what span {
+  color: var(--hx-ink-muted);
+}
+.hx-wallets .hx-badge {
+  flex: 0 0 auto;
+}
+form.hx-wallet-action {
+  margin: 0;
+  width: auto;
+  flex: 0 0 auto;
+}
+form.hx-wallet-action button.hx-btn,
+a.hx-btn.hx-wallet-action {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 /* -------------------------------------------------------- danger section -- */
 .hx-account article.hx-danger {
   border-color: color-mix(in srgb, var(--hx-negative) 45%, var(--hx-border));
@@ -297,6 +367,16 @@ form.hx-account-inline {
     width: 100%;
   }
   .hx-account-inline > div {
+    flex: 1 1 100%;
+  }
+  /* a phone: mark, name and state on one line, the action full width below */
+  .hx-wallet-what {
+    flex: 1 1 0;
+  }
+  form.hx-wallet-action,
+  form.hx-wallet-action button.hx-btn,
+  a.hx-btn.hx-wallet-action {
+    width: 100%;
     flex: 1 1 100%;
   }
 }

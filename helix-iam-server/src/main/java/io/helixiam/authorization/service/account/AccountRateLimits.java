@@ -31,7 +31,9 @@ public class AccountRateLimits {
         /** Sending an email-confirmation link. */
         EMAIL(5, 60),
         /** Downloading the data. */
-        EXPORT(10, 60);
+        EXPORT(10, 60),
+        /** Task 21b: starting a wallet link (each start holds a wallet transaction until it expires). */
+        WALLET_LINK(10, 15);
 
         final int attempts;
         final long windowMinutes;

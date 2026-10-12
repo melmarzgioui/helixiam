@@ -104,4 +104,49 @@ class WalletWebControllersTest {
         assertThat(expired.getStatusCode().value()).isEqualTo(404);
         assertThat(expired.getBody()).isEmpty();
     }
+
+    // ------------------------------------------------------------------------------------------- Task 21b: link
+
+    private static WalletTransaction linkTx(final WalletTransaction.Status status, final String binding) {
+        final WalletTransaction t = tx(status, binding);
+        return new WalletTransaction(t.transactionId(), t.sameDeviceRequestId(), t.crossDeviceRequestId(),
+                t.responseId(), t.realmId(), t.providerAlias(), t.helixState(), t.browserBindingHash(), t.nonce(),
+                t.encryptionJwkJson(), t.dcqlQueryJson(), t.flow(), t.status(), null, null, null, t.createdAt(),
+                t.expiresAt(), WalletTransaction.Purpose.LINK, "user-7");
+    }
+
+    @Test
+    void status_ofAVerifiedLink_sendsTheBrowserToTheAccountConsoleCallback() {
+        final MockHttpSession session = new MockHttpSession();
+        final String binding = BrowserBinding.begin(session, ALIAS);
+        when(store.byTransactionId("tx-1")).thenReturn(Optional.of(linkTx(WalletTransaction.Status.VERIFIED, binding)));
+        when(store.issueResponseCode("tx-1", binding)).thenReturn(Optional.of("the-code"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setContextPath("/realms/acme");
+        request.setSession(session);
+
+        final ResponseEntity<Map<String, Object>> response =
+                new WalletPageController(registry, "https://helix.example").status(ALIAS, "tx-1", request);
+
+        assertThat(response.getBody()).containsEntry("status", "COMPLETED")
+                .containsEntry("next", "/realms/acme/account/wallet/eudi-wallet/callback?response_code=the-code");
+    }
+
+    @Test
+    void thePage_ofALink_saysLink_andLeadsBackToTheAccount() {
+        final MockHttpSession session = new MockHttpSession();
+        final String binding = BrowserBinding.begin(session, ALIAS);
+        when(store.byTransactionId("tx-1")).thenReturn(Optional.of(linkTx(WalletTransaction.Status.FAILED, binding)));
+        when(provider.metadata()).thenReturn(io.helixiam.authorization.federation.spi.IdpMetadata.of(ALIAS,
+                io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.WALLET, "Wallet", "eudi-wallet", null));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setSession(session);
+        final org.springframework.ui.ExtendedModelMap model = new org.springframework.ui.ExtendedModelMap();
+
+        new WalletPageController(registry, "https://helix.example").page(ALIAS, "tx-1", request,
+                new org.springframework.mock.web.MockHttpServletResponse(), model);
+
+        assertThat(model.get("walletPurpose")).isEqualTo("link");
+        assertThat(model.get("walletState")).isEqualTo("failed");
+    }
 }

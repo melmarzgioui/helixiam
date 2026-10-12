@@ -100,6 +100,36 @@
                 </div>
             </article>
 
+            <!--/* Task 21b: EU Digital Identity Wallet (AccountWalletController); only where the realm has a wallet provider */-->
+            <article id="wallets" aria-labelledby="wallets-heading" th:if="${wallets != null and !wallets.isEmpty()}">
+                <div class="hx-account-head">
+                    <h2 id="wallets-heading" th:text="#{account.wallet.heading}">EU Digital Identity Wallet</h2>
+                </div>
+                <p class="hx-account-note" th:text="#{account.wallet.note}">Link your wallet once, then sign in with it instead of your password.</p>
+                <p class="hx-alert hx-alert-success" role="status" id="wallet-status" th:if="${walletStatus != null}"
+                   th:text="#{'account.wallet.status.' + ${walletStatus}}">Your wallet is linked.</p>
+                <p class="hx-alert hx-alert-error" role="alert" id="wallet-error" th:if="${walletError != null}"
+                   th:text="#{'account.wallet.error.' + ${walletError}}">This wallet is already linked to another account.</p>
+                <ul class="hx-wallets" id="wallet-list">
+                    <li th:each="w : ${wallets}" th:attr="data-alias=${w.alias()}" th:classappend="${w.linked()} ? 'is-linked'">
+                        <span class="hx-wallet-mark" aria-hidden="true"><img th:src="@{/img/idp/eudi-wallet.svg}" src="/img/idp/eudi-wallet.svg" alt="" width="22" height="22"></span>
+                        <div class="hx-wallet-what">
+                            <strong th:text="${w.displayName()}">EU Digital Identity Wallet</strong>
+                            <span th:text="${w.linked()} ? #{account.wallet.linkedNote} : #{account.wallet.unlinkedNote}">Not linked yet. You'll confirm in your wallet app.</span>
+                        </div>
+                        <span th:if="${w.linked()}" class="hx-badge hx-badge-ok" th:text="#{account.wallet.linked}">Linked</span>
+                        <span th:unless="${w.linked()}" class="hx-badge hx-badge-neutral" th:text="#{account.wallet.notLinked}">Not linked</span>
+                        <form th:unless="${w.linked()}" th:action="@{/account/wallet/link}" method="post" class="hx-wallet-action">
+                            <input type="hidden" name="alias" th:value="${w.alias()}">
+                            <button type="submit" class="hx-btn hx-btn-secondary" th:text="#{account.wallet.link}"
+                                    th:attr="aria-label=#{account.wallet.linkNamed(${w.displayName()})}">Link wallet</button>
+                        </form>
+                        <a th:if="${w.linked()}" class="hx-btn hx-btn-danger hx-wallet-action" th:href="@{/account/wallet/unlink(alias=${w.alias()})}"
+                           th:text="#{account.wallet.unlink}" th:attr="aria-label=#{account.wallet.unlinkNamed(${w.displayName()})}">Unlink</a>
+                    </li>
+                </ul>
+            </article>
+
             <!--/* Sessions */-->
             <article id="sessions" aria-labelledby="sessions-heading">
                 <div class="hx-account-head">

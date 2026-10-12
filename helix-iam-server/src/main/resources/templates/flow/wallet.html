@@ -8,7 +8,10 @@
     failed      - the wallet declined or the presentation was refused: retry
     unknown     - expired or unknown transaction (404): retry
     unavailable - the transaction store is full (503): retry later
-    link        - verified, but no account: how to link the wallet (linkReason)
+    link        - verified, but no account: how to link the wallet (linkReason); for link_required three steps (sign in
+                  another way, link in the account, then sign in with the wallet), never a hint whether an account exists
+  walletPurpose (Task 21b): "link" for a wallet link started from the account console (link wording, back to the
+  account), "login" otherwise.
   Themed like every sign-in card page (fragments/theme); no inline script or style (CSP without 'unsafe-inline'): the
   polling is /js/wallet-poll.js, the QR code an <img> with a data: SVG (img-src 'self' data:), always black on white.
 */-->
@@ -25,9 +28,10 @@
                 <h1 th:case="'unknown'" class="hx-title" th:text="#{wallet.unknown.title}">Wallet sign-in expired</h1>
                 <h1 th:case="'unavailable'" class="hx-title" th:text="#{wallet.unavailable.title}">Wallet sign-in is busy</h1>
                 <h1 th:case="'link'" class="hx-title" th:text="#{wallet.link.title}">Link your wallet first</h1>
-                <h1 th:case="*" class="hx-title" th:text="#{wallet.title}">Sign in with your EUDI Wallet</h1>
+                <h1 th:case="*" class="hx-title" th:text="${walletPurpose == 'link'} ? #{wallet.linkFlow.title} : #{wallet.title}">Sign in with your EUDI Wallet</h1>
             </th:block>
-            <div class="description" th:if="${walletState == 'active'}" th:text="#{wallet.description}">
+            <div class="description" th:if="${walletState == 'active'}"
+                 th:text="${walletPurpose == 'link'} ? #{wallet.linkFlow.description} : #{wallet.description}">
                 Share your identity from your wallet app to sign in.</div>
         </div>
         <div class="container">
@@ -55,12 +59,22 @@
                 <th:block th:switch="${walletState}">
                     <p th:case="'unknown'" class="hx-alert hx-alert-error" role="alert" th:text="#{wallet.unknown.description}">This wallet sign-in is expired or unknown.</p>
                     <p th:case="'unavailable'" class="hx-lead" th:text="#{wallet.unavailable.description}">Too many wallet sign-ins right now.</p>
-                    <p th:case="'link'" id="walletLinkRequired" class="hx-lead"
-                       th:text="#{${'wallet.link.' + linkReason}}">Link your wallet from your account settings.</p>
+                    <th:block th:case="'link'">
+                        <p id="walletLinkRequired" class="hx-lead"
+                           th:text="#{${'wallet.link.' + linkReason}}">We verified your wallet, but it isn't linked here yet.</p>
+                        <ol id="walletLinkSteps" class="hx-wallet-steps" th:if="${linkReason == 'link_required'}">
+                            <li><strong th:text="#{wallet.link.step1.title}">Sign in another way</strong>
+                                <span th:text="#{wallet.link.step1.text}">Use your password or another sign-in method you already have.</span></li>
+                            <li><strong th:text="#{wallet.link.step2.title}">Link your wallet in your account</strong>
+                                <span th:text="#{wallet.link.step2.text}">In your account, under EU Digital Identity Wallet, choose Link wallet and confirm in your wallet app.</span></li>
+                            <li><strong th:text="#{wallet.link.step3.title}">Sign in with your wallet</strong>
+                                <span th:text="#{wallet.link.step3.text}">From then on, your wallet is enough to sign in.</span></li>
+                        </ol>
+                    </th:block>
                     <p th:case="'failed'" id="walletStatus" class="hx-alert hx-alert-error" role="alert"
                        th:text="#{wallet.status.failed}">Your wallet did not share your identity.</p>
                     <p th:case="*" id="walletStatus" class="hx-wallet-status is-waiting" role="status" aria-live="polite"
-                       th:attr="data-msg-waiting=#{wallet.status.waiting},data-msg-opened=#{wallet.status.opened},data-msg-completed=#{wallet.status.completed},data-msg-completed-elsewhere=#{wallet.status.completedElsewhere},data-msg-failed=#{wallet.status.failed},data-msg-expired=#{wallet.status.expired}"
+                       th:attr="data-msg-waiting=#{wallet.status.waiting},data-msg-opened=#{wallet.status.opened},data-msg-completed=(${walletPurpose == 'link'} ? #{wallet.linkFlow.completed} : #{wallet.status.completed}),data-msg-completed-elsewhere=#{wallet.status.completedElsewhere},data-msg-failed=#{wallet.status.failed},data-msg-expired=#{wallet.status.expired}"
                        th:text="${walletState == 'opened'} ? #{wallet.status.opened} : #{wallet.status.waiting}">Waiting for your wallet…</p>
                 </th:block>
 
@@ -68,13 +82,18 @@
                     <p class="hx-muted hx-small" th:text="#{wallet.noscript}">Without JavaScript, use "Open wallet app" on this device.</p>
                 </noscript>
 
-                <div class="buttonHolder hx-wallet-actions">
-                    <a th:if="${walletState != 'link'}" id="walletRetry" class="button"
-                       th:href="@{/broker/{alias}(alias=${alias})}"
+                <div class="buttonHolder hx-wallet-actions" th:if="${walletState == 'link'}">
+                    <a id="walletLinkSignIn" class="button" th:href="@{/login}"><span th:text="#{wallet.link.signIn}">Sign in another way</span></a>
+                </div>
+                <div class="buttonHolder hx-wallet-actions" th:unless="${walletState == 'link'}">
+                    <!--/* A link starts again from the account console (a POST there, after its step-up). */-->
+                    <a id="walletRetry" class="button"
+                       th:href="${walletPurpose == 'link'} ? @{/account#wallets} : @{/broker/{alias}(alias=${alias})}"
                        th:attr="hidden=${walletState == 'active' or walletState == 'opened'} ? 'hidden' : null,autofocus=${walletState == 'failed' or walletState == 'unknown'} ? 'autofocus' : null">
                         <span th:text="#{wallet.retry}">Try again</span>
                     </a>
-                    <a class="button secondary" th:href="@{/login}"><span th:text="#{wallet.back}">Back to sign in</span></a>
+                    <a id="walletBack" class="button secondary" th:href="${walletPurpose == 'link'} ? @{/account} : @{/login}"><span
+                            th:text="${walletPurpose == 'link'} ? #{wallet.linkFlow.back} : #{wallet.back}">Back to sign in</span></a>
                 </div>
             </article>
         </div>

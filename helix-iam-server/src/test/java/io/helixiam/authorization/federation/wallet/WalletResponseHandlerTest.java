@@ -54,6 +54,8 @@ class WalletResponseHandlerTest {
     private final FederatedIdentityPublisher identities = mock(FederatedIdentityPublisher.class);
     private final RealmWalletPepper pepper = mock(RealmWalletPepper.class);
     private final WalletResponseHandler handler;
+    /** Task 21b: when set, {@link #fetched} starts a LINK transaction of this user instead of a login. */
+    private String linkingUser;
     /** The transaction of the last {@link #fetched} login (its id never reaches the wallet). */
     private String lastTxId;
 
@@ -82,8 +84,10 @@ class WalletResponseHandlerTest {
     /** Starts a login and lets the wallet fetch the {@code flow}'s request object. */
     private Oid4vpWalletClient.VerifiedRequest fetched(final WalletIdentityProvider provider,
                                                       final WalletTransaction.Flow flow) {
-        final IdentityProvider.RedirectResponse redirect = provider.start(new IdentityProvider.AuthnRequestContext(
-                REALM, HELIX_STATE, BASE + "/realms/acme/broker/eudi-wallet/callback", BINDING));
+        final IdentityProvider.AuthnRequestContext context = new IdentityProvider.AuthnRequestContext(
+                REALM, HELIX_STATE, BASE + "/realms/acme/broker/eudi-wallet/callback", BINDING);
+        final IdentityProvider.RedirectResponse redirect = linkingUser == null ? provider.start(context)
+                : provider.startLink(context, linkingUser);
         final String txId = redirect.location().substring(redirect.location().indexOf("tx=") + 3);
         lastTxId = txId;
         final WalletTransaction created = store.byTransactionId(txId).orElseThrow();
@@ -306,5 +310,72 @@ class WalletResponseHandlerTest {
 
         assertThat(VerifiedIdentityJson.readLogin(ALIAS, tx(request).verifiedIdentityJson()).decision())
                 .isEqualTo(new WalletLinkService.Decision.Existing("user-7"));
+    }
+
+    // ------------------------------------------------------------------------------------------- Task 21b: link
+
+    private static Map<String, Object> pidWithoutNumber() {
+        final Map<String, Object> claims = new LinkedHashMap<>(pid());
+        claims.remove("personal_administrative_number");
+        return claims;
+    }
+
+    private static Map<String, Object> vpToken(final Oid4vpWalletClient.VerifiedRequest request,
+                                               final Map<String, Object> claims) {
+        final Instant now = Instant.now();
+        final TestWallet.SdJwtCredential credential = WALLET.sdJwtPid(claims, now.minusSeconds(60),
+                now.plusSeconds(3600), Optional.empty());
+        return Map.of("pid_sd_jwt", List.of(WALLET.present(credential, claims.keySet(), request.clientId(),
+                request.nonce())));
+    }
+
+    @Test
+    void aLinkTransaction_storesOnlyTheResolvedSubject_andNeverMakesALoginDecision() {
+        linkingUser = "user-7";
+        final WalletIdentityProvider provider = provider(DeploymentProfile.production(),
+                Map.of("subject.acknowledgeWeakSubject", "true"));
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(provider, WalletTransaction.Flow.CROSS_DEVICE);
+
+        final WalletResponseHandler.Result result = handler.handle(provider, REALM, responseId(request),
+                form("response", Oid4vpWalletClient.respond(request, vpToken(request))));
+
+        assertThat(result).isEqualTo(new WalletResponseHandler.Result.Accepted(null));
+        final WalletTransaction tx = tx(request);
+        assertThat(tx.status()).isEqualTo(WalletTransaction.Status.VERIFIED);
+        final WalletSubject subject = VerifiedIdentityJson.readLink(tx.verifiedIdentityJson());
+        assertThat(subject).isInstanceOf(WalletSubject.AdminNumber.class);
+        assertThat(((WalletSubject.AdminNumber) subject).value()).matches("[0-9a-f]{64}");
+        assertThat(((WalletSubject.AdminNumber) subject).tupleValue()).as("the flag is on").matches("[0-9a-f]{64}");
+        assertThat(tx.verifiedIdentityJson()).doesNotContain("Erika").doesNotContain("PAN-0001");
+        // no login decision: the link store is never even read
+        org.mockito.Mockito.verifyNoInteractions(identities);
+    }
+
+    @Test
+    void aLinkTransaction_withoutANumber_andTheFlagOff_storesTheUnavailableReason() {
+        linkingUser = "user-7";
+        final WalletIdentityProvider provider = provider();
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(provider, WalletTransaction.Flow.CROSS_DEVICE);
+
+        final WalletResponseHandler.Result result = handler.handle(provider, REALM, responseId(request),
+                form("response", Oid4vpWalletClient.respond(request, vpToken(request, pidWithoutNumber()))));
+
+        assertThat(result).isEqualTo(new WalletResponseHandler.Result.Accepted(null));
+        assertThat(VerifiedIdentityJson.readLink(tx(request).verifiedIdentityJson())).isEqualTo(
+                new WalletSubject.Unavailable(WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED));
+        org.mockito.Mockito.verifyNoInteractions(identities);
+    }
+
+    @Test
+    void aSameDeviceLink_sendsTheWalletBackToTheAccountConsoleCallback() {
+        linkingUser = "user-7";
+        final WalletIdentityProvider provider = provider();
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(provider, WalletTransaction.Flow.SAME_DEVICE);
+
+        final WalletResponseHandler.Result result = handler.handle(provider, REALM, responseId(request),
+                form("response", Oid4vpWalletClient.respond(request, vpToken(request))));
+
+        assertThat(((WalletResponseHandler.Result.Accepted) result).redirectUri()).matches(java.util.regex.Pattern.quote(
+                BASE + "/realms/acme/account/wallet/eudi-wallet/callback?response_code=") + "[A-Za-z0-9_-]{22}");
     }
 }

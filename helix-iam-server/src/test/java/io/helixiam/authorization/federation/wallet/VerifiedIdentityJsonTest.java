@@ -149,4 +149,53 @@ class VerifiedIdentityJsonTest {
                 .satisfies(e -> assertThat(((WalletVerificationException) e).code())
                         .isEqualTo(WalletErrorCode.INVALID_RESPONSE));
     }
+
+    // ------------------------------------------------------------------------------------------- Task 21b: link
+
+    @Test
+    void aLinkRecord_roundTripsANumberWithItsTuple_aNumberAlone_aTuple_andUnavailable() {
+        for (final WalletSubject subject : java.util.List.<WalletSubject>of(
+                new WalletSubject.AdminNumber("aa11", "bb22"), new WalletSubject.AdminNumber("aa11", null),
+                new WalletSubject.Tuple("cc33"),
+                new WalletSubject.Unavailable(WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED))) {
+            assertThat(VerifiedIdentityJson.readLink(VerifiedIdentityJson.writeLink(subject))).isEqualTo(subject);
+        }
+    }
+
+    @Test
+    void aLinkRecord_holdsOnlyTheSubjectHashes_noIdentity() {
+        final String json = VerifiedIdentityJson.writeLink(new WalletSubject.AdminNumber("aa11", "bb22"));
+
+        assertThat(json).doesNotContain("externalSubject").doesNotContain("decision").contains("\"attributes\":{}");
+    }
+
+    @Test
+    void aLinkRecord_isNeverALogin_andALoginRecordIsNeverALink() {
+        final String link = VerifiedIdentityJson.writeLink(new WalletSubject.Tuple("cc33"));
+        final String login = VerifiedIdentityJson.write(new BrokeredIdentity("eudi-wallet", "sub-1", null, false,
+                Map.of(), null), new WalletLinkService.Decision.Existing("user-1"));
+
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLogin("eudi-wallet", link))
+                .isInstanceOf(WalletVerificationException.class);
+        assertThatThrownBy(() -> VerifiedIdentityJson.read("eudi-wallet", link))
+                .isInstanceOf(WalletVerificationException.class);
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLink(login)).isInstanceOf(WalletVerificationException.class);
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLink(null)).isInstanceOf(WalletVerificationException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"link\":{\"kind\":\"number\"}}",
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"link\":{\"kind\":\"number\",\"subject\":\"\"}}",
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"link\":{\"kind\":\"tuple\",\"subject\":\"a\",\"tuple\":\"b\"}}",
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"link\":{\"kind\":\"unavailable\",\"reason\":\"NOPE\"}}",
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"link\":{\"kind\":\"email\",\"subject\":\"a\"}}",
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{\"given_name\":\"Erika\"},\"link\":{\"kind\":\"tuple\",\"subject\":\"a\"}}",
+            "{\"v\":1,\"externalSubject\":\"x\",\"emailVerified\":false,\"attributes\":{},\"link\":{\"kind\":\"tuple\",\"subject\":\"a\"}}",
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"link\":{\"kind\":\"tuple\",\"subject\":\"a\"},\"decision\":{\"kind\":\"provision\"}}",
+            "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"link\":\"tuple\"}"
+    })
+    void readLink_refusesAnythingButTheExactLinkShape(final String json) {
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLink(json)).isInstanceOf(WalletVerificationException.class);
+    }
 }

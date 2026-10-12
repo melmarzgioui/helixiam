@@ -445,6 +445,7 @@
                                 <include>io/helixiam/e2e/browser/RegistrationReturnBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/RegistrationVerificationBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/WalletLoginBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/WalletLinkBrowserE2eTest.java</include>
                             </includes>
                             <systemPropertyVariables>
                                 <helix.iam.session-store>queue</helix.iam.session-store>

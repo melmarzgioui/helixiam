@@ -38,6 +38,18 @@ import java.util.Set;
  * {@link #readLogin}). A refused login stores no identity at all ({@code externalSubject} and every attribute absent):
  * nothing of the PID is kept for a login that cannot happen.
  *
+ * <p><b>Task 21b: a link record.</b> A {@code LINK} transaction (account console) stores no identity and no decision,
+ * only the resolved subject's hashes, for the console's callback to link:
+ * <pre>{@code
+ * {"v": 1, "emailVerified": false, "attributes": {}, "link": <link>}
+ *
+ * <link> = {"kind": "number", "subject": "<hex>", "tuple": "<hex>"?}
+ *        | {"kind": "tuple", "subject": "<hex>"}
+ *        | {"kind": "unavailable", "reason": "<WalletSubject.Reason name>"}
+ * }</pre>
+ * ({@link #writeLink}, {@link #readLink}). A link record is never a login ({@link #read} and {@link #readLogin} refuse
+ * it) and a login record is never a link.
+ *
  * <p>The provider alias is not stored: the reading provider supplies it. Reading is strict ({@link StrictJson}: no
  * duplicate members) and refuses unknown members, a wrong version, a blank subject and non-string attribute values, so
  * a corrupted record never becomes a login. It never holds the {@code vp_token} or disclosures.
@@ -48,12 +60,16 @@ public final class VerifiedIdentityJson {
     public static final int VERSION = 1;
 
     private static final Set<String> MEMBERS = Set.of("v", "externalSubject", "email", "emailVerified", "attributes",
-            "levelOfAssurance", "decision");
+            "levelOfAssurance", "decision", "link");
     private static final Set<String> PENDING_LINK_MEMBERS = Set.of("realmId", "alias", "subject", "userId");
     private static final String KIND = "kind";
     private static final String EXISTING = "existing";
     private static final String PROVISION = "provision";
     private static final String REFUSED = "refused";
+    private static final String LINK = "link";
+    private static final String NUMBER = "number";
+    private static final String TUPLE = "tuple";
+    private static final String UNAVAILABLE = "unavailable";
 
     /**
      * A stored wallet login: the mapped identity ({@code null} for a {@link WalletLinkService.Decision.Refused}) and
@@ -93,6 +109,73 @@ public final class VerifiedIdentityJson {
         }
         node.set("decision", decisionNode(decision));
         return toJson(node);
+    }
+
+    /**
+     * Task 21b: the JSON for a verified LINK transaction: only the resolved {@code subject} (its HMAC values, or why
+     * there is none), no identity and no decision.
+     */
+    public static String writeLink(final WalletSubject subject) {
+        java.util.Objects.requireNonNull(subject, "subject");
+        final ObjectNode node = JsonNodeFactory.instance.objectNode();
+        node.put("v", VERSION);
+        node.put("emailVerified", false);
+        node.putObject("attributes");
+        final ObjectNode link = node.putObject(LINK);
+        switch (subject) {
+            case WalletSubject.AdminNumber number -> {
+                link.put(KIND, NUMBER);
+                link.put("subject", number.value());
+                if (number.tupleValue() != null) {
+                    link.put(TUPLE, number.tupleValue());
+                }
+            }
+            case WalletSubject.Tuple tuple -> {
+                link.put(KIND, TUPLE);
+                link.put("subject", tuple.value());
+            }
+            case WalletSubject.Unavailable unavailable -> {
+                link.put(KIND, UNAVAILABLE);
+                link.put("reason", unavailable.reason().name());
+            }
+        }
+        return toJson(node);
+    }
+
+    /**
+     * Task 21b: the subject stored in a link record ({@link #writeLink}).
+     *
+     * @throws WalletVerificationException {@code INVALID_RESPONSE} when {@code json} is not exactly a link record
+     */
+    public static WalletSubject readLink(final String json) {
+        final JsonNode node = parse(json);
+        if (!node.has(LINK) || node.has("decision") || node.has("externalSubject") || node.has("email")
+                || node.has("levelOfAssurance") || node.get("attributes").size() != 0) {
+            throw invalid();
+        }
+        final JsonNode link = node.get(LINK);
+        if (!link.isObject() || !link.path(KIND).isTextual()) {
+            throw invalid();
+        }
+        return switch (link.get(KIND).asText()) {
+            case NUMBER -> {
+                onlyMembers(link, Set.of(KIND, "subject", TUPLE));
+                yield new WalletSubject.AdminNumber(text(link, "subject"), link.has(TUPLE) ? text(link, TUPLE) : null);
+            }
+            case TUPLE -> {
+                onlyMembers(link, Set.of(KIND, "subject"));
+                yield new WalletSubject.Tuple(text(link, "subject"));
+            }
+            case UNAVAILABLE -> {
+                onlyMembers(link, Set.of(KIND, "reason"));
+                try {
+                    yield new WalletSubject.Unavailable(WalletSubject.Reason.valueOf(text(link, "reason")));
+                } catch (final IllegalArgumentException e) {
+                    throw invalid();
+                }
+            }
+            default -> throw invalid();
+        };
     }
 
     private static ObjectNode identityNode(final BrokeredIdentity identity) {
@@ -152,6 +235,9 @@ public final class VerifiedIdentityJson {
      */
     public static BrokeredIdentity read(final String idpAlias, final String json) {
         final JsonNode node = parse(json);
+        if (node.has(LINK)) {
+            throw invalid();
+        }
         return identity(idpAlias, node);
     }
 
@@ -163,7 +249,7 @@ public final class VerifiedIdentityJson {
      */
     public static StoredLogin readLogin(final String idpAlias, final String json) {
         final JsonNode node = parse(json);
-        if (!node.has("decision")) {
+        if (!node.has("decision") || node.has(LINK)) {
             throw invalid();
         }
         final WalletLinkService.Decision decision = decision(node.get("decision"));

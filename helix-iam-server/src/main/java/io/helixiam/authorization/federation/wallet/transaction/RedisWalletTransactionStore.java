@@ -85,6 +85,9 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
     private static final String FAILURE = "failure";
     private static final String CREATED_AT = "createdAt";
     private static final String EXPIRES_AT = "expiresAt";
+    /** Task 21b; absent on a transaction written before it, which reads back as LOGIN. */
+    private static final String PURPOSE = "purpose";
+    private static final String LINK_USER = "linkUser";
 
     /** Shared prologue: KEYS[1] is the hash, ARGV[1] is now (epoch ms). Returns false when absent or expired. */
     private static final String LIVE = """
@@ -231,6 +234,8 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
         put(args, STATUS, Status.CREATED.name());
         put(args, CREATED_AT, tx.createdAt() == null ? null : Long.toString(tx.createdAt().toEpochMilli()));
         put(args, EXPIRES_AT, Long.toString(tx.expiresAt().toEpochMilli()));
+        put(args, PURPOSE, tx.purpose().name());
+        put(args, LINK_USER, tx.initiatingUserId());
 
         final Long created = redis.execute(CREATE, List.of(TX_PREFIX + tx.transactionId()), args.toArray());
         if (created == null || created != 1L) {
@@ -399,7 +404,10 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
                 f.get(FLOW) == null ? null : Flow.valueOf(f.get(FLOW)), Status.valueOf(f.get(STATUS)), null,
                 decrypt(f.get(IDENTITY)), f.get(FAILURE) == null ? null : WalletErrorCode.valueOf(f.get(FAILURE)),
                 f.get(CREATED_AT) == null ? null : Instant.ofEpochMilli(Long.parseLong(f.get(CREATED_AT))),
-                Instant.ofEpochMilli(Long.parseLong(f.get(EXPIRES_AT))));
+                Instant.ofEpochMilli(Long.parseLong(f.get(EXPIRES_AT))),
+                f.get(PURPOSE) == null ? WalletTransaction.Purpose.LOGIN
+                        : WalletTransaction.Purpose.valueOf(f.get(PURPOSE)),
+                f.get(LINK_USER));
     }
 
     private String now() {

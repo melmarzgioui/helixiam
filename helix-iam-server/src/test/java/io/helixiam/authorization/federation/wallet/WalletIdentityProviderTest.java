@@ -316,6 +316,130 @@ class WalletIdentityProviderTest {
         provider().logout(new IdentityProvider.LogoutContext(REALM, "user-1"));
     }
 
+    // ------------------------------------------------------------------------------------------- Task 21b: link
+
+    /** Runs the wallet half of a same-device transaction with a stored link record; returns the response code. */
+    private String verifiedLinkCode(final String transactionId, final WalletSubject subject) {
+        final WalletTransaction tx = store.byTransactionId(transactionId).orElseThrow();
+        assertThat(store.claimRequest(tx.sameDeviceRequestId())).isPresent();
+        assertThat(store.claimResponse(tx.responseId())).isPresent();
+        final String code = "code-" + transactionId;
+        assertThat(store.complete(transactionId, code, VerifiedIdentityJson.writeLink(subject))).isTrue();
+        return code;
+    }
+
+    @Test
+    void startLink_persistsALinkTransactionOfThatUser_andSendsTheBrowserToTheSameWalletPage() {
+        final IdentityProvider.RedirectResponse redirect = provider().startLink(startContext(binding("b")), "user-7");
+
+        assertThat(redirect.location()).startsWith("/broker/eudi-wallet/wallet?tx=");
+        final WalletTransaction tx = store.byTransactionId(txId(redirect)).orElseThrow();
+        assertThat(tx.purpose()).isEqualTo(WalletTransaction.Purpose.LINK);
+        assertThat(tx.initiatingUserId()).isEqualTo("user-7");
+        assertThat(tx.realmId()).isEqualTo(REALM);
+        assertThat(redirect.parameters()).containsEntry(WalletIdentityProvider.TRANSACTION_PARAM, tx.transactionId());
+    }
+
+    @Test
+    void aLoginStart_isPurposeLogin() {
+        final WalletTransaction tx = store.byTransactionId(txId(provider().start(startContext(binding("b")))))
+                .orElseThrow();
+
+        assertThat(tx.purpose()).isEqualTo(WalletTransaction.Purpose.LOGIN);
+        assertThat(tx.initiatingUserId()).isNull();
+    }
+
+    @Test
+    void startLink_needsAUser_aBinding_andTheProvidersOwnRealm() {
+        final WalletIdentityProvider provider = provider();
+
+        assertThatThrownBy(() -> provider.startLink(startContext(binding("b")), " "))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> provider.startLink(startContext(null), "user-7"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> provider.startLink(new IdentityProvider.AuthnRequestContext("other-realm", STATE,
+                null, binding("b")), "user-7")).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void servesRealm_aStoredProviderOnlyItsOwn_aYamlProviderEvery() {
+        assertThat(provider().servesRealm(REALM)).isTrue();
+        assertThat(provider().servesRealm("other-realm")).isFalse();
+        assertThat(provider().servesRealm(null)).isFalse();
+        final TestAccessKeys masterKeys = new TestAccessKeys(ACCESS, "eudi-access", "master");
+        final Map<String, String> stored = valid();
+        stored.put("accessKeyRef", masterKeys.ref("master"));
+        final WalletIdentityProvider yaml = providers(masterKeys, DeploymentProfile.production())
+                .buildFromYaml(config(stored));
+        assertThat(yaml.servesRealm("other-realm")).isTrue();
+    }
+
+    @Test
+    void redeemLink_returnsTheResolvedSubjectAndTheInitiatingUser() {
+        final WalletIdentityProvider provider = provider();
+        final String bindingHash = binding("browser");
+        final WalletSubject subject = new WalletSubject.AdminNumber("aa11", "bb22");
+        final String code = verifiedLinkCode(txId(provider.startLink(startContext(bindingHash), "user-7")), subject);
+
+        final WalletIdentityProvider.LinkRedemption redeemed = provider.redeemLink(callbackContext(
+                Map.of("response_code", code), STATE, bindingHash));
+
+        assertThat(redeemed.initiatingUserId()).isEqualTo("user-7");
+        assertThat(redeemed.subject()).isEqualTo(subject);
+    }
+
+    @Test
+    void aLinkTransaction_isNeverASignIn_throughTheLoginCallbackOrRedeem() {
+        final WalletIdentityProvider provider = provider();
+        final String bindingHash = binding("browser");
+        final String code = verifiedLinkCode(txId(provider.startLink(startContext(bindingHash), "user-7")),
+                new WalletSubject.Tuple("cc33"));
+        final String code2 = verifiedLinkCode(txId(provider.startLink(startContext(bindingHash), "user-7")),
+                new WalletSubject.Tuple("cc33"));
+
+        assertRefused(() -> provider.callback(callbackContext(Map.of("response_code", code), STATE, bindingHash)),
+                WalletErrorCode.INVALID_RESPONSE);
+        assertRefused(() -> provider.redeem(callbackContext(Map.of("response_code", code2), STATE, bindingHash)),
+                WalletErrorCode.INVALID_RESPONSE);
+    }
+
+    @Test
+    void aLoginTransaction_isNeverALink() {
+        final WalletIdentityProvider provider = provider();
+        final String bindingHash = binding("browser");
+        final String code = verifiedCode(txId(provider.start(startContext(bindingHash))), identity());
+
+        assertRefused(() -> provider.redeemLink(callbackContext(Map.of("response_code", code), STATE, bindingHash)),
+                WalletErrorCode.INVALID_RESPONSE);
+    }
+
+    @Test
+    void redeemLink_withAWrongStateOrBrowser_isRefused() {
+        final WalletIdentityProvider provider = provider();
+        final String bindingHash = binding("browser");
+        final String code = verifiedLinkCode(txId(provider.startLink(startContext(bindingHash), "user-7")),
+                new WalletSubject.Tuple("cc33"));
+
+        assertRefused(() -> provider.redeemLink(callbackContext(Map.of("response_code", code), "other", bindingHash)),
+                WalletErrorCode.REPLAY);
+        assertRefused(() -> provider.redeemLink(callbackContext(Map.of("response_code", code), STATE,
+                binding("attacker"))), WalletErrorCode.REPLAY);
+        assertThat(provider.redeemLink(callbackContext(Map.of("response_code", code), STATE, bindingHash))
+                .initiatingUserId()).as("refusals do not burn the code").isEqualTo("user-7");
+    }
+
+    @Test
+    void theCallbackPath_dependsOnThePurpose() {
+        final WalletIdentityProvider provider = provider();
+        final WalletTransaction login = store.byTransactionId(txId(provider.start(startContext(binding("b")))))
+                .orElseThrow();
+        final WalletTransaction link = store.byTransactionId(txId(provider.startLink(startContext(binding("b")),
+                "user-7"))).orElseThrow();
+
+        assertThat(WalletIdentityProvider.callbackPath(login)).isEqualTo("/broker/eudi-wallet/callback");
+        assertThat(WalletIdentityProvider.callbackPath(link)).isEqualTo("/account/wallet/eudi-wallet/callback");
+    }
+
     // ------------------------------------------------------------------------------------------------ Task 18 view
 
     @Test
