@@ -100,6 +100,27 @@ class FederatedIdentityServiceTest {
         assertThat(saved.getValue().getUsername()).isEqualTo("123456782"); // BSN-derived, not null
     }
 
+    /**
+     * Task 22 fix round 1 (Critical #2): the mapped username is the eID BSN/PersonIdentifier or the EUDI wallet
+     * subject HMAC for this fallback path — never logged, even though the generated user id still is.
+     */
+    @Test
+    void provisionUser_neverLogsTheMappedUsername() throws Exception {
+        when(users.save(any(UserCredentials.class))).thenAnswer(inv -> {
+            final UserCredentials u = inv.getArgument(0);
+            final Field field = UserCredentials.class.getDeclaredField("userId");
+            field.setAccessible(true);
+            field.set(u, "new-user-2");
+            return u;
+        });
+
+        try (io.helixiam.testsupport.LogCapture log = io.helixiam.testsupport.LogCapture.of(FederatedIdentityService.class)) {
+            service.provisionUser(null, Map.of("username", "123456782", "firstName", "Ada"));
+
+            assertThat(log.text()).contains("new-user-2").doesNotContain("123456782").doesNotContain("Ada");
+        }
+    }
+
     @Test
     void findLinkedUser_delegatesToTheLinkService() {
         when(links.findLinkedUser("google", "sub-1")).thenReturn(Optional.of("user-7"));

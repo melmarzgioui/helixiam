@@ -92,6 +92,25 @@ public final class WalletE2eFixture {
                 WalletProviderConfig.fromStored(alias, "EU Digital Identity Wallet", config));
     }
 
+    /** Task 22 fix round 1: the stored-provider settings for {@code mso_mdoc} only (the same PID issuer/trust). */
+    public Map<String, String> storedConfigMdoc(final String keyRef) {
+        final Map<String, String> config = new LinkedHashMap<>();
+        config.put("accessKeyRef", keyRef);
+        config.put("trustAnchors", wallet.pki().rootPem());
+        config.put("revocationChecking", "OFF");
+        config.put("credentialFormats", "[\"mso_mdoc\"]");
+        return config;
+    }
+
+    /** Task 22 fix round 1: a validated STORED provider that only accepts {@code mso_mdoc} presentations. */
+    public WalletIdentityProvider storedProviderMdoc(final String realm, final String alias,
+                                                     final Map<String, String> extra) {
+        final Map<String, String> config = storedConfigMdoc(importAccessKey(realm));
+        config.putAll(extra);
+        return context.getBean(WalletIdentityProviders.class).build(realm,
+                WalletProviderConfig.fromStored(alias, "EU Digital Identity Wallet", config));
+    }
+
     /** Makes {@code providers} the server's store-backed providers (replacing any earlier set). */
     public void install(final IdentityProvider... providers) {
         context.getBean(IdentityProviderRegistry.class).reload(List.of(providers));
@@ -138,9 +157,53 @@ public final class WalletE2eFixture {
     /** POSTs the encrypted Authorization Response ({@code direct_post.jwt}) to the request's {@code response_uri}. */
     public E2eHttp.Response respond(final E2eHttp wallet, final Oid4vpWalletClient.VerifiedRequest request,
                                     final Map<String, Object> claims) {
-        return wallet.postForm(request.responseUri(),
-                Map.of("response", Oid4vpWalletClient.respond(request, vpToken(request, claims))),
+        return respondWith(wallet, request, vpToken(request, claims));
+    }
+
+    /**
+     * Task 22 fix round 1: as {@link #respond}, but with an already-built {@code vp_token} — so a caller that needs
+     * the exact submitted presentation (e.g. to assert a fragment of it is never logged) builds it once with
+     * {@link #vpToken} / {@link #mdocVpToken} and submits that very same value, rather than letting this method build
+     * a second, different one internally (SD-JWT disclosures are salted; a second build never matches the first).
+     */
+    public E2eHttp.Response respondWith(final E2eHttp wallet, final Oid4vpWalletClient.VerifiedRequest request,
+                                        final Map<String, Object> vpToken) {
+        return wallet.postForm(request.responseUri(), Map.of("response", Oid4vpWalletClient.respond(request, vpToken)),
                 "Accept", "application/json");
+    }
+
+    /**
+     * Task 22 fix round 1: the {@code mso_mdoc} {@code vp_token} for {@code request}: the PID {@code claims} as one
+     * Document, device-signed over the OpenID4VP redirect SessionTranscript (built independently of production code,
+     * like {@code MdocPresentationVerifierTest}'s own transcript helper).
+     */
+    public Map<String, Object> mdocVpToken(final Oid4vpWalletClient.VerifiedRequest request,
+                                           final Map<String, Object> claims) {
+        final Instant now = Instant.now();
+        final TestWallet.MdocCredential credential = wallet.mdocPid(claims, now.minusSeconds(3600),
+                now.minusSeconds(3600), now.plusSeconds(3600), Optional.empty());
+        final byte[] thumbprint = request.encryptionKey() == null ? null : thumbprint(request.encryptionKey());
+        final byte[] transcript = sessionTranscript(request.clientId(), request.nonce(), thumbprint,
+                request.responseUri());
+        final byte[] deviceResponse = TestWallet.mdocDeviceResponse(credential, claims.keySet(), transcript);
+        return Map.of("pid_mdoc", List.of(TestWallet.b64url(deviceResponse)));
+    }
+
+    /** RFC 7638 SHA-256 thumbprint of the response-encryption public key (the mdoc handover input). */
+    private static byte[] thumbprint(final com.nimbusds.jose.jwk.ECKey key) {
+        try {
+            return key.toPublicJWK().computeThumbprint("SHA-256").decode();
+        } catch (final com.nimbusds.jose.JOSEException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** The OpenID4VP redirect SessionTranscript (Annex B), written independently of production code. */
+    private static byte[] sessionTranscript(final String clientId, final String nonce, final byte[] thumbprint,
+                                             final String responseUri) {
+        final byte[] info = TestWallet.cbor(java.util.Arrays.asList(clientId, nonce, thumbprint, responseUri));
+        return TestWallet.cbor(java.util.Arrays.asList(null, null,
+                List.of("OpenID4VPHandover", TestWallet.sha("SHA-256", info))));
     }
 
     /** The cross-device invocation URL the wallet page's QR code encodes (decoded with ZXing). */

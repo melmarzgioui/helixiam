@@ -115,9 +115,11 @@ public class WalletLinkService {
                 || claimed.status() == FederatedLinkClaimResult.Status.USER_NOT_IN_REALM) {
             return Optional.empty();
         }
-        LOG.info("wallet: committed number link, realm={} alias={} user={} subject={} status={}",
+        // Task 22 fix round 1: never pending.subject() — it is the number's HMAC ("the subject hash"), which must
+        // never reach the logs even though it is not the raw PID value.
+        LOG.info("wallet: committed number link, realm={} alias={} user={} status={}",
                 LogSafe.sanitize(pending.realmId()), LogSafe.sanitize(pending.alias()),
-                LogSafe.sanitize(claimed.ownerUserId()), pending.subject(), claimed.status());
+                LogSafe.sanitize(claimed.ownerUserId()), claimed.status());
         return Optional.ofNullable(claimed.ownerUserId());
     }
 
@@ -158,8 +160,9 @@ public class WalletLinkService {
         requireText(alias, "alias");
         final LinkResult result = claim(realmId, userId, alias, value).orElseThrow(
                 () -> new IllegalArgumentException("The user does not belong to this realm"));
-        LOG.info("wallet: link realm={} alias={} user={} subject={} result={}", LogSafe.sanitize(realmId),
-                LogSafe.sanitize(alias), LogSafe.sanitize(userId), value, result);
+        // Task 22 fix round 1: never value — the subject HMAC, same reason as commitPendingLink above.
+        LOG.info("wallet: link realm={} alias={} user={} result={}", LogSafe.sanitize(realmId),
+                LogSafe.sanitize(alias), LogSafe.sanitize(userId), result);
         return result;
     }
 

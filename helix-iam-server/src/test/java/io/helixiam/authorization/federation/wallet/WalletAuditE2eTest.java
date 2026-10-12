@@ -202,6 +202,38 @@ class WalletAuditE2eTest {
         assertThat(event.detail()).containsEntry("reason", "REPLAY");
     }
 
+    /** Task 22 fix round 1 (Important #3): the same sibling treatment as the REPLAY branch just above it. */
+    @Test
+    void malformedFormBeforeAnyClaim_isFailed_andAudited() {
+        final WalletIdentityProvider provider = provider();
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(provider, WalletTransaction.Flow.CROSS_DEVICE);
+        final Map<String, String[]> repeated = new LinkedHashMap<>();
+        repeated.put("response", new String[] {"a", "b"}); // a repeated single-valued parameter: Form.of(...) is null
+
+        final WalletResponseHandler.Result result = handler.handle(provider, REALM, responseId(request), repeated);
+
+        assertThat(result).isEqualTo(new WalletResponseHandler.Result.Rejected(WalletErrorCode.INVALID_RESPONSE));
+        final AuditEvent event = soleFailureEvent();
+        assertThat(event.detail()).containsEntry("reason", "INVALID_RESPONSE").containsEntry("alias", ALIAS)
+                .doesNotContainKey("transactionId");
+    }
+
+    /** Task 22 fix round 1 (Critical #1): the one store.fail() in this class that was not matched by an audit.emit(). */
+    @Test
+    void responseForAnotherRealmOrProvider_isFailed_andAudited() {
+        final WalletIdentityProvider provider = provider();
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(provider, WalletTransaction.Flow.CROSS_DEVICE);
+
+        final WalletResponseHandler.Result result = handler.handle(provider, "another-realm", responseId(request),
+                form("response", Oid4vpWalletClient.respond(request, vpToken(request))));
+
+        assertThat(result).isEqualTo(new WalletResponseHandler.Result.NotFound());
+        final AuditEvent event = soleFailureEvent();
+        assertThat(event.detail()).containsEntry("reason", "INVALID_RESPONSE").containsEntry("alias", ALIAS)
+                .containsKey("transactionId");
+        assertThat(event.realm()).isEqualTo("another-realm");
+    }
+
     @Test
     void transactionExpiredBetweenClaimAndComplete_isFailed_andAudited() {
         final WalletIdentityProvider real = provider();

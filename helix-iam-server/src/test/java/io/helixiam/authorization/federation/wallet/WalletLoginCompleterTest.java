@@ -254,24 +254,86 @@ class WalletLoginCompleterTest {
 
     @Test
     void provision_isRefused_whenTheRealmDoesNotProvision() {
-        final String view = walletCompleter(new AccountLinkingPolicy(true, false)).complete(ALIAS,
-                new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
-                null, request, response);
+        final VerifiedIdentityJson.StoredLogin login = new VerifiedIdentityJson.StoredLogin(identity(),
+                new WalletLinkService.Decision.Provision()).withTransactionId("tx-1");
+
+        final String view = walletCompleter(new AccountLinkingPolicy(true, false)).complete(ALIAS, login, null,
+                request, response);
 
         assertThat(view).isEqualTo("redirect:/broker/" + ALIAS + "/wallet/link?reason=link_required");
         verifyNoInteractions(store, users, completer);
+        // Task 22 fix round 1: a presentation that was verified but can never create an account is still a FAILED
+        // login, not a silent non-event.
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().type()).isEqualTo("WALLET_LOGIN_FAILURE");
+        assertThat(event.getValue().detail()).containsEntry("reason", "SUBJECT_UNAVAILABLE")
+                .containsEntry("transactionId", "tx-1").containsEntry("alias", ALIAS);
     }
 
     @Test
     void refused_sendsTheUserToTheLinkExplanation() {
-        final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
-                new VerifiedIdentityJson.StoredLogin(null,
-                        new WalletLinkService.Decision.Refused(WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED)),
-                null, request, response);
+        final VerifiedIdentityJson.StoredLogin login = new VerifiedIdentityJson.StoredLogin(null,
+                new WalletLinkService.Decision.Refused(WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED));
+
+        final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS, login, null, request,
+                response);
 
         assertThat(view).isEqualTo("redirect:/broker/" + ALIAS
                 + "/wallet/link?reason=weak_subject_not_acknowledged");
         verifyNoInteractions(store, users, completer);
+        // Task 22 fix round 1: same as above — a verified-but-refused presentation audits a failure.
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().type()).isEqualTo("WALLET_LOGIN_FAILURE");
+        assertThat(event.getValue().detail()).containsEntry("reason", "SUBJECT_UNAVAILABLE");
+    }
+
+    /**
+     * Task 22 fix round 1 (Critical #1): even the race's loser, when the winner cannot be found either (a bug/race
+     * edge case), must end in exactly one audit event.
+     */
+    @Test
+    void provision_losingTheLinkRace_andTheWinnerCannotBeFoundEither_stillAuditsAFailure() {
+        when(store.provisionUser(any(), any())).thenReturn("loser");
+        when(links.link(eq(REALM), eq("loser"), eq(ALIAS), any()))
+                .thenReturn(WalletLinkService.LinkResult.LINKED_TO_ANOTHER_USER);
+        when(links.find(eq(REALM), eq(ALIAS), any())).thenReturn(Optional.empty());
+
+        final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
+                new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
+                null, request, response);
+
+        assertThat(view).isEqualTo("redirect:/login?error=federation");
+        verify(users).delete(new UserAdminRef(REALM, "loser"));
+        final ArgumentCaptor<AuditEvent> events = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit, org.mockito.Mockito.times(2)).emit(events.capture());
+        assertThat(events.getAllValues().stream().filter(e -> "WALLET_LOGIN_FAILURE".equals(e.type())).findFirst())
+                .as("the login itself failed, not just the delete")
+                .hasValueSatisfying(e -> assertThat(e.detail()).containsEntry("reason", "INVALID_RESPONSE"));
+    }
+
+    /**
+     * Task 22 fix round 1 (Critical #1): when the shared {@link FederatedLoginCompleter} itself fails the post-broker
+     * flow (its own {@code LOGIN_ERROR_VIEW}, e.g. a pending-commit refused), the wallet login must still audit
+     * exactly one failure, not zero.
+     */
+    @Test
+    void existing_whenTheSharedCompleterItselfFails_auditsAFailure_notASuccess() {
+        when(completer.complete("user-7", LOA, request, response, null))
+                .thenReturn(FederatedLoginCompleter.LOGIN_ERROR_VIEW);
+        final VerifiedIdentityJson.StoredLogin login = new VerifiedIdentityJson.StoredLogin(identity(),
+                new WalletLinkService.Decision.Existing("user-7")).withTransactionId("tx-9");
+
+        final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS, login, null, request,
+                response);
+
+        assertThat(view).isEqualTo(FederatedLoginCompleter.LOGIN_ERROR_VIEW);
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().type()).isEqualTo("WALLET_LOGIN_FAILURE");
+        assertThat(event.getValue().detail()).containsEntry("reason", "INVALID_RESPONSE")
+                .containsEntry("transactionId", "tx-9");
     }
 
     @Test

@@ -101,7 +101,10 @@ public class WalletLoginCompleter {
                             existing.pendingNumberLink(), realm, alias, login);
             case WalletLinkService.Decision.Provision provision -> provision(realm, alias, login, mapperConfig,
                     request, response);
-            case WalletLinkService.Decision.Refused refused -> linkPage(alias, refused.reason());
+            // Task 22 fix round 1: a cryptographically VERIFIED presentation refused at completion (the account-
+            // linking policy says no account can be resolved) is still a failed login, not a silent non-event.
+            case WalletLinkService.Decision.Refused refused -> failed(linkPage(alias, refused.reason()), realm, alias,
+                    login, WalletErrorCode.SUBJECT_UNAVAILABLE);
         };
     }
 
@@ -111,7 +114,8 @@ public class WalletLoginCompleter {
         final BrokeredIdentity identity = login.identity();
         if (!policy.jitProvision()) {
             // the policy changed since the presentation was verified
-            return linkPage(alias, WalletSubject.Reason.LINK_REQUIRED);
+            return failed(linkPage(alias, WalletSubject.Reason.LINK_REQUIRED), realm, alias, login,
+                    WalletErrorCode.SUBJECT_UNAVAILABLE);
         }
         final WalletSubject.AdminNumber subject = new WalletSubject.AdminNumber(identity.externalSubject(), null);
         final Map<String, String> attributes = new HashMap<>(attributeMapper.map(identity));
@@ -155,14 +159,17 @@ public class WalletLoginCompleter {
                         "idpAlias", alias)));
         LOG.info("wallet: number already linked by a concurrent login; removed the fresh user {} in realm {}",
                 LogSafe.sanitize(created), LogSafe.sanitize(realm));
+        // Task 22 fix round 1: even the rare case where the race's winner cannot be found either (a bug/race edge
+        // case) must still end in exactly one audit event, not zero.
         return owner.map(userId -> completeLogin(userId, identity.levelOfAssurance(), request, response, null, realm,
-                alias, login)).orElse(LOGIN_ERROR);
+                alias, login)).orElseGet(() -> failed(LOGIN_ERROR, realm, alias, login, WalletErrorCode.INVALID_RESPONSE));
     }
 
     /**
-     * Task 22: delegates to the shared {@link FederatedLoginCompleter}, then — only when it actually reached a
-     * completed login (not a failed or still-pending step-up one, told apart by its return view) — emits
-     * {@code WALLET_LOGIN_SUCCESS}. {@code actor} is the resolved local user id, never a PID value.
+     * Task 22: delegates to the shared {@link FederatedLoginCompleter}, then — depending on what it actually
+     * reached — emits exactly one audit event: {@code WALLET_LOGIN_SUCCESS} for a completed login,
+     * {@code WALLET_LOGIN_FAILURE} (via {@link #failed}) for a FAILED one, or nothing yet for a still-pending
+     * step-up (told apart by the returned view). {@code actor} is the resolved local user id, never a PID value.
      */
     private String completeLogin(final String userId, final String acr, final HttpServletRequest request,
                                  final HttpServletResponse response, final java.io.Serializable pendingCommit,
@@ -172,14 +179,32 @@ public class WalletLoginCompleter {
         if (isCompletedLogin(view)) {
             audit.emit(WalletLoginAudit.success(realm, userId, login.transactionId(), alias, login.format(),
                     login.issuerDn()));
+            return view;
         }
-        return view;
+        // Task 22 fix round 1: the shared completer's own FAILED view (e.g. a pending commit refused, or the
+        // post-broker flow itself failing) used to leave this wallet login with zero audit events.
+        return failed(view, realm, alias, login, WalletErrorCode.INVALID_RESPONSE);
     }
 
     /** A completed login's view is neither the shared failure redirect nor the pending-step-up one. */
     private static boolean isCompletedLogin(final String view) {
         return view != null && !view.equals(FederatedLoginCompleter.LOGIN_ERROR_VIEW)
                 && !view.equals(FederatedLoginCompleter.STEP_UP_VIEW);
+    }
+
+    /**
+     * Task 22 fix round 1: the ONE place every non-success exit from completing a wallet login must route through —
+     * so a future refusal added to this class cannot silently skip the audit. Emits {@code WALLET_LOGIN_FAILURE}
+     * unless {@code view} is the still-pending step-up one (neither a success nor a failure yet: {@link
+     * #completeLogin} will audit it when the step-up itself resolves). Always returns {@code view} unchanged.
+     */
+    private String failed(final String view, final String realm, final String alias,
+                          final VerifiedIdentityJson.StoredLogin login, final WalletErrorCode code) {
+        if (!FederatedLoginCompleter.STEP_UP_VIEW.equals(view)) {
+            audit.emit(WalletLoginAudit.failure(realm, login.transactionId(), alias, login.format(), login.issuerDn(),
+                    code));
+        }
+        return view;
     }
 
     /** 8 random bytes as 16 lower-case hex characters. */

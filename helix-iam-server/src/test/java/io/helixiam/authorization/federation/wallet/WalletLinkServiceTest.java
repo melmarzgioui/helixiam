@@ -437,4 +437,29 @@ class WalletLinkServiceTest extends AbstractE2eTest {
                 new WalletSubject.Unavailable(WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED), JIT))
                 .isEqualTo(new WalletLinkService.Decision.Refused(WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED));
     }
+
+    // ------------------------------------------------------------------------------------------------- log hygiene
+
+    /**
+     * Task 22 fix round 1 (Critical #2): the review found the subject hash logged raw at both
+     * {@code link()} ({@code WalletLinkService.java:161-162}) and {@code commitPendingLink()} (:118-119) — mainline
+     * calls ({@code WalletLoginCompleter.provision()} calls {@code link} for every JIT-provisioned user; an upgrade
+     * login's success calls {@code commitPendingLink}), not edge cases.
+     */
+    @Test
+    void neitherLinkNorCommitPendingLink_everLogsTheSubjectHash() {
+        final String erika = user("erika");
+        final WalletSubject tuple = subject("Erika", "Mustermann", null);
+        final WalletSubject number = subject("Erika", "Mustermann", "123");
+        try (io.helixiam.testsupport.LogCapture log = io.helixiam.testsupport.LogCapture.of(WalletLinkService.class)) {
+            links.link(realm, erika, alias, tuple);
+            final WalletLinkService.Decision decision = links.decide(realm, alias, number, JIT);
+            final WalletLinkService.PendingLink pending =
+                    ((WalletLinkService.Decision.Existing) decision).pendingNumberLink();
+            links.commitPendingLink(pending);
+
+            assertThat(log.text()).doesNotContain(value(tuple)).doesNotContain(value(number))
+                    .doesNotContain("Erika").doesNotContain("Mustermann").doesNotContain("123");
+        }
+    }
 }

@@ -122,6 +122,8 @@ public class WalletResponseHandler {
         if (parsed == null) {
             LOG.warn("Wallet response refused before claim: alias={} realm={} reason={}", LogSafe.sanitize(alias),
                     LogSafe.sanitize(realmId), WalletErrorCode.INVALID_RESPONSE.reason());
+            // Task 22 fix round 1: no transaction to name either (the form was refused before any claim).
+            audit.emit(WalletLoginAudit.failure(realmId, null, alias, null, null, WalletErrorCode.INVALID_RESPONSE));
             return new Result.Rejected(WalletErrorCode.INVALID_RESPONSE);
         }
         final WalletTransactionStore store = provider.transactions();
@@ -135,6 +137,10 @@ public class WalletResponseHandler {
         }
         if (!Objects.equals(tx.realmId(), realmId) || !Objects.equals(tx.providerAlias(), alias)) {
             store.fail(tx.transactionId(), WalletErrorCode.INVALID_RESPONSE);
+            // Task 22 fix round 1: every other store.fail() in this method is matched by an audit.emit(); this one
+            // was missing it (a transaction's response posted under the wrong realm/provider).
+            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, null, null,
+                    WalletErrorCode.INVALID_RESPONSE));
             LOG.warn("Wallet response for another realm or provider: alias={} realm={} tx={}", LogSafe.sanitize(alias),
                     LogSafe.sanitize(realmId), tx.transactionId());
             return new Result.NotFound();

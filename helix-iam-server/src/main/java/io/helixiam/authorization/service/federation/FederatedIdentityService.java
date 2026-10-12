@@ -162,7 +162,9 @@ public class FederatedIdentityService {
             link.setUserId(userId);
             memberships.save(link);
         }
-        LOG.info("JIT-provisioned conservative federated user {} ({}) — no roles/tenant", userId, username);
+        // Task 22 fix round 1: never log username — for eID it is BSN/PersonIdentifier (a PID value) and for a
+        // wallet login it is the subject HMAC ("the subject hash"); the generated userId is enough to find it.
+        LOG.info("JIT-provisioned conservative federated user {} — no roles/tenant", userId);
         return userId;
     }
 }
