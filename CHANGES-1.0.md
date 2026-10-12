@@ -42,6 +42,11 @@ question. Newest first within each phase.
   controller, load balancer or the console's nginx, set `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) to the
   addresses the proxy connects from. Otherwise every request appears to come from the proxy and all clients share one
   sign-in rate-limit bucket. `X-Forwarded-Proto`/`-Host` handling is unchanged.
+- **eID** — Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes, not the `urn:nl-eid-gdi` levels, so
+  with the fail-closed minimum above every classic DigiD sign-in against a set minimum (such as the console's `loa3`)
+  would have been refused. The DigiD ladder now also ranks `PasswordProtectedTransport` (Basis),
+  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog). The mapping follows Logius'
+  DigiD koppelvlak documentation and is still to be verified against it; eHerkenning and eIDAS are unchanged.
 
 ## v1.0.0-rc.7 (security hotfix)
 

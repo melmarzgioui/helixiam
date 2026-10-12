@@ -124,4 +124,51 @@ class EidLevelOfAssuranceTest {
         assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, null)).isTrue();
         assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, "  ")).isTrue();
     }
+
+    // --- classic DigiD (Koppelvlak SAML) AuthnContextClassRefs ---------------------------------------
+
+    private static final String PPT = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
+    private static final String MOBILE_2F = "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract";
+    private static final String SMARTCARD = "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard";
+    private static final String SMARTCARD_PKI = "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI";
+
+    @Test
+    void classicDigidClassesSitOnTheDigidLadder() {
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, PPT)).isEqualTo(1);           // Basis
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, MOBILE_2F)).isEqualTo(2);     // Midden
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD)).isEqualTo(3);     // Substantieel
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD_PKI)).isEqualTo(4); // Hoog
+    }
+
+    @Test
+    void classicDigidClassesAgainstConsoleStoredMinimums() {
+        // loa3 (Substantieel), the console default
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, PPT, "loa3")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, MOBILE_2F, "loa3")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD, "loa3")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD_PKI, "loa3")).isTrue();
+        // loa1 / loa2 / loa4
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, PPT, "loa1")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, MOBILE_2F, "loa2")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, PPT, "loa2")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD, "loa4")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD_PKI, "loa4")).isTrue();
+        // A classic class may also be configured as the minimum itself.
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High", SMARTCARD)).isTrue();
+    }
+
+    @Test
+    void classicDigidClassesMeanNothingToEherkenningOrEidas() {
+        for (final String cls : new String[] {PPT, MOBILE_2F, SMARTCARD, SMARTCARD_PKI}) {
+            assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, cls)).isZero();
+            assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, cls)).isZero();
+            assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, cls, "loa2")).isFalse();
+            assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EIDAS, cls, "low")).isFalse();
+            assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.EIDAS, cls)).isFalse();
+        }
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING,
+                "urn:etoegang:core:assurance-class:loa3", "loa3")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EIDAS,
+                "http://eidas.europa.eu/LoA/substantial", "substantial")).isTrue();
+    }
 }

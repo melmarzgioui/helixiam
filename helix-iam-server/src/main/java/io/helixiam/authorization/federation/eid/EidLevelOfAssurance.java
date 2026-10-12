@@ -16,7 +16,9 @@ import java.util.Map;
  *   <li><b>eIDAS</b> — low (1) / substantial (2) / high (3) via {@code http://eidas.europa.eu/LoA/*}.</li>
  *   <li><b>DigiD</b> — the NL eID-stelsel ladder {@code urn:nl-eid-gdi:1.0:LoA:Low|Substantial|High}
  *       (the exact AuthnContextClassRef values are operator/service-catalog driven; DigiD "Midden"
- *       sits between Low and Substantial and is mapped here when present).</li>
+ *       sits between Low and Substantial and is mapped here when present), plus the SAML 2.0 context classes
+ *       classic DigiD asserts: PasswordProtectedTransport (Basis), MobileTwoFactorContract (Midden),
+ *       Smartcard (Substantieel), SmartcardPKI (Hoog).</li>
  *   <li><b>eHerkenning</b> — LoA2 (2) / LoA3 (3) / LoA4 (4) via the {@code urn:etoegang} classes.</li>
  * </ul>
  *
@@ -38,7 +40,13 @@ public final class EidLevelOfAssurance {
                     "urn:nl-eid-gdi:1.0:LoA:Low", 1,            // Basis
                     "urn:nl-eid-gdi:1.0:LoA:Midden", 2,         // Midden
                     "urn:nl-eid-gdi:1.0:LoA:Substantial", 3,    // Substantieel
-                    "urn:nl-eid-gdi:1.0:LoA:High", 4),          // Hoog
+                    "urn:nl-eid-gdi:1.0:LoA:High", 4,           // Hoog
+                    // Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes instead. Per Logius DigiD
+                    // koppelvlak documentation — verify: no source in this repository confirms this mapping.
+                    "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport", 1, // Basis
+                    "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract", 2,    // Midden
+                    "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard", 3,                  // Substantieel
+                    "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI", 4),              // Hoog
             EidScheme.EHERKENNING, Map.of(
                     "urn:etoegang:core:assurance-class:loa2", 2,
                     "urn:etoegang:core:assurance-class:loa2plus", 2,
