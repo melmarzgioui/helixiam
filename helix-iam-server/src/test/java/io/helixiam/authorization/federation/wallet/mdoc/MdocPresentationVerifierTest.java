@@ -229,6 +229,11 @@ class MdocPresentationVerifierTest {
     }
 
     @Test
+    void credentialTypeIsTheDocType() {
+        assertThat(verify(presentAll(pid())).credentialType()).isEqualTo(TestWallet.MDOC_PID_DOCTYPE);
+    }
+
+    @Test
     void undisclosedItemsAreAbsent() {
         final String vp = TestWallet.b64url(TestWallet.mdocDeviceResponse(pid(), Set.of("given_name"), transcript()));
 

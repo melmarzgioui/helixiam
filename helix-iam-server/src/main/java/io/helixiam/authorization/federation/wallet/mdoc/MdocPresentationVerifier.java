@@ -96,6 +96,8 @@ import java.util.regex.Pattern;
  * (integer keys as their decimal text; an integer and a text key that collide are refused). An invalid date, a
  * non-UTC tdate or any other tag in a value is {@code INVALID_RESPONSE}.
  *
+ * <p>The result's {@code credentialType} is the Document's {@code docType}.
+ *
  * <p><b>No disclosure.</b> A Document without {@code issuerSigned.nameSpaces} is valid ISO and verifies with empty
  * claims; DCQL matching (Task 14) must reject a presentation that does not satisfy the query. The issuer identity is the IssuerAuth
  * leaf's subject DN (RFC 2253) and serial (lower-case hex).
@@ -214,7 +216,7 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
         // ---- Status (only after holder binding)
         final String statusResult = checkStatus(mso.status(), ctx);
 
-        return new VerifiedPresentation(FORMAT, Collections.unmodifiableMap(claims),
+        return new VerifiedPresentation(FORMAT, docType, Collections.unmodifiableMap(claims),
                 leaf.getSubjectX500Principal().getName(), leaf.getSerialNumber().toString(16), statusResult);
     }
 

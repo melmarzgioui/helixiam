@@ -394,6 +394,28 @@ class SdJwtVcPresentationVerifierTest {
     }
 
     @Test
+    void credentialTypeIsTheVct() {
+        assertThat(verify(presentAll(wallet, pid(wallet))).credentialType()).isEqualTo(TestWallet.PID_VCT);
+    }
+
+    @Test
+    void nationalVctInTheAcceptedSetIsTheCredentialType() {
+        final TestWallet w = wallet.withVct("urn:eudi:pid:de:1");
+
+        assertThat(verifier().verify(presentAll(w, pid(w)),
+                context(Instant.now(), false, false, Set.of(TestWallet.PID_VCT, "urn:eudi:pid:de:1")))
+                .credentialType()).isEqualTo("urn:eudi:pid:de:1");
+    }
+
+    @Test
+    void credentialAcceptedThroughAkaVctsHasTheAcceptedAkaVctAsCredentialType() {
+        final TestWallet w = wallet.withVct("urn:eudi:pid:xx:1")
+                .withPayloadClaim("aka_vcts", List.of("urn:other:1", TestWallet.PID_VCT));
+
+        assertThat(verify(presentAll(w, pid(w))).credentialType()).isEqualTo(TestWallet.PID_VCT);
+    }
+
+    @Test
     void expiredCredentialIsRefused() {
         final Instant now = Instant.now();
         final SdJwtCredential cred = wallet.sdJwtPid(pidClaims(), now.minusSeconds(7200), now.minusSeconds(61),

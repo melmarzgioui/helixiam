@@ -72,7 +72,8 @@ import java.util.Set;
  *   <li>JWS signature with the leaf key: an {@code alg} that does not fit the key (curve, or EC vs RSA) is
  *       {@code ALGORITHM_NOT_ALLOWED}; a bad signature is {@code ISSUER_SIGNATURE_INVALID};</li>
  *   <li>{@code iss} is OPTIONAL and, when present, must be a string; {@code vct} is REQUIRED (a string) and it or one
- *       of {@code aka_vcts} must be in {@code acceptedVcts} ({@code VCT_NOT_ACCEPTED}); {@code exp} (expired when
+ *       of {@code aka_vcts} must be in {@code acceptedVcts} ({@code VCT_NOT_ACCEPTED}); the first accepted of these
+ *       ({@code vct} before {@code aka_vcts}) is the result's {@code credentialType}; {@code exp} (expired when
  *       {@code now >= exp + skew}: {@code CREDENTIAL_EXPIRED}), {@code nbf} and {@code iat} (in the future beyond the
  *       skew: {@code CREDENTIAL_NOT_YET_VALID}). All three are optional; when present they must be numbers;</li>
  *   <li>disclosures resolved with the payload's {@code _sd_alg} ({@link SdJwtDisclosures}); a claim that SD-JWT VC
@@ -210,7 +211,7 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
         if (payload.containsKey("iss") && !(payload.get("iss") instanceof String)) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "iss is not a string");
         }
-        checkVct(payload, ctx.acceptedVcts());
+        final String credentialType = checkVct(payload, ctx.acceptedVcts());
         checkCredentialTimes(payload, ctx);
 
         // ---- Disclosures
@@ -240,13 +241,15 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
         // ---- Output
         final Map<String, Object> claims = new LinkedHashMap<>(resolved);
         claims.keySet().removeAll(OUTPUT_EXCLUDED);
-        return new VerifiedPresentation(FORMAT, Collections.unmodifiableMap(claims),
+        return new VerifiedPresentation(FORMAT, credentialType, Collections.unmodifiableMap(claims),
                 leaf.getSubjectX500Principal().getName(), leaf.getSerialNumber().toString(16), statusResult);
     }
 
     // ------------------------------------------------------------------------------------------- issuer claims
 
-    private static void checkVct(final Map<String, Object> payload, final Set<String> accepted) {
+    /** Returns the type under which the credential is accepted: its {@code vct} if accepted, else the first accepted
+     *  {@code aka_vcts} entry. */
+    private static String checkVct(final Map<String, Object> payload, final Set<String> accepted) {
         if (!(payload.get("vct") instanceof String vct) || vct.isBlank()) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "vct is missing or not a string");
         }
@@ -263,9 +266,8 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
                 types.add(s);
             }
         }
-        if (types.stream().noneMatch(accepted::contains)) {
-            throw fail(WalletErrorCode.VCT_NOT_ACCEPTED, "credential type is not accepted");
-        }
+        return types.stream().filter(accepted::contains).findFirst()
+                .orElseThrow(() -> fail(WalletErrorCode.VCT_NOT_ACCEPTED, "credential type is not accepted"));
     }
 
     private static void checkCredentialTimes(final Map<String, Object> payload, final VerificationContext ctx) {
