@@ -25,7 +25,8 @@ import com.nimbusds.jwt.SignedJWT;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
 import io.helixiam.authorization.federation.wallet.testwallet.TestPki;
 import io.helixiam.authorization.federation.wallet.testwallet.TestWallet;
-import io.helixiam.authorization.federation.wallet.testwallet.TestWallet.VerifiedRequest;
+import io.helixiam.authorization.federation.wallet.testwallet.Oid4vpWalletClient;
+import io.helixiam.authorization.federation.wallet.testwallet.Oid4vpWalletClient.VerifiedRequest;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction.Flow;
 import io.helixiam.authorization.service.key.SigningKeyHandle;
@@ -224,7 +225,7 @@ class AuthorizationRequestFactoryTest {
         final String jwt = factory.signedRequestObject(tx(), hashConfig(), handle(p384, JWSAlgorithm.ES384), BASE);
 
         assertThat(SignedJWT.parse(jwt).getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.ES384);
-        assertThat(wallet.verifyRequest("x509_hash:" + expectedHash(p384.certificate()), "uri", jwt, NOW).clientId())
+        assertThat(Oid4vpWalletClient.verifyRequest("x509_hash:" + expectedHash(p384.certificate()), "uri", jwt, NOW).clientId())
                 .startsWith("x509_hash:");
     }
 
@@ -373,9 +374,109 @@ class AuthorizationRequestFactoryTest {
     }
 
     @Test
-    void sanDns_refusesAResponseUriOnAnotherHost() {
+    void aTransactionExpiringWithinTheCurrentSecond_isRefused_notRoundedUp() {
+        final WalletTransaction base = tx();
+        final WalletTransaction fractional = expiringAt(base, EXPIRES.plusMillis(999));
+        final AuthorizationRequestFactory lastSecond =
+                new AuthorizationRequestFactory(Clock.fixed(EXPIRES.plusMillis(500), ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> lastSecond.signedRequestObject(fractional, hashConfig(), key, BASE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("expires within the current second");
+    }
+
+    @Test
+    void aTransactionExpiringInTheNextSecond_isSignedWithExpAfterIat() throws Exception {
+        final AuthorizationRequestFactory late =
+                new AuthorizationRequestFactory(Clock.fixed(EXPIRES.minusMillis(500), ZoneOffset.UTC));
+        final JWTClaimsSet claims = SignedJWT.parse(late.signedRequestObject(tx(), hashConfig(), key, BASE))
+                .getJWTClaimsSet();
+
+        assertThat(claims.getExpirationTime()).isAfter(claims.getIssueTime());
+        assertThat(claims.getExpirationTime().toInstant()).isEqualTo(EXPIRES);
+    }
+
+    @Test
+    void aMalformedRequestUriBase_isRefusedWithItsOwnMessage() {
+        for (final WalletProviderConfig cfg : List.of(hashConfig(), sanConfig())) {
+            assertThatThrownBy(() -> factory.signedRequestObject(tx(), cfg, key, "https://exa mple.eu"))
+                    .isInstanceOf(IllegalStateException.class).hasMessage("requestUriBase is not a valid URI");
+            assertThatThrownBy(() -> factory.invocationUrl(tx(), cfg, key, Flow.SAME_DEVICE, "https://exa mple.eu"))
+                    .isInstanceOf(IllegalStateException.class).hasMessage("requestUriBase is not a valid URI");
+        }
+    }
+
+    @Test
+    void aRequestUriBaseWithoutAHost_isRefusedWithItsOwnMessage_notAsAHostMismatch() {
+        for (final WalletProviderConfig cfg : List.of(hashConfig(), sanConfig())) {
+            for (final String hostless : new String[]{"https:///realm-less", "/relative", "  "}) {
+                assertThatThrownBy(() -> factory.signedRequestObject(tx(), cfg, key, hostless)).as(hostless)
+                        .isInstanceOf(IllegalStateException.class).hasMessage("requestUriBase has no host")
+                        .message().doesNotContain("clientIdHost");
+            }
+        }
+    }
+
+    @Test
+    void sanDns_hostMismatch_isRefusedWithTheMismatchMessage() {
         assertThatThrownBy(() -> factory.signedRequestObject(tx(), sanConfig(), key, "https://other.example.eu"))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("x509_san_dns: the response_uri host must equal clientIdHost");
+    }
+
+    @Test
+    void anUnknownCredentialFormat_isRefused_notDropped() {
+        final WalletProviderConfig unknown = config(Map.of("credentialFormats", "[\"dc+sd-jwt\",\"jwt_vc_json\"]"));
+        assertThatThrownBy(() -> factory.signedRequestObject(tx(), unknown, key, BASE))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Unsupported credential format");
+    }
+
+    @Test
+    void noCredentialFormats_neverEmitsAnEmptyVpFormatsSupported() {
+        final WalletProviderConfig none = config(Map.of("credentialFormats", "[]"));
+        assertThatThrownBy(() -> factory.signedRequestObject(tx(), none, key, BASE))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("No credential formats");
+    }
+
+    @Test
+    void x509Hash_knownAnswer_forAFixedCertificate() throws Exception {
+        final String pem;
+        try (var in = getClass().getResourceAsStream("/wallet/vectors/openid4vp/x509-hash-known-answer-leaf.pem")) {
+            pem = new String(java.util.Objects.requireNonNull(in).readAllBytes(), StandardCharsets.US_ASCII);
+        }
+        final X509Certificate cert = com.nimbusds.jose.util.X509CertUtils.parse(pem);
+        final SigningKeyHandle fixed = new SigningKeyHandle() {
+            @Override
+            public String keyRef() {
+                return "software:kat/kat";
+            }
+
+            @Override
+            public JWSAlgorithm algorithm() {
+                return JWSAlgorithm.ES256;
+            }
+
+            @Override
+            public List<X509Certificate> certificateChain() {
+                return List.of(cert);
+            }
+
+            @Override
+            public JWSSigner signer() {
+                throw new UnsupportedOperationException("not needed for client_id");
+            }
+        };
+
+        // Computed once with OpenSSL (see wallet/vectors/SOURCES.md), not by this code base.
+        assertThat(AuthorizationRequestFactory.clientId(hashConfig(), fixed))
+                .isEqualTo("x509_hash:7fteuS9uf6D2mMloP0J3jLDcjNtOhIouAw_VOuczFMI");
+    }
+
+    private static WalletTransaction expiringAt(final WalletTransaction base, final Instant expiresAt) {
+        return new WalletTransaction(base.transactionId(), base.sameDeviceRequestId(), base.crossDeviceRequestId(),
+                base.responseId(), base.realmId(), base.providerAlias(), base.helixState(),
+                base.browserBindingHash(), base.nonce(), base.encryptionJwkJson(), base.dcqlQueryJson(), null,
+                base.status(), null, null, null, base.createdAt(), expiresAt);
     }
 
     // ------------------------------------------------------------------------------------------------ URLs
@@ -402,7 +503,7 @@ class AuthorizationRequestFactoryTest {
         assertThat(same).isEqualTo("haip-vp://?client_id=x509_hash%3A" + expectedHash(LEAF.certificate())
                 + "&request_uri=https%3A%2F%2Fverifier.example.eu%2Frealms%2Facme%2Foid4vp%2Feudi%2Frequest%2F"
                 + "same-U2FtZURldmljZQ");
-        assertThat(TestWallet.invocationParameters(cross)).containsExactly(
+        assertThat(Oid4vpWalletClient.invocationParameters(cross)).containsExactly(
                 Map.entry("client_id", clientId),
                 Map.entry("request_uri", BASE + "/realms/acme/oid4vp/eudi/request/cross-Q3Jvc3NEZXZpY2U"));
     }
@@ -419,7 +520,7 @@ class AuthorizationRequestFactoryTest {
                 .doesNotContain("request_uri_method");
         final String post = factory.invocationUrl(tx(), config(Map.of("requestUriMethod", "post")), key,
                 Flow.SAME_DEVICE, BASE);
-        assertThat(TestWallet.invocationParameters(post)).containsEntry("request_uri_method", "post");
+        assertThat(Oid4vpWalletClient.invocationParameters(post)).containsEntry("request_uri_method", "post");
     }
 
     @Test
@@ -440,7 +541,7 @@ class AuthorizationRequestFactoryTest {
         assertThat(query).contains("%2520", "%252B").doesNotContain("+", " ");
         assertThat(url).startsWith("haip-vp://?client_id=x509_san_dns%3Averifier.example.eu&request_uri="
                 + "https%3A%2F%2Fverifier.example.eu%3A8443%2Fid%2520p%3Bv%3D1%2F");
-        final String requestUri = TestWallet.invocationParameters(url).get("request_uri");
+        final String requestUri = Oid4vpWalletClient.invocationParameters(url).get("request_uri");
         assertThat(requestUri).isEqualTo(AuthorizationRequestFactory.requestUri(base, tx, Flow.SAME_DEVICE))
                 .isEqualTo("https://verifier.example.eu:8443/id%20p;v=1/realms/acme/oid4vp/eudi/request/"
                         + "a%20b%2Bc%2Fd%3Fe%26f%3Dg%23h%25%C3%A9");
@@ -455,11 +556,11 @@ class AuthorizationRequestFactoryTest {
         final String forged = resign(jwt, other, claims -> claims.claim("client_id",
                 "x509_hash:" + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32])));
 
-        assertThatThrownBy(() -> wallet.verifyRequest(
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest(
                 "x509_hash:" + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32]), "u", forged, NOW))
                 .hasMessageContaining("x509_hash");
         final String sanJwt = factory.signedRequestObject(tx(), sanConfig(), handle(other, JWSAlgorithm.ES256), BASE);
-        assertThatThrownBy(() -> wallet.verifyRequest("x509_san_dns:" + HOST, "u", sanJwt, NOW))
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest("x509_san_dns:" + HOST, "u", sanJwt, NOW))
                 .hasMessageContaining("SAN");
     }
 
@@ -470,13 +571,50 @@ class AuthorizationRequestFactoryTest {
         final TestPki.Leaf other = PKI.issueLeaf(TestPki.LeafSpec.defaults());
 
         final String foreignSignature = resignKeepingHeader(jwt, other);
-        assertThatThrownBy(() -> wallet.verifyRequest(clientId, "u", foreignSignature, NOW))
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest(clientId, "u", foreignSignature, NOW))
                 .hasMessageContaining("signature");
         final String wrongAud = resign(jwt, LEAF, c -> c.audience("https://verifier.example.eu"));
-        assertThatThrownBy(() -> wallet.verifyRequest(clientId, "u", wrongAud, NOW)).hasMessageContaining("aud");
-        assertThatThrownBy(() -> wallet.verifyRequest(clientId, "u", jwt, EXPIRES)).hasMessageContaining("expired");
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest(clientId, "u", wrongAud, NOW)).hasMessageContaining("aud");
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest(clientId, "u", jwt, EXPIRES)).hasMessageContaining("expired");
         final String wrongTyp = resignWithHeader(jwt, LEAF, new JOSEObjectType("JWT"));
-        assertThatThrownBy(() -> wallet.verifyRequest(clientId, "u", wrongTyp, NOW)).hasMessageContaining("typ");
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest(clientId, "u", wrongTyp, NOW)).hasMessageContaining("typ");
+    }
+
+    @Test
+    void walletRefusesARequestWhoseClientIdClaimDiffersFromTheInvocationClientId() throws Exception {
+        final String jwt = factory.signedRequestObject(tx(), hashConfig(), key, BASE);
+        final TestPki.Leaf other = PKI.issueLeaf(TestPki.LeafSpec.defaults());
+        final String otherClientId = "x509_hash:" + expectedHash(other.certificate());
+
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest(otherClientId, "u", jwt, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("client_id claim differs from the invocation client_id");
+        // The same through an invocation URL: the URL names another verifier than the request object it serves.
+        final String foreignUrl = factory.invocationUrl(tx(), hashConfig(), handle(other, JWSAlgorithm.ES256),
+                Flow.SAME_DEVICE, BASE);
+        assertThatThrownBy(() -> wallet.fetchAndVerifyRequest(foreignUrl, uri -> jwt, NOW))
+                .hasMessageContaining("client_id claim differs from the invocation client_id");
+    }
+
+    @Test
+    void walletRefusesAnX509SanDnsRequestWhoseResponseUriIsOnAnotherHost() throws Exception {
+        final String jwt = factory.signedRequestObject(tx(), sanConfig(), key, BASE);
+        final String moved = resign(jwt, LEAF, c -> c.claim("response_uri",
+                "https://attacker.example.net/realms/acme/oid4vp/eudi/response/resp-R2VuZXJhdGVk"));
+
+        assertThat(Oid4vpWalletClient.verifyRequest("x509_san_dns:" + HOST, "u", jwt, NOW)).isNotNull();
+        assertThatThrownBy(() -> Oid4vpWalletClient.verifyRequest("x509_san_dns:" + HOST, "u", moved, NOW))
+                .hasMessageContaining("response_uri FQDN");
+    }
+
+    @Test
+    void pctDecode_refusesMalformedEscapes() {
+        for (final String bad : new String[]{"%", "a%", "%4", "a%2", "%+1", "%-1", "%zz", "%g0",
+                "%\uFF10\uFF10", "a+b", "a b"}) {
+            assertThatThrownBy(() -> Oid4vpWalletClient.pctDecode(bad)).as(bad)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(Oid4vpWalletClient.pctDecode("a%20b%2B%c3%A9~-._")).isEqualTo("a b+é~-._");
     }
 
     // ------------------------------------------------------------------------------------------------ round trip

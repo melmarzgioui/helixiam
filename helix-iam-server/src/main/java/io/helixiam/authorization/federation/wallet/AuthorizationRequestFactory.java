@@ -25,6 +25,7 @@ import io.helixiam.authorization.service.key.SigningKeyHandle;
 import org.springframework.web.util.UriUtils;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -73,7 +74,8 @@ import java.util.Set;
  * ({@code idpBaseUrl + "/realms/" + realm + "/broker/" + alias + "/callback"}):
  * {@code <base>/realms/<realm>/oid4vp/<alias>/request/<requestId>} ({@link #requestUri}) and
  * {@code <base>/realms/<realm>/oid4vp/<alias>/response/<responseId>} ({@link #responseUri}); {@code base} is the
- * public server origin ({@code idpBaseUrl}), each path segment percent-encoded. The invocation URL is
+ * public server origin ({@code idpBaseUrl}), each path segment percent-encoded; a base that is not a URI or has no
+ * host is an {@link IllegalStateException} with its own message. The invocation URL is
  * {@code <scheme>://?client_id=<pct>&request_uri=<pct>} with RFC 3986 percent-encoding (only unreserved characters
  * stay literal; never form encoding). {@code request_uri_method} is added only when the provider asks for
  * {@code post}: GET is the RFC 9101 default when it is absent, and HAIP does not require it (notes §2.4).
@@ -149,15 +151,7 @@ public final class AuthorizationRequestFactory {
 
     private static String endpoint(final String base, final WalletTransaction tx, final String kind,
             final String id) {
-        Objects.requireNonNull(base, "requestUriBase");
-        String origin = base.trim();
-        while (origin.endsWith("/")) {
-            origin = origin.substring(0, origin.length() - 1);
-        }
-        if (origin.isEmpty()) {
-            throw new IllegalArgumentException("requestUriBase is empty");
-        }
-        return origin + "/realms/" + pct(tx.realmId()) + "/oid4vp/" + pct(tx.providerAlias()) + "/" + kind + "/"
+        return origin(base) + "/realms/" + pct(tx.realmId()) + "/oid4vp/" + pct(tx.providerAlias()) + "/" + kind + "/"
                 + pct(Objects.requireNonNull(id, kind + " id"));
     }
 
@@ -181,9 +175,13 @@ public final class AuthorizationRequestFactory {
     /**
      * The compact signed request object for {@code tx} (see the class comment).
      *
-     * @throws IllegalStateException when the transaction has expired, has no usable encryption key (for
-     *                               {@code direct_post.jwt}) or no valid DCQL query, when the {@code x509_san_dns}
-     *                               host is not the {@code response_uri} host (§5.9.3, §8.2), or when signing fails
+     * @throws IllegalStateException when the transaction has expired or expires within the current second (its whole
+     *                               second {@code exp} would not be after {@code iat}; never rounded up), has no
+     *                               usable encryption key (for {@code direct_post.jwt}) or no valid DCQL query, when
+     *                               a credential format is unknown or none is configured, when
+     *                               {@code requestUriBase} is not a URI or has no host, when the
+     *                               {@code x509_san_dns} host is not the {@code response_uri} host (§5.9.3, §8.2), or
+     *                               when signing fails
      */
     public String signedRequestObject(final WalletTransaction tx, final WalletProviderConfig cfg,
             final SigningKeyHandle key, final String requestUriBase) {
@@ -191,10 +189,16 @@ public final class AuthorizationRequestFactory {
         if (tx.isExpiredAt(now)) {
             throw new IllegalStateException("Wallet transaction has expired");
         }
+        final long exp = tx.expiresAt().getEpochSecond();
+        if (exp <= now.getEpochSecond()) {
+            // exp is whole seconds (rounded down, never up past the transaction): it would not be after iat.
+            throw new IllegalStateException("Wallet transaction expires within the current second; "
+                    + "the request object's exp would not be after its iat");
+        }
         final String clientId = clientId(cfg, key);
         final String responseUri = responseUri(requestUriBase, tx);
         if (cfg.clientIdScheme() == WalletProviderConfig.ClientIdScheme.X509_SAN_DNS
-                && !cfg.clientIdHost().trim().equalsIgnoreCase(host(requestUriBase))) {
+                && !cfg.clientIdHost().trim().equalsIgnoreCase(URI.create(origin(requestUriBase)).getHost())) {
             throw new IllegalStateException("x509_san_dns: the response_uri host must equal clientIdHost");
         }
         final boolean encrypted = cfg.responseMode() == WalletProviderConfig.ResponseMode.DIRECT_POST_JWT;
@@ -210,7 +214,7 @@ public final class AuthorizationRequestFactory {
                 .claim("client_metadata", clientMetadata(tx, cfg, encrypted))
                 .audience(AUDIENCE)
                 .issueTime(Date.from(now))
-                .expirationTime(Date.from(Instant.ofEpochSecond(tx.expiresAt().getEpochSecond())))
+                .expirationTime(Date.from(Instant.ofEpochSecond(exp)))
                 .build();
         final JWSHeader header = new JWSHeader.Builder(key.algorithm())
                 .type(new JOSEObjectType(REQUEST_OBJECT_TYP))
@@ -265,7 +269,11 @@ public final class AuthorizationRequestFactory {
                 .keyID(stored.getKeyID()).build();
     }
 
+    /** Never empty ({@code vp_formats_supported} is REQUIRED, §11.1) and never silently drops a format. */
     private static Map<String, Object> vpFormats(final List<String> formats) {
+        if (formats == null || formats.isEmpty()) {
+            throw new IllegalStateException("No credential formats configured for vp_formats_supported");
+        }
         final Map<String, Object> out = new LinkedHashMap<>();
         for (final String format : formats) {
             if (DcqlQueryBuilder.SD_JWT_FORMAT.equals(format)) {
@@ -278,6 +286,8 @@ public final class AuthorizationRequestFactory {
                 mdoc.put("issuerauth_alg_values", COSE_ALGS);
                 mdoc.put("deviceauth_alg_values", COSE_ALGS);
                 out.put(format, mdoc);
+            } else {
+                throw new IllegalStateException("Unsupported credential format for vp_formats_supported");
             }
         }
         return out;
@@ -324,12 +334,26 @@ public final class AuthorizationRequestFactory {
         }
     }
 
-    private static String host(final String base) {
-        try {
-            return URI.create(base.trim()).getHost();
-        } catch (final IllegalArgumentException e) {
-            throw new IllegalArgumentException("requestUriBase is not a URI");
+    /**
+     * The public origin without trailing slashes. A base that is not a URI ({@code "requestUriBase is not a valid
+     * URI"}) or has no host ({@code "requestUriBase has no host"}) is an {@link IllegalStateException}: it is server
+     * configuration ({@code idpBaseUrl}), not wallet input.
+     */
+    private static String origin(final String base) {
+        String origin = Objects.requireNonNull(base, "requestUriBase").trim();
+        while (origin.endsWith("/")) {
+            origin = origin.substring(0, origin.length() - 1);
         }
+        final URI uri;
+        try {
+            uri = new URI(origin);
+        } catch (final URISyntaxException e) {
+            throw new IllegalStateException("requestUriBase is not a valid URI");
+        }
+        if (uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new IllegalStateException("requestUriBase has no host");
+        }
+        return origin;
     }
 
     private static byte[] sha256(final byte[] data) {
