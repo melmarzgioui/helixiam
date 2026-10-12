@@ -33,7 +33,7 @@ class WalletLoginBrowserE2eTest extends AbstractBrowserE2eTest {
         final WalletE2eFixture wallet = new WalletE2eFixture(context);
         final String alias = E2eSeed.unique("eudi");
         // The wallet next to the built-in eID marks, as a realm with DigiD and eIDAS would show it.
-        wallet.install(wallet.storedProvider(realm.realm(), alias, Map.of()), neighbour("digid", "DigiD"),
+        wallet.install(realm.realm(), wallet.storedProvider(realm.realm(), alias, Map.of()), neighbour("digid", "DigiD"),
                 neighbour("eidas", "eIDAS"));
 
         startSignInAtRp(realm.web());
@@ -85,7 +85,7 @@ class WalletLoginBrowserE2eTest extends AbstractBrowserE2eTest {
         final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
         final WalletE2eFixture wallet = new WalletE2eFixture(context);
         final String alias = E2eSeed.unique("eudi");
-        wallet.install(wallet.storedProvider(realm.realm(), alias, Map.of()));
+        wallet.install(realm.realm(), wallet.storedProvider(realm.realm(), alias, Map.of()));
         startSignInAtRp(realm.web());
         page().setViewportSize(390, 844);
         page().navigate(baseUrl() + realm.path() + "/broker/" + alias);
@@ -105,7 +105,7 @@ class WalletLoginBrowserE2eTest extends AbstractBrowserE2eTest {
         final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
         final WalletE2eFixture wallet = new WalletE2eFixture(context);
         final String alias = E2eSeed.unique("eudi");
-        wallet.install(wallet.storedProvider(realm.realm(), alias, Map.of()));
+        wallet.install(realm.realm(), wallet.storedProvider(realm.realm(), alias, Map.of()));
         startSignInAtRp(realm.web());
         page().navigate(baseUrl() + realm.path() + "/broker/" + alias);
         page().waitForURL(url -> url.contains("/wallet?tx="));

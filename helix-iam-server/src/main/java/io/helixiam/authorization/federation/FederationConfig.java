@@ -112,12 +112,14 @@ public class FederationConfig {
         return new IdentityProviderRegistry(providers);
     }
 
-    // E8.3: load admin-managed providers from the persisted store into the live registry, on demand
-    // (and once at startup). Gated by helix.federation.store.enabled (default off) so a deployment
-    // without the E8.2 config exchange — or the build/tests — never call AMQP at boot.
+    // E8.3: load admin-managed providers from the persisted store into the live registry: every realm once at startup,
+    // and the written realm after each admin write. On by default (final review F1): the switch used to default off
+    // so that the build and deployments without the config exchange never called AMQP at boot, but the store is read
+    // in process since RabbitMQ was removed, so that reason is gone. helix.federation.store.enabled=false still turns
+    // it off (admin-created connections are then saved but never become loginable).
 
     @Bean
-    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true", matchIfMissing = true)
     public FederationStoreRefresher federationStoreRefresher(final IdentityProviderConfigSource source,
                                                              final FederationProviderFactory factory,
                                                              final IdentityProviderRegistry registry) {
@@ -125,14 +127,12 @@ public class FederationConfig {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true")
-    public ApplicationRunner federationStoreStartupRefresh(
-            final FederationStoreRefresher refresher,
-            @Value("${helix.federation.store.realm:master}") final String realmId) {
+    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public ApplicationRunner federationStoreStartupRefresh(final FederationStoreRefresher refresher) {
         return args -> {
             try {
-                final int loaded = refresher.refresh(realmId);
-                LOG.info("Helix federation: startup loaded {} store-backed provider(s) for realm {}", loaded, realmId);
+                final int loaded = refresher.refreshAll();
+                LOG.info("Helix federation: startup loaded {} store-backed provider(s) across all realms", loaded);
             } catch (final RuntimeException e) {
                 LOG.warn("Helix federation: startup store refresh failed (continuing with config/bean providers): {}",
                         e.getMessage());

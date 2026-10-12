@@ -39,6 +39,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -73,7 +74,7 @@ class FederationBrokerWalletTest {
         provider = new WalletIdentityProviders(new WalletConfigValidator(keys, DeploymentProfile.production()), keys,
                 store, new OutboundUrlGuard(), mock(AuditLog.class))
                 .build(REALM, WalletProviderConfig.fromStored(ALIAS, "Wallet", config));
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         controller.setWalletLoginCompleter(walletCompleter);
     }
 

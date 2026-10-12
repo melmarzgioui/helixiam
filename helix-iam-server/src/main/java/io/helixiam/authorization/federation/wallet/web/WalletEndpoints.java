@@ -31,8 +31,7 @@ final class WalletEndpoints {
             return Optional.empty();
         }
         try {
-            return WalletIdentityProvider.from(registry.get(alias))
-                    .filter(p -> p.keyRealm() == null || p.keyRealm().equals(realm));
+            return WalletIdentityProvider.from(registry.get(realm, alias)).filter(p -> p.servesRealm(realm));
         } catch (final IllegalArgumentException e) {
             return Optional.empty();
         }

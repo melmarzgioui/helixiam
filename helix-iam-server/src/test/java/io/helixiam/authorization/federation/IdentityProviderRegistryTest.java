@@ -8,16 +8,24 @@ package io.helixiam.authorization.federation;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.federation.spi.IdpMetadata;
+import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Helix IAM E5.1: identity providers are auto-discovered and routed by alias — the same drop-in SPI
  * shape as the authenticator/credential/attestation registries. Duplicate aliases are rejected.
+ *
+ * <p>Final review F1: store-backed providers are keyed by (realm, alias). A reload replaces one realm's set and leaves
+ * every other realm's alone; static (bean / YAML) providers serve every realm.
  */
 class IdentityProviderRegistryTest {
 
@@ -34,18 +42,27 @@ class IdentityProviderRegistryTest {
         };
     }
 
+    /** A wallet provider bound to {@code realm} ({@code null}: a YAML provider, every realm). */
+    private static WalletIdentityProvider wallet(final String alias, final String realm) {
+        final WalletIdentityProvider wallet = mock(WalletIdentityProvider.class);
+        when(wallet.metadata()).thenReturn(IdpMetadata.of(alias, IdpMetadata.Protocol.OIDC, "Wallet " + realm));
+        when(wallet.servesRealm(any()))
+                .thenAnswer(inv -> inv.getArgument(0) != null && (realm == null || realm.equals(inv.getArgument(0))));
+        return wallet;
+    }
+
     @Test
     void routesToTheProviderByAlias() {
         final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("google"), stub("github")));
 
-        assertThat(registry.get("google").metadata().alias()).isEqualTo("google");
-        assertThat(registry.aliases()).containsExactlyInAnyOrder("google", "github");
+        assertThat(registry.get("any", "google").metadata().alias()).isEqualTo("google");
+        assertThat(registry.aliases("any")).containsExactlyInAnyOrder("google", "github");
     }
 
     @Test
     void unknownAliasThrows() {
         final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("google")));
-        assertThatThrownBy(() -> registry.get("ghost")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> registry.get("any", "ghost")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -57,14 +74,14 @@ class IdentityProviderRegistryTest {
     @Test
     void emptyRegistryIsAllowed() {
         final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
-        assertThat(registry.aliases()).isEmpty();
+        assertThat(registry.aliases("any")).isEmpty();
     }
 
     @Test
     void exposesProviderMetadataForTheLoginPage() {
         final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("google"), stub("github")));
 
-        assertThat(registry.metadatas()).extracting(IdpMetadata::alias)
+        assertThat(registry.metadatas("any")).extracting(IdpMetadata::alias)
                 .containsExactly("google", "github"); // insertion order preserved
     }
 
@@ -74,30 +91,110 @@ class IdentityProviderRegistryTest {
     void reload_registersDynamicProvidersAlongsideTheStaticOnes() {
         final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("static-a", "A")));
 
-        registry.reload(List.of(stub("dyn-b", "B")));
+        registry.reload("gov", List.of(stub("dyn-b", "B")));
 
-        assertThat(registry.aliases()).contains("static-a", "dyn-b");
-        assertThat(registry.get("dyn-b").metadata().displayName()).isEqualTo("B");
-        assertThat(registry.get("static-a").metadata().alias()).isEqualTo("static-a");
+        assertThat(registry.aliases("gov")).contains("static-a", "dyn-b");
+        assertThat(registry.get("gov", "dyn-b").metadata().displayName()).isEqualTo("B");
+        assertThat(registry.get("gov", "static-a").metadata().alias()).isEqualTo("static-a");
     }
 
     @Test
-    void reload_replacesThePreviousDynamicSet_keepingStaticProviders() {
+    void reload_replacesThePreviousDynamicSetOfThatRealm_keepingStaticProviders() {
         final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("static-a", "A")));
 
-        registry.reload(List.of(stub("dyn-b", "B")));
-        registry.reload(List.of(stub("dyn-c", "C")));
+        registry.reload("gov", List.of(stub("dyn-b", "B")));
+        registry.reload("gov", List.of(stub("dyn-c", "C")));
 
-        assertThat(registry.aliases()).contains("static-a", "dyn-c");
-        assertThat(registry.aliases()).doesNotContain("dyn-b");
+        assertThat(registry.aliases("gov")).contains("static-a", "dyn-c");
+        assertThat(registry.aliases("gov")).doesNotContain("dyn-b");
     }
 
     @Test
-    void reload_dynamicProviderOverridesAStaticOneOnTheSameAlias() {
+    void reload_dynamicProviderOverridesAStaticOneOnTheSameAlias_inItsOwnRealmOnly() {
         final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("digid", "Old DigiD")));
 
-        registry.reload(List.of(stub("digid", "Stored DigiD")));
+        registry.reload("gov", List.of(stub("digid", "Stored DigiD")));
 
-        assertThat(registry.get("digid").metadata().displayName()).isEqualTo("Stored DigiD");
+        assertThat(registry.get("gov", "digid").metadata().displayName()).isEqualTo("Stored DigiD");
+        assertThat(registry.get("other", "digid").metadata().displayName()).isEqualTo("Old DigiD");
+    }
+
+    // --- Final review F1: per-realm store-backed providers ---
+
+    @Test
+    void reloadOfOneRealm_leavesEveryOtherRealmLoaded() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        registry.reload("realm-a", List.of(stub("corp-a")));
+
+        registry.reload("realm-b", List.of(stub("corp-b")));
+
+        assertThat(registry.aliases("realm-a")).containsExactly("corp-a");
+        assertThat(registry.aliases("realm-b")).containsExactly("corp-b");
+        assertThat(registry.get("realm-a", "corp-a").metadata().alias()).isEqualTo("corp-a");
+    }
+
+    @Test
+    void theSameAliasInTwoRealms_resolvesToEachRealmsOwnProvider() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        final WalletIdentityProvider walletA = wallet("eudi-wallet", "realm-a");
+        final WalletIdentityProvider walletB = wallet("eudi-wallet", "realm-b");
+
+        registry.reload("realm-a", List.of(walletA));
+        registry.reload("realm-b", List.of(walletB));
+
+        assertThat(registry.get("realm-a", "eudi-wallet")).isSameAs(walletA);
+        assertThat(registry.get("realm-b", "eudi-wallet")).isSameAs(walletB);
+        assertThat(registry.named("eudi-wallet")).containsExactlyInAnyOrder(walletA, walletB);
+    }
+
+    @Test
+    void aStoredProviderOfAnotherRealm_isNotListedOrResolved() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("google")));
+        registry.reload("realm-b", List.of(wallet("eudi-b", "realm-b")));
+
+        assertThat(registry.metadatas("realm-a")).extracting(IdpMetadata::alias).containsExactly("google");
+        assertThatThrownBy(() -> registry.get("realm-a", "eudi-b")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void aProviderThatDoesNotServeTheRealm_isNeverListedOrResolvedThere() {
+        // Defence in depth: a realm-bound wallet among the static providers (or in another realm's set) is filtered by
+        // its own servesRealm.
+        final WalletIdentityProvider foreign = wallet("eudi-x", "realm-b");
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(foreign));
+
+        assertThat(registry.metadatas("realm-a")).isEmpty();
+        assertThatThrownBy(() -> registry.get("realm-a", "eudi-x")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(registry.get("realm-b", "eudi-x")).isSameAs(foreign);
+    }
+
+    @Test
+    void aYamlWalletProvider_servesEveryRealm() {
+        final WalletIdentityProvider yaml = wallet("eudi-yaml", null);
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(yaml));
+
+        assertThat(registry.metadatas("realm-a")).extracting(IdpMetadata::alias).containsExactly("eudi-yaml");
+        assertThat(registry.get("realm-b", "eudi-yaml")).isSameAs(yaml);
+    }
+
+    @Test
+    void replaceAll_swapsEveryRealmsStoreBackedSet() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        registry.reload("stale", List.of(stub("gone")));
+
+        registry.replaceAll(Map.of("realm-a", List.of(stub("a")), "realm-b", List.of(stub("b"))));
+
+        assertThat(registry.aliases("stale")).isEmpty();
+        assertThat(registry.aliases("realm-a")).containsExactly("a");
+        assertThat(registry.aliases("realm-b")).containsExactly("b");
+    }
+
+    @Test
+    void aNullRealm_seesOnlyTheStaticProviders() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of(stub("google")));
+        registry.reload("realm-a", List.of(stub("corp")));
+
+        assertThat(registry.aliases(null)).containsExactly("google");
+        assertThatThrownBy(() -> registry.get(null, "corp")).isInstanceOf(IllegalArgumentException.class);
     }
 }

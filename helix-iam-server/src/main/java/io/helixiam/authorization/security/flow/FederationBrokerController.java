@@ -133,7 +133,14 @@ public class FederationBrokerController {
 
     @GetMapping("/broker/{alias}")
     public String start(@PathVariable final String alias, final HttpServletRequest request, final Model model) {
-        final IdentityProvider provider = registry.get(alias);
+        final IdentityProvider provider;
+        try {
+            provider = registry.get(RealmContextHolder.get(), alias);
+        } catch (final IllegalArgumentException e) {
+            // no such provider in this realm (a stored provider of another realm included): the login page's error
+            LOG.warn("Federation: no provider {} in this realm", LogSafe.sanitize(alias));
+            return LOGIN_ERROR;
+        }
         final String state = stateGenerator.get();
         final HttpSession session = request.getSession();
         // Task 18 fix round 1: one live wallet login per browser and provider: starting again discards the previous
@@ -211,7 +218,7 @@ public class FederationBrokerController {
         final BrokeredIdentity identity;
         VerifiedIdentityJson.StoredLogin walletLogin = null;
         try {
-            final IdentityProvider provider = registry.get(alias);
+            final IdentityProvider provider = registry.get(RealmContextHolder.get(), alias);
             final IdentityProvider.CallbackContext context = new IdentityProvider.CallbackContext(
                     RealmContextHolder.get(), parameters(request), expectedState, expectedNonce,
                     callbackUri(alias), expectedRequestId, BrowserBinding.current(session, alias));

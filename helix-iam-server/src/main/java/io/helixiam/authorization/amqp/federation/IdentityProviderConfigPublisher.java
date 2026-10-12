@@ -27,6 +27,9 @@ public interface IdentityProviderConfigPublisher {
     /** All identity-provider configs for a realm. */
     List<IdentityProviderConfig> list(final String realmId);
 
+    /** All identity-provider configs of every realm (the registry's startup load). */
+    List<IdentityProviderConfig> listAll();
+
     /** A single config, or {@code null} if none. */
     IdentityProviderConfig get(final IdentityProviderRef ref);
 

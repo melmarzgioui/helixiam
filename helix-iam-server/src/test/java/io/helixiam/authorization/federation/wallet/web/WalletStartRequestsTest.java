@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -21,10 +23,10 @@ class WalletStartRequestsTest {
     private final IdentityProviderRegistry registry = mock(IdentityProviderRegistry.class);
 
     WalletStartRequestsTest() {
-        when(registry.get("eudi")).thenReturn(mock(WalletIdentityProvider.class));
-        when(registry.get("corp")).thenReturn(mock(IdentityProvider.class));
-        when(registry.get("nope")).thenThrow(new IllegalArgumentException("No identity provider"));
-        when(registry.get("broken")).thenThrow(new IllegalStateException("registry reload in progress"));
+        when(registry.get(any(), eq("eudi"))).thenReturn(mock(WalletIdentityProvider.class));
+        when(registry.get(any(), eq("corp"))).thenReturn(mock(IdentityProvider.class));
+        when(registry.get(any(), eq("nope"))).thenThrow(new IllegalArgumentException("No identity provider"));
+        when(registry.get(any(), eq("broken"))).thenThrow(new IllegalStateException("registry reload in progress"));
     }
 
     private boolean counts(final String method, final String servletPath) {

@@ -7,6 +7,7 @@ package io.helixiam.authorization.federation.wallet.web;
 
 import io.helixiam.authorization.federation.IdentityProviderRegistry;
 import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
+import io.helixiam.authorization.security.realm.RealmContextHolder;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.regex.Matcher;
@@ -33,7 +34,7 @@ public final class WalletStartRequests {
             return false;
         }
         try {
-            return WalletIdentityProvider.from(registry.get(m.group(1))).isPresent();
+            return WalletIdentityProvider.from(registry.get(RealmContextHolder.get(), m.group(1))).isPresent();
         } catch (final RuntimeException e) {
             return false; // no such provider, or the registry failed: never turn a broker start into a 500 here
         }

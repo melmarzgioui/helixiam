@@ -51,7 +51,7 @@ public class AccountWallets {
             return Optional.empty();
         }
         try {
-            return WalletIdentityProvider.from(registry.get(alias)).filter(p -> p.servesRealm(realm));
+            return WalletIdentityProvider.from(registry.get(realm, alias)).filter(p -> p.servesRealm(realm));
         } catch (final IllegalArgumentException e) {
             return Optional.empty();
         }
@@ -59,7 +59,7 @@ public class AccountWallets {
 
     /** The realm's wallet providers, in login-page order, each with whether {@code userId} linked a wallet. */
     public List<Row> rows(final String realm, final String userId) {
-        final List<WalletIdentityProvider> providers = registry.aliases().stream()
+        final List<WalletIdentityProvider> providers = registry.aliases(realm).stream()
                 .map(alias -> provider(realm, alias)).flatMap(Optional::stream).toList();
         if (providers.isEmpty()) {
             return List.of();

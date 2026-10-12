@@ -95,7 +95,7 @@ class WalletAcceptanceE2eTest extends AbstractE2eTest {
         web = seed().confidentialClient(realm, "web", List.of("openid", "profile"));
         alias = E2eSeed.unique("eudi");
         providerBoth = wallet.storedProviderBothFormats(realm, alias, Map.of());
-        wallet.install(providerBoth);
+        wallet.install(realm, providerBoth);
     }
 
     // ============================================================================================ row 1 — config
@@ -104,7 +104,7 @@ class WalletAcceptanceE2eTest extends AbstractE2eTest {
     void configuredProviders_appearOnTheLoginPage_withTheWalletIcon() {
         final String storedAlias = E2eSeed.unique("eudi-stored");
         final String yamlAlias = E2eSeed.unique("eudi-yaml");
-        wallet.install(wallet.storedProvider(realm, storedAlias, Map.of()), wallet.yamlProvider(yamlAlias));
+        wallet.install(realm, wallet.storedProvider(realm, storedAlias, Map.of()), wallet.yamlProvider(yamlAlias));
 
         final E2eHttp.Response page = newBrowser().get("/realms/" + realm + "/login", "Accept", "text/html");
 
@@ -370,7 +370,7 @@ class WalletAcceptanceE2eTest extends AbstractE2eTest {
     void credentialRevoked_sdJwt_isRejected_andAudited() {
         final WalletIdentityProvider fake = WalletFakeVerifiers.withThrowingVerifier(providerBoth,
                 WalletErrorCode.CREDENTIAL_REVOKED, context.getBean(AuditLog.class));
-        wallet.install(fake);
+        wallet.install(realm, fake);
         final Login login = startLogin(newBrowser());
         final E2eHttp phone = newBrowser();
         final Oid4vpWalletClient.VerifiedRequest request =
@@ -387,7 +387,7 @@ class WalletAcceptanceE2eTest extends AbstractE2eTest {
     void credentialRevoked_mdoc_isRejected_andAudited() {
         final WalletIdentityProvider fake = WalletFakeVerifiers.withThrowingVerifier(providerBoth,
                 WalletErrorCode.CREDENTIAL_REVOKED, context.getBean(AuditLog.class));
-        wallet.install(fake);
+        wallet.install(realm, fake);
         final Login login = startLogin(newBrowser());
         final Oid4vpWalletClient.VerifiedRequest request =
                 WalletE2eFixture.fetchRequest(login.browser(), WalletE2eFixture.openWalletLink(login.page()));
@@ -478,7 +478,7 @@ class WalletAcceptanceE2eTest extends AbstractE2eTest {
         when(spyStore.complete(any(), any(), any())).thenReturn(false); // simulate expiry winning the race
         final WalletIdentityProvider fake = WalletFakeVerifiers.withTransactionStore(providerBoth, spyStore,
                 context.getBean(AuditLog.class));
-        wallet.install(fake);
+        wallet.install(realm, fake);
         final Login login = startLogin(newBrowser());
         final E2eHttp phone = newBrowser();
         final Oid4vpWalletClient.VerifiedRequest request =

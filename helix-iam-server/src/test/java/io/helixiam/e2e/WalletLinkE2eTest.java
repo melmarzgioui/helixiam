@@ -51,7 +51,7 @@ class WalletLinkE2eTest extends AbstractE2eTest {
         web = seed().confidentialClient(realm, "web", List.of("openid", "profile"));
         alias = E2eSeed.unique("eudi-link");
         provider = wallet.storedProvider(realm, alias, Map.of("subject.acknowledgeWeakSubject", "true"));
-        wallet.install(provider);
+        wallet.install(realm, provider);
         ada = seed().user(realm, E2eSeed.unique("ada"), PASSWORD);
     }
 
@@ -126,7 +126,7 @@ class WalletLinkE2eTest extends AbstractE2eTest {
     @Test
     void withoutANumber_andTheProviderNotAcceptingTheTuple_theLinkIsRefusedWithAnExplanation() {
         final String strict = E2eSeed.unique("eudi-strict");
-        wallet.install(provider, wallet.storedProvider(realm, strict, Map.of()));
+        wallet.install(realm, provider, wallet.storedProvider(realm, strict, Map.of()));
 
         final String done = linkWith(signIn(ada), strict, WalletE2eFixture.pidWithoutNumber());
 
@@ -197,7 +197,7 @@ class WalletLinkE2eTest extends AbstractE2eTest {
         final String otherRealm = E2eSeed.unique("wlink-b");
         seed().realm(otherRealm);
         final String foreign = E2eSeed.unique("eudi-foreign");
-        wallet.install(provider, wallet.storedProvider(otherRealm, foreign, Map.of()));
+        wallet.install(realm, provider, wallet.storedProvider(otherRealm, foreign, Map.of()));
         final E2eHttp console = signIn(ada);
         final String csrf = E2eHttp.csrf(console.get(account()).body());
 

@@ -133,9 +133,19 @@ public final class WalletE2eFixture {
                 WalletProviderConfig.fromStored(alias, "EU Digital Identity Wallet", config));
     }
 
-    /** Makes {@code providers} the server's store-backed providers (replacing any earlier set). */
-    public void install(final IdentityProvider... providers) {
-        context.getBean(IdentityProviderRegistry.class).reload(List.of(providers));
+    /**
+     * Makes {@code providers} {@code realm}'s store-backed providers (replacing that realm's earlier set). A stored
+     * wallet provider of another realm goes into its own realm's set instead, as the store would put it.
+     */
+    public void install(final String realm, final IdentityProvider... providers) {
+        final Map<String, List<IdentityProvider>> byRealm = new LinkedHashMap<>();
+        byRealm.put(realm, new java.util.ArrayList<>());
+        for (final IdentityProvider provider : providers) {
+            final String own = WalletIdentityProvider.from(provider).map(WalletIdentityProvider::keyRealm).orElse(null);
+            byRealm.computeIfAbsent(own == null ? realm : own, r -> new java.util.ArrayList<>()).add(provider);
+        }
+        final IdentityProviderRegistry registry = context.getBean(IdentityProviderRegistry.class);
+        byRealm.forEach(registry::reload);
     }
 
     /** A PID with an administrative number (so the wallet may create an account) and the default requested claims. */

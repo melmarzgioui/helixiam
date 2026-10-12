@@ -30,7 +30,7 @@ class FederatedLogoutCoordinatorTest {
     @Test
     void propagate_routesToTheProviderNamedByAlias() {
         final IdentityProvider provider = mock(IdentityProvider.class);
-        when(registry.get("upstream")).thenReturn(provider);
+        when(registry.get("master", "upstream")).thenReturn(provider);
         final LogoutContext ctx = new LogoutContext("master", "u", "upstream", "idtok", null, null);
 
         coordinator.propagate(ctx);
@@ -41,12 +41,12 @@ class FederatedLogoutCoordinatorTest {
     @Test
     void propagate_isANoOp_forANonBrokeredSession() {
         coordinator.propagate(new LogoutContext("master", "u")); // idpAlias == null
-        verify(registry, never()).get(any());
+        verify(registry, never()).get(any(), any());
     }
 
     @Test
     void propagate_swallowsAnUnknownAlias() {
-        when(registry.get("ghost")).thenThrow(new IllegalArgumentException("No identity provider for alias: ghost"));
+        when(registry.get("master", "ghost")).thenThrow(new IllegalArgumentException("No identity provider for alias: ghost"));
         assertThatCode(() -> coordinator.propagate(new LogoutContext("master", "u", "ghost", null, null, null)))
                 .doesNotThrowAnyException();
     }
@@ -54,7 +54,7 @@ class FederatedLogoutCoordinatorTest {
     @Test
     void propagate_swallowsAFailingProvider() {
         final IdentityProvider provider = mock(IdentityProvider.class);
-        when(registry.get("upstream")).thenReturn(provider);
+        when(registry.get("master", "upstream")).thenReturn(provider);
         doThrow(new RuntimeException("upstream down")).when(provider).logout(any());
 
         assertThatCode(() -> coordinator.propagate(new LogoutContext("master", "u", "upstream", "t", null, null)))

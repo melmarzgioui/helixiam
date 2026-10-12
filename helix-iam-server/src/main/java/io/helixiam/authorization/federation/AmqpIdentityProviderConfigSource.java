@@ -28,4 +28,9 @@ public class AmqpIdentityProviderConfigSource implements IdentityProviderConfigS
     public List<IdentityProviderConfig> load(final String realmId) {
         return publisher.list(realmId);
     }
+
+    @Override
+    public List<IdentityProviderConfig> loadAll() {
+        return publisher.listAll();
+    }
 }

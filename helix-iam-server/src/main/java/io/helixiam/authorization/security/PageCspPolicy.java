@@ -128,7 +128,7 @@ public class PageCspPolicy {
             }
             final IdentityProviderRegistry registry = identityProviders.getIfAvailable();
             if (registry != null) {
-                for (final IdpMetadata idp : registry.metadatas()) {
+                for (final IdpMetadata idp : registry.metadatas(realm)) {
                     final String origin = ThemeUrls.httpsOrigin(idp.logoUrl());
                     if (origin != null) {
                         images.add(origin);

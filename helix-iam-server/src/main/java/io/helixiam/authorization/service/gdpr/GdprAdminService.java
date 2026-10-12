@@ -130,7 +130,7 @@ public class GdprAdminService {
                 .toList();
 
         final List<GdprFederatedLink> federated = federatedLinks.findAllByUserId(userId).stream()
-                .map(this::toFederatedLink)
+                .map(row -> toFederatedLink(realmId, row))
                 .toList();
 
         final List<GdprConsentRecordDto> consentLedger = consents.list(realmId, userId);
@@ -223,22 +223,24 @@ public class GdprAdminService {
      * One export row. A wallet link's {@code externalSubject} is never carried (see {@link GdprFederatedLink}'s
      * javadoc); the alias and the provider's own display name are.
      */
-    private GdprFederatedLink toFederatedLink(final FederatedLinkEntity link) {
-        final String displayName = displayNameOf(link.getIdpAlias());
+    private GdprFederatedLink toFederatedLink(final String realmId, final FederatedLinkEntity link) {
+        final String displayName = displayNameOf(realmId, link.getIdpAlias());
         final String externalSubject = isWalletAlias(link.getIdpAlias()) ? null : link.getExternalSubject();
         return new GdprFederatedLink(link.getIdpAlias(), externalSubject, displayName);
     }
 
     /** The provider's display name, or {@code null} when the alias no longer names a registered provider. */
-    private String displayNameOf(final String alias) {
+    private String displayNameOf(final String realmId, final String alias) {
         if (alias == null) {
             return null;
         }
         try {
-            return registry.get(alias).metadata().displayName();
+            return registry.get(realmId, alias).metadata().displayName(); // the exported realm's own provider first
         } catch (final IllegalArgumentException e) {
-            return null; // not a currently-registered provider (removed/renamed since the link was made)
+            // a link made through another realm's provider (links are per user): fall through
         }
+        // not a currently-registered provider (removed/renamed since the link was made) → null
+        return registry.named(alias).stream().findFirst().map(p -> p.metadata().displayName()).orElse(null);
     }
 
     /** Whether {@code alias} names an EU Digital Identity Wallet provider — same check as the account console's
@@ -247,10 +249,6 @@ public class GdprAdminService {
         if (alias == null) {
             return false;
         }
-        try {
-            return WalletIdentityProvider.from(registry.get(alias)).isPresent();
-        } catch (final IllegalArgumentException e) {
-            return false; // not a registered provider
-        }
+        return registry.named(alias).stream().anyMatch(p -> WalletIdentityProvider.from(p).isPresent());
     }
 }

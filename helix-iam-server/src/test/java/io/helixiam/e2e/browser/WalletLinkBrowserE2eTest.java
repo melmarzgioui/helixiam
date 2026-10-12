@@ -32,7 +32,7 @@ class WalletLinkBrowserE2eTest extends AbstractBrowserE2eTest {
         final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
         final WalletE2eFixture wallet = new WalletE2eFixture(context);
         final String alias = E2eSeed.unique("eudi");
-        wallet.install(wallet.storedProvider(realm.realm(), alias, Map.of("subject.acknowledgeWeakSubject", "true")));
+        wallet.install(realm.realm(), wallet.storedProvider(realm.realm(), alias, Map.of("subject.acknowledgeWeakSubject", "true")));
         final E2eSeed.SeededUser ada = seed().user(realm.realm(), E2eSeed.unique("ada"), PASSWORD,
                 Map.of("given_name", "Ada", "family_name", "Lovelace"));
 
@@ -91,7 +91,7 @@ class WalletLinkBrowserE2eTest extends AbstractBrowserE2eTest {
         final WalletE2eFixture wallet = new WalletE2eFixture(context);
         final String alias = E2eSeed.unique("eudi");
         final String strict = E2eSeed.unique("eudi-strict");
-        wallet.install(wallet.storedProvider(realm.realm(), alias, Map.of("subject.acknowledgeWeakSubject", "true")),
+        wallet.install(realm.realm(), wallet.storedProvider(realm.realm(), alias, Map.of("subject.acknowledgeWeakSubject", "true")),
                 wallet.storedProvider(realm.realm(), strict, Map.of()));
         final E2eSeed.SeededUser bob = seed().user(realm.realm(), E2eSeed.unique("bob"), PASSWORD);
         final E2eSeed.SeededUser ada = seed().user(realm.realm(), E2eSeed.unique("ada"), PASSWORD);

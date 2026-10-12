@@ -156,13 +156,12 @@ are fixed by it (confirmed against the current worktree, not merely carried over
   password login does.** `MfaEnabledCondition` reads the `SecurityContext`, which is still empty at the point a
   `FederatedLoginCompleter`-driven flow begins evaluating whether to require a second factor. Surfaced during
   Task 18's review; not fixed here (it is not wallet-specific — every federation connector shares this gap).
-- **Admin-API/console-managed identity providers (including a wallet connection) never reach the live broker
-  registry unless `helix.federation.store.enabled=true`.** Not a code defect so much as a sharp default: the
-  flag is `false` out of the box, the refresh-after-write path is a silent no-op when it is off, and even with
-  it on, only `helix.federation.store.realm` (default `master`) is auto-loaded at startup. Fully written up,
-  with the exact mechanics and file:line citations, in `docs/eudi-wallet.md` §2.2 — repeated here only so it is
-  not missed in a security-focused read of this file, since a provider an admin believes is live but is not is
-  an availability/config-trap finding, not merely a UX one.
+- **Resolved (final review F1):** admin-API/console-managed identity providers used to reach the live registry only
+  with `helix.federation.store.enabled=true` (default `false`), only `master` was loaded at startup, and each write
+  replaced every realm's store-backed providers with the written realm's. The store refresher is now on by default,
+  loads every realm at startup, refreshes only the written realm, and keys stored providers by (realm, alias);
+  see `docs/eudi-wallet.md` §2.2. Remaining: a write refreshes only the replica that handled it, and a realm import
+  does not refresh the registry (both go live at the next restart).
 
 ## Deep SAML pentest (2026-09-17, issue #1) — outcome
 Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md`](../docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md)). Result: 0 critical / 0 high / 1 medium / 2 low.

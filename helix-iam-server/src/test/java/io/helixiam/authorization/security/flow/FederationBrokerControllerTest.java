@@ -24,6 +24,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -63,7 +64,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void startStashesStateAndNonceThenRedirectsToTheIdp() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.start(any())).thenReturn(
                 new IdentityProvider.RedirectResponse("https://idp/authorize?x=1", Map.of("nonce", "n-123")));
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -85,7 +86,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void startRendersAnAutoSubmitPostFormForPostBindingProviders() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.start(any())).thenReturn(IdentityProvider.RedirectResponse.postForm(
                 "https://digid/sso", Map.of("SAMLRequest", "deflated", "RelayState", "fixed-state")));
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -101,7 +102,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void callbackBrokersAResolvedUserAndCompletesLogin() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true, Map.of());
         when(provider.callback(any())).thenReturn(identity);
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
@@ -140,7 +141,7 @@ class FederationBrokerControllerTest {
      */
     @Test
     void callbackPassesTheBrokeredLoaToTheLoginCompleter() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true,
                 Map.of(), "http://eidas.europa.eu/LoA/substantial");
         when(provider.callback(any())).thenReturn(identity);
@@ -167,7 +168,7 @@ class FederationBrokerControllerTest {
      */
     @Test
     void callbackNeverTrustsAForgedAttributesLoaKey_onlyTheTypedLevelOfAssurance() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         // Forged: a generic attribute happens to be named "loa", but this identity asserts NO typed LoA
         // (the 5-arg compatibility constructor — what every non-eID provider, e.g. OIDC, actually uses).
         final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true,
@@ -191,7 +192,7 @@ class FederationBrokerControllerTest {
     void startPersistsTheSamlRequestIdAndCallbackBindsThenConsumesItSingleUse() {
         // SAML-1 (S-H1): the broker persists the minted AuthnRequest id server-side (session), passes it
         // to the callback as expectedRequestId, and consumes it single-use so a replay finds none.
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.start(any())).thenReturn(new IdentityProvider.RedirectResponse(
                 "https://idp/sso?x=1", Map.of("samlRequestId", "_req-1")));
         final BrokeredIdentity identity = new BrokeredIdentity(ALIAS, "ext-1", "ada@corp", true, Map.of());
@@ -218,7 +219,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void callbackRejectsAnUnresolvedIdentityWithoutEstablishingASession() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.callback(any())).thenReturn(new BrokeredIdentity(ALIAS, "ext-1", null, false, Map.of()));
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.unresolved());
 
@@ -236,7 +237,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void callbackRejectsAFailedProviderValidationWithoutEstablishingASession() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.callback(any())).thenThrow(new IllegalStateException("state mismatch (possible CSRF)"));
 
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -256,7 +257,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void startBindsTheLoginToThisBrowserAndPassesTheHashToTheProvider() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.start(any())).thenReturn(new IdentityProvider.RedirectResponse("/realms/gov/broker/corp/wallet?tx=t",
                 Map.of()));
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -273,7 +274,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void callbackRecomputesTheBindingAfterSessionIdRotationAndClearsItOnSuccess() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.start(any())).thenReturn(new IdentityProvider.RedirectResponse("/wallet", Map.of()));
         when(provider.callback(any())).thenReturn(new BrokeredIdentity(ALIAS, "ext-1", null, false, Map.of()));
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
@@ -294,7 +295,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void aFailedCallbackKeepsTheBinding() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.callback(any())).thenThrow(new IllegalStateException("refused"));
         final MockHttpServletRequest request = new MockHttpServletRequest();
         final String bound = BrowserBinding.begin(request.getSession(), ALIAS);
@@ -309,7 +310,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void aWalletRefusalRedirectsToTheGenericFederationErrorAndLeaksNoReason() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.callback(any())).thenThrow(new io.helixiam.authorization.federation.wallet
                 .WalletVerificationException(io.helixiam.authorization.federation.wallet.WalletErrorCode.REPLAY,
                 "response code unknown, expired, already used"));
@@ -327,7 +328,7 @@ class FederationBrokerControllerTest {
 
     @Test
     void aProviderThatRefusesToStartGoesToTheFederationErrorPage() {
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.start(any())).thenThrow(new IllegalStateException("provider not usable in this realm"));
         final MockHttpServletRequest request = new MockHttpServletRequest();
 

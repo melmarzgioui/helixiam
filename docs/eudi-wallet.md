@@ -48,35 +48,30 @@ set:
 Set it the same way as for every other Helix deployment: the `DB_ENCRYPTION` environment variable (`database
 .encryption` property).
 
-### 2.2 Required: `helix.federation.store.enabled`
+### 2.2 How console-created connections go live (`helix.federation.store.enabled`)
 
 Identity providers you create through the admin console or the admin API — including a wallet connection — are
-**persisted to the database but are not automatically loaded into the live broker registry** unless
-`helix.federation.store.enabled=true` (default **`false`**). This is not specific to the wallet; it is how every
-admin-API-managed connection (OIDC, SAML, eID, wallet) works today
-(`helix-iam-server/src/main/java/io/helixiam/authorization/federation/FederationConfig.java:116-138`):
+persisted to the database and loaded into the live broker registry by the federation store refresher. This is
+not specific to the wallet; every admin-API-managed connection (OIDC, SAML, eID, wallet) works this way
+(`helix-iam-server/src/main/java/io/helixiam/authorization/federation/FederationConfig.java`,
+`FederationStoreRefresher`):
 
-- With the flag **off** (the default), the `FederationStoreRefresher` bean does not exist at all. The admin API
-  still saves your wallet connection, but `IdentityProviderAdminController.refresh(realmId)`
-  (`helix-iam-server/src/main/java/io/helixiam/authorization/controller/admin/IdentityProviderAdminController.java:125-135`)
-  is then a silent no-op — no error, no log line — and the connection never appears in the live registry, so
-  "Sign in with EU Digital Identity Wallet" never shows up on the login page and the broker 404s the alias. There
-  is nothing to retry; you must turn the flag on.
-- With the flag **on**: every admin-API create/update/delete of an identity provider immediately refreshes the
-  live registry **for that write's own realm** (`refresh(realmId)` above), so a console change takes effect
-  without a restart. Failures during that refresh are logged (`WARN`) but the write still succeeds — a provider
-  can be "saved" with the registry still not reflecting it, visible only in the log.
-- At **startup**, only one realm is auto-loaded from the store: `helix.federation.store.realm` (default
-  **`master`**) — a single realm name, not a list
-  (`FederationConfig.java:128-138`, `federationStoreStartupRefresh`). A wallet connection stored in any other
-  realm is **not** loaded at boot; it becomes live again only the next time an admin writes to it through the
-  admin API (which refreshes that write's realm), not merely by restarting the process. If you run wallet
-  connections outside `master`, plan for this: either set `helix.federation.store.realm` to that realm (only one
-  realm gets the boot-time load) or re-save the connection (a harmless PUT with the same values) after every
-  restart until a later release adds multi-realm startup loading.
-
-Set `helix.federation.store.enabled=true` for any deployment where identity providers (wallet or otherwise) are
-managed through the console/admin API rather than `helix.federation.*` YAML config.
+- `helix.federation.store.enabled` defaults to **`true`** (env `HELIX_FEDERATION_STORE_ENABLED`). It used to
+  default to `false` because the store was read over AMQP at boot; the store is read in process since RabbitMQ was
+  removed, so that reason is gone. Setting it to `false` still turns the store refresh off: connections are then
+  saved but never become loginable (only `helix.federation.*` YAML providers and beans are).
+- At **startup**, the stored connections of **every realm** are loaded. Restarting the server needs no action.
+- Every admin-API create/update/delete refreshes **that write's own realm only**; every other realm's connections
+  stay loaded. A failure during that refresh is logged (`WARN`) but the write still succeeds.
+- Stored connections are keyed by **(realm, alias)**: each realm sees its own connections, and two realms may both
+  use the console's default wallet alias `eudi-wallet`. A realm's login page lists only the connections that serve
+  that realm (its own stored ones plus the YAML/bean ones, which serve every realm); a stored connection of another
+  realm cannot be started there.
+- A stored connection whose secrets cannot be read (for example after `DB_ENCRYPTION` changed) is skipped with a
+  `WARN` naming its id; the realm's other connections still load.
+- Limits: a refresh after a write reaches the replica that handled the write; other replicas pick the change up at
+  their next restart. A realm **import** (`/admin/realms/{realm}/import`) saves its connections without refreshing
+  the registry either; they go live at the next restart or the next admin write in that realm.
 
 ### 2.3 Through the console
 

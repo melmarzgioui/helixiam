@@ -42,7 +42,7 @@ class AccountIdentitiesWalletE2eTest extends AbstractE2eTest {
         realm = E2eSeed.unique("ident");
         seed().realm(realm);
         walletAlias = E2eSeed.unique("eudi-ident");
-        wallet.install(wallet.storedProvider(realm, walletAlias, Map.of("subject.acknowledgeWeakSubject", "true")));
+        wallet.install(realm, wallet.storedProvider(realm, walletAlias, Map.of("subject.acknowledgeWeakSubject", "true")));
         oidcAlias = E2eSeed.unique("oidc-ident");
         ada = seed().user(realm, E2eSeed.unique("ada"), PASSWORD);
 

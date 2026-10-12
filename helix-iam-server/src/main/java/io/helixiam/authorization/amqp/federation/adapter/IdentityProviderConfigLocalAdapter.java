@@ -43,6 +43,11 @@ public class IdentityProviderConfigLocalAdapter implements IdentityProviderConfi
     }
 
     @Override
+    public List<IdentityProviderConfig> listAll() {
+        return bridge.to(service.listAll(), new TypeReference<List<IdentityProviderConfig>>() { });
+    }
+
+    @Override
     public IdentityProviderConfig get(final IdentityProviderRef ref) {
         return bridge.to(service.get(ref.realmId(), ref.alias()).orElse(null), IdentityProviderConfig.class);
     }

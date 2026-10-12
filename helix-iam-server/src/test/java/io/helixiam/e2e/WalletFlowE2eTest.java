@@ -65,7 +65,7 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         web = seed().confidentialClient(realm, "web", List.of("openid", "profile"));
         alias = E2eSeed.unique(ALIAS_PREFIX);
         provider = wallet.storedProvider(realm, alias, Map.of());
-        wallet.install(provider);
+        wallet.install(realm, provider);
     }
 
     // ------------------------------------------------------------------------------------------------ happy paths
@@ -284,7 +284,9 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         seed().realm(realmB);
         // A YAML provider serves every realm, so only the transaction's own realm stops the cross-realm use.
         final String yamlAlias = E2eSeed.unique("eudi-yaml");
-        wallet.install(provider, wallet.yamlProvider(yamlAlias));
+        final WalletIdentityProvider yaml = wallet.yamlProvider(yamlAlias);
+        wallet.install(realm, provider, yaml);
+        wallet.install(realmB, yaml); // the one YAML provider, registered for every realm
         final Login login = startLogin(newBrowser(), realm, yamlAlias);
         final String sameDevice = Oid4vpWalletClient.invocationParameters(WalletE2eFixture.openWalletLink(login.page()))
                 .get("request_uri");
@@ -380,7 +382,7 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         final String fullAlias = E2eSeed.unique("eudi-full");
         final WalletIdentityProvider fullProvider = builder.build(realm, WalletProviderConfig.fromStored(fullAlias,
                 "Wallet", wallet.storedConfig(wallet.importAccessKey(realm))));
-        wallet.install(provider, fullProvider);
+        wallet.install(realm, provider, fullProvider);
         final E2eHttp first = newBrowser();
         first.followRedirects(first.get("/realms/" + realm + "/login"));
         assertThat(first.get("/realms/" + realm + "/broker/" + fullAlias).location().getPath()).endsWith("/wallet");
@@ -398,7 +400,7 @@ class WalletFlowE2eTest extends AbstractE2eTest {
     @Test
     void aTupleOnlyWallet_withoutALink_isSentToTheLinkExplanation() {
         final String tupleAlias = E2eSeed.unique("eudi-tuple");
-        wallet.install(wallet.storedProvider(realm, tupleAlias, Map.of("subject.acknowledgeWeakSubject", "true")));
+        wallet.install(realm, wallet.storedProvider(realm, tupleAlias, Map.of("subject.acknowledgeWeakSubject", "true")));
         final Login login = startLogin(newBrowser(), realm, tupleAlias);
         final E2eHttp phone = newBrowser();
         final Oid4vpWalletClient.VerifiedRequest request =
@@ -452,7 +454,7 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         final String upgradeAlias = E2eSeed.unique("eudi-upgrade");
         final WalletIdentityProvider upgrade = wallet.storedProvider(realm, upgradeAlias,
                 Map.of("subject.acknowledgeWeakSubject", "true"));
-        wallet.install(provider, upgrade);
+        wallet.install(realm, provider, upgrade);
         final E2eSeed.SeededUser ada = seed().user(realm, E2eSeed.unique("ada"), "Wallet-Upgrade-Passw0rd-2026!");
         final E2eSeed.SeededUser bob = seed().user(realm, E2eSeed.unique("bob"), "Wallet-Upgrade-Passw0rd-2026!");
         final WalletLinkService links = context.getBean(WalletLinkService.class);

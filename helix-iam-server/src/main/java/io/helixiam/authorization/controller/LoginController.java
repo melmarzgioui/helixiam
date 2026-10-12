@@ -88,7 +88,7 @@ public class LoginController {
 
         // Helix IAM E5.4: render a "Sign in with X" link per federation provider the app offers
         // (each points at /broker/{alias}) — app-scoped when its SSO step selects them.
-        model.addAttribute("federationProviders", federationProvidersFor(idp));
+        model.addAttribute("federationProviders", federationProvidersFor(realm, idp));
         // Auth-hardening (feature 5): expose the realm's CAPTCHA provider + site key for the widget.
         final boolean captchaEnabled = captchaService != null && captchaService.isEnabled(realm);
         model.addAttribute("captchaEnabled", captchaEnabled);
@@ -197,14 +197,15 @@ public class LoginController {
      * subset in OPTION mode, none in LOCAL_ONLY (or a REDIRECT we did not follow, e.g. after an error),
      * and — with no SSO step configured — every enabled provider (legacy default).
      */
-    private List<IdpMetadata> federationProvidersFor(final IdpRedirectStep idp) {
+    private List<IdpMetadata> federationProvidersFor(final String realm, final IdpRedirectStep idp) {
+        // Final review F1: only the providers that serve this realm (a stored provider of another realm never shows)
         if (idp == null) {
-            return identityProviderRegistry.metadatas();
+            return identityProviderRegistry.metadatas(realm);
         }
         if (IdentityProviderRedirectAuthenticator.MODE_LOCAL_ONLY.equals(idp.mode()) || idp.aliases().isEmpty()) {
             return List.of();
         }
-        return identityProviderRegistry.metadatas().stream()
+        return identityProviderRegistry.metadatas(realm).stream()
                 .filter(m -> idp.aliases().contains(m.alias()))
                 .toList();
     }

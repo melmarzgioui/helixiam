@@ -27,6 +27,8 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,7 +46,8 @@ class WalletWebControllersTest {
     @BeforeEach
     void setUp() {
         RealmContextHolder.set(REALM);
-        when(registry.get(ALIAS)).thenReturn(provider);
+        when(registry.get(eq(REALM), eq(ALIAS))).thenReturn(provider);
+        when(provider.servesRealm(REALM)).thenReturn(true);
         when(provider.transactions()).thenReturn(store);
         when(provider.config()).thenReturn(WalletProviderConfig.fromStored(ALIAS, "Wallet",
                 Map.of("accessKeyRef", "software:acme/a", "trustAnchors", "x")));

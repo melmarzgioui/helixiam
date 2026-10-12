@@ -145,6 +145,46 @@ class IdentityProviderConfigServiceTest {
         assertEquals("{\"clientSecret\":\"old\"}", legacy.getSecretJson());
     }
 
+    // --- final review m3 / F1: one unreadable row never takes down the realm (or, at startup, every realm) ---
+
+    @Test
+    void list_skipsARowWhoseSecretsCannotBeRead_andReturnsTheRest() {
+        final IdentityProviderEntity broken = entity("gov", "broken", "oidc", "Broken", true, "{}");
+        broken.setSecretJson("not-json-and-not-decryptable");
+        when(repository.findAllByRealmId("gov"))
+                .thenReturn(List.of(entity("gov", "ok", "saml", "OK", true, "{}"), broken));
+
+        final List<IdentityProviderConfig> list = service.list("gov");
+
+        assertEquals(List.of("ok"), list.stream().map(IdentityProviderConfig::alias).toList());
+    }
+
+    @Test
+    void list_whenLoadingTheRealmFails_loadsRowByRow_skippingTheUnreadableOne() {
+        // e.g. the entity converter refusing an undecryptable secret_json fails the whole query
+        when(repository.findAllByRealmId("gov")).thenThrow(new IllegalStateException("cannot decrypt"));
+        when(repository.findIdsByRealmId("gov")).thenReturn(List.of("gov|ok", "gov|broken"));
+        when(repository.findById("gov|ok")).thenReturn(Optional.of(entity("gov", "ok", "saml", "OK", true, "{}")));
+        when(repository.findById("gov|broken")).thenThrow(new IllegalStateException("cannot decrypt"));
+
+        final List<IdentityProviderConfig> list = service.list("gov");
+
+        assertEquals(List.of("ok"), list.stream().map(IdentityProviderConfig::alias).toList());
+    }
+
+    @Test
+    void listAll_returnsTheConfigsOfEveryRealm_skippingAnUnreadableRow() {
+        when(repository.findAll()).thenThrow(new IllegalStateException("cannot decrypt"));
+        when(repository.findAllIds()).thenReturn(List.of("a|one", "b|two", "b|bad"));
+        when(repository.findById("a|one")).thenReturn(Optional.of(entity("a", "one", "oidc", "One", true, "{}")));
+        when(repository.findById("b|two")).thenReturn(Optional.of(entity("b", "two", "oidc", "Two", true, "{}")));
+        when(repository.findById("b|bad")).thenThrow(new IllegalStateException("cannot decrypt"));
+
+        final List<IdentityProviderConfig> all = service.listAll();
+
+        assertEquals(List.of("a/one", "b/two"), all.stream().map(c -> c.realmId() + "/" + c.alias()).toList());
+    }
+
     private static IdentityProviderEntity entity(final String realm, final String alias, final String protocol,
                                                  final String displayName, final boolean enabled, final String json) {
         final IdentityProviderEntity e = new IdentityProviderEntity();

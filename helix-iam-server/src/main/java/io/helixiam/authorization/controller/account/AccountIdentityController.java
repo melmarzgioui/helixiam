@@ -80,10 +80,6 @@ public class AccountIdentityController {
         if (alias == null) {
             return false;
         }
-        try {
-            return WalletIdentityProvider.from(registry.get(alias)).isPresent();
-        } catch (final IllegalArgumentException e) {
-            return false; // not a registered provider
-        }
+        return registry.named(alias).stream().anyMatch(p -> WalletIdentityProvider.from(p).isPresent());
     }
 }

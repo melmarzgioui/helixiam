@@ -63,7 +63,7 @@ class WalletLogHygieneE2eTest extends AbstractE2eTest {
         // acknowledgeWeakSubject=true: needed for the tuple-based upgrade-link and account-console LINK scenarios.
         providerSdJwt = wallet.storedProvider(realm, aliasSdJwt, Map.of("subject.acknowledgeWeakSubject", "true"));
         providerMdoc = wallet.storedProviderMdoc(realm, aliasMdoc, Map.of("subject.acknowledgeWeakSubject", "true"));
-        wallet.install(providerSdJwt, providerMdoc);
+        wallet.install(realm, providerSdJwt, providerMdoc);
     }
 
     // ------------------------------------------------------------------------------------------------ JIT (sd-jwt)

@@ -18,10 +18,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Helix IAM E8.1: owns the persisted, per-realm identity-provider configs that the admin console
@@ -78,9 +80,53 @@ public class IdentityProviderConfigService {
         return toDto(saved);
     }
 
-    /** All identity-provider configs for a realm. */
+    /** All readable identity-provider configs for a realm (an unreadable row is logged by id and skipped). */
     public List<IdentityProviderConfig> list(final String realmId) {
-        return repository.findAllByRealmId(realmId).stream().map(this::toDto).toList();
+        return readable(() -> repository.findAllByRealmId(realmId), () -> repository.findIdsByRealmId(realmId));
+    }
+
+    /** All readable identity-provider configs of every realm (an unreadable row is logged by id and skipped). */
+    public List<IdentityProviderConfig> listAll() {
+        return readable(repository::findAll, repository::findAllIds);
+    }
+
+    /**
+     * Final review m3: one row whose secrets cannot be read (a wrong {@code DB_ENCRYPTION} key, a corrupt value) must not
+     * take every other provider down with it: those are mapped one by one, and when loading the set itself fails (the
+     * entity converter refusing a value fails the whole query) the rows are loaded one id at a time instead.
+     */
+    private List<IdentityProviderConfig> readable(final Supplier<List<IdentityProviderEntity>> all,
+                                                  final Supplier<List<String>> ids) {
+        List<IdentityProviderEntity> entities;
+        try {
+            entities = all.get();
+        } catch (final RuntimeException e) {
+            LOG.warn("Identity-provider configs could not be loaded together ({}); loading them one by one",
+                    e.getClass().getSimpleName());
+            entities = new ArrayList<>();
+            for (final String id : ids.get()) {
+                try {
+                    repository.findById(id).ifPresent(entities::add);
+                } catch (final RuntimeException rowFailure) {
+                    skip(id, rowFailure);
+                }
+            }
+        }
+        final List<IdentityProviderConfig> configs = new ArrayList<>();
+        for (final IdentityProviderEntity entity : entities) {
+            try {
+                configs.add(toDto(entity));
+            } catch (final RuntimeException e) {
+                skip(entity.getId(), e);
+            }
+        }
+        return configs;
+    }
+
+    private static void skip(final String id, final RuntimeException e) {
+        // the id only: the exception text could quote the stored value
+        LOG.warn("Skipping identity-provider config {}: it cannot be read ({}). Check DB_ENCRYPTION, then re-save or "
+                + "delete it.", LogSafe.sanitize(id), e.getClass().getSimpleName());
     }
 
     /** A single config by realm + alias, when present. */
