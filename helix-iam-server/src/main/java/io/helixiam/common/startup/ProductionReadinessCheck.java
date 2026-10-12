@@ -5,12 +5,16 @@
 
 package io.helixiam.common.startup;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -28,6 +32,8 @@ import jakarta.annotation.PostConstruct;
  * <ul>
  *   <li>{@code DB_ENCRYPTION} unset — realm signing keys and TOTP secrets would be stored in
  *       plaintext. Set the key, or explicitly accept the risk with {@code HELIX_ALLOW_PLAINTEXT_SECRETS=true}.</li>
+ *   <li>{@code HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true} (read secret columns that still hold plaintext) without
+ *       {@code HELIX_DB_ENCRYPTION_MIGRATE_UNTIL} set to a date at most 30 days ahead — the mode is time-boxed.</li>
  *   <li>{@code IDP_BASE_URL} / {@code SP_BASE_URL} unset — the server would otherwise fall back to
  *       placeholder URLs and mint tokens/redirects for the wrong host.</li>
  *   <li>Task 22: a YAML-configured EUDI Wallet ({@code helix.federation.wallet[*]}) with {@code responseMode:
@@ -61,7 +67,23 @@ public class ProductionReadinessCheck {
     private final boolean egressAllowPrivate;
     /** Task 22: YAML wallet providers (never null; checked for direct_post and for running without encryption). */
     private final List<WalletProviderConfig> walletProviders;
+    private final boolean migratePlaintext;
+    private final String migrateUntil;
+    private final Clock clock;
 
+    /** The longest a plaintext-read migration window may run (from today). */
+    static final int MAX_MIGRATION_DAYS = 30;
+
+    public ProductionReadinessCheck(final Environment env, final String encryptionKey,
+                                    final boolean allowPlaintextSecrets, final String idpBaseUrl,
+                                    final String spBaseUrl, final boolean registrationEnabled,
+                                    final boolean prometheusAnonymous, final boolean cookieSecure,
+                                    final boolean springdocPublic, final boolean egressAllowPrivate) {
+        this(env, encryptionKey, allowPlaintextSecrets, idpBaseUrl, spBaseUrl, registrationEnabled, prometheusAnonymous,
+                cookieSecure, springdocPublic, egressAllowPrivate, false, "", Clock.systemUTC());
+    }
+
+    @Autowired
     public ProductionReadinessCheck(
             final Environment env,
             @Value("${database.encryption:}") final String encryptionKey,
@@ -73,7 +95,39 @@ public class ProductionReadinessCheck {
             @Value("${helix.security.cookie-secure:true}") final boolean cookieSecure,
             @Value("${helix.springdoc.public:false}") final boolean springdocPublic,
             @Value("${helix.egress.allow-private:false}") final boolean egressAllowPrivate,
+            @Value("${helix.security.db-encryption.migrate-plaintext:false}") final boolean migratePlaintext,
+            @Value("${helix.security.db-encryption.migrate-until:}") final String migrateUntil,
             final FederationProviderProperties federation) {
+        this(env, encryptionKey, allowPlaintextSecrets, idpBaseUrl, spBaseUrl, registrationEnabled, prometheusAnonymous,
+                cookieSecure, springdocPublic, egressAllowPrivate, migratePlaintext, migrateUntil, Clock.systemUTC(),
+                federation);
+    }
+
+    /** Task 22: the checks with YAML wallet providers ({@code helix.federation.wallet[*]}). */
+    public ProductionReadinessCheck(final Environment env, final String encryptionKey,
+                                    final boolean allowPlaintextSecrets, final String idpBaseUrl,
+                                    final String spBaseUrl, final boolean registrationEnabled,
+                                    final boolean prometheusAnonymous, final boolean cookieSecure,
+                                    final boolean springdocPublic, final boolean egressAllowPrivate,
+                                    final FederationProviderProperties federation) {
+        this(env, encryptionKey, allowPlaintextSecrets, idpBaseUrl, spBaseUrl, registrationEnabled, prometheusAnonymous,
+                cookieSecure, springdocPublic, egressAllowPrivate, false, "", Clock.systemUTC(), federation);
+    }
+
+    ProductionReadinessCheck(final Environment env, final String encryptionKey, final boolean allowPlaintextSecrets,
+                             final String idpBaseUrl, final String spBaseUrl, final boolean registrationEnabled,
+                             final boolean prometheusAnonymous, final boolean cookieSecure, final boolean springdocPublic,
+                             final boolean egressAllowPrivate, final boolean migratePlaintext, final String migrateUntil,
+                             final Clock clock) {
+        this(env, encryptionKey, allowPlaintextSecrets, idpBaseUrl, spBaseUrl, registrationEnabled, prometheusAnonymous,
+                cookieSecure, springdocPublic, egressAllowPrivate, migratePlaintext, migrateUntil, clock, null);
+    }
+
+    ProductionReadinessCheck(final Environment env, final String encryptionKey, final boolean allowPlaintextSecrets,
+                             final String idpBaseUrl, final String spBaseUrl, final boolean registrationEnabled,
+                             final boolean prometheusAnonymous, final boolean cookieSecure, final boolean springdocPublic,
+                             final boolean egressAllowPrivate, final boolean migratePlaintext, final String migrateUntil,
+                             final Clock clock, final FederationProviderProperties federation) {
         this.devProfile = Arrays.asList(env.getActiveProfiles()).contains("dev");
         this.encryptionKey = encryptionKey;
         this.allowPlaintextSecrets = allowPlaintextSecrets;
@@ -86,6 +140,9 @@ public class ProductionReadinessCheck {
         this.egressAllowPrivate = egressAllowPrivate;
         this.walletProviders = federation == null || federation.getWallet() == null ? List.of()
                 : List.copyOf(federation.getWallet());
+        this.migratePlaintext = migratePlaintext;
+        this.migrateUntil = migrateUntil;
+        this.clock = clock;
     }
 
     @PostConstruct
@@ -102,6 +159,18 @@ public class ProductionReadinessCheck {
                 fatal.add("DB_ENCRYPTION is not set: realm signing keys and TOTP secrets would be stored "
                         + "in PLAINTEXT. Set DB_ENCRYPTION, or set HELIX_ALLOW_PLAINTEXT_SECRETS=true to "
                         + "accept the risk explicitly.");
+            }
+        }
+        if (migratePlaintext) {
+            final String problem = devProfile ? null : migrationWindowProblem();
+            if (problem == null) {
+                insecure.add("encrypted columns that hold plaintext are READ AS PLAINTEXT "
+                        + "(HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true" + (isBlank(migrateUntil) ? "" : " until " + migrateUntil)
+                        + ") — it also hides a changed key. Unset it once those rows are re-encrypted");
+            } else {
+                fatal.add("HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true reads undecryptable secret columns as plaintext. "
+                        + "It is a time-boxed migration mode: set HELIX_DB_ENCRYPTION_MIGRATE_UNTIL to the ISO date "
+                        + "(yyyy-MM-dd) it ends, at most " + MAX_MIGRATION_DAYS + " days ahead (" + problem + ").");
             }
         }
         if (!devProfile) {
@@ -163,6 +232,27 @@ public class ProductionReadinessCheck {
             LOG.warn("Production readiness — {} insecure setting(s) in effect:\n  - {}",
                     insecure.size(), String.join("\n  - ", insecure));
         }
+    }
+
+    /** Why the migration end date is not acceptable, or null when it is today .. today + 30 days. */
+    private String migrationWindowProblem() {
+        if (isBlank(migrateUntil)) {
+            return "it is not set";
+        }
+        final LocalDate until;
+        try {
+            until = LocalDate.parse(migrateUntil.trim());
+        } catch (final DateTimeParseException e) {
+            return "it is not an ISO date";
+        }
+        final LocalDate today = LocalDate.now(clock);
+        if (until.isBefore(today)) {
+            return "it has passed";
+        }
+        if (until.isAfter(today.plusDays(MAX_MIGRATION_DAYS))) {
+            return "it is more than " + MAX_MIGRATION_DAYS + " days ahead";
+        }
+        return null;
     }
 
     private static boolean isBlank(final String s) {

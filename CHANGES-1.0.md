@@ -3,6 +3,119 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.7`)
+
+> **BREAKING — upgrade checklist (reverse proxies and host names).** The server now trusts forwarded headers only
+> from `HELIX_TRUSTED_PROXIES` and, outside `dev`, answers only for its own host names. Before upgrading:
+> 1. Behind any TLS-terminating proxy (ingress, external load balancer, Gateway API, service mesh), set
+>    `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) to the addresses it connects from. Otherwise issuers
+>    and redirects become `http://` (relying parties then reject the tokens' `iss`) and all clients share one
+>    rate-limit bucket. The server logs an ERROR once a minute when an https `IDP_BASE_URL` is reached over http.
+> 2. List every other host name clients use to reach the server in `HELIX_ALLOWED_HOSTS` (Helm:
+>    `config.allowedHosts`), e.g. the in-cluster service name relying parties call for tokens or JWKS. The hosts of
+>    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already; any other `Host` gets `400`. Probes are unaffected.
+> 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
+>    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
+> 4. eID connections must name a minimum level of assurance the server knows (see below).
+
+- **security** — **BREAKING.** The request-derived issuer could be steered with the `Host` header itself: a server
+  reached directly answered `Host: evil.example` with issuer `http://evil.example/realms/...`. Outside the `dev`
+  profile, a request whose host (after trusted forwarded-header processing) is not the host of `IDP_BASE_URL` or
+  `SP_BASE_URL` or listed in the new `HELIX_ALLOWED_HOSTS` now gets `400` before any issuer or URL is derived. The
+  connection's own address (kubelet probes send the pod IP), `localhost` from a loopback peer (Docker
+  `HEALTHCHECK`) and `/actuator/health/**` stay reachable. An https `IDP_BASE_URL` reached over plain http logs an
+  ERROR (once a minute) that names `HELIX_TRUSTED_PROXIES`. The Helm install notes now warn whenever
+  `config.trustedProxies` is empty (not only with the chart's ingress), and the chart gains `config.allowedHosts`.
+  The SAS issuer is not pinned. Only `server.forward-headers-strategy=framework` is supported.
+- **security** — A federated sign-in (OIDC, SAML or eID broker) skipped the post-broker second factor. The realm's
+  browser flow gates the TOTP step with the `mfa-enabled` condition, which read the user from the security context;
+  `FederatedLoginCompleter` starts that flow before anyone is in the context, so the condition answered "MFA not
+  enabled" and a full session was established for a user with MFA enabled. The `/oauth2/authorize`, SAML and account
+  console gates still asked for the code, but other surfaces saw a full session. The condition now answers for the
+  flow's own user (the flow state's user id, loaded by id unless the pending principal is that user), and a flow user
+  that cannot be loaded fails the flow instead of skipping the step. The flow's TOTP check likewise only verifies a
+  code against the flow's own user. No other flow condition read the security context.
+- **security** — An eID connection (DigiD, eHerkenning, eIDAS) whose minimum level of assurance was not a level Helix
+  knows accepted every asserted level: `EidLevelOfAssurance.meetsMinimum` ranked the unknown minimum as rung 0, so any
+  recognised level met it. An unrecognised non-blank minimum is now never met (fail closed); a blank minimum still
+  means "no minimum". The keywords the console stores (`loa1`–`loa4` for DigiD, `loa2`/`loa2plus`/`loa3`/`loa4` for
+  eHerkenning, `low`/`substantial`/`high` for eIDAS) were never mapped, so the console's default `loa3` was such an
+  unknown minimum; they are now mapped to the scheme's URN, which the AuthnRequest also asks for. An unknown minimum is
+  refused when the connection is saved (`400` with `fieldErrors.minimumLoa`) and when it is built (a stored connection
+  is skipped with a warning; a connection in `helix.federation.eid` fails startup).
+- **security** — A secret column (TOTP and HOTP secrets, realm signing keys, client and webhook secrets, SCIM tokens,
+  messaging-provider secrets, SAML relying-party certificates) whose stored value could not be decrypted was returned
+  as stored: `AttributeEncryption` fell back to the legacy AES format and then handed back the raw column, so a
+  plaintext row, a value written under another key, or an altered value was read as if it were the secret. The read
+  now fails with an `IllegalStateException` that names the cause (not encrypted, or the key changed or the value was
+  altered), never the value. The legacy AES format still decrypts. **Operators:** a deployment that ran without
+  `DB_ENCRYPTION` and then set it may hold plaintext rows; it uses the migration mode below while it migrates.
+- **security** — The client IP came from a client-controlled header. The rate limiter, the audit log, the adaptive-auth
+  risk signals and the CAPTCHA `remoteip` took the first `X-Forwarded-For` (or `X-Real-IP`) address from any client, so
+  a client could get a fresh sign-in rate-limit budget per request, put any address in the audit log, or claim a
+  known IP. `server.forward-headers-strategy=framework` did the same to `getRemoteAddr()`. One `ClientIpResolver` now
+  decides the client IP everywhere: the TCP peer, read beneath Spring's `ForwardedHeaderFilter`, unless that peer is
+  listed in the new `helix.security.trusted-proxies` (`HELIX_TRUSTED_PROXIES`, comma-separated IPs or CIDR ranges, IPv4
+  or IPv6, default empty). From a trusted proxy, `X-Forwarded-For` is read from the right and the first address that
+  is not a trusted proxy is the client. Header values are parsed as IP literals only. **Operators:** behind an ingress
+  controller, load balancer or the console's nginx, set `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) to the
+  addresses the proxy connects from. Otherwise every request appears to come from the proxy and all clients share one
+  sign-in rate-limit bucket. The same list now also gates `X-Forwarded-Proto`/`-Host` (next entry).
+- **eID** — Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes, not the `urn:nl-eid-gdi` levels, so
+  with the fail-closed minimum above every classic DigiD sign-in against a set minimum (such as the console's `loa3`)
+  would have been refused. The DigiD ladder now also ranks `PasswordProtectedTransport` (Basis),
+  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog). The mapping follows Logius'
+  DigiD koppelvlak documentation and is still to be verified against it; eHerkenning and eIDAS are unchanged.
+- **security** — `Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` were honoured from any client
+  (`server.forward-headers-strategy=framework`). The OIDC issuer is derived from the request, so a single request with
+  `X-Forwarded-Host: evil.example` got a discovery document with issuer `https://evil.example/...`; the same headers
+  steered `isSecure()`, redirects and every absolute URL. `TrustedProxyForwardedHeaderFilter` replaces Spring Boot's
+  `ForwardedHeaderFilter` and applies those headers only when the TCP peer is in `helix.security.trusted-proxies`;
+  from any other peer they are removed. **Operators:** behind a TLS-terminating ingress or load balancer,
+  `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) is now required: without it the server sees plain HTTP and the
+  issuer and redirects become `http://`. A startup warning says so when `IDP_BASE_URL` is https and the list is empty.
+- **security** — eHerkenning EH2+ (`loa2plus`) ranked the same as EH2, so a connection with minimum `loa2plus` accepted
+  a plain EH2 assertion. EH2+ now has its own rung between EH2 and EH3 (the ladders are spaced by 10 internally).
+- **security** — When a `/flow` sign-in completes, the pending authentication is promoted only if it belongs to the
+  user the flow completed for; otherwise nothing is promoted, the session is invalidated and the user is sent back to
+  sign in. The completed sign-in also gets a new session id (`changeSessionId`).
+- **security** — Reading plaintext secret rows is its own, loud, time-boxed migration mode instead of a side effect
+  of `HELIX_ALLOW_PLAINTEXT_SECRETS` (an install that had set that flag and later added a key would have been in the
+  mode without noticing). `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true` reads undecryptable secret columns as stored
+  (a WARN per read, naming entity and column where known; encrypted on the next write), logs an ERROR banner at
+  startup and every hour, and outside `dev` the server refuses to start unless `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` is
+  a date at most 30 days ahead. `HELIX_ALLOW_PLAINTEXT_SECRETS` again only accepts running without a key, and an
+  empty `DB_ENCRYPTION` now means "no key" (it failed startup with "Empty key" before). The per-thread record of
+  plaintext reads is removed after each entity load and at the end of each transaction.
+- **security** — In a realm that requires MFA, a user who had not enrolled a second factor got a full session from a
+  federated sign-in, and from a password sign-in whose post-password flow completed (the flow engine, and resuming
+  after required actions such as a password update). The authorize, SAML and account gates still asked for
+  enrolment, but the session was full. Both now keep the MFA gate and send the user to `/mfa/enable`, like the
+  magic-link and legacy password paths. A federated sign-in also gets a new session id (`changeSessionId`) and drops
+  any second-factor pass from an earlier sign-in in that session.
+- **docs** — eID minimum levels of assurance are documented in `docs/FEATURES.md` ("eID minimum level of
+  assurance"): the keywords and URNs each scheme accepts, and the classic DigiD workaround: store the
+  `urn:oasis:names:tc:SAML:2.0:ac:classes:*` class itself as the minimum through the console's "Other (custom)"
+  minimum-level field, since a keyword such as `loa3` is requested as an `urn:nl-eid-gdi` URN that a Koppelvlak
+  endpoint is unlikely to accept. The DigiD mapping (both the oasis classes and the `urn:nl-eid-gdi:1.0:LoA:*` URNs)
+  still has to be confirmed against the current Logius documentation.
+- **security (checked, no change)** — Re-spelling the sign-in path does not bypass the login rate limit.
+  `RateLimitFilter` matches the still-encoded servlet path that `RealmRoutingFilter` passes on, so
+  `/realms/{r}/l%6Fgin` is not counted. But Spring Security's `StrictHttpFirewall` then refuses any `%` or `;` in the
+  URL (400), Tomcat refuses `%2F`, `/./` and `//` are refused, and a different case or a trailing slash is not the
+  login endpoint (401), so no sign-in attempt is processed. `LoginRateLimitPathEncodingE2eTest` keeps it that way.
+
+## v1.0.0-rc.7 (security hotfix)
+
+- **security** — Nimbus JOSE + JWT is pinned to **10.10** (CVE-2025-53864 / GHSA-xwmg-2g98-w7v9). Nimbus before
+  10.0.2 (and before 9.37.4 on the 9.x line) has no bound on JSON nesting in a JWT claim set, so an attacker-supplied
+  token with deeply nested arrays or objects can exhaust the stack (denial of service). This affected rc.6 and earlier:
+  Spring Authorization Server 1.5.8 brings in the vulnerable 9.47, which it and Spring Security use to decode JWTs (for
+  example `private_key_jwt` client assertions). Boot 3.5 does not manage Nimbus, so the version is now pinned in
+  `helix-iam-server/pom.xml` `dependencyManagement`; the build resolves a single Nimbus.
+  `NimbusNestedJsonRegressionTest` checks that a claim set nested 10 000 levels deep is refused with a
+  `ParseException` (9.47 accepted it).
+
 ## Next release (after `v1.0.0-rc.5`)
 
 - **feature (experimental)** — HelixIAM can now act as an OpenID4VP *Verifier* for EU Digital Identity Wallets:

@@ -36,6 +36,9 @@ import java.util.Map;
 @Controller
 public class FlowController {
 
+    private static final org.apache.logging.log4j.Logger LOG =
+            org.apache.logging.log4j.LogManager.getLogger(FlowController.class);
+
     private static final String REDIRECT_PREFIX = "redirect:";
     private static final String VIEW_PREFIX = "flow/";
 
@@ -127,28 +130,24 @@ public class FlowController {
 
         return switch (progress.type()) {
             case COMPLETED -> {
-                request.changeSessionId(); // post-broker step-up just completed: rotate before promoting the context
-                mfaService.unlockUser(); // restore the fully authenticated token
-                if (state.pendingCommit() != null && !io.helixiam.authorization.federation.FederatedLoginCommit
-                        .commit(loginCommits, state.pendingCommit(), state.userId())) {
-                    // Task 18: committed only once the session is fully signed in; refused → drop that session
-                    // (context and session) so the login does not stay signed in.
+                // Restore the fully authenticated token — only if it is the user the flow completed for, pending in
+                // this session (the merge of the wallet and security branches: user check, one rotation, commit or
+                // undo, stamp, acr).
+                final String flowUser = progress.userId() != null ? progress.userId() : state.userId();
+                if (flowUser == null || !flowUser.equals(state.userId()) || !mfaService.unlockUser(flowUser)) {
+                    LOG.warn("Login flow completed for another user than the pending sign-in; refusing it");
                     org.springframework.security.core.context.SecurityContextHolder.clearContext();
-                    request.getSession().invalidate();
+                    io.helixiam.authorization.federation.PendingFederatedLogin.clear(session);
+                    session.invalidate();
                     reportFailed(state);
+                    yield REDIRECT_PREFIX + flowPath("/login") + "?error";
+                }
+                request.changeSessionId(); // a completed sign-in gets a new session id (no fixation)
+                if (!io.helixiam.authorization.federation.PendingFederatedLogin.finish(request, state, loginCommits,
+                        loginOutcomes, authTimeStamper)) {
                     yield REDIRECT_PREFIX + flowPath("/login?error=federation");
                 }
-                authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
-                // Task 3 fix round 1: promote THIS flow's pending acr (if a federated login set one) only
-                // now that THIS SAME flow has reached COMPLETED, and only AFTER stamp() cleared any stale
-                // value — never earlier, so an abandoned step-up can never leak into an unrelated login.
-                if (state.pendingAcr() != null && !state.pendingAcr().isBlank()) {
-                    session.setAttribute(
-                            io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
-                            state.pendingAcr());
-                }
                 sessionPolicyApplier.applyOnLogin(request, io.helixiam.authorization.security.realm.RealmContextHolder.get()); // SSO P3
-                reportCompleted(state);
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }
             case CHALLENGE -> REDIRECT_PREFIX + flowPath("/flow"); // advanced to the next factor's screen
@@ -157,13 +156,6 @@ public class FlowController {
                 yield VIEW_PREFIX + state.currentChallengeView();
             }
         };
-    }
-
-    /** Final review F2: the federated login of this flow completed; reported once (the marker is cleared). */
-    private void reportCompleted(final FlowExecutionState state) {
-        final java.io.Serializable marker = state.pendingOutcome();
-        state.setPendingOutcome(null);
-        io.helixiam.authorization.federation.FederatedLoginOutcome.completed(loginOutcomes, marker, state.userId());
     }
 
     /** Final review F2: the federated login of this flow ended without a session; reported once. */

@@ -22,9 +22,9 @@ class EidLevelOfAssuranceTest {
 
     @Test
     void eidasUrnsMapToTheirRungInOrder() {
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/low")).isEqualTo(1);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/substantial")).isEqualTo(2);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/high")).isEqualTo(3);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/low")).isEqualTo(10);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/substantial")).isEqualTo(20);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/high")).isEqualTo(30);
     }
 
     @Test
@@ -39,10 +39,10 @@ class EidLevelOfAssuranceTest {
 
     @Test
     void digidUrnsMapToTheirRungInOrder() {
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Low")).isEqualTo(1);         // Basis
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Midden")).isEqualTo(2);      // Midden
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Substantial")).isEqualTo(3); // Substantieel
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High")).isEqualTo(4);        // Hoog
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Low")).isEqualTo(10);         // Basis
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Midden")).isEqualTo(20);      // Midden
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Substantial")).isEqualTo(30); // Substantieel
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High")).isEqualTo(40);        // Hoog
     }
 
     @Test
@@ -55,9 +55,9 @@ class EidLevelOfAssuranceTest {
 
     @Test
     void eherkenningUrnsMapToTheirRung() {
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa2")).isEqualTo(2);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa3")).isEqualTo(3);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa4")).isEqualTo(4);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa2")).isEqualTo(20);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa3")).isEqualTo(30);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa4")).isEqualTo(40);
         assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING,
                 "urn:etoegang:core:assurance-class:loa3", "urn:etoegang:core:assurance-class:loa3")).isTrue();
     }
@@ -72,7 +72,10 @@ class EidLevelOfAssuranceTest {
                     .as("rung(EUDI_WALLET, %s) == rung(EIDAS, %s)", uri, uri)
                     .isEqualTo(EidLevelOfAssurance.rung(EidScheme.EIDAS, uri));
         }
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EUDI_WALLET, "http://eidas.europa.eu/LoA/high")).isEqualTo(3);
+        // the top of the eIDAS ladder (rung values are the ladder's own; the security branch spaced them out)
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EUDI_WALLET, "http://eidas.europa.eu/LoA/high"))
+                .isGreaterThan(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/substantial"))
+                .isGreaterThan(0);
     }
 
     @Test
@@ -103,5 +106,143 @@ class EidLevelOfAssuranceTest {
                 "urn:nl-eid-gdi:1.0:LoA:Low", null)).isTrue();
         assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
                 "urn:nl-eid-gdi:1.0:LoA:Low", "  ")).isTrue();
+    }
+    // --- fail closed on an unrecognised minimum ----------------------------------------------------
+
+    @Test
+    void anUnrecognisedMinimumIsNeverMet() {
+        // A typo or another scheme's URN must not silently lower the bar to "anything goes".
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EIDAS,
+                "http://eidas.europa.eu/LoA/high", "urn:something:unrecognised")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:High", "http://eidas.europa.eu/LoA/low")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:High", "urn:nl-eid-gdi:1.0:LoA:Substantieel")).isFalse();
+    }
+
+    @Test
+    void theConsoleKeywordsAreRecognisedMinimums() {
+        // The admin console stores the scheme's short keyword (loa1..loa4, low/substantial/high).
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.DIGID, "loa3"))
+                .isEqualTo("urn:nl-eid-gdi:1.0:LoA:Substantial");
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EHERKENNING, "LoA3"))
+                .isEqualTo("urn:etoegang:core:assurance-class:loa3");
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "substantial"))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/high"))
+                .isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:High", "loa3")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:nl-eid-gdi:1.0:LoA:Midden", "loa3")).isFalse();
+    }
+
+    @Test
+    void anUnknownMinimumHasNoCanonicalForm_andABlankOneIsNoMinimum() {
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.DIGID, "loa9")).isNull();
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "loa3")).isNull();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, "loa9")).isFalse();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, "loa1")).isTrue();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, null)).isTrue();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, "  ")).isTrue();
+    }
+
+    // --- classic DigiD (Koppelvlak SAML) AuthnContextClassRefs ---------------------------------------
+
+    private static final String PPT = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
+    private static final String MOBILE_2F = "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract";
+    private static final String SMARTCARD = "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard";
+    private static final String SMARTCARD_PKI = "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI";
+
+    @Test
+    void classicDigidClassesSitOnTheDigidLadder() {
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, PPT)).isEqualTo(10);           // Basis
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, MOBILE_2F)).isEqualTo(20);     // Midden
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD)).isEqualTo(30);     // Substantieel
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD_PKI)).isEqualTo(40); // Hoog
+    }
+
+    @Test
+    void classicDigidClassesAgainstConsoleStoredMinimums() {
+        // loa3 (Substantieel), the console default
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, PPT, "loa3")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, MOBILE_2F, "loa3")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD, "loa3")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD_PKI, "loa3")).isTrue();
+        // loa1 / loa2 / loa4
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, PPT, "loa1")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, MOBILE_2F, "loa2")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, PPT, "loa2")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD, "loa4")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD_PKI, "loa4")).isTrue();
+        // A classic class may also be configured as the minimum itself.
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High", SMARTCARD)).isTrue();
+    }
+
+    @Test
+    void classicDigidClassesMeanNothingToEherkenningOrEidas() {
+        for (final String cls : new String[] {PPT, MOBILE_2F, SMARTCARD, SMARTCARD_PKI}) {
+            assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, cls)).isZero();
+            assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, cls)).isZero();
+            assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, cls, "loa2")).isFalse();
+            assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EIDAS, cls, "low")).isFalse();
+            assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.EIDAS, cls)).isFalse();
+        }
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING,
+                "urn:etoegang:core:assurance-class:loa3", "loa3")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EIDAS,
+                "http://eidas.europa.eu/LoA/substantial", "substantial")).isTrue();
+    }
+
+    // --- eHerkenning EH2+ sits between EH2 and EH3 --------------------------------------------------
+
+    private static final String EH2 = "urn:etoegang:core:assurance-class:loa2";
+    private static final String EH2_PLUS = "urn:etoegang:core:assurance-class:loa2plus";
+    private static final String EH3 = "urn:etoegang:core:assurance-class:loa3";
+
+    @Test
+    void eherkenningLoa2plus_isItsOwnRung_betweenLoa2AndLoa3() {
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, EH2_PLUS))
+                .isGreaterThan(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, EH2))
+                .isLessThan(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, EH3));
+    }
+
+    @Test
+    void aLoa2Assertion_doesNotMeetALoa2plusMinimum() {
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2, "loa2plus")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2, EH2_PLUS)).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2_PLUS, "loa2plus")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2_PLUS, "loa2")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH3, "loa2plus")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2_PLUS, "loa3")).isFalse();
+    }
+
+    // --- merge of the wallet and security branches (final review M1): the wallet tag uses the eIDAS ladder -----
+
+    private static final String EIDAS_HIGH = "http://eidas.europa.eu/LoA/high";
+    private static final String EIDAS_SUBSTANTIAL = "http://eidas.europa.eu/LoA/substantial";
+
+    @Test
+    void theWalletTag_resolvesItsMinimumOnTheEidasLadder_likeItsRung() {
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EUDI_WALLET, EIDAS_HIGH)).isEqualTo(EIDAS_HIGH);
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EUDI_WALLET, "high")).isEqualTo(EIDAS_HIGH);
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.EUDI_WALLET, "substantial")).isTrue();
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.EUDI_WALLET, "loa9")).isFalse();
+    }
+
+    @Test
+    void aWalletLogin_atTheDefaultMinimumHigh_isAccepted_andAnUnknownMinimumIsStillNeverMet() {
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EUDI_WALLET, EIDAS_HIGH, EIDAS_HIGH)).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EUDI_WALLET, EIDAS_HIGH, "high")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EUDI_WALLET, EIDAS_SUBSTANTIAL, EIDAS_HIGH)).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EUDI_WALLET, EIDAS_HIGH, "loa9")).isFalse();
+    }
+
+    @Test
+    void walletProtocols_areNotEidProtocols() {
+        for (final String protocol : java.util.List.of("eudi-wallet", "openid4vp", "wallet", "EUDI-WALLET")) {
+            assertThat(EidScheme.isEidProtocol(protocol)).as(protocol).isFalse();
+        }
+        assertThat(EidScheme.isEidProtocol("eidas")).isTrue();
     }
 }

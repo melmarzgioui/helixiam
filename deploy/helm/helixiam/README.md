@@ -36,6 +36,19 @@ helm install helixiam deploy/helm/helixiam \
   --set secrets.existingSecret=helixiam-secrets
 ```
 
+## Behind an ingress: trusted proxies
+HelixIAM honours forwarded headers only when the TCP peer is a trusted proxy: `X-Forwarded-For` for the client IP
+(rate limits, audit log, risk signals, CAPTCHA) and `X-Forwarded-Proto/-Host/-Port/-Prefix` / `Forwarded` for the
+scheme, host and OIDC issuer. With `ingress.enabled`, set `config.trustedProxies` to the addresses the ingress
+controller connects to the pods from, for example `--set 'config.trustedProxies={10.42.0.0/16}'` (the controller's
+pod CIDR). Left empty, a TLS-terminating ingress yields `http://` issuers and redirects, and every request appears to
+come from the controller (one shared sign-in rate-limit bucket). Do not list ranges that clients can reach the pods
+from directly. The same applies to an external load balancer or Gateway in front of the chart.
+
+The server also answers only for the hosts of `config.idpBaseUrl` and `config.spBaseUrl` and those in
+`config.allowedHosts`; any other `Host` gets `400` (the probes are unaffected). List in-cluster names that relying
+parties use, e.g. `--set 'config.allowedHosts={helixiam.identity.svc}'`.
+
 ## Running without Redis
 Redis is used by exactly two things, both selectable:
 

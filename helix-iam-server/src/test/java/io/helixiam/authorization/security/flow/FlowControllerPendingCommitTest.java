@@ -56,6 +56,8 @@ class FlowControllerPendingCommitTest {
     private MockHttpServletRequest pending(final FlowProgress progress) {
         controller.setLoginCommits(java.util.List.of(commit));
         when(commit.supports("pending-link")).thenReturn(true);
+        // the flow's own user is pending in this session (MfaService.unlockUser(expected) promotes only that one)
+        when(mfaService.unlockUser("user-9")).thenReturn(true);
         when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
         when(flowExecutor.submit(any(), any(), any(), any())).thenReturn(progress);
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -80,7 +82,7 @@ class FlowControllerPendingCommitTest {
 
         assertThat(view).isEqualTo("redirect:" + SP);
         final org.mockito.InOrder order = org.mockito.Mockito.inOrder(mfaService, commit);
-        order.verify(mfaService).unlockUser(); // the session is promoted first...
+        order.verify(mfaService).unlockUser("user-9"); // the session is promoted first (for the flow's user)...
         order.verify(commit).commit("pending-link", "user-9"); // ...then the commit
     }
 

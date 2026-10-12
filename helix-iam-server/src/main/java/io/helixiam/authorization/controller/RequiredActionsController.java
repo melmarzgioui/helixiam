@@ -63,12 +63,13 @@ public class RequiredActionsController {
                                      final io.helixiam.authorization.flow.persistence.AuthFlowMapper authFlowMapper,
                                      final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier,
                                      final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter,
-                                     @Value("${sp.base.url:/}") final String spBaseUrl) {
+                                     @Value("${sp.base.url:/}") final String spBaseUrl,
+                                     final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement mfaEnrolment) {
         this.userPublisher = userPublisher;
         this.spBaseUrl = spBaseUrl;
         // Same wiring as SecurityConfig so completing the actions resumes the exact post-password routing.
         this.flowSuccessHandler = new FlowLoginSuccessHandler(flowExecutor, authFlowPublisher, authFlowMapper,
-                spBaseUrl, sessionPolicyApplier, concurrentSessionLimiter);
+                spBaseUrl, sessionPolicyApplier, concurrentSessionLimiter, mfaEnrolment);
     }
 
     @GetMapping("/required-actions")

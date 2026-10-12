@@ -76,6 +76,14 @@ public record EidProviderConfig(EidScheme scheme, String alias, String displayNa
         responseBinding = responseBinding == null ? ResponseBinding.POST : responseBinding;
     }
 
+    /** This config with another minimum level of assurance. */
+    public EidProviderConfig withMinimumLoa(final String newMinimumLoa) {
+        return new EidProviderConfig(scheme, alias, displayName, ssoUrl, idpEntityId, spEntityId,
+                assertionConsumerServiceUrl, idpSigningCertificate, spDecryptionPrivateKey, spSigningPrivateKey,
+                spSigningCertificate, newMinimumLoa, subjectAttribute, authnRequestBinding, representation,
+                responseBinding, artifactResolutionServiceUrl, singleLogoutServiceUrl);
+    }
+
     /** Back-compat: full config minus the upstream SLO endpoint (federated logout becomes a no-op). */
     public EidProviderConfig(final EidScheme scheme, final String alias, final String displayName, final String ssoUrl,
                              final String idpEntityId, final String spEntityId, final String assertionConsumerServiceUrl,

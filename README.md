@@ -117,7 +117,9 @@ Everything is environment-driven. The essentials (sourced from
 | `DB_HOST` / `DB_PORT` / `DB_NAME` | PostgreSQL location (default DB name `helixiam`) |
 | `DB_USERNAME` / `DB_PASSWORD` | PostgreSQL credentials |
 | `DB_RO_HOST` | optional read-replica host (defaults to `DB_HOST`) |
-| `DB_ENCRYPTION` | hex key encrypting secrets at rest (TOTP seeds, signing keys, IdP secrets); keep stable for the life of the install |
+| `DB_ENCRYPTION` | hex key encrypting secrets at rest (TOTP seeds, signing keys, IdP secrets); keep stable for the life of the install. A stored secret that cannot be decrypted with it (a changed key, an altered value, a row written before the key was set) fails the read |
+| `HELIX_ALLOW_PLAINTEXT_SECRETS` | `false` by default. Accepts running **without** `DB_ENCRYPTION` (an empty value is no key) outside the `dev` profile: secrets are then stored in plaintext. It has no effect when a key is set |
+| `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` | `false` / empty. Migration mode after setting `DB_ENCRYPTION` on an install that ran without it: secret columns that still hold plaintext are read as stored, logged by entity and column, and encrypted on their next write. It also hides a changed key, so it is loud (an ERROR banner at startup and every hour) and time-boxed: outside `dev` the server refuses to start unless `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` is a date (`yyyy-MM-dd`) at most 30 days ahead. Unset both once the rows are rewritten |
 
 **Session store (Redis)**
 
@@ -203,19 +205,47 @@ CSS variables contract, file themes, the CSP and migration from 1.0.
 
 ### Rate limits
 
-Sensitive POST endpoints are rate limited **per client IP address** (the first `X-Forwarded-For` address
-when present) and endpoint group, in memory on each replica (token bucket):
+Sensitive POST endpoints are rate limited **per client IP address** and endpoint group, in memory on each
+replica (token bucket). The client IP is the TCP peer's address, unless that peer is one of
+`HELIX_TRUSTED_PROXIES` (see [Client IP behind a reverse proxy](#client-ip-behind-a-reverse-proxy)):
 
 | Endpoints | Burst | Refill | Properties |
 |---|---|---|---|
 | sign-in: `/login`, OTP/flow submit, password reset, registration | 20 | 20 / minute | `helix.ratelimit.login.burst`, `helix.ratelimit.login.refill-per-minute` |
 | `/oauth2/token` (all grants) | 120 | 120 / minute | `helix.ratelimit.token.burst`, `helix.ratelimit.token.refill-per-minute` |
+| EUDI Wallet: `/oid4vp/**` (any method) | 120 | 120 / minute | `helix.ratelimit.wallet.burst`, `helix.ratelimit.wallet.refill-per-minute` |
+| EUDI Wallet: starting a wallet login (`GET /broker/<wallet alias>`) | 30 | 30 / minute | `helix.ratelimit.wallet-start.burst`, `helix.ratelimit.wallet-start.refill-per-minute` |
 
 Excess requests get `429 Too Many Requests`. **In-cluster callers usually share one egress or pod IP**, so
 several backend services using `client_credentials` or token exchange from the same node count against one
 bucket: raise `helix.ratelimit.token.*` for such deployments (or put HelixIAM behind a proxy that forwards
-the real client address in `X-Forwarded-For`), and size it for your peak token traffic. `helix.ratelimit.enabled=false` turns
+the real client address in `X-Forwarded-For`, and list that proxy in `HELIX_TRUSTED_PROXIES`), and size it for your
+peak token traffic. `helix.ratelimit.enabled=false` turns
 the limiter off (only behind another rate-limiting layer). The limit is not per OAuth client in 1.0.
+
+### Client IP behind a reverse proxy
+
+Rate limits, audit events, risk signals and the CAPTCHA check use the client's IP address, and the OIDC issuer, the
+Secure cookie decision and every absolute URL use the request's scheme and host. `X-Forwarded-For`, `X-Real-IP`,
+`Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` are written by whoever sends the request, so HelixIAM reads
+them **only when the TCP peer is a trusted proxy** (from anyone else they are removed): `HELIX_TRUSTED_PROXIES` (`helix.security.trusted-proxies`) lists those proxies as comma-separated IP
+addresses or CIDR ranges, IPv4 or IPv6, and is empty by default. From a trusted proxy, `X-Forwarded-For` is read from
+the right, and the first address that is not a trusted proxy is the client.
+
+Behind an ingress controller, a load balancer or the console's nginx, set it to the addresses those proxies connect
+from (for example the ingress controller's pod CIDR); the Helm chart's `config.trustedProxies` sets it. Left empty,
+every request appears to come from the proxy, so all clients share one rate-limit bucket and the audit log records
+the proxy's address; and behind a TLS-terminating proxy the server sees plain HTTP, so the request-derived issuer
+and redirects become `http://`. Do not list addresses that clients can connect from directly.
+
+Outside the `dev` profile the server also answers only for its own host names: the hosts of `IDP_BASE_URL` and
+`SP_BASE_URL` plus `HELIX_ALLOWED_HOSTS` (comma-separated, e.g. an in-cluster service name relying parties call).
+Any other `Host` (after trusted forwarded-header processing) gets `400`, so the issuer and URLs derived from the
+request cannot be steered. Probes keep working: the connection's own address, `localhost` from a loopback peer and
+`/actuator/health/**` are always accepted. When `IDP_BASE_URL` is https but requests arrive as plain http, the server
+logs an ERROR (at most once a minute) pointing at `HELIX_TRUSTED_PROXIES`.
+
+Only `server.forward-headers-strategy=framework` (the default) is supported.
 
 ### Memory
 

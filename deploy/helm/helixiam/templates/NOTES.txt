@@ -19,3 +19,14 @@ Its password comes from Secret "{{ .Values.secrets.existingSecret }}" key "{{ .V
 No admin password key configured: a strong random password was generated once and written to the
 server logs — read it with `kubectl logs` and change it after first sign-in.
 {{- end }}
+{{- if not .Values.config.trustedProxies }}
+
+WARNING: config.trustedProxies is empty, so HelixIAM ignores every forwarded header. If anything terminates TLS or
+proxies in front of it (this chart's ingress, an external load balancer, a Gateway API route, a service mesh), it
+sees plain HTTP (the OIDC issuer and redirects become http://) and every request appears to come from that proxy (one
+shared sign-in rate-limit bucket, the proxy's address in the audit log). Set config.trustedProxies to the addresses
+the proxy connects from (for example the ingress controller's pod CIDR).
+{{- end }}
+
+Requests are answered only for the hosts of config.idpBaseUrl and config.spBaseUrl{{ with .Values.config.allowedHosts }} and {{ join ", " . }}{{ end }};
+any other Host gets 400 (probes excepted). Add in-cluster names that clients call to config.allowedHosts.

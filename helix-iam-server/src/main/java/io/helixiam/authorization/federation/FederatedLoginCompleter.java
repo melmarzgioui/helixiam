@@ -18,6 +18,8 @@ import io.helixiam.authorization.flow.persistence.AuthFlowMapper;
 import io.helixiam.authorization.security.flow.FlowLoginSuccessHandler;
 import io.helixiam.authorization.security.flow.InFlightClientResolver;
 import io.helixiam.authorization.security.flow.ResolveSavedRequestRedirect;
+import io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement;
+import io.helixiam.authorization.security.mfa.MfaSessionState;
 import io.helixiam.authorization.security.mfa.domain.MfaAuthentication;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,7 +41,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>flow COMPLETES immediately (no MFA / no stored step-up) → establish a full session, redirect
- *       to the SP;</li>
+ *       to the SP — unless the realm requires MFA and the user has not enrolled: then the MFA gate and
+ *       {@code /mfa/enable}, like the magic-link sign-in;</li>
  *   <li>flow CHALLENGES → hold a non-authenticated {@link MfaAuthentication} gate (promoted to full
  *       by the {@code /flow} controller once the factor passes), stash the flow state, redirect to
  *       {@code /flow};</li>
@@ -55,6 +58,8 @@ public class FederatedLoginCompleter {
     public static final String LOGIN_ERROR_VIEW = "redirect:/login?error=federation";
     /** The redirect view while a post-broker step-up is pending (not yet a completed login). */
     public static final String STEP_UP_VIEW = "redirect:/flow";
+    /** The redirect view while the realm's required MFA enrolment is pending (not yet a completed login). */
+    public static final String MFA_ENROL_VIEW = "redirect:/mfa/enable";
     private static final String LOGIN_ERROR = LOGIN_ERROR_VIEW;
 
     private final FlowExecutor flowExecutor;
@@ -64,6 +69,7 @@ public class FederatedLoginCompleter {
     private final String spBaseUrl;
     private final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier;
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
+    private final MfaEnrolmentRequirement mfaEnrolment;
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
     /** Task 18: make a connector's pending commit once the login has succeeded; none → a pending commit refuses. */
@@ -73,7 +79,9 @@ public class FederatedLoginCompleter {
                                    final AuthFlowMapper authFlowMapper,
                                    final FederatedSessionEstablisher sessionEstablisher,
                                    @Value("${sp.base.url}") final String spBaseUrl,
-                                   final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier) {
+                                   final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier,
+                                   final MfaEnrolmentRequirement mfaEnrolment) {
+        this.mfaEnrolment = mfaEnrolment;
         this.flowExecutor = flowExecutor;
         this.authFlowPublisher = authFlowPublisher;
         this.authFlowMapper = authFlowMapper;
@@ -172,29 +180,30 @@ public class FederatedLoginCompleter {
         }
         final FlowProgress progress = flowExecutor.begin(flow, state);
 
+        // A new sign-in: a new session id (the session that carried the broker state is not reused as the
+        // authenticated one) and no second-factor pass from an earlier sign-in.
+        request.getSession(true);
+        request.changeSessionId();
+        MfaSessionState.clear(request);
         final HttpSession session = request.getSession();
         session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
         session.setAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE, definition);
 
         return switch (progress.type()) {
             case COMPLETED -> {
-                request.changeSessionId(); // new sign-in, new session id (mirrors MagicLinkController)
-                sessionEstablisher.persist(fullAuthentication, request, response);
-                if (pendingCommit != null && !FederatedLoginCommit.commit(loginCommits, pendingCommit, userId)) {
-                    // Task 18: the login succeeded, but its pending commit (made only now that the session exists)
-                    // was refused, e.g. another account claimed the wallet's number meanwhile: undo the session.
-                    org.springframework.security.core.context.SecurityContextHolder.clearContext();
-                    request.getSession().invalidate();
-                    LOG.warn("Federated login for user {} refused: its pending commit was not accepted",
-                            LogSafe.sanitize(userId));
-                    yield new Completion(LOGIN_ERROR, Outcome.FAILED);
+                if (mfaEnrolment.mustEnrol(RealmContextHolder.get(), user.getUserId())) {
+                    // The realm requires a second factor the user has not enrolled: no full session yet. The login
+                    // waits on the enrolment like on a step-up: its pending commit, acr and outcome stay on the flow
+                    // state, and the enrolment's completion (MfaAuthController) makes them (final review M3).
+                    sessionEstablisher.persist(new MfaAuthentication(fullAuthentication), request, response);
+                    LOG.info("Federated login for user {} must enrol a second factor first", LogSafe.sanitize(userId));
+                    yield new Completion(MFA_ENROL_VIEW, Outcome.PENDING);
                 }
-                authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
-                if (acr != null && !acr.isBlank()) {
-                    // Task 3 fix round 1: set AFTER stamp (which just cleared any stale value) — the
-                    // code-binding step reads it from here.
-                    session.setAttribute(
-                            io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE, acr);
+                sessionEstablisher.persist(fullAuthentication, request, response);
+                // commit or undo, stamp (clears a stale acr), this login's acr, flow state cleared; the connector
+                // reports this outcome itself from the Completion, so no outcome receivers here
+                if (!PendingFederatedLogin.finish(request, state, loginCommits, java.util.List.of(), authTimeStamper)) {
+                    yield new Completion(LOGIN_ERROR, Outcome.FAILED);
                 }
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
                 LOG.info("Federated login completed for user {} (no step-up required)", LogSafe.sanitize(userId));
@@ -208,6 +217,7 @@ public class FederatedLoginCompleter {
                 yield new Completion(STEP_UP_VIEW, Outcome.PENDING);
             }
             case FAILED -> {
+                PendingFederatedLogin.clear(session); // nothing of a failed login may be completed later
                 LOG.warn("Federated login post-broker flow failed for user {}", LogSafe.sanitize(userId));
                 yield new Completion(LOGIN_ERROR, Outcome.FAILED);
             }

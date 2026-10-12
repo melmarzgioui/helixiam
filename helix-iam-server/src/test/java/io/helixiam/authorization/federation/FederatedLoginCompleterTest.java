@@ -46,10 +46,13 @@ class FederatedLoginCompleterTest {
     private final AuthFlowMapper authFlowMapper = mock(AuthFlowMapper.class);
     private final FederatedSessionEstablisher establisher = mock(FederatedSessionEstablisher.class);
 
+    private final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement enrolment =
+            mock(io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement.class);
+
     private final FederatedLoginCompleter completer = new FederatedLoginCompleter(
             flowExecutor, authFlowPublisher, authFlowMapper, establisher, SP,
             new io.helixiam.authorization.security.realm.SessionPolicyApplier(
-                    mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
+                    mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)), enrolment);
 
     @AfterEach
     void clear() {
@@ -257,5 +260,148 @@ class FederatedLoginCompleterTest {
         assertThat(pending.view()).isEqualTo("redirect:/flow");
         assertThat(((FlowExecutionState) request.getSession().getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE))
                 .pendingOutcome()).isEqualTo("marker");
+    }
+
+    // --- the real flow engine with the realm's seeded browser flow (mfa-enabled condition gating otp) ---
+
+    private static io.helixiam.authorization.flow.persistence.AuthFlowDefinition seededBrowserFlow() {
+        return new io.helixiam.authorization.flow.persistence.AuthFlowDefinition("browser", "gov", java.util.List.of(
+                new io.helixiam.authorization.flow.persistence.AuthExecutionDefinition("step-up", null, null,
+                        "CONDITIONAL", false, 10),
+                new io.helixiam.authorization.flow.persistence.AuthExecutionDefinition("gate", "step-up", "mfa-enabled",
+                        "REQUIRED", true, 10),
+                new io.helixiam.authorization.flow.persistence.AuthExecutionDefinition("otp", "step-up", "otp",
+                        "REQUIRED", false, 20)));
+    }
+
+    private FederatedLoginCompleter realEngineCompleter(final UserCredentials user) {
+        final io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher users =
+                mock(io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher.class);
+        when(users.loadUser(user.getUserId())).thenReturn(user);
+        final FlowExecutor engine = new FlowExecutor(new io.helixiam.authorization.flow.spi.AuthenticatorRegistry(
+                java.util.List.of(new io.helixiam.authorization.security.flow.MfaEnabledCondition(users),
+                        new io.helixiam.authorization.flow.authenticators.OtpAuthenticator((id, code) -> false))),
+                new io.helixiam.authorization.flow.FlowEvaluator());
+        when(establisher.loadUser(user.getUserId())).thenReturn(user);
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(seededBrowserFlow());
+        return new FederatedLoginCompleter(engine, authFlowPublisher, new AuthFlowMapper(), establisher, SP,
+                new io.helixiam.authorization.security.realm.SessionPolicyApplier(
+                        mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)), enrolment);
+    }
+
+    private static UserCredentials user(final String id, final boolean mfaEnabled) throws Exception {
+        return new ObjectMapper().readValue("{\"userId\":\"" + id + "\",\"username\":\"ada@corp\",\"mfaEnabled\":"
+                + mfaEnabled + ",\"authorities\":[{\"role\":\"ROLE_USER\"}]}", UserCredentials.class);
+    }
+
+    @Test
+    void aBrokeredLoginOfAnMfaUser_stopsAtTheSecondFactor_withoutAFullSession() throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("ada", true));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final String view = completer.complete("ada", request, new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/flow");
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getAllValues()).allSatisfy(a -> assertThat(a.isAuthenticated()).isFalse());
+        assertThat(auth.getValue()).isInstanceOf(MfaAuthentication.class);
+        final FlowExecutionState state =
+                (FlowExecutionState) request.getSession().getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        assertThat(state.currentChallengeExecutionId()).isEqualTo("otp");
+    }
+
+    @Test
+    void aBrokeredLoginOfAUserWithoutMfa_completes() throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("bob", false));
+
+        final String view = completer.complete("bob", new MockHttpServletRequest(), new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:" + SP);
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getValue().isAuthenticated()).isTrue();
+    }
+
+    // --- review #1: a realm that requires MFA, a brokered user who has not enrolled ------------------
+
+    @Test
+    void aBrokeredLogin_inARealmThatRequiresMfa_ofAUserNotEnrolled_goesToEnrolment_withoutAFullSession()
+            throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("bob", false));
+        when(enrolment.mustEnrol(any(), org.mockito.ArgumentMatchers.eq("bob"))).thenReturn(true);
+
+        final String view = completer.complete("bob", new MockHttpServletRequest(), new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/mfa/enable");
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getValue()).isInstanceOf(MfaAuthentication.class);
+        assertThat(auth.getValue().isAuthenticated()).isFalse();
+    }
+
+    // --- review #2: a federated sign-in gets a new session id and forgets any earlier MFA pass ---------
+
+    @Test
+    void aBrokeredLogin_rotatesTheSessionId_andClearsAnEarlierSecondFactorPass() throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("bob", false));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final org.springframework.mock.web.MockHttpSession session = new org.springframework.mock.web.MockHttpSession();
+        session.setAttribute("HELIX_MFA_VERIFIED_USER", "bob");
+        request.setSession(session);
+        final String before = session.getId();
+
+        completer.complete("bob", request, new MockHttpServletResponse());
+
+        assertThat(request.getSession().getId()).isNotEqualTo(before);
+        assertThat(request.getSession().getAttribute("HELIX_MFA_VERIFIED_USER")).isNull();
+    }
+
+    // --- merge (final review M3): MFA enrolment is a pending view; the login's work waits for it ---
+
+    @Test
+    void aLoginThatMustEnrolFirst_isPending_keepsItsCommitAcrAndMarker_andCommitsNothingYet() throws Exception {
+        givenFlowCompletes();
+        when(enrolment.mustEnrol(any(), org.mockito.ArgumentMatchers.eq(USER_ID))).thenReturn(true);
+        final FederatedLoginCommit commit = mock(FederatedLoginCommit.class);
+        completer.setLoginCommits(java.util.List.of(commit));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final FederatedLoginCompleter.Completion completion = completer.completeLogin(USER_ID,
+                "http://eidas.europa.eu/LoA/high", request, new MockHttpServletResponse(), "pending-link", "marker");
+
+        assertThat(completion.outcome()).isEqualTo(FederatedLoginCompleter.Outcome.PENDING);
+        assertThat(completion.view()).isEqualTo("redirect:/mfa/enable");
+        verify(commit, never()).commit(any(), any());
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getValue()).isInstanceOf(MfaAuthentication.class);
+        final FlowExecutionState state = (FlowExecutionState) request.getSession(false)
+                .getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        assertThat(state.pendingCommit()).isEqualTo("pending-link");
+        assertThat(state.pendingAcr()).isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(state.pendingOutcome()).isEqualTo("marker");
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    @Test
+    void aFederatedLogin_rotatesTheSessionIdOnce() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true);
+        givenFlowCompletes();
+        final int[] rotations = new int[1];
+        final MockHttpServletRequest counting = new MockHttpServletRequest() {
+            @Override
+            public String changeSessionId() {
+                rotations[0]++;
+                return super.changeSessionId();
+            }
+        };
+        counting.setSession(request.getSession(false));
+
+        completer.complete(USER_ID, counting, new MockHttpServletResponse());
+
+        assertThat(rotations[0]).isEqualTo(1);
     }
 }

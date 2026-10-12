@@ -215,6 +215,28 @@ class OpenSamlEidAssertionValidatorIntegrationTest {
         assertThat(assertion.representation().serviceId()).isEqualTo("urn:service:42");
     }
 
+    /** Classic DigiD returns oasis AuthnContextClassRefs; a console-stored minimum (loa3 = Substantieel) applies. */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport, loa3, false",
+            "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract, loa3, false",
+            "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard, loa3, true",
+            "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI, loa3, true",
+            "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract, loa2, true",
+            "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport, loa1, true"})
+    void aClassicDigidAssertion_meetsOrFailsAConsoleStoredMinimum(final String classRef, final String minimum,
+                                                                  final boolean accepted) throws Exception {
+        final String response = signedResponseWithEncryptedId(idpKey, idpCert, BSN, LEGACY_BSN, classRef);
+        final EidProviderConfig config = config(minimum);
+
+        if (accepted) {
+            assertThat(validator.validate(config, response, "relay").authnContextClassRef()).isEqualTo(classRef);
+        } else {
+            assertThatThrownBy(() -> validator.validate(config, response, "relay"))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("assurance");
+        }
+    }
+
     // --- helpers -------------------------------------------------------------------------------
 
     private static EidProviderConfig config(final String minimumLoa) {

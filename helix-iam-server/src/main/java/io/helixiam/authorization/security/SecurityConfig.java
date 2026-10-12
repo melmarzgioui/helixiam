@@ -376,7 +376,8 @@ public class SecurityConfig {
         // Helix IAM E2.4: when the flow engine is enabled, the post-password steps are driven
         // by the data-driven engine instead of the hard-coded MFA routing. Default off, so the
         // live login path is unchanged unless helix.flow-engine.enabled=true.
-        final FlowLoginSuccessHandler flowSuccessHandler = new FlowLoginSuccessHandler(flowExecutor, authFlowPublisher, authFlowMapper, spBaseUrl, sessionPolicyApplier, concurrentSessionLimiter);
+        final FlowLoginSuccessHandler flowSuccessHandler = new FlowLoginSuccessHandler(flowExecutor, authFlowPublisher, authFlowMapper, spBaseUrl, sessionPolicyApplier, concurrentSessionLimiter,
+                new io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement(mfaPolicyService, totpService));
         // SSO P1: resume the originating /oauth2/authorize after login (else the code comes back for the
         // dashboard, not the client that started the flow). Falls back to spBaseUrl when nothing is saved.
         final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();

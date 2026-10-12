@@ -52,7 +52,8 @@ class FederatedLoginCompleterPendingCommitTest {
     private final FederatedLoginCompleter completer = new FederatedLoginCompleter(
             flowExecutor, authFlowPublisher, authFlowMapper, establisher, SP,
             new io.helixiam.authorization.security.realm.SessionPolicyApplier(
-                    mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
+                    mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)),
+            mock(io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement.class));
 
     @BeforeEach
     void wire() throws Exception {
@@ -147,7 +148,8 @@ class FederatedLoginCompleterPendingCommitTest {
     void withoutACommitter_aPendingCommitRefusesTheLogin() {
         final FederatedLoginCompleter bare = new FederatedLoginCompleter(flowExecutor, authFlowPublisher,
                 authFlowMapper, establisher, SP, new io.helixiam.authorization.security.realm.SessionPolicyApplier(
-                mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
+                mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)),
+                mock(io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement.class));
         when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
 
         final MockHttpServletRequest request = new MockHttpServletRequest();

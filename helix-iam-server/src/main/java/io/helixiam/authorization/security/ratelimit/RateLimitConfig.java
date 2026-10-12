@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.security.ratelimit;
 
+import io.helixiam.authorization.security.net.ClientIpResolver;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -63,7 +64,7 @@ public class RateLimitConfig {
     }
 
     @Bean
-    public RateLimitFilter rateLimitFilter() {
+    public RateLimitFilter rateLimitFilter(final ClientIpResolver clientIps) {
         final long minute = 60_000L;
         final RateLimiter loginLimiter = new RateLimiter(loginBurst, loginRefillPerMin, minute);
         final RateLimiter tokenLimiter = new RateLimiter(tokenBurst, tokenRefillPerMin, minute);
@@ -86,7 +87,8 @@ public class RateLimitConfig {
                 request -> io.helixiam.authorization.federation.wallet.web.WalletStartRequests.isWalletStart(request,
                         registry.getIfAvailable()),
                 new RateLimiter(walletStartBurst, walletStartRefillPerMin, minute));
-        return new RateLimitFilter(enabled, limiters, java.util.Set.of("/oid4vp"), java.util.List.of(walletStart));
+        return new RateLimitFilter(enabled, limiters, java.util.Set.of("/oid4vp"), java.util.List.of(walletStart),
+                clientIps); // the wallet rule and group key on the same trusted-proxy-aware client IP
     }
 
     @Bean

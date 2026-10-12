@@ -44,6 +44,12 @@ class FlowControllerTest {
             "localhost", new io.helixiam.authorization.security.realm.SessionPolicyApplier(
                     mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
 
+    @org.junit.jupiter.api.BeforeEach
+    void thePendingSignInIsTheFlowsUser() {
+        // the flow's own user is pending in this session (MfaService.unlockUser(expected) promotes only that one)
+        when(mfaService.unlockUser("user-9")).thenReturn(true);
+    }
+
     @AfterEach
     void clear() {
         io.helixiam.authorization.security.realm.RealmContextHolder.clear();

@@ -12,6 +12,8 @@ import io.helixiam.authorization.federation.FederationProviderFactory;
 import io.helixiam.authorization.federation.FederationStoreRefresher;
 import io.helixiam.authorization.federation.ProviderSecretKeys;
 import io.helixiam.authorization.federation.wallet.WalletConfigValidator;
+import io.helixiam.authorization.federation.eid.EidLevelOfAssurance;
+import io.helixiam.authorization.federation.eid.EidScheme;
 import io.helixiam.common.log.LogSafe;
 import jakarta.validation.Valid;
 import org.apache.logging.log4j.LogManager;
@@ -99,6 +101,7 @@ public class IdentityProviderAdminController {
                                                          @Valid @RequestBody final IdentityProviderRequest request) {
         checkSecrets(request);
         checkWallet(realmId, request.alias(), request);
+        validateEid(request);
         final IdentityProviderConfig saved = publisher.save(toConfig(realmId, request.alias(), request));
         refresh(realmId);
         return ResponseEntity.status(HttpStatus.CREATED).body(IdentityProviderAdminView.of(saved));
@@ -110,6 +113,7 @@ public class IdentityProviderAdminController {
                                                          @Valid @RequestBody final IdentityProviderRequest request) {
         checkSecrets(request);
         checkWallet(realmId, alias, request);
+        validateEid(request);
         final IdentityProviderConfig saved = publisher.save(toConfig(realmId, alias, request));
         refresh(realmId);
         return ResponseEntity.ok(IdentityProviderAdminView.of(saved));
@@ -187,6 +191,28 @@ public class IdentityProviderAdminController {
             LOG.warn("Could not read the stored identity provider {} in realm {} to validate the write: {}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
             return Map.of();
+        }
+    }
+
+    /**
+     * An eID connection must name a scheme Helix knows and, when it sets one, a minimum level of assurance on that
+     * scheme's ladder; with an unrecognised minimum every sign-in would be refused. Answers
+     * {@code 400 {message, fieldErrors}} via {@link AdminValidationAdvice}.
+     */
+    private static void validateEid(final IdentityProviderRequest request) {
+        if (!EidScheme.isEidProtocol(request.protocol())) {
+            return;
+        }
+        final Map<String, String> config = request.config() == null ? Map.of() : request.config();
+        final EidScheme scheme;
+        try {
+            scheme = EidScheme.of(request.protocol(), config.get("scheme"));
+        } catch (final IllegalArgumentException e) {
+            throw new ProviderValidationException(Map.of("scheme", "Unknown eID scheme."));
+        }
+        if (!EidLevelOfAssurance.isValidMinimum(scheme, config.get("minimumLoa"))) {
+            throw new ProviderValidationException(Map.of("minimumLoa",
+                    "Unknown level of assurance for " + scheme + ". Use one of the listed levels or the scheme's URN."));
         }
     }
 

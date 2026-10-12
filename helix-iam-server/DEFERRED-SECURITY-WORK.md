@@ -135,36 +135,29 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
   (`FederatedLoginCommit.java:44-55`); `Error` is not, and is not expected to be. See `SECURITY-REVIEW.md`
   Appendix B.9.
 
-### Pre-existing findings outside the wallet, surfaced while building it, confirmed still open on this branch
+### Pre-existing findings outside the wallet, surfaced while building it — resolved by the merge of `fix/pre-1.0-security`
 
-These were found while reading the surrounding codebase for this feature; none were introduced by it and none
-are fixed by it (confirmed against the current worktree, not merely carried over from an earlier note):
+Four findings outside the wallet were surfaced while building it. All four are fixed on `fix/pre-1.0-security`, which
+is merged into this branch; the wallet-specific consequences were resolved in the merge:
 
-- **`AttributeEncryption.convertToEntityAttribute` returns an undecryptable value unchanged.** The *encrypt*
-  path (`convertToDatabaseColumn`) now fails closed (see H2 above). The *decrypt* path's final fallback
-  (`AttributeEncryption.java`, `tryLegacyDecryption`'s catch block) still logs a `WARN` and returns the stored
-  string as-is when neither the current key nor the legacy key can decrypt it — correct for genuinely
-  pre-encryption legacy rows, indistinguishable from a corrupted or tampered ciphertext. The wallet's own callers
-  add their own guard where it matters (the realm wallet pepper fails closed when it cannot be decrypted), but
-  the underlying converter itself does not, so any other caller that does not add a guard inherits this gap.
-- **`EidLevelOfAssurance.meetsMinimum` treats an unrecognised minimum as met.** `rung(scheme, minimum)` returns
-  `0` both for a blank/absent minimum and for a minimum string the ladder does not recognise; `meetsMinimum`
-  requires `rung(asserted) > 0`, which means a garbage/unreachable `minimumLoa` behaves like "no minimum" rather
-  than being refused outright. The wallet's own `WalletAttributeMapper.satisfiesMinimumLoa` was written
-  defensively against exactly this, and `WalletConfigValidator` is believed to make a garbage `minimumLoa`
-  unreachable for a wallet provider (it validates against the eIDAS ladder at config time) — but the shared
-  `EidLevelOfAssurance` helper itself is unchanged and other callers (eID SAML) are not similarly guarded.
-- **`RateLimitFilter` trusts `X-Forwarded-For` with no trusted-proxy restriction.** Confirmed unchanged
-  (`RateLimitFilter.java:149-151`): the per-IP login/token/wallet rate limiters key off the first hop of
-  `X-Forwarded-For` (else `X-Real-IP`, else the socket address) with no allow-list of which proxies may set it,
-  so a client reachable directly (or behind an untrusted proxy) can forge a different apparent IP per request
-  and evade the limiter — including the wallet's own `wallet`/`wallet-start` buckets. See `docs/eudi-wallet.md`
-  §4: there is no `trustedProxies`/`allowedHosts` setting on this branch at all; it lives on a separate,
-  not-yet-merged security branch.
-- **Federated logins (including wallet logins) do not go through the same post-login MFA step-up a local
-  password login does.** `MfaEnabledCondition` reads the `SecurityContext`, which is still empty at the point a
-  `FederatedLoginCompleter`-driven flow begins evaluating whether to require a second factor. Surfaced during
-  Task 18's review; not fixed here (it is not wallet-specific — every federation connector shares this gap).
+- **`AttributeEncryption` returned an undecryptable value unchanged** — fixed (c419a9a, ab89269): an undecryptable
+  column fails the read; plaintext reads need their own time-boxed migration flag
+  (`HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` + `_UNTIL`). The wallet pepper and verifier key store keep their own
+  fail-closed guards (they use the one-argument constructor, so the migration flag never applies to them). In the
+  merge, `IdentityProviderSecretsMigrator` reads each row's stored secrets on its own, so one unreadable row is logged
+  by id and skipped instead of aborting the backfill, and `IdentityProviderConfigService` skips an unreadable row by id
+  instead of failing the realm's (or every realm's) provider load.
+- **`EidLevelOfAssurance.meetsMinimum` treated an unrecognised minimum as met** — fixed (676fcc5): an unknown minimum is
+  never met, and admin writes refuse it. In the merge, `canonicalMinimum` resolves `EUDI_WALLET` on the eIDAS ladder
+  like `rung()` does (without it every wallet login was refused); the wallet's own `satisfiesMinimumLoa` guard stays.
+  Wallet protocols are not eID protocols (`EidScheme.isEidProtocol`), so the eID minimum check never runs on them.
+- **`RateLimitFilter` trusted `X-Forwarded-For` from anyone** — fixed (b96284c): `ClientIpResolver` reads it only from
+  `HELIX_TRUSTED_PROXIES`. In the merge, the wallet's `/oid4vp` group and `wallet-start` rule key on the same resolver.
+- **Federated logins skipped the post-login MFA step-up** — fixed (633d944): `MfaEnabledCondition` evaluates the flow's
+  own user. In the merge, a wallet login that steps up (or must first enrol in MFA, `/mfa/enable`) keeps its pending
+  upgrade link, `acr` and audit marker on the flow state and makes them when that step completes; `/flow` promotes only
+  a pending sign-in of the flow's own user, and the flow state leaves the session on completion and on a magic-link
+  sign-in, so a flow user A left behind can never complete into user B's session.
 - **Not reproducible (final review F3): a percent-encoded path skipping the wallet and login limits.**
   `RateLimitFilter` and `WalletRequestBodyLimitFilter` match the still-encoded path, so `/br%6Fker/<alias>` or
   `/%6Fid4vp/...` would not be counted — but StrictHttpFirewall refuses any `%`, `;`, `//` or `/./` with 400 (Tomcat

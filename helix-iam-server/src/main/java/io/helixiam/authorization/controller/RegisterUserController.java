@@ -287,13 +287,8 @@ public class RegisterUserController {
     return VIEW_REGISTER_PAGE;
   }
 
-  /** Client IP honouring {@code X-Forwarded-For}, for the CAPTCHA {@code remoteip} parameter. */
+  /** Client IP for the CAPTCHA {@code remoteip} parameter (X-Forwarded-For only from a trusted proxy). */
   private static String clientIp(final HttpServletRequest request) {
-    final String forwarded = request.getHeader("X-Forwarded-For");
-    if (forwarded != null && !forwarded.isBlank()) {
-      final int comma = forwarded.indexOf(',');
-      return (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
-    }
-    return request.getRemoteAddr();
+    return io.helixiam.authorization.security.net.ClientIpResolver.current().resolve(request);
   }
 }

@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.security.ratelimit;
 
+import io.helixiam.authorization.security.net.ClientIpResolver;
 import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -19,8 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Auth-hardening (feature 2): a hand-rolled login rate-limit filter. Throttles by client IP (honouring
- * {@code X-Forwarded-For}) on the sensitive POST endpoints — login, OTP/flow submit, {@code /oauth2/token},
+ * Auth-hardening (feature 2): a hand-rolled login rate-limit filter. Throttles by client IP (from
+ * {@link ClientIpResolver}: {@code X-Forwarded-For} only from a trusted proxy) on the sensitive POST endpoints — login, OTP/flow submit, {@code /oauth2/token},
  * password-reset request and register — using per-endpoint-group {@link RateLimiter}s. Over-budget requests
  * get {@code 429 Too Many Requests} with a {@code Retry-After} header; every other request passes straight
  * through, so normal flows are untouched. Registered before the auth filter in the login chain.
@@ -33,6 +34,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final Logger LOG = LogManager.getLogger(RateLimitFilter.class);
 
     private final boolean enabled;
+    private final ClientIpResolver clientIps;
     /** servlet-path → endpoint-group limiter. The longest matching prefix wins. */
     private final Map<String, RateLimiter> limiters;
     /**
@@ -42,17 +44,24 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final java.util.Set<String> anyMethodGroups;
 
     public RateLimitFilter(final boolean enabled, final Map<String, RateLimiter> limiters) {
-        this(enabled, limiters, java.util.Set.of());
+        this(enabled, limiters, ClientIpResolver.current());
     }
 
     public RateLimitFilter(final boolean enabled, final Map<String, RateLimiter> limiters,
-                           final java.util.Set<String> anyMethodGroups) {
-        this(enabled, limiters, anyMethodGroups, java.util.List.of());
+                           final ClientIpResolver clientIps) {
+        this(enabled, limiters, java.util.Set.of(), java.util.List.of(), clientIps);
     }
 
+    /**
+     * @param anyMethodGroups Task 18: prefix groups limited for every method and keyed by client IP + group
+     * @param rules           Task 18 fix round 1: request rules checked before the prefix groups
+     * @param clientIps       the client IP of every key (prefix groups, any-method groups and rules alike)
+     */
     public RateLimitFilter(final boolean enabled, final Map<String, RateLimiter> limiters,
-                           final java.util.Set<String> anyMethodGroups, final java.util.List<Rule> rules) {
+                           final java.util.Set<String> anyMethodGroups, final java.util.List<Rule> rules,
+                           final ClientIpResolver clientIps) {
         this.enabled = enabled;
+        this.clientIps = clientIps;
         // Insertion-ordered so the most specific prefixes are listed first.
         this.limiters = new LinkedHashMap<>(limiters);
         this.anyMethodGroups = java.util.Set.copyOf(anyMethodGroups);
@@ -78,11 +87,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
         for (final Rule rule : rules) {
             if (rule.applies().test(request)) {
-                final RateLimiter.Decision decision = rule.limiter().check(clientIp(request) + "|" + rule.group());
+                final String ip = clientIps.resolve(request);
+                final RateLimiter.Decision decision = rule.limiter().check(ip + "|" + rule.group());
                 if (decision.allowed()) {
                     chain.doFilter(request, response);
                 } else {
-                    tooMany(request, response, decision, rule.group());
+                    tooMany(response, decision, ip, rule.group());
                 }
                 return;
             }
@@ -98,18 +108,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        final String key = clientIp(request) + "|" + (group != null ? group : path);
+        final String ip = clientIps.resolve(request);
+        final String key = ip + "|" + (group != null ? group : path);
         final RateLimiter.Decision decision = limiter.check(key);
         if (decision.allowed()) {
             chain.doFilter(request, response);
             return;
         }
-        tooMany(request, response, decision, path);
+        tooMany(response, decision, ip, path);
     }
 
-    private static void tooMany(final HttpServletRequest request, final HttpServletResponse response,
-                                final RateLimiter.Decision decision, final String what) throws IOException {
-        LOG.warn("Rate limit exceeded for {} on {}", LogSafe.sanitize(clientIp(request)), LogSafe.sanitize(what));
+    private static void tooMany(final HttpServletResponse response, final RateLimiter.Decision decision,
+                                final String ip, final String what) throws IOException {
+        LOG.warn("Rate limit exceeded for {} on {}", LogSafe.sanitize(ip), LogSafe.sanitize(what));
         response.setStatus(429); // 429 Too Many Requests (no SC_ constant in the jakarta servlet API)
         response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
         response.setContentType("text/plain;charset=UTF-8");
@@ -144,19 +155,5 @@ public class RateLimitFilter extends OncePerRequestFilter {
             }
         }
         return best;
-    }
-
-    /** Honour {@code X-Forwarded-For} (first hop), else {@code X-Real-IP}, else the socket address. */
-    static String clientIp(final HttpServletRequest request) {
-        final String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            final int comma = forwarded.indexOf(',');
-            return (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
-        }
-        final String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
-        }
-        return request.getRemoteAddr();
     }
 }

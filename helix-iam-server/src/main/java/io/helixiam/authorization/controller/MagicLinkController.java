@@ -127,6 +127,8 @@ public class MagicLinkController {
         request.getSession(true);
         request.changeSessionId(); // new sign-in, new session id
         MfaSessionState.clear(request);
+        // a new sign-in: no flow state an earlier, unfinished sign-in left may complete into this one (final review M4)
+        io.helixiam.authorization.federation.PendingFederatedLogin.clear(request.getSession());
         auditLog.emit(AuditEvent.authn(io.helixiam.authorization.security.audit.AuditContext.nowIso(), "LOGIN_SUCCESS",
                 realm, user.getEmail(), AuditContext.clientIp(request), "SUCCESS", Map.of("method", "magic_link")));
 

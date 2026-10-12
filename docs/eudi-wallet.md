@@ -157,14 +157,24 @@ transaction store on Redis (by putting the session or token store on Redis) — 
 
 ## 4. Trusted proxies / allowed hosts
 
-**Not present on this branch.** `RateLimitFilter` resolves the caller's IP from `X-Forwarded-For` (first hop) or
-`X-Real-IP` with no trusted-proxy allow-list
-(`helix-iam-server/src/main/java/io/helixiam/authorization/security/ratelimit/RateLimitFilter.java:149-151`), so a
-client that reaches HelixIAM directly (no proxy, or an untrusted one) can forge a different apparent IP per request
-and evade the wallet-start/login rate limiters. There is no `trustedProxies`/`allowedHosts` setting anywhere in
-this codebase as of this branch — those live on a separate, not-yet-merged security branch. Put HelixIAM behind a
-proxy you trust to set (and strip any client-supplied) `X-Forwarded-For`, and do not expose it directly to
-untrusted clients until that hardening lands. See `helix-iam-server/DEFERRED-SECURITY-WORK.md`.
+The wallet endpoints live under the same two settings as the rest of the server (README, "Client IP behind a reverse
+proxy"):
+
+- **`HELIX_TRUSTED_PROXIES`** (`helix.security.trusted-proxies`, comma-separated IPs or CIDR ranges, empty by
+  default). The wallet's rate limits are per client IP: the `/oid4vp` group (the request object and the wallet's
+  response, any method; `helix.ratelimit.wallet.*`, 120 a minute) and the `wallet-start` rule (a `GET
+  /broker/<wallet alias>`, which creates a transaction; `helix.ratelimit.wallet-start.*`, 30 a minute). The client IP
+  is the TCP peer unless that peer is a trusted proxy; only then is `X-Forwarded-For` read (from the right). A forged
+  `X-Forwarded-For` from anyone else buys no new budget. Behind an ingress, list the ingress here, or every phone and
+  browser shares the ingress's one budget.
+- **`HELIX_ALLOWED_HOSTS`** (`helix.security.allowed-hosts`). Outside `dev` the server answers only for the hosts of
+  `IDP_BASE_URL` and `SP_BASE_URL` plus this list; any other `Host` gets `400`. The wallet builds every URL it hands
+  out — `client_id` (`x509_san_dns`), `response_uri`, the request URIs in the QR code and the "Open wallet" link — from
+  `idp.base.url`, never from the request, so phones reach the IdP host, which is always allowed. A wallet sandbox or
+  demo on another host name (not `localhost`) needs that host in `HELIX_ALLOWED_HOSTS`.
+
+The limits match the still-encoded path, but no re-spelled path reaches the wallet code: the firewall refuses `%`,
+`;`, `//` and `/./` (400), which `WalletLimitPathEncodingE2eTest` guards (see `DEFERRED-SECURITY-WORK.md`).
 
 ## 5. Status-list host allow-listing and SSRF
 

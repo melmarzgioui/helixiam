@@ -134,4 +134,47 @@ class ProductionReadinessCheckTest {
 
         assertThatCode(c::check).doesNotThrowAnyException();
     }
+
+    // --- review #4: the plaintext-read migration mode is time-boxed outside dev ----------------------
+
+    private static final java.time.Clock TODAY = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-10-12T10:00:00Z"), java.time.ZoneOffset.UTC);
+
+    private static ProductionReadinessCheck migrating(final boolean dev, final String until) {
+        return new ProductionReadinessCheck(env(dev), "deadbeefdeadbeef", false, "https://idp", "https://sp",
+                false, false, true, false, false, true, until, TODAY);
+    }
+
+    @Test
+    void migrationMode_outsideDev_withoutAnEndDate_isFatal() {
+        assertThatThrownBy(() -> migrating(false, "").check())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT")
+                .hasMessageContaining("HELIX_DB_ENCRYPTION_MIGRATE_UNTIL");
+    }
+
+    @Test
+    void migrationMode_outsideDev_withAnEndDateWithin30Days_starts() {
+        assertThatCode(() -> migrating(false, "2026-10-12").check()).doesNotThrowAnyException();
+        assertThatCode(() -> migrating(false, "2026-11-11").check()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void migrationMode_outsideDev_withAnEndDateTooFarAheadPastOrMalformed_isFatal() {
+        assertThatThrownBy(() -> migrating(false, "2026-11-12").check()).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> migrating(false, "2026-10-11").check()).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> migrating(false, "next week").check()).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void migrationMode_inDev_isNotFatal() {
+        assertThatCode(() -> migrating(true, "").check()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void allowPlaintextSecrets_withAKey_isNotTheMigrationMode() {
+        // HELIX_ALLOW_PLAINTEXT_SECRETS only accepts running WITHOUT a key; with a key set it changes nothing.
+        final ProductionReadinessCheck c = secureProd("deadbeefdeadbeef", true, "https://idp", "https://sp");
+        assertThatCode(c::check).doesNotThrowAnyException();
+    }
 }

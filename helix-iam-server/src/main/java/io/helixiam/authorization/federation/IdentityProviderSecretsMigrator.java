@@ -59,8 +59,7 @@ public class IdentityProviderSecretsMigrator {
                 if (config == null || config.keySet().stream().noneMatch(k -> ProviderSecretKeys.isSecret(row.protocol(), k))) {
                     continue;
                 }
-                final Map<String, String> stored = row.secretJson() == null || row.secretJson().isBlank()
-                        ? Map.of() : read(encryption.convertToEntityAttribute(row.secretJson()));
+                final Map<String, String> stored = storedSecrets(row);
                 if (stored == null) {
                     LOG.warn("Identity provider {}: stored secrets are unreadable (wrong DB_ENCRYPTION?); its legacy "
                             + "secrets stay in config_json", LogSafe.sanitize(row.id()));
@@ -80,6 +79,22 @@ public class IdentityProviderSecretsMigrator {
             LOG.info("Moved the secrets of {} identity provider(s) out of config_json into encrypted secret_json", moved);
         }
         return moved;
+    }
+
+    /**
+     * The row's current {@code secret_json} secrets; {@code null} when they cannot be read. The converter fails closed
+     * on a value it cannot decrypt (it throws): that is one row's problem, so it is caught here and the row skipped
+     * (logged by id only, never the value), instead of aborting the backfill of every other row.
+     */
+    private Map<String, String> storedSecrets(final Row row) {
+        if (row.secretJson() == null || row.secretJson().isBlank()) {
+            return Map.of();
+        }
+        try {
+            return read(encryption.convertToEntityAttribute(row.secretJson()));
+        } catch (final RuntimeException e) {
+            return null;
+        }
     }
 
     private Map<String, String> read(final String value) {

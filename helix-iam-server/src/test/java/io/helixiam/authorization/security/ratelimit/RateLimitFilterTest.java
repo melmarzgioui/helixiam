@@ -81,16 +81,34 @@ class RateLimitFilterTest {
     }
 
     @Test
-    void honoursXForwardedFor_forPerIpBudget() throws Exception {
+    void aSpoofedXForwardedFor_fromAnUntrustedPeer_doesNotBuyANewBudget() throws Exception {
         final RateLimitFilter filter = filter(1);
 
+        final MockHttpServletRequest a = postLogin("198.51.100.20");
+        a.addHeader("X-Forwarded-For", "203.0.113.5");
+        filter.doFilter(a, new MockHttpServletResponse(), new MockFilterChain());
+
+        // Same client, a fresh made-up forwarded address: still the same budget.
+        final MockHttpServletRequest b = postLogin("198.51.100.20");
+        b.addHeader("X-Forwarded-For", "198.51.100.7");
+        final MockHttpServletResponse res = new MockHttpServletResponse();
+        filter.doFilter(b, res, new MockFilterChain());
+        assertThat(res.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void honoursXForwardedFor_fromATrustedProxy_forPerIpBudget() throws Exception {
+        final RateLimitFilter filter = new RateLimitFilter(true,
+                Map.of("/login", new RateLimiter(1, 1, 60_000, 1000, () -> 0L)),
+                new io.helixiam.authorization.security.net.ClientIpResolver("10.0.0.0/8"));
+
         final MockHttpServletRequest a = postLogin("10.0.0.1");
-        a.addHeader("X-Forwarded-For", "203.0.113.5, 10.0.0.1");
+        a.addHeader("X-Forwarded-For", "203.0.113.5");
         filter.doFilter(a, new MockHttpServletResponse(), new MockFilterChain());
 
         // Same proxy socket, different forwarded client → independent budget, so allowed.
         final MockHttpServletRequest b = postLogin("10.0.0.1");
-        b.addHeader("X-Forwarded-For", "198.51.100.7, 10.0.0.1");
+        b.addHeader("X-Forwarded-For", "198.51.100.7");
         final MockHttpServletResponse res = new MockHttpServletResponse();
         filter.doFilter(b, res, new MockFilterChain());
         assertThat(res.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
@@ -103,7 +121,8 @@ class RateLimitFilterTest {
     @Test
     void walletGroup_limitsEveryMethod_perIpAcrossDistinctPaths() throws Exception {
         final RateLimitFilter filter = new RateLimitFilter(true,
-                Map.of("/oid4vp", new RateLimiter(2, 2, 60_000, 1000, () -> 0L)), java.util.Set.of("/oid4vp"));
+                Map.of("/oid4vp", new RateLimiter(2, 2, 60_000, 1000, () -> 0L)), java.util.Set.of("/oid4vp"),
+                java.util.List.of(), new io.helixiam.authorization.security.net.ClientIpResolver(""));
 
         final int[] statuses = new int[3];
         for (int i = 0; i < 3; i++) {
@@ -133,7 +152,8 @@ class RateLimitFilterTest {
     void aRequestRule_limitsOnlyTheRequestsItApplies_toEveryMethod() throws Exception {
         final RateLimitFilter filter = new RateLimitFilter(true, Map.of(), java.util.Set.of(), java.util.List.of(
                 new RateLimitFilter.Rule("wallet-start", r -> r.getServletPath().equals("/broker/eudi"),
-                        new RateLimiter(2, 2, 60_000, 1000, () -> 0L))));
+                        new RateLimiter(2, 2, 60_000, 1000, () -> 0L))),
+                new io.helixiam.authorization.security.net.ClientIpResolver(""));
 
         final int[] wallet = new int[3];
         for (int i = 0; i < 3; i++) {
@@ -152,5 +172,33 @@ class RateLimitFilterTest {
         final MockHttpServletResponse res = new MockHttpServletResponse();
         filter.doFilter(oidc, res, new MockFilterChain());
         assertThat(res.getStatus()).as("another provider's start is not limited").isEqualTo(200);
+    }
+
+    /**
+     * Final review M2: the wallet's own buckets (the {@code /oid4vp} group and the {@code wallet-start} rule) key on the
+     * same trusted-proxy-aware client IP as every other limit: a forged {@code X-Forwarded-For} from a peer that is not
+     * a trusted proxy buys no new budget.
+     */
+    @Test
+    void walletGroupAndRule_aSpoofedXForwardedFor_fromAnUntrustedPeer_doesNotBuyANewBudget() throws Exception {
+        final RateLimitFilter filter = new RateLimitFilter(true,
+                Map.of("/oid4vp", new RateLimiter(1, 1, 60_000, 1000, () -> 0L)), java.util.Set.of("/oid4vp"),
+                java.util.List.of(new RateLimitFilter.Rule("wallet-start", r -> r.getServletPath().equals("/broker/eudi"),
+                        new RateLimiter(1, 1, 60_000, 1000, () -> 0L))),
+                new io.helixiam.authorization.security.net.ClientIpResolver("10.0.0.0/8"));
+
+        for (final String path : java.util.List.of("/oid4vp/eudi/request/a", "/broker/eudi")) {
+            final int[] statuses = new int[2];
+            for (int i = 0; i < 2; i++) {
+                final MockHttpServletRequest req = new MockHttpServletRequest("GET", path);
+                req.setServletPath(path);
+                req.setRemoteAddr("5.5.5.5"); // not a trusted proxy
+                req.addHeader("X-Forwarded-For", "198.51.100." + i); // a fresh forged client per request
+                final MockHttpServletResponse res = new MockHttpServletResponse();
+                filter.doFilter(req, res, new MockFilterChain());
+                statuses[i] = res.getStatus();
+            }
+            assertThat(statuses).as(path).containsExactly(200, 429);
+        }
     }
 }

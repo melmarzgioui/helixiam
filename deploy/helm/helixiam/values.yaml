@@ -46,6 +46,16 @@ config:
   # a port; everything else that resolves to a private address stays blocked. Replaces the deprecated
   # HELIX_EGRESS_ALLOW_PRIVATE=true (all hosts). Also allow the port in networkPolicy.extraEgressPorts.
   egressAllowedPrivateHosts: []  # HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS
+  # Reverse proxies whose forwarded headers are honoured: X-Forwarded-For for the client IP (rate limits, audit log,
+  # risk signals, CAPTCHA) and X-Forwarded-Proto/-Host/-Port/-Prefix + Forwarded for the scheme, host and OIDC issuer.
+  # IPs or CIDR ranges the ingress controller / load balancer connects to the pods from, e.g. ["10.42.0.0/16"] (the
+  # ingress controller's pod CIDR). REQUIRED behind a TLS-terminating ingress: left empty, no proxy is trusted, so the
+  # server sees plain HTTP (http:// issuer and redirects) and every request appears to come from the ingress (one
+  # shared rate-limit bucket). Never list ranges clients can connect from directly.
+  trustedProxies: []             # HELIX_TRUSTED_PROXIES
+  # Host names the server answers to besides the hosts of idpBaseUrl and spBaseUrl, e.g. the in-cluster service name
+  # (helixiam.<namespace>.svc) when relying parties call it directly. Any other Host gets 400. Probes are unaffected.
+  allowedHosts: []               # HELIX_ALLOWED_HOSTS
   extraEnv: []                   # list of {name, value} or {name, valueFrom}
 
 database:

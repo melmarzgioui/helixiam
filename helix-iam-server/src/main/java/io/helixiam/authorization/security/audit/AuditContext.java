@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.security.audit;
 
+import io.helixiam.authorization.security.net.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -52,16 +53,9 @@ public final class AuditContext {
         return name == null || "anonymousUser".equals(name) ? null : name;
     }
 
-    /** Client IP: first hop of {@code X-Forwarded-For} if present, else the socket remote address. */
+    /** Client IP, from {@link ClientIpResolver} ({@code X-Forwarded-For} only from a trusted proxy). */
     public static String clientIp(final HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-        final String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+        return ClientIpResolver.current().resolve(request);
     }
 
     /** Request attribute holding extra audit detail for the admin event of this request. */
