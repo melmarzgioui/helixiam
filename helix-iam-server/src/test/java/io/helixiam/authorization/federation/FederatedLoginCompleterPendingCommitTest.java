@@ -155,4 +155,18 @@ class FederatedLoginCompleterPendingCommitTest {
                 .isEqualTo("redirect:/login?error=federation");
         assertThat(request.getSession(false)).isNull();
     }
+
+    /** Fix round 2: a committer that throws counts as a refusal, so no signed-in session is left behind. */
+    @Test
+    void aThrowingCommit_isARefusal_andUndoesTheSession() {
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
+        when(commit.commit(PENDING, USER_ID)).thenThrow(new IllegalStateException("link store down"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final String view = completer.complete(USER_ID, null, request, new MockHttpServletResponse(), PENDING);
+
+        assertThat(view).isEqualTo("redirect:/login?error=federation");
+        assertThat(request.getSession(false)).isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
 }

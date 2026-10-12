@@ -326,6 +326,37 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         assertThat(tooBig.status()).isEqualTo(413);
     }
 
+    /**
+     * Fix round 2: through the real filter chain, a PUT form to the response endpoint is refused with 405 before any
+     * filter reads its body. The body is a form that cannot be decoded ({@code %zz}): Spring's FormContentFilter, which
+     * parses PUT forms, would fail on it with a 4xx/5xx of its own if it ran first, so the wallet filter's exact 405
+     * answer proves it runs before every body reader (the method cannot bypass the body limit).
+     */
+    @Test
+    void aPutFormToTheResponseEndpoint_is405_beforeItsBodyIsRead() throws Exception {
+        final java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .version(java.net.http.HttpClient.Version.HTTP_1_1).build();
+        final String url = baseUrl() + "/realms/" + realm + "/oid4vp/" + alias + "/response/some-id";
+
+        final java.net.http.HttpResponse<String> put = client.send(java.net.http.HttpRequest.newBuilder(URI.create(url))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .method("PUT", java.net.http.HttpRequest.BodyPublishers.ofString("response=%zz"))
+                .build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        assertThat(put.statusCode()).isEqualTo(405);
+        assertThat(put.headers().firstValue("Allow")).contains("GET, POST");
+        assertThat(put.body()).isEqualTo("{\"error\":\"invalid_request\"}");
+
+        // Control: the same undecodable form PUT elsewhere is read (and refused) by Spring's FormContentFilter.
+        final java.net.http.HttpResponse<String> elsewhere = client.send(java.net.http.HttpRequest.newBuilder(
+                        URI.create(baseUrl() + "/realms/" + realm + "/login"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .method("PUT", java.net.http.HttpRequest.BodyPublishers.ofString("response=%zz"))
+                .build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+        assertThat(elsewhere.statusCode()).as(elsewhere.body()).isNotEqualTo(405);
+        assertThat(elsewhere.body()).doesNotContain("invalid_request");
+    }
+
     @Test
     void walletEndpoints_needNoCsrfToken_butOtherPostsStillDo() {
         final E2eHttp phone = newBrowser();

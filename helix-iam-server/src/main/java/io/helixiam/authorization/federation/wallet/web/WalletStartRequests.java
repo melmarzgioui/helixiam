@@ -34,8 +34,8 @@ public final class WalletStartRequests {
         }
         try {
             return WalletIdentityProvider.from(registry.get(m.group(1))).isPresent();
-        } catch (final IllegalArgumentException e) {
-            return false; // no such provider
+        } catch (final RuntimeException e) {
+            return false; // no such provider, or the registry failed: never turn a broker start into a 500 here
         }
     }
 }

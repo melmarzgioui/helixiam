@@ -107,4 +107,18 @@ class FlowControllerPendingCommitTest {
 
         verify(commit, never()).commit(any(), any());
     }
+
+    /** Fix round 2: a committer that throws after the MFA gate was lifted counts as a refusal. */
+    @Test
+    void aThrowingCommit_isARefusal_andDropsTheSession() {
+        final MockHttpServletRequest request = pending(FlowProgress.completed("user-9"));
+        when(commit.commit("pending-link", "user-9")).thenThrow(new IllegalStateException("link store down"));
+
+        final String view = controller.submitChallenge(Map.of("code", "123456"), request.getSession(),
+                new ExtendedModelMap(), request, new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/login?error=federation");
+        assertThat(request.getSession(false)).isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
 }

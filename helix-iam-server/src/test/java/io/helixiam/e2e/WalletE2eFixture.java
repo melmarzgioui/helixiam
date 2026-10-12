@@ -187,8 +187,14 @@ public final class WalletE2eFixture {
             }
         }
         try {
+            // A synthetic, axis-aligned image: decode it as a pure barcode (module grid read directly), so the result
+            // never depends on the binarizer's guesses for one particular random matrix.
+            final java.util.Map<com.google.zxing.DecodeHintType, Object> hints =
+                    new java.util.EnumMap<>(com.google.zxing.DecodeHintType.class);
+            hints.put(com.google.zxing.DecodeHintType.PURE_BARCODE, Boolean.TRUE);
+            hints.put(com.google.zxing.DecodeHintType.TRY_HARDER, Boolean.TRUE);
             return new QRCodeReader().decode(new BinaryBitmap(new HybridBinarizer(
-                    new BufferedImageLuminanceSource(image)))).getText();
+                    new BufferedImageLuminanceSource(image))), hints).getText();
         } catch (final Exception e) {
             throw new AssertionError("the QR code does not decode", e);
         }

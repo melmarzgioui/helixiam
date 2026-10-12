@@ -24,6 +24,7 @@ class WalletStartRequestsTest {
         when(registry.get("eudi")).thenReturn(mock(WalletIdentityProvider.class));
         when(registry.get("corp")).thenReturn(mock(IdentityProvider.class));
         when(registry.get("nope")).thenThrow(new IllegalArgumentException("No identity provider"));
+        when(registry.get("broken")).thenThrow(new IllegalStateException("registry reload in progress"));
     }
 
     private boolean counts(final String method, final String servletPath) {
@@ -41,5 +42,11 @@ class WalletStartRequestsTest {
         assertThat(counts("GET", "/broker/eudi/wallet")).isFalse();
         assertThat(counts("POST", "/broker/eudi")).isFalse();
         assertThat(counts("GET", "/login")).isFalse();
+    }
+
+    /** Fix round 2: a registry failure is "not a wallet start": the rate limit never turns it into a 500. */
+    @Test
+    void aRegistryFailure_isNotAWalletStart() {
+        assertThat(counts("GET", "/broker/broken")).isFalse();
     }
 }
