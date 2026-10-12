@@ -47,19 +47,21 @@ import java.util.regex.Pattern;
  *       combination, and accepting part of it would let the wallet decide what the use case is.</li>
  *   <li><b>Verification.</b> Each presentation is verified by the verifier registered for its query's {@code format}
  *       (none registered: {@code INVALID_RESPONSE}), all with the same {@link VerificationContext}; verifier failures
- *       pass through unchanged. The result must be of the query's format and its {@code credentialType} must be in
- *       the query's {@code meta.vct_values} ({@code dc+sd-jwt}) or equal {@code meta.doctype_value}
+ *       pass through unchanged. The result must be of the query's format and its {@code credentialType} must be
+ *       non-null and in the query's {@code meta.vct_values} ({@code dc+sd-jwt}) or equal {@code meta.doctype_value}
  *       ({@code mso_mdoc}); otherwise {@code INVALID_RESPONSE}.</li>
  *   <li><b>Claims.</b> The query lists no {@code claim_sets}, so every listed claim is requested (§6.4.1) and must be
- *       present: a missing one is {@code DCQL_NOT_SATISFIED}. This includes an mdoc without
+ *       present with a non-null value: a missing one, or one disclosed as JSON/CBOR {@code null}, is
+ *       {@code DCQL_NOT_SATISFIED}. This includes an mdoc without
  *       {@code issuerSigned.nameSpaces}, which verifies with empty claims (Task 12) but cannot satisfy a query that
  *       requests claims; it is a well-formed, verified credential that lacks what we asked for, hence
  *       {@code DCQL_NOT_SATISFIED} and not {@code INVALID_RESPONSE}.</li>
  *   <li><b>Over-disclosure.</b> Disclosed claims the query did not request are <em>dropped</em> from the result
  *       (§6.4: wallets must not send them; non-selectively-disclosable ones like {@code sub} arrive anyway). Their
  *       names, never their values, are returned in {@link MatchedPresentations#droppedClaimNames()} and logged at
- *       INFO, sanitised and cut to {@link #MAX_LOGGED_NAME_LENGTH}. A name is the claim's path joined by {@code /},
- *       e.g. {@code address/locality} or {@code eu.europa.ec.eudi.pid.1/resident_address}.</li>
+ *       INFO, sanitised, cut to {@link #MAX_LOGGED_NAME_LENGTH} and, per presentation, capped at
+ *       {@link #MAX_DROPPED_NAMES} names plus one {@code (+N more)} entry. A name is the claim's path joined by
+ *       {@code /}, e.g. {@code address/locality} or {@code eu.europa.ec.eudi.pid.1/resident_address}.</li>
  * </ol>
  *
  * <p><b>Supported queries.</b> Only what {@link DcqlQueryBuilder} emits (plus {@code multiple}, which the matcher
@@ -75,6 +77,8 @@ public final class DcqlResultMatcher {
 
     /** Longest dropped-claim name kept and logged (longer ones are cut). */
     public static final int MAX_LOGGED_NAME_LENGTH = 64;
+    /** Most dropped-claim names kept and logged per presentation; the rest are counted as {@code (+N more)}. */
+    public static final int MAX_DROPPED_NAMES = 32;
     /** Longest accepted claims path. */
     public static final int MAX_PATH_DEPTH = 8;
 
@@ -195,9 +199,10 @@ public final class DcqlResultMatcher {
         if (!cq.format().equals(vp.format())) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "presentation format differs from its credential query");
         }
-        final boolean typeMatches = DcqlQueryBuilder.SD_JWT_FORMAT.equals(cq.format())
-                ? cq.vctValues().contains(vp.credentialType())
-                : cq.doctypeValue().equals(vp.credentialType());
+        final String type = vp.credentialType();
+        final boolean typeMatches = type != null && (DcqlQueryBuilder.SD_JWT_FORMAT.equals(cq.format())
+                ? cq.vctValues().contains(type)
+                : cq.doctypeValue().equals(type));
         if (!typeMatches) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "credential type is not the one its query requested");
         }
@@ -210,23 +215,36 @@ public final class DcqlResultMatcher {
         final Set<String> droppedHere = new LinkedHashSet<>();
         final Map<String, Object> kept = keep(claims, cq.claims(), 0, "", droppedHere);
         if (!droppedHere.isEmpty()) {
+            final List<String> reported = capped(droppedHere);
             LOG.info("wallet: dropped claims that DCQL query {} ({}) did not request: {}", cq.id(), cq.format(),
-                    LogSafe.sanitize(String.join(", ", droppedHere)));
-            dropped.addAll(droppedHere);
+                    LogSafe.sanitize(String.join(", ", reported)));
+            dropped.addAll(reported);
         }
         return new VerifiedPresentation(vp.format(), vp.credentialType(), kept, vp.issuerSubjectDn(),
                 vp.issuerSerialHex(), vp.statusResult());
     }
 
+    /** The first {@link #MAX_DROPPED_NAMES} names, then {@code (+N more)} for the rest. */
+    private static List<String> capped(final Set<String> names) {
+        final List<String> all = new ArrayList<>(names);
+        if (all.size() <= MAX_DROPPED_NAMES) {
+            return all;
+        }
+        final List<String> reported = new ArrayList<>(all.subList(0, MAX_DROPPED_NAMES));
+        reported.add("(+" + (all.size() - MAX_DROPPED_NAMES) + " more)");
+        return reported;
+    }
+
+    /** A JSON null (or CBOR null) value does not satisfy a requested claim. */
     private static boolean present(final Map<String, Object> claims, final List<String> path) {
         Object current = claims;
         for (final String segment : path) {
-            if (!(current instanceof Map<?, ?> map) || !map.containsKey(segment)) {
+            if (!(current instanceof Map<?, ?> map)) {
                 return false;
             }
             current = map.get(segment);
         }
-        return true;
+        return current != null;
     }
 
     /** The members of {@code source} on a requested path (whole subtrees at a path's end); the rest is dropped. */

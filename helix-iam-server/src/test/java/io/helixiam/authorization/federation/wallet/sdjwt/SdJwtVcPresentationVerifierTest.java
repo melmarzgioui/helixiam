@@ -408,6 +408,15 @@ class SdJwtVcPresentationVerifierTest {
     }
 
     @Test
+    void whenBothVctAndAnAkaVctAreAcceptedTheVctIsTheCredentialType() {
+        final TestWallet w = wallet.withVct("urn:eudi:pid:de:1").withPayloadClaim("aka_vcts", List.of(TestWallet.PID_VCT));
+
+        assertThat(verifier().verify(presentAll(w, pid(w)),
+                context(Instant.now(), false, false, Set.of(TestWallet.PID_VCT, "urn:eudi:pid:de:1")))
+                .credentialType()).isEqualTo("urn:eudi:pid:de:1");
+    }
+
+    @Test
     void credentialAcceptedThroughAkaVctsHasTheAcceptedAkaVctAsCredentialType() {
         final TestWallet w = wallet.withVct("urn:eudi:pid:xx:1")
                 .withPayloadClaim("aka_vcts", List.of("urn:other:1", TestWallet.PID_VCT));

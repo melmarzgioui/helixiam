@@ -16,6 +16,7 @@ import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.federation.wallet.sdjwt.SdJwtVcPresentationVerifier;
 import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
 import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
+import io.helixiam.authorization.federation.wallet.status.StatusReference;
 import io.helixiam.authorization.federation.wallet.testwallet.TestWallet;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors.RevocationMode;
@@ -464,8 +465,50 @@ class DcqlResultMatcherTest {
             result = match("{\"pid_sd_jwt\": [\"" + raw + "\"]}");
             assertThat(log.text()).doesNotContain("evil\nname").doesNotContain(longName);
         }
-        assertThat(result.droppedClaimNames()).contains("evil_name")
+        assertThat(result.droppedClaimNames()).containsExactlyInAnyOrder("evil_name", "x".repeat(61) + "...")
                 .allSatisfy(n -> assertThat(n.length()).isLessThanOrEqualTo(DcqlResultMatcher.MAX_LOGGED_NAME_LENGTH));
+    }
+
+    @Test
+    void droppedNamesAreCappedWithACountOfTheRest() {
+        final Map<String, Object> claims = sdJwtPid();
+        for (int i = 0; i < 40; i++) {
+            claims.put("extra_%02d".formatted(i), "v");
+        }
+        final String raw = give(presentation(SD_JWT, PID_VCT, claims));
+
+        final MatchedPresentations result;
+        try (LogCapture log = LogCapture.of(DcqlResultMatcher.class)) {
+            result = match("{\"pid_sd_jwt\": [\"" + raw + "\"]}");
+            assertThat(log.text()).contains("extra_31").doesNotContain("extra_32").contains("(+8 more)");
+        }
+        assertThat(result.droppedClaimNames()).hasSize(DcqlResultMatcher.MAX_DROPPED_NAMES + 1)
+                .contains("extra_00", "extra_31", "(+8 more)").doesNotContain("extra_32", "extra_39");
+    }
+
+    @Test
+    void aNullCredentialTypeIsRefused() {
+        final String raw = give(presentation(SD_JWT, null, sdJwtPid()));
+
+        assertRefused(() -> match("{\"pid_sd_jwt\": [\"" + raw + "\"]}"), WalletErrorCode.INVALID_RESPONSE);
+    }
+
+    @Test
+    void aRequestedSdJwtClaimWhoseValueIsNullIsNotSatisfied() {
+        final Map<String, Object> claims = sdJwtPid();
+        claims.put("birthdate", null);
+        final String raw = give(presentation(SD_JWT, PID_VCT, claims));
+
+        assertRefused(() -> match("{\"pid_sd_jwt\": [\"" + raw + "\"]}"), WalletErrorCode.DCQL_NOT_SATISFIED);
+    }
+
+    @Test
+    void aRequestedMdocElementWhoseValueIsNullIsNotSatisfied() {
+        final Map<String, Object> nullBirthDate = new HashMap<>();
+        nullBirthDate.put("birth_date", null);
+        final String raw = give(presentation(MDOC, NS, mdocPid(nullBirthDate)));
+
+        assertRefused(() -> match("{\"pid_mdoc\": [\"" + raw + "\"]}"), WalletErrorCode.DCQL_NOT_SATISFIED);
     }
 
     // ------------------------------------------------------------------------------------------- our own queries
@@ -544,6 +587,33 @@ class DcqlResultMatcherTest {
             assertThat(p.credentialType()).isEqualTo(PID_VCT);
             assertThat(p.claims()).isEqualTo(sdJwtPid());
         });
-        assertThat(result.droppedClaimNames()).contains("nationalities", "personal_administrative_number");
+        assertThat(result.droppedClaimNames())
+                .containsExactlyInAnyOrder("nationalities", "personal_administrative_number");
+    }
+
+    @Test
+    void technicalClaimsAreNeverReportedAsDropped() {
+        final TestWallet wallet = TestWallet.create().withPayloadClaim("iss", TestWallet.ISSUER)
+                .withPayloadClaim("nbf", Instant.now().minusSeconds(60).getEpochSecond())
+                .withPayloadClaim("aka_vcts", List.of("urn:other:1"));
+        final Map<String, Object> pid = new LinkedHashMap<>(sdJwtPid());
+        pid.put("nationalities", List.of("DE"));
+        final Instant now = Instant.now();
+        final TestWallet.SdJwtCredential cred = wallet.sdJwtPid(pid, now.minusSeconds(3600),
+                now.plus(Duration.ofDays(30)), Optional.of(new StatusReference(7, "https://status.example/lists/1")));
+        final String vp = wallet.present(cred, pid.keySet(), CLIENT_ID, NONCE);
+        final VerificationContext ctx = new VerificationContext(CLIENT_ID, NONCE,
+                "https://verifier.example/wallet/response", null, now, Duration.ofSeconds(60),
+                wallet.pki().trustAnchors(RevocationMode.OFF),
+                new StatusPolicy(true, StatusPolicy.OnUnavailable.FAIL_CLOSED, Duration.ofSeconds(900), List.of()),
+                Set.of(PID_VCT), NS, false);
+        final StatusEvaluator valid = (ref, anchors) -> StatusEvaluator.VALID;
+
+        final MatchedPresentations result = new DcqlResultMatcher().match(
+                json("{\"pid_sd_jwt\": [\"" + vp + "\"]}"), PRESET,
+                Map.of(SD_JWT, new SdJwtVcPresentationVerifier(new IssuerTrustValidator(), valid)), ctx);
+
+        assertThat(result.droppedClaimNames()).containsExactly("nationalities");
+        assertThat(result.presentations().get(0).statusResult()).isEqualTo("VALID");
     }
 }

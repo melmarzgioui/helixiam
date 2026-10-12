@@ -34,8 +34,9 @@ import java.util.Set;
  * Rulebook (Annex 3.01 v1.7, 17 July 2026, notes §7.2), nested members dotted (spec §8.1 uses the same names). Each
  * maps to its SD-JWT VC path and to its mdoc element in the PID namespace {@code eu.europa.ec.eudi.pid.1} (also for a
  * domestic doctype: PID_06 keeps the EU attributes in that namespace). {@code address.house_number} has no mdoc
- * element, so it is requested from SD-JWT VC only. {@code age_over_18} is no PID attribute any more (Rulebook v1.1)
- * and is refused like any unknown name.
+ * element: the Rulebook table recorded in notes §7.2 lists {@code resident_house_number} with an SD-JWT VC claim only
+ * ("not listed for mdoc"), so no mdoc identifier is invented and the claim is requested from SD-JWT VC only.
+ * {@code age_over_18} is no PID attribute any more (Rulebook v1.1) and is refused like any unknown name.
  */
 public final class DcqlQueryBuilder {
 
