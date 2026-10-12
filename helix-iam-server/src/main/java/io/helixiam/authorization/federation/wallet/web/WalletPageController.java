@@ -47,10 +47,11 @@ import java.util.Optional;
  *       with the <b>same-device</b> URL; {@code /js/wallet-poll.js} then polls the status. A failed login offers a
  *       retry; an expired or unknown one (or one of another browser or realm) is a 404 page that says so.</li>
  *   <li>{@code GET /wallet/status?tx=}: {@code {"status": "PENDING" | "WALLET_OPENED" | "COMPLETED" | "FAILED",
- *       "next"?}}, never cached. {@code PENDING}: created, the wallet has not fetched the request yet;
+ *       "reason"?, "next"?}}, never cached. {@code PENDING}: created, the wallet has not fetched the request yet;
  *       {@code WALLET_OPENED}: the wallet fetched the request (or its answer is being checked), so the page can say
  *       "confirm in your wallet app"; {@code COMPLETED} covers verified and redeemed (the store's {@code VERIFIED});
- *       {@code FAILED} is a refused or wallet-declined login. On the first
+ *       {@code FAILED} is a refused or wallet-declined login, with its plain-language {@code reason}
+ *       ({@link WalletFailureClass}: declined, not_accepted, expired, technical; never the specific check). On the first
  *       poll after a CROSS_DEVICE transaction was verified, {@code next} is the broker callback with a fresh response
  *       code only ({@code WalletTransactionStore#issueResponseCode}, once: a later poll has no {@code next}; the
  *       callback takes the state from the session). A same-device
@@ -106,7 +107,10 @@ public class WalletPageController {
                 + UriUtils.encodeQueryParam(tx.transactionId(), StandardCharsets.UTF_8));
         model.addAttribute("expiresAt", tx.expiresAt().toEpochMilli());
         switch (status(tx)) {
-            case FAILED -> model.addAttribute("walletState", "failed");
+            case FAILED -> {
+                model.addAttribute("walletState", "failed");
+                model.addAttribute("walletFailure", WalletFailureClass.of(tx.failureCode()).key());
+            }
             case WALLET_OPENED, COMPLETED -> model.addAttribute("walletState", "opened"); // the wallet has it; poll
             case PENDING -> {
                 final String crossDevice = requests.invocationUrl(tx, provider.config(), provider.signingKey(),
@@ -132,6 +136,9 @@ public class WalletPageController {
         final ClientStatus status = status(tx);
         final Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", status.name());
+        if (status == ClientStatus.FAILED) {
+            body.put("reason", WalletFailureClass.of(tx.failureCode()).key()); // the plain-language class only
+        }
         if (status == ClientStatus.COMPLETED && tx.status() == WalletTransaction.Status.VERIFIED
                 && tx.flow() == WalletTransaction.Flow.CROSS_DEVICE) {
             bound.get().provider().transactions().issueResponseCode(tx.transactionId(), bound.get().binding())

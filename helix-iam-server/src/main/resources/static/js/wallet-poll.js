@@ -6,7 +6,8 @@
  *   WALLET_OPENED - the wallet fetched the request: "confirm in your wallet app"; the spent QR code is put away
  *   COMPLETED - follow `next` (the broker callback with this browser's response code) when present; a same-device
  *               login was already sent back by the wallet, so the page only says so
- *   FAILED    - say so and show the retry
+ *   FAILED    - say so, in the words of its plain-language `reason` (declined, not_accepted, expired, technical),
+ *               and show the retry
  *   404       - expired or unknown: say so and show the retry
  * The status line is a polite live region while waiting (with a CSS spinner that honours prefers-reduced-motion); a
  * failure turns it into the house error alert (.hx-alert.hx-alert-error, role="alert") and moves focus to the retry.
@@ -54,6 +55,18 @@
                 retry.focus();
             }
         }
+    }
+
+    // The failure's plain-language class picks its message; anything unknown reads as a technical failure.
+    var FAILURE_MESSAGES = {
+        declined: 'msgFailedDeclined',
+        not_accepted: 'msgFailedNotAccepted',
+        expired: 'msgFailedExpired'
+    };
+
+    function failureMessage(reason) {
+        var key = Object.prototype.hasOwnProperty.call(FAILURE_MESSAGES, reason) ? FAILURE_MESSAGES[reason] : null;
+        return (key && status.dataset[key]) || status.dataset.msgFailed;
     }
 
     function walletOpened() {
@@ -119,7 +132,7 @@
                     return;
                 }
                 if (data.status === 'FAILED') {
-                    stop(status.dataset.msgFailed, true);
+                    stop(failureMessage(data.reason), true);
                     return;
                 }
                 if (data.status === 'WALLET_OPENED') {

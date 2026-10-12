@@ -17,6 +17,27 @@ question. Newest first within each phase.
   not yet run against the OpenID Foundation conformance suite or a real wallet (see `docs/FEATURES.md` and
   `ROADMAP.md`).
 
+- **behaviour (all connectors)** — A federated login gets a new session id: `FederatedLoginCompleter` rotates it when
+  the login completes and `FlowController` when a post-broker step-up completes (OIDC, SAML, eID, wallet). On the
+  `queue` (PostgreSQL) session store `QueueIndexedSessionRepository.save` now deletes the pre-rotation row, so the old
+  cookie no longer works after the rotation.
+- **behaviour (all connectors)** — ID tokens carry `acr`. `BrokeredIdentity` gained a typed `levelOfAssurance`; the eID
+  SAML connector sets it from the assertion's `AuthnContextClassRef` (only a value on that scheme's ladder) and the
+  wallet sets `http://eidas.europa.eu/LoA/high`. It is bound into the authorization code like `sid`/`auth_time` and put
+  on the ID token (kept across refresh, never on access tokens). A provider attribute named `loa` is never used, so an
+  upstream OIDC IdP cannot set it. Every login completion clears a previous login's value; a step-up holds it on the
+  flow state until that flow completes.
+- **behaviour (all connectors)** — The broker start turns any provider error (and an alias unknown in the realm) into
+  `/login?error=federation` with a WARN log, instead of an error page.
+- **behaviour (admin, all connectors)** — Console/admin-API identity providers are live in every realm:
+  `helix.federation.store.enabled` defaults to `true` (it was `false`, so that boot never called AMQP, which is gone);
+  the startup load covers every realm (`helix.federation.store.realm` is removed); an admin write refreshes only its
+  realm; the registry keys stored providers by (realm, alias), so realms may share an alias such as `eudi-wallet`; the
+  login page, broker, wallet endpoints and account console resolve providers for the request's realm only. A stored
+  config whose secrets cannot be read is skipped by id instead of failing the realm's (or every realm's) load.
+- **audit (wallet)** — A wallet login that steps up (MFA, risk step) is audited when the step ends:
+  `WALLET_LOGIN_SUCCESS` for the signed-in user, or `WALLET_LOGIN_FAILURE`; previously it was never audited.
+
 CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven false positives are explained in
 `helix-iam-server/CODEQL-TRIAGE.md` ("rc.5 scan").
 

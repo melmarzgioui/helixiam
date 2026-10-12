@@ -102,6 +102,22 @@ Documentation (`docs/eudi-wallet.md`, `docs/FEATURES.md`, `CHANGELOG.md`, `VENDO
 gap. CodeQL: the CLI is not installed locally; `helix-iam-server/CODEQL-TRIAGE.md` carries a note for the pending
 GitHub run.
 
+### Deviations from spec §15 "a distinct `WalletErrorCode` for each listed rejection"
+
+Two listed rejections share a code, by design (final review m6). Both are pinned by tests and explained in their
+javadoc; they are listed here so the PR description carries them:
+
+1. **mdoc: a wrong nonce and a wrong audience are both `HOLDER_BINDING_INVALID`** (not `NONCE_MISMATCH` /
+   `AUDIENCE_MISMATCH` as for SD-JWT). The nonce and the client_id enter the mdoc `SessionTranscript`, which is hashed
+   inside the detached `DeviceSignature`; when that signature does not verify, the verifier cannot tell which input
+   differed, and guessing a code would mislead operators (ledger ruling, Task 12; `WalletAcceptanceE2eTest` mdoc
+   rows `WRONG_NONCE`, `WRONG_AUD`).
+2. **A reused `response_code`, and a redeem from another browser session, both surface as `STATE_MISMATCH`** over
+   real HTTP, not `REPLAY` / `BROWSER_MISMATCH`. The broker's own single-use state is consumed (or absent) first, so
+   the outer check refuses before the wallet's `response_code` check runs. Both checks exist and both refuse;
+   `WalletAuditE2eTest.reusedResponseCode_isReplay_andAuditedOnce` pins the inner `REPLAY` by calling the provider
+   directly, and `WalletAcceptanceE2eTest` pins what a real browser gets.
+
 ## 4. Open questions
 
 1. **Cross-device QR vs ARF OIA_08c.** Spec §2.1.3 requires cross-device QR; ARF guidance recommends against

@@ -303,6 +303,11 @@ not "the exact same key that signed this credential."
   caveats separately; they do not carry over automatically (the wallet's LoA is always asserted as the eIDAS
   `high` ladder rung once a presentation verifies — see `docs/eudi-wallet-spec-notes.md`, Task 20 ruling — there is
   no separate `substantial` tier for wallet logins today).
+- **What the user is told when a wallet login fails.** The wallet page (and its status endpoint's `reason`) names
+  one of four plain-language kinds only: `declined` (the user said no in the wallet), `not_accepted` (a credential
+  was shared but refused: untrusted, revoked, expired, not bound to the wallet, not the PID asked for), `expired`
+  (the request ran out of time) or `technical` (anything else). The specific check is in the audit log and the server
+  log, never in the browser.
 - **Audit of logins that step up.** Every wallet login transaction gets one `WALLET_LOGIN_SUCCESS` or
   `WALLET_LOGIN_FAILURE` event (AUTHN category, detail `{transactionId, alias, format, issuerDn, result, reason}`).
   When the realm's post-login flow asks for a second factor (an MFA-enabled user, a risk step), the event is written

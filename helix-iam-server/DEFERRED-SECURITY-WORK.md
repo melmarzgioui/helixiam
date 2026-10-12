@@ -108,17 +108,26 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
   list form's COSE/CBOR handling is inlined alongside the SD-JWT (JWT) form in the same client rather than
   factored into a dedicated type. Not a defect — a structure/maintainability item. Task 10 review finding #10.
 - **mdoc/COSE implementation-detail minors carried from the Task 11/12 reviews**, all accepted-risk or
-  test-coverage gaps rather than defects, kept for a future pentest pass: non-strict `tdate` parsing tolerance,
-  an assumption that an `x5chain` is encoded as a single certificate when only one is present (vs. always an
+  test-coverage gaps rather than defects, kept for a future pentest pass: an assumption that an `x5chain` is encoded as a single certificate when only one is present (vs. always an
   array), no explicit CBOR/COSE library version pin test, `byte[]` (non-constant-time) equality on a couple of
   internal comparisons that are not on a secret-comparison path, no dedicated negative test for a malformed
   `DeviceSignature`, and reliance on an internal Nimbus ECDSA helper rather than a public API for one signature
   check. Full detail in `task-11-review.md` (items #2, #4, #5, #7, #8, #9) and `task-12-review.md`.
-- **`isWallet`/`isWalletAlias` catch only `IllegalArgumentException`.** `AccountIdentityController.isWallet`
-  (pre-existing, Task 21b) and this task's own `GdprAdminService.isWalletAlias`/`displayNameOf` (Task 26) each
-  assume `IdentityProviderRegistry#get` is the only thing that can fail, and only in that one documented way.
-  True today; narrow by construction, not hardened against a future change to that method's failure modes.
-  See `SECURITY-REVIEW.md` Appendix B.9.
+- **Resolved (final review F1): `isWallet`/`isWalletAlias` caught only `IllegalArgumentException`.**
+  `AccountIdentityController.isWallet` and `GdprAdminService.isWalletAlias` now ask
+  `IdentityProviderRegistry#named`, which does not throw (it lists every realm's provider of that alias).
+- **The fail-open status audit carries no transaction id.** `WALLET_STATUS_CHECK_FAILED` (decision `accepted`,
+  emitted by `TokenStatusListClient` when an issuer's status list is transiently unavailable under
+  `FAIL_OPEN_WITH_AUDIT`) has `{reason, statusListHost, decision}` but not the wallet transaction id, so an operator
+  cannot tie a fail-open to the login it let through except by time and realm. Task 10 review #9 / final review m4.
+  Fix: thread the transaction id into the status check's audit sink.
+- **A PUT that changes an identity provider's protocol keeps the old protocol's secrets.** `IdentityProviderConfigService
+  .saveOrUpdate` merges the stored `secret_json` with the incoming secrets by key; secret keys that belong only to the
+  previous protocol stay stored (encrypted, never returned, and not read by the new protocol's provider). Task 4
+  review. Fix: drop secrets that `ProviderSecretKeys` does not list for the new protocol.
+- **`IdentityProviderConfig.toString()` prints the merged secrets.** The record's generated `toString` includes the
+  `config` map, which on the runtime side contains the decrypted secrets. Nothing logs or formats it today (checked);
+  a latent leak for a future log line. Task 4 review. Fix: override `toString` to redact `ProviderSecretKeys`.
 - **`FederatedLoginCommit.commit` does not catch `java.lang.Error`.** By Java convention (the project does not
   catch `Error` anywhere else either), an `Error` thrown by a committer (the wallet's `WalletPendingLinkCommit`
   is the only implementation) escapes uncaught with the HTTP session already established a few lines earlier in
@@ -156,6 +165,11 @@ are fixed by it (confirmed against the current worktree, not merely carried over
   password login does.** `MfaEnabledCondition` reads the `SecurityContext`, which is still empty at the point a
   `FederatedLoginCompleter`-driven flow begins evaluating whether to require a second factor. Surfaced during
   Task 18's review; not fixed here (it is not wallet-specific — every federation connector shares this gap).
+- **Not reproducible (final review F3): a percent-encoded path skipping the wallet and login limits.**
+  `RateLimitFilter` and `WalletRequestBodyLimitFilter` match the still-encoded path, so `/br%6Fker/<alias>` or
+  `/%6Fid4vp/...` would not be counted — but StrictHttpFirewall refuses any `%`, `;`, `//` or `/./` with 400 (Tomcat
+  refuses `%2F`), so no such spelling is served. Guarded by `WalletLimitPathEncodingE2eTest` (wallet start, `/oid4vp`,
+  body limit) and `LoginRateLimitPathEncodingE2eTest` (sign-in). Relaxing the firewall would reopen it.
 - **Resolved (final review F1):** admin-API/console-managed identity providers used to reach the live registry only
   with `helix.federation.store.enabled=true` (default `false`), only `master` was loaded at startup, and each write
   replaced every realm's store-backed providers with the written realm's. The store refresher is now on by default,

@@ -379,7 +379,15 @@ class WalletAcceptanceE2eTest extends AbstractE2eTest {
         final E2eHttp.Response posted = wallet.respond(phone, request, sdJwtClaims("PAN-" + UUID.randomUUID()));
 
         assertRejected(posted);
-        assertThat(poll(login).path("status").asText()).isEqualTo("FAILED");
+        final JsonNode status = poll(login);
+        assertThat(status.path("status").asText()).isEqualTo("FAILED");
+        // Final review m2: the browser learns the plain-language class only, and the page does not claim the wallet
+        // shared nothing (it did; the credential was then not accepted).
+        assertThat(status.path("reason").asText()).isEqualTo("not_accepted");
+        assertThat(status.toString()).doesNotContain("revoked").doesNotContain("REVOKED");
+        final String page = login.browser().get(login.pageLocation()).body();
+        assertThat(page).contains("couldn&#39;t accept the identity your wallet shared")
+                .doesNotContain("did not share").doesNotContain("revoked");
         assertAudited(WalletErrorCode.CREDENTIAL_REVOKED);
     }
 

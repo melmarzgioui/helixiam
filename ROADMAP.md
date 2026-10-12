@@ -34,6 +34,22 @@ paths are hardened and tested."
   `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being pasted PEM; a
   Terraform resource for the wallet identity-provider connection; and a separate plan for the step-up/verify-only
   flow (`subject.strategy=NONE`), deliberately left out of the initial implementation (maintainer decision 4).
+- **EUDI Wallet follow-ups** (from the final review of the wallet branch):
+  - **Before the "Experimental" label is lifted:** check the mdoc path against one third-party `DeviceResponse`
+    vector (ISO 18013-5 Annex D as reproduced in an Apache-2.0 test suite, after a licence check, or a capture from
+    the EU reference wallet). Today IssuerSigned tag-24 encoding, MSO digests and DeviceAuthentication are checked
+    only against the in-repo test wallet, so a misreading shared by both would pass (it fails closed: an interop
+    risk, not a security one).
+  - A PostgreSQL wallet transaction store, so multi-replica deployments on the `queue` session store do not need
+    Redis or sticky sessions for wallet logins (today: in-memory, with a startup WARN; `docs/eudi-wallet.md` §3).
+  - A "wallet linked" notification (email) to the account owner when a wallet is linked, as a signal against the
+    linking-CSRF and QR-relay residuals (`docs/eudi-wallet.md` §6.3).
+  - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
+    (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
+    again under the same name would inherit the previous realm's verifier access key and pepper.
+- **Console debt:** 21 inline `style=` attributes in other providers' wizard sub-forms (the wallet form has none;
+  the wallet branch removed 4), plus hundreds elsewhere in the console (AccountApp, SecurityTab, AppShell, ...);
+  move them to classes under the console design-system rule.
 - **Post-1.0 platform upgrades** — each a planned major upgrade with its own test pass, not a weekly
   bump (Dependabot ignores these majors until then): Spring Boot 4 / Spring Security 7 (incl. SAML2
   service provider 7), springdoc 3, Flyway 12+, Apache Santuario xmlsec 4, Java 25 LTS runtime; in the

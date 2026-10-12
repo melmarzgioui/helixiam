@@ -118,7 +118,8 @@ class WalletLoginBrowserE2eTest extends AbstractBrowserE2eTest {
 
         page().locator("#walletRetry").waitFor();
         assertThat(page().locator("#walletRetry").isVisible()).isTrue();
-        assertThat(page().locator("#walletStatus").textContent()).containsIgnoringCase("try again");
+        assertThat(page().locator("#walletStatus").textContent()).containsIgnoringCase("try again")
+                .contains("You declined to share your identity in your wallet"); // the declined class's own words
         // the house error treatment, announced assertively, and the keyboard lands on the retry
         assertThat(page().locator("#walletStatus").getAttribute("class")).contains("hx-alert").contains("hx-alert-error");
         assertThat(page().locator("#walletStatus").getAttribute("role")).isEqualTo("alert");

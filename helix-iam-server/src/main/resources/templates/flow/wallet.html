@@ -72,9 +72,9 @@
                         </ol>
                     </th:block>
                     <p th:case="'failed'" id="walletStatus" class="hx-alert hx-alert-error" role="alert"
-                       th:text="#{wallet.status.failed}">Your wallet did not share your identity.</p>
+                       th:text="#{${'wallet.failed.' + (walletFailure ?: 'technical')}}">We could not check your wallet.</p>
                     <p th:case="*" id="walletStatus" class="hx-wallet-status is-waiting" role="status" aria-live="polite"
-                       th:attr="data-msg-waiting=#{wallet.status.waiting},data-msg-opened=#{wallet.status.opened},data-msg-completed=(${walletPurpose == 'link'} ? #{wallet.linkFlow.completed} : #{wallet.status.completed}),data-msg-completed-elsewhere=#{wallet.status.completedElsewhere},data-msg-failed=#{wallet.status.failed},data-msg-expired=#{wallet.status.expired}"
+                       th:attr="data-msg-waiting=#{wallet.status.waiting},data-msg-opened=#{wallet.status.opened},data-msg-completed=(${walletPurpose == 'link'} ? #{wallet.linkFlow.completed} : #{wallet.status.completed}),data-msg-completed-elsewhere=#{wallet.status.completedElsewhere},data-msg-failed=#{wallet.failed.technical},data-msg-failed-declined=#{wallet.failed.declined},data-msg-failed-not-accepted=#{wallet.failed.not_accepted},data-msg-failed-expired=#{wallet.failed.expired},data-msg-expired=#{wallet.status.expired}"
                        th:text="${walletState == 'opened'} ? #{wallet.status.opened} : #{wallet.status.waiting}">Waiting for your wallet…</p>
                 </th:block>
 

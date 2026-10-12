@@ -97,7 +97,41 @@ class WalletWebControllersTest {
                 .isEqualTo(Map.of("status", "WALLET_OPENED"));
         assertThat(status(WalletTransaction.Status.RESPONSE_RECEIVED).getBody())
                 .isEqualTo(Map.of("status", "WALLET_OPENED"));
-        assertThat(status(WalletTransaction.Status.FAILED).getBody()).isEqualTo(Map.of("status", "FAILED"));
+        assertThat(status(WalletTransaction.Status.FAILED).getBody())
+                .isEqualTo(Map.of("status", "FAILED", "reason", "technical"));
+    }
+
+    /** Final review m2: a failure says, in plain language, which class it was; never the specific check. */
+    @Test
+    void status_ofAFailedLogin_namesItsFailureClass_only() {
+        final MockHttpSession session = new MockHttpSession();
+        final String binding = BrowserBinding.begin(session, ALIAS);
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setSession(session);
+        final WalletPageController controller = new WalletPageController(registry, "https://helix.example");
+
+        when(store.byTransactionId("tx-1")).thenReturn(Optional.of(failed(binding, WalletErrorCode.CREDENTIAL_REVOKED)));
+        assertThat(controller.status(ALIAS, "tx-1", request).getBody())
+                .isEqualTo(Map.of("status", "FAILED", "reason", "not_accepted"));
+        when(store.byTransactionId("tx-1")).thenReturn(Optional.of(failed(binding, WalletErrorCode.WALLET_ACCESS_DENIED)));
+        assertThat(controller.status(ALIAS, "tx-1", request).getBody())
+                .isEqualTo(Map.of("status", "FAILED", "reason", "declined"));
+
+        final org.springframework.ui.ExtendedModelMap model = new org.springframework.ui.ExtendedModelMap();
+        when(store.byTransactionId("tx-1")).thenReturn(Optional.of(failed(binding, WalletErrorCode.ISSUER_UNTRUSTED)));
+        when(provider.metadata()).thenReturn(io.helixiam.authorization.federation.spi.IdpMetadata.of(ALIAS,
+                io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.WALLET, "Wallet", "eudi-wallet", null));
+        controller.page(ALIAS, "tx-1", request, new org.springframework.mock.web.MockHttpServletResponse(), model);
+        assertThat(model.get("walletState")).isEqualTo("failed");
+        assertThat(model.get("walletFailure")).isEqualTo("not_accepted");
+    }
+
+    private static WalletTransaction failed(final String binding, final WalletErrorCode code) {
+        final WalletTransaction t = tx(WalletTransaction.Status.FAILED, binding);
+        return new WalletTransaction(t.transactionId(), t.sameDeviceRequestId(), t.crossDeviceRequestId(),
+                t.responseId(), t.realmId(), t.providerAlias(), t.helixState(), t.browserBindingHash(), t.nonce(),
+                t.encryptionJwkJson(), t.dcqlQueryJson(), t.flow(), t.status(), null, null, code, t.createdAt(),
+                t.expiresAt());
     }
 
     @Test
