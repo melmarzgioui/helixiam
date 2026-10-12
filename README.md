@@ -222,16 +222,18 @@ the limiter off (only behind another rate-limiting layer). The limit is not per 
 
 ### Client IP behind a reverse proxy
 
-Rate limits, audit events, risk signals and the CAPTCHA check use the client's IP address. `X-Forwarded-For` and
-`X-Real-IP` are written by whoever sends the request, so HelixIAM reads them **only when the TCP peer is a trusted
-proxy**: `HELIX_TRUSTED_PROXIES` (`helix.security.trusted-proxies`) lists those proxies as comma-separated IP
+Rate limits, audit events, risk signals and the CAPTCHA check use the client's IP address, and the OIDC issuer, the
+Secure cookie decision and every absolute URL use the request's scheme and host. `X-Forwarded-For`, `X-Real-IP`,
+`Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` are written by whoever sends the request, so HelixIAM reads
+them **only when the TCP peer is a trusted proxy** (from anyone else they are removed): `HELIX_TRUSTED_PROXIES` (`helix.security.trusted-proxies`) lists those proxies as comma-separated IP
 addresses or CIDR ranges, IPv4 or IPv6, and is empty by default. From a trusted proxy, `X-Forwarded-For` is read from
 the right, and the first address that is not a trusted proxy is the client.
 
 Behind an ingress controller, a load balancer or the console's nginx, set it to the addresses those proxies connect
 from (for example the ingress controller's pod CIDR); the Helm chart's `config.trustedProxies` sets it. Left empty,
 every request appears to come from the proxy, so all clients share one rate-limit bucket and the audit log records
-the proxy's address. Do not list addresses that clients can connect from directly.
+the proxy's address; and behind a TLS-terminating proxy the server sees plain HTTP, so the request-derived issuer
+and redirects become `http://`. Do not list addresses that clients can connect from directly.
 
 ### Memory
 

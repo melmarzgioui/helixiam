@@ -21,8 +21,8 @@ server logs — read it with `kubectl logs` and change it after first sign-in.
 {{- end }}
 {{- if and .Values.ingress.enabled (not .Values.config.trustedProxies) }}
 
-WARNING: the ingress is enabled but config.trustedProxies is empty. HelixIAM then ignores X-Forwarded-For, so every
-request appears to come from the ingress controller: all clients share one sign-in rate-limit bucket and the audit log
-records the controller's address. Set config.trustedProxies to the addresses the ingress controller connects from
-(for example its pod CIDR).
+WARNING: the ingress is enabled but config.trustedProxies is empty. HelixIAM then ignores the ingress's forwarded
+headers: behind TLS termination it sees plain HTTP (the OIDC issuer and redirects become http://), and every request
+appears to come from the ingress controller (one shared sign-in rate-limit bucket, the controller's address in the
+audit log). Set config.trustedProxies to the addresses the ingress controller connects from (for example its pod CIDR).
 {{- end }}

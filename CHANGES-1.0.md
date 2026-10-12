@@ -41,12 +41,20 @@ question. Newest first within each phase.
   is not a trusted proxy is the client. Header values are parsed as IP literals only. **Operators:** behind an ingress
   controller, load balancer or the console's nginx, set `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) to the
   addresses the proxy connects from. Otherwise every request appears to come from the proxy and all clients share one
-  sign-in rate-limit bucket. `X-Forwarded-Proto`/`-Host` handling is unchanged.
+  sign-in rate-limit bucket. The same list now also gates `X-Forwarded-Proto`/`-Host` (next entry).
 - **eID** — Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes, not the `urn:nl-eid-gdi` levels, so
   with the fail-closed minimum above every classic DigiD sign-in against a set minimum (such as the console's `loa3`)
   would have been refused. The DigiD ladder now also ranks `PasswordProtectedTransport` (Basis),
   `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog). The mapping follows Logius'
   DigiD koppelvlak documentation and is still to be verified against it; eHerkenning and eIDAS are unchanged.
+- **security** — `Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` were honoured from any client
+  (`server.forward-headers-strategy=framework`). The OIDC issuer is derived from the request, so a single request with
+  `X-Forwarded-Host: evil.example` got a discovery document with issuer `https://evil.example/...`; the same headers
+  steered `isSecure()`, redirects and every absolute URL. `TrustedProxyForwardedHeaderFilter` replaces Spring Boot's
+  `ForwardedHeaderFilter` and applies those headers only when the TCP peer is in `helix.security.trusted-proxies`;
+  from any other peer they are removed. **Operators:** behind a TLS-terminating ingress or load balancer,
+  `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) is now required: without it the server sees plain HTTP and the
+  issuer and redirects become `http://`. A startup warning says so when `IDP_BASE_URL` is https and the list is empty.
 
 ## v1.0.0-rc.7 (security hotfix)
 

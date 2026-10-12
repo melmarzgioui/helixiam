@@ -106,6 +106,20 @@ public class ClientIpResolver {
         return last.getHostAddress(); // every hop is a trusted proxy: the left-most is the client
     }
 
+    /** Whether any trusted proxy is configured. */
+    public boolean hasTrustedProxies() {
+        return !trustedProxies.isEmpty();
+    }
+
+    /** Whether the request's TCP peer (beneath any wrappers) is a trusted proxy. */
+    public boolean isTrustedPeer(final HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        final InetAddress peer = parseLiteral(containerRequest(request).getRemoteAddr());
+        return peer != null && isTrusted(peer);
+    }
+
     private boolean isTrusted(final InetAddress address) {
         for (final Range range : trustedProxies) {
             if (range.contains(address)) {
