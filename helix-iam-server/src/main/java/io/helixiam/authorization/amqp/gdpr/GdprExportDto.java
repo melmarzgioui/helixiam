@@ -40,8 +40,9 @@ public record GdprExportDto(Long generatedAt, String schema, String realmId, Str
                                      Long lastUsedAt) {
     }
 
+    /** Mirrors {@code domain.gdpr.GdprExportDto.GdprFederatedLink}: a wallet link's {@code externalSubject} is null. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record GdprFederatedLink(String idpAlias, String externalSubject) {
+    public record GdprFederatedLink(String idpAlias, String externalSubject, String displayName) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

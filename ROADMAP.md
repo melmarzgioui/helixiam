@@ -25,6 +25,15 @@ paths are hardened and tested."
 - Terraform provider resource coverage (realm, identity provider, agent, flow).
 - Live eID (DigiD/eHerkenning/eIDAS) round-trip validation against real peers.
 - Federation/config import tooling.
+- **EUDI Wallet (OpenID4VP verifier) Phase 4 — interop and stretch** (separate plan, written once Phase 3 of
+  `docs/superpowers/specs/2026-10-09-eudi-wallet-openid4vp.md` merges): an OpenID Foundation conformance run
+  (OpenID4VP 1.0 + HAIP 1.0 verifier profile) with a recorded pass/deviation list; interop against the EU
+  reference wallet plus at least one national test wallet; the W3C Digital Credentials API (`dc_api`/`dc_api.jwt`)
+  as the ecosystem-recommended cross-device path (today only redirect same-device and QR cross-device exist, and
+  ARF guidance recommends against the latter for conformant EU wallets — see `docs/eudi-wallet.md` §8); an
+  `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being pasted PEM; a
+  Terraform resource for the wallet identity-provider connection; and a separate plan for the step-up/verify-only
+  flow (`subject.strategy=NONE`), deliberately left out of the initial implementation (maintainer decision 4).
 - **Post-1.0 platform upgrades** — each a planned major upgrade with its own test pass, not a weekly
   bump (Dependabot ignores these majors until then): Spring Boot 4 / Spring Security 7 (incl. SAML2
   service provider 7), springdoc 3, Flyway 12+, Apache Santuario xmlsec 4, Java 25 LTS runtime; in the

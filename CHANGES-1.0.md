@@ -5,6 +5,18 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.5`)
 
+- **feature (experimental)** — HelixIAM can now act as an OpenID4VP *Verifier* for EU Digital Identity Wallets:
+  users present a PID credential (SD-JWT VC and/or ISO mdoc) instead of, or alongside, a password. New package
+  `io.helixiam.authorization.federation.wallet`, one admin-managed identity-provider connection per realm
+  (protocol `eudi-wallet`), same-device redirect and cross-device QR flows, Token Status List revocation
+  checking, and a subject rule of "administrative number, else an explicit account link" (a PID without one
+  cannot create an account by itself). Pure Java — no Kotlin, no vendored EUDI reference libraries — on top of
+  Nimbus JOSE+JWT (now pinned at **10.10**, see the CVE item below), Jackson CBOR, BouncyCastle and ZXing, all
+  already on the classpath. Full operator guide: `docs/eudi-wallet.md`; threat model: `helix-iam-server/
+  SECURITY-REVIEW.md` Appendix B; known gaps: `helix-iam-server/DEFERRED-SECURITY-WORK.md`. **Experimental** —
+  not yet run against the OpenID Foundation conformance suite or a real wallet (see `docs/FEATURES.md` and
+  `ROADMAP.md`).
+
 CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven false positives are explained in
 `helix-iam-server/CODEQL-TRIAGE.md` ("rc.5 scan").
 

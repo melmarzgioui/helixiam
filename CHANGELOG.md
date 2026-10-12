@@ -9,6 +9,11 @@ All notable changes to HelixIAM are documented here. The format is based on
 Work toward a credible 1.0 is tracked on the `overhaul/1.0-gaps` branch and in
 [`CHANGES-1.0.md`](CHANGES-1.0.md).
 
+### Added
+- **EUDI Wallet (OpenID4VP verifier) — Experimental.** Sign in with an EU Digital Identity Wallet (PID, SD-JWT VC
+  and/or ISO mdoc) as a per-realm identity-provider connection, same-device and cross-device (QR) flows, Token
+  Status List revocation checking. See [`docs/eudi-wallet.md`](docs/eudi-wallet.md) and `docs/FEATURES.md`.
+
 ### Changed
 - Internal security-test reports relabelled and moved to `docs/security/`; clearly marked as internal
   automated testing, not an independent third-party penetration test.

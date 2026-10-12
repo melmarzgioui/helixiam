@@ -35,6 +35,7 @@ status.
 | SAML / OIDC / social brokering | Beta | `authorization/federation` | broker + validator suites |
 | LDAP / Active Directory | Beta | `authorization/federation/ldap` | federation tests |
 | Single Logout (front / back / SAML) | Beta | SLO controllers | SLO tests |
+| EUDI Wallet (OpenID4VP verifier) | Experimental | `authorization/federation/wallet` | 1323 |
 
 ## Non-human identity (the differentiator)
 | Feature | Status | Code | Tests |

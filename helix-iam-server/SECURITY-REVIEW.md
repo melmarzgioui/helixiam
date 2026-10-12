@@ -470,3 +470,145 @@ there is **no** custom `DocumentBuilderFactory`/`SAXParser`/`TransformerFactory`
 **1 CRITICAL · 5 HIGH · 10 MEDIUM · 10 LOW · several INFO.**
 (HIGH = H1, H2, H3, S-H1, S-H2. The dependency currency item M7 — the OpenSAML 4.x EOL underlying the SAML
 stack — has since been FIXED by upgrading to OpenSAML 5.1.4 / xmlsec 3.0.5 on 2026-09-17.)
+
+---
+
+## Appendix B — EUDI Wallet (OpenID4VP verifier) threat model (Task 26, 2026-10-12)
+
+This section was produced the same way as the rest of this document: an internal engineering self-review, with a
+dispatched adversarial re-review at the point the one Critical finding below (§6.5 bypass) was fixed. It is
+**not** an independent third-party audit; the same caveat and "required before release" statement at the top of
+this file applies to the wallet feature too. Scope: `io.helixiam.authorization.federation.wallet.*` and its
+callers in `security/flow`, `controller/account/console`, `controller/admin`.
+
+### B.1 QR relay (cross-device flow)
+
+The cross-device flow hands the wallet a request it fetches and answers over its *own* network path, with no
+browser session of its own — this is inherent to QR-based presentation, not a HelixIAM-specific risk, but it
+shapes several of the mitigations below:
+- The relay window is the transaction TTL: **300 s by default, 60–900 s configurable**
+  (`WalletProviderConfig.DEFAULT_TRANSACTION_TTL_SECONDS`). A QR scanned after expiry is an unknown transaction,
+  reported generically ("expired or unknown") rather than distinguishing the two — a transaction ID is never
+  confirmed to have existed to an unauthenticated prober (ledger Task 16 ruling).
+- A cross-device `response_code` is issued **exactly once, atomically**, only to a `VERIFIED` transaction whose
+  stored browser binding matches
+  (`WalletTransactionStore#issueResponseCode`, introduced in Task 16's fix round); a second call for the same
+  transaction gets nothing.
+- See §6.3 of `docs/eudi-wallet.md` for the residual reverse-linking-CSRF risk this flow carries into the account
+  console's "link an existing account" variant — an inherent limit of any cross-device presentation protocol, not
+  something closed by code here.
+
+### B.2 Replay and single-use
+
+Every identifier the protocol hands to the wallet or expects back (`transactionId`, request/response ids,
+`nonce`, `response_code`) is `SecureRandom`-generated at ≥128 bits and enforced single-use **atomically** at the
+store (`WalletTransactionStore#redeem`: "Keeps the `WalletTransaction`s and makes every state transition atomic
+and single use"). A second redemption attempt with a correct code does not "burn" the transaction for a third
+party who does not hold the code — burning on mismatch would let anyone who merely observes/guesses a
+`response_code` cancel the legitimate holder's login, which is a worse outcome than letting the real holder retry
+(ledger Task 16 ruling). The `_sd`/`...` disclosure digests inside a credential, the KB-JWT/DeviceSignature,
+and the SD-JWT `sd_hash` are each checked individually on top of this transaction-level replay protection.
+
+**Defence-in-depth note (Task 23):** over a real HTTP round-trip, re-submitting the *exact same* callback URL a
+second time from the same browser session does not surface as `REPLAY` — it surfaces as `STATE_MISMATCH`. The
+generic federation broker (`FederationBrokerController`/`security/flow`) consumes its own session-held expected
+state on the **first** callback for *any* protocol (OIDC, SAML, wallet alike), before the wallet-specific
+`WalletIdentityProvider.redeemTransaction` (`WalletIdentityProvider.java:248-268`) even gets a chance to run its
+own `response_code` replay check against the transaction store. Both outcomes refuse the second request; the
+error code you observe is a byproduct of check ordering across two independent layers (generic broker
+anti-CSRF state, then wallet-specific transaction redemption), not a gap — if the first layer's protection were
+ever removed, the second layer's `REPLAY` code would still refuse it.
+
+### B.3 Browser binding is a session *attribute* secret, never the session id
+
+The login (and account-linking) flow is bound to the browser that started it via `BrowserBinding`
+(`helix-iam-server/src/main/java/io/helixiam/authorization/security/flow/BrowserBinding.java`): at `start()` the
+broker generates a random 128-bit secret, stores it as an **HTTP session attribute** keyed by provider alias
+(`HELIX_FED_BINDING_<alias>`), and hands the wallet transaction only `base64url(SHA-256(secret))`. Every later
+step — the login callback and the wallet page's cross-device status/code issuance — recomputes the hash from the
+session and compares it to the one stored on the transaction.
+
+Deliberately **not** the session id: Task 2 (this same plan) found and fixed a pre-existing gap where the session
+id was not rotated on a federated login, and ids rotate on `request.changeSessionId()` elsewhere in the login
+path. A secret kept as a session *attribute* survives that rotation (attributes move with the session), where a
+binding keyed on the id itself would silently stop matching after rotation. This also means the binding has
+nothing in common with the session cookie an attacker might otherwise try to fixate or guess.
+
+### B.4 `helixState` never reaches the wallet
+
+The broker's own CSRF state (`helixState`) is session-scoped browser-side state with no meaning to a wallet or to
+the mobile device that might scan a QR code. The OpenID4VP request object's `state` parameter is instead
+`base64url(SHA-256(transactionId))` (`AuthorizationRequestFactory.walletState`,
+`helix-iam-server/src/main/java/io/helixiam/authorization/federation/wallet/AuthorizationRequestFactory.java:129-131,223`)
+— deterministic from information the wallet already has (the transaction id is embedded in the request/response
+URLs it fetches and posts to), recomputable by the response handler to check the decrypted response's `state`
+claim, and carrying zero information about the browser's own anti-CSRF secret. An earlier design draft would have
+threaded `helixState` through to the wallet-facing redirect; this was caught and fixed in Task 18's own code
+review before merge (`task-18-review.md`), not something later Task 26 found.
+
+### B.5 SSRF via status lists
+
+Every Token Status List fetch (`TokenStatusListClient`) goes through the same `OutboundUrlGuard` every other
+admin-configurable outbound HTTP call in HelixIAM uses (webhooks, SCIM, OIDC/eID discovery and JWKS, HIBP, audit
+forwarding): `https` only, no loopback/private/link-local/cloud-metadata destination, DNS-rebinding mitigated by
+resolve-then-check (not eliminated — the same residual TOCTOU noted for every other `OutboundUrlGuard` caller in
+the main review's M6 finding). A `status_list.uri` that fails this check, or that is not in the operator's
+`statusList.allowedHosts` when that allow-list is configured, is refused **by policy, before any fetch** and is
+always treated as "cannot be fetched" rather than "unavailable" — it is never given the fail-open path even under
+`FAIL_OPEN_WITH_AUDIT` (ledger Task 10 ruling), because the URI is issuer-signed content, not something an
+attacker can toggle per-request the way they could an HTTP response code. See also §4/§5 of
+`docs/eudi-wallet.md` — this branch has no `trustedProxies` setting, so `OutboundUrlGuard`'s own egress decisions
+are the only guard in front of these fetches; there is nothing *additional* scoping which proxy the server itself
+may sit behind.
+
+### B.6 The §6.5 mdoc status-list-signer rule, and the appended-anchor bypass that was fixed
+
+ISO 18013-5 §6.5 requires the mdoc status list's signer to be verifiably related to the credential's own `MSO`
+signer. `IssuerTrustValidator`/`ValidatedChain` enforce this on the **PKIX-validated** chain and trust anchor —
+never on the raw `x5chain` bytes presented in the response. This matters because an earlier implementation
+enforced it on the unvalidated chain: an attacker could append an unrelated certificate to the presented
+`x5chain` that happened to share *some* ancestor with a trusted anchor, satisfying a naive "do these chains share
+a root" check without the list actually having been issued by anyone the operator's PID trust anchors recognise.
+This was found as a **Critical** finding in Task 19's review (`task-19-review.md`), fixed in the same round, and
+independently re-reviewed adversarially afterwards with no further bypass found. See `docs/eudi-wallet.md` §7.1
+for the accepted, narrower residual case (a shared IACA root that also issues DS certificates directly).
+
+### B.7 Weak-tuple (attribute-tuple) subject: residual risk
+
+Documented in full in `docs/eudi-wallet.md` §6.2 and in `WalletProviderConfig.Subject`'s javadoc; summarised here
+because it is the one wallet-specific design choice with an accepted (not eliminated) risk: when an operator opts
+into `subject.acknowledgeWeakSubject=true`, a PID lacking `personal_administrative_number` can be *linked* (never
+auto-provisioned) via an HMAC of a configuration-fixed attribute tuple. Two distinct people who share that exact
+tuple are indistinguishable to this mechanism; if one has linked their wallet, the other's wallet resolves to the
+same account. There is no stronger subject available without the administrative number, so this is accepted as a
+documented trade-off gated behind an explicit admin opt-in, not treated as a defect to "fix" — doing so would
+require either refusing wallets without the number entirely (closing off a real deployment scenario the
+maintainer decided to support) or inventing a subject out of less entropy than the tuple already provides.
+
+### B.8 Log hygiene
+
+Nothing wallet-specific is ever logged at any level: `vp_token`, disclosures, PID attribute values, nonces,
+`response_code`, decryption/signing keys, and — since Task 22's fix round — the wallet subject hash itself (an
+earlier version logged the subject HMAC on the theory that a hash is not the raw PID; Task 22 reversed that
+because the hash is still a stable, computable, cross-login correlation handle for anyone with log access, and
+operators can correlate via the audit log's `transactionId` instead). What *is* logged: transaction id, provider
+alias, realm, credential format, issuer DN, the result, and the `WalletErrorCode`. Every user-controlled string
+that does reach a log line is passed through `LogSafe.sanitize` first. `WalletAuditE2eTest` and the booted
+`WalletLoginCompleterTest`/hygiene e2e pin this for both credential formats and the JIT/link/upgrade paths
+(ledger Task 22).
+
+### B.9 Known-narrow exception handling in wallet-adjacent code (see also `DEFERRED-SECURITY-WORK.md`)
+
+Two small, deliberate-but-narrow catch clauses are worth a reviewer's attention rather than a fix, since widening
+either changes observable behaviour for callers this document has not re-verified end to end:
+- `AccountIdentityController.isWallet` (and this task's new `GdprAdminService.isWalletAlias`/`displayNameOf`,
+  added for §6/§GDPR below) each catch only `IllegalArgumentException` from `IdentityProviderRegistry#get` — the
+  one exception type that method's own contract documents throwing for an unknown alias. Both are inert today
+  (the registry has no other failure mode on this path), tracked as a deferred hardening item, not a live bug.
+- `FederatedLoginCommit.commit` (`helix-iam-server/src/main/java/io/helixiam/authorization/federation/
+  FederatedLoginCommit.java:44-55`) catches `RuntimeException` around a committer (the wallet's own
+  `WalletPendingLinkCommit` is the only implementation today) and refuses the login on any failure — but, by Java
+  convention, does not catch `java.lang.Error`. An `Error` thrown from a committer propagates uncaught with the
+  session already established by the caller a few lines earlier (`FederatedLoginCompleter.complete`,
+  `:158-161`). This is accepted as a JVM-level edge case (the project does not catch `Error` anywhere else
+  either) and tracked in `DEFERRED-SECURITY-WORK.md` rather than papered over with a `catch (Throwable)`.
