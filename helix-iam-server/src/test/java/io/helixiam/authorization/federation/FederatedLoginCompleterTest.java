@@ -232,4 +232,30 @@ class FederatedLoginCompleterTest {
                 .getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
         assertThat(state.pendingAcr()).isEqualTo("http://eidas.europa.eu/LoA/substantial");
     }
+
+    // --- final review F2: the outcome is explicit, and a pending login carries its connector's marker ---
+
+    @Test
+    void outcome_isCompleted_pending_orFailed_andAPendingLoginCarriesTheMarkerOnItsFlowState() throws Exception {
+        when(establisher.loadUser(USER_ID)).thenReturn(user(USER_ID));
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(null);
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
+        assertThat(completer.completeLogin(USER_ID, null, new MockHttpServletRequest(), new MockHttpServletResponse(),
+                null, "marker").outcome()).isEqualTo(FederatedLoginCompleter.Outcome.COMPLETED);
+
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.failed());
+        assertThat(completer.completeLogin(USER_ID, null, new MockHttpServletRequest(), new MockHttpServletResponse(),
+                null, "marker").outcome()).isEqualTo(FederatedLoginCompleter.Outcome.FAILED);
+
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.challenge("otp-form", "browser-otp"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final FederatedLoginCompleter.Completion pending = completer.completeLogin(USER_ID, null, request,
+                new MockHttpServletResponse(), null, "marker");
+        assertThat(pending.outcome()).isEqualTo(FederatedLoginCompleter.Outcome.PENDING);
+        assertThat(pending.view()).isEqualTo("redirect:/flow");
+        assertThat(((FlowExecutionState) request.getSession().getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE))
+                .pendingOutcome()).isEqualTo("marker");
+    }
 }

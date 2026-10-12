@@ -51,6 +51,8 @@ public class FlowController {
             new io.helixiam.authorization.security.session.AuthTimeStamper();
     /** Task 18: make a federated login's pending commit when its step-up completes. */
     private java.util.List<io.helixiam.authorization.federation.FederatedLoginCommit> loginCommits = java.util.List.of();
+    /** Final review F2: report how a federated login that stepped up ended (its connector's audit). */
+    private java.util.List<io.helixiam.authorization.federation.FederatedLoginOutcome> loginOutcomes = java.util.List.of();
 
     public FlowController(final FlowExecutor flowExecutor, final AuthFlowMapper authFlowMapper,
                           final MfaService mfaService, @Value("${sp.base.url}") final String spBaseUrl,
@@ -69,6 +71,13 @@ public class FlowController {
     public void setLoginCommits(
             final java.util.List<io.helixiam.authorization.federation.FederatedLoginCommit> loginCommits) {
         this.loginCommits = loginCommits == null ? java.util.List.of() : java.util.List.copyOf(loginCommits);
+    }
+
+    /** Final review F2: the receivers of a federated login's outcome marker. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLoginOutcomes(
+            final java.util.List<io.helixiam.authorization.federation.FederatedLoginOutcome> loginOutcomes) {
+        this.loginOutcomes = loginOutcomes == null ? java.util.List.of() : java.util.List.copyOf(loginOutcomes);
     }
 
     @GetMapping("/flow")
@@ -126,6 +135,7 @@ public class FlowController {
                     // (context and session) so the login does not stay signed in.
                     org.springframework.security.core.context.SecurityContextHolder.clearContext();
                     request.getSession().invalidate();
+                    reportFailed(state);
                     yield REDIRECT_PREFIX + flowPath("/login?error=federation");
                 }
                 authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
@@ -138,6 +148,7 @@ public class FlowController {
                             state.pendingAcr());
                 }
                 sessionPolicyApplier.applyOnLogin(request, io.helixiam.authorization.security.realm.RealmContextHolder.get()); // SSO P3
+                reportCompleted(state);
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }
             case CHALLENGE -> REDIRECT_PREFIX + flowPath("/flow"); // advanced to the next factor's screen
@@ -146,6 +157,20 @@ public class FlowController {
                 yield VIEW_PREFIX + state.currentChallengeView();
             }
         };
+    }
+
+    /** Final review F2: the federated login of this flow completed; reported once (the marker is cleared). */
+    private void reportCompleted(final FlowExecutionState state) {
+        final java.io.Serializable marker = state.pendingOutcome();
+        state.setPendingOutcome(null);
+        io.helixiam.authorization.federation.FederatedLoginOutcome.completed(loginOutcomes, marker, state.userId());
+    }
+
+    /** Final review F2: the federated login of this flow ended without a session; reported once. */
+    private void reportFailed(final FlowExecutionState state) {
+        final java.io.Serializable marker = state.pendingOutcome();
+        state.setPendingOutcome(null);
+        io.helixiam.authorization.federation.FederatedLoginOutcome.failed(loginOutcomes, marker);
     }
 
     private FlowExecutionState state(final HttpSession session) {

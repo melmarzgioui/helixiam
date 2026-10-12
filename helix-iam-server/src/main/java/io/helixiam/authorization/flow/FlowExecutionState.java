@@ -38,6 +38,11 @@ public class FlowExecutionState implements Serializable {
      * here while this flow is mid-CHALLENGE and made by {@code FlowController} when THIS flow completes.
      */
     private java.io.Serializable pendingCommit;
+    /**
+     * Final review F2: the marker a federated login reports its end with ({@code FederatedLoginOutcome}), held here
+     * while this flow is mid-CHALLENGE and reported (then cleared) by {@code FlowController} when THIS flow ends.
+     */
+    private java.io.Serializable pendingOutcome;
 
     public FlowExecutionState(final String realmId) {
         this.realmId = realmId;
@@ -100,5 +105,14 @@ public class FlowExecutionState implements Serializable {
 
     public void setPendingCommit(final java.io.Serializable pendingCommit) {
         this.pendingCommit = pendingCommit;
+    }
+
+    /** The federated login's outcome marker, reported once when THIS flow ends ({@code FederatedLoginOutcome}). */
+    public java.io.Serializable pendingOutcome() {
+        return pendingOutcome;
+    }
+
+    public void setPendingOutcome(final java.io.Serializable pendingOutcome) {
+        this.pendingOutcome = pendingOutcome;
     }
 }

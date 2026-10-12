@@ -121,4 +121,56 @@ class FlowControllerPendingCommitTest {
         assertThat(request.getSession(false)).isNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
+
+    // --- final review F2: the federated login's outcome marker is reported once, when this flow ends ---
+
+    private final io.helixiam.authorization.federation.FederatedLoginOutcome outcome =
+            mock(io.helixiam.authorization.federation.FederatedLoginOutcome.class);
+
+    private MockHttpServletRequest pendingWithOutcome(final FlowProgress progress) {
+        final MockHttpServletRequest request = pending(progress);
+        controller.setLoginOutcomes(java.util.List.of(outcome));
+        when(outcome.supports("wallet-marker")).thenReturn(true);
+        ((FlowExecutionState) request.getSession().getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE))
+                .setPendingOutcome("wallet-marker");
+        return request;
+    }
+
+    @Test
+    void completing_reportsTheLoginCompleted_forTheFlowsUser_once() {
+        final MockHttpServletRequest request = pendingWithOutcome(FlowProgress.completed("user-9"));
+        when(commit.commit("pending-link", "user-9")).thenReturn(true);
+
+        controller.submitChallenge(Map.of("code", "123456"), request.getSession(), new ExtendedModelMap(), request,
+                new MockHttpServletResponse());
+
+        verify(outcome).completed("wallet-marker", "user-9");
+        verify(outcome, never()).failed(any());
+        final FlowExecutionState state = (FlowExecutionState) request.getSession()
+                .getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        assertThat(state == null || state.pendingOutcome() == null).as("reported once: the marker is gone").isTrue();
+    }
+
+    @Test
+    void aRefusedCommit_reportsTheLoginFailed() {
+        final MockHttpServletRequest request = pendingWithOutcome(FlowProgress.completed("user-9"));
+        when(commit.commit("pending-link", "user-9")).thenReturn(false);
+
+        controller.submitChallenge(Map.of("code", "123456"), request.getSession(), new ExtendedModelMap(), request,
+                new MockHttpServletResponse());
+
+        verify(outcome).failed("wallet-marker");
+        verify(outcome, never()).completed(any(), any());
+    }
+
+    @Test
+    void aWrongSecondFactor_isARetry_andReportsNothing() {
+        final MockHttpServletRequest request = pendingWithOutcome(FlowProgress.failed());
+
+        controller.submitChallenge(Map.of("code", "000000"), request.getSession(), new ExtendedModelMap(), request,
+                new MockHttpServletResponse());
+
+        verify(outcome, never()).completed(any(), any());
+        verify(outcome, never()).failed(any());
+    }
 }

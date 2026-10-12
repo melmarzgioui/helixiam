@@ -303,6 +303,13 @@ not "the exact same key that signed this credential."
   caveats separately; they do not carry over automatically (the wallet's LoA is always asserted as the eIDAS
   `high` ladder rung once a presentation verifies — see `docs/eudi-wallet-spec-notes.md`, Task 20 ruling — there is
   no separate `substantial` tier for wallet logins today).
+- **Audit of logins that step up.** Every wallet login transaction gets one `WALLET_LOGIN_SUCCESS` or
+  `WALLET_LOGIN_FAILURE` event (AUTHN category, detail `{transactionId, alias, format, issuerDn, result, reason}`).
+  When the realm's post-login flow asks for a second factor (an MFA-enabled user, a risk step), the event is written
+  when that step ends: `WALLET_LOGIN_SUCCESS` names the user it signed in; a login refused after the step
+  (for example its pending wallet link was taken meanwhile) is a `WALLET_LOGIN_FAILURE`. A wrong code is a retry,
+  not an end. A step-up the user **walks away from has no event**: nothing on the server marks that moment (the
+  session just expires, and expiry is not observed on every session store).
 - **No independent OpenID Foundation conformance run yet.** This implementation has not been run against the
   OpenID4VP/HAIP conformance suite; see `ROADMAP.md` Phase 4.
 

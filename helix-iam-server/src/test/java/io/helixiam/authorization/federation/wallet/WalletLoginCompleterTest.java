@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -78,7 +79,8 @@ class WalletLoginCompleterTest {
 
     @Test
     void existing_signsInAsTheLinkedUser() {
-        when(completer.complete("user-7", LOA, request, response, null)).thenReturn("redirect:/done");
+        when(completer.completeLogin(eq("user-7"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/done", FederatedLoginCompleter.Outcome.COMPLETED));
 
         final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
                 new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Existing("user-7")),
@@ -101,7 +103,8 @@ class WalletLoginCompleterTest {
 
     @Test
     void existing_withTransactionFormatAndIssuerDn_carriesThemOnTheSuccessEvent() {
-        when(completer.complete("user-7", LOA, request, response, null)).thenReturn("redirect:/done");
+        when(completer.completeLogin(eq("user-7"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/done", FederatedLoginCompleter.Outcome.COMPLETED));
         final VerifiedIdentityJson.StoredLogin login = new VerifiedIdentityJson.StoredLogin(identity(),
                 new WalletLinkService.Decision.Existing("user-7"), "dc+sd-jwt", "CN=Issuer", null)
                 .withTransactionId("tx-9");
@@ -117,7 +120,8 @@ class WalletLoginCompleterTest {
     @Test
     void existingWithAnUpgradeLink_handsThePendingLinkToTheCompleter_neverCommittingItItself() {
         final WalletLinkService.PendingLink pending = new WalletLinkService.PendingLink(REALM, ALIAS, "number", "user-7");
-        when(completer.complete("user-7", LOA, request, response, pending)).thenReturn("redirect:/flow");
+        when(completer.completeLogin(eq("user-7"), eq(LOA), eq(request), eq(response), eq(pending), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/flow", FederatedLoginCompleter.Outcome.PENDING));
 
         final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
                 new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Existing("user-7",
@@ -130,10 +134,69 @@ class WalletLoginCompleterTest {
     }
 
     @Test
+    void aPendingLogin_handsTheCompleterTheMarkerItIsAuditedWithLater() {
+        final ArgumentCaptor<java.io.Serializable> marker = ArgumentCaptor.forClass(java.io.Serializable.class);
+        when(completer.completeLogin(eq("user-7"), eq(LOA), eq(request), eq(response), isNull(), marker.capture()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/flow",
+                        FederatedLoginCompleter.Outcome.PENDING));
+        final VerifiedIdentityJson.StoredLogin login = new VerifiedIdentityJson.StoredLogin(identity(),
+                new WalletLinkService.Decision.Existing("user-7"), "dc+sd-jwt", "CN=Issuer", null)
+                .withTransactionId("tx-9");
+
+        walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS, login, null, request, response);
+
+        assertThat(marker.getValue()).isEqualTo(new WalletLoginOutcomeAudit.Marker(REALM, "tx-9", ALIAS, "dc+sd-jwt",
+                "CN=Issuer"));
+        verifyNoInteractions(audit);
+
+        // ...and that marker yields exactly the event an immediate login would have.
+        final WalletLoginOutcomeAudit outcomes = new WalletLoginOutcomeAudit(audit);
+        assertThat(outcomes.supports(marker.getValue())).isTrue();
+        assertThat(outcomes.supports("something else")).isFalse();
+        outcomes.completed(marker.getValue(), "user-7");
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().type()).isEqualTo("WALLET_LOGIN_SUCCESS");
+        assertThat(event.getValue().realm()).isEqualTo(REALM);
+        assertThat(event.getValue().actor()).isEqualTo("user-7");
+        assertThat(event.getValue().detail()).containsEntry("transactionId", "tx-9").containsEntry("alias", ALIAS)
+                .containsEntry("format", "dc+sd-jwt").containsEntry("issuerDn", "CN=Issuer")
+                .containsEntry("result", "SUCCESS");
+    }
+
+    @Test
+    void aPendingLoginThatEndsWithoutASession_isAuditedAsAFailure() {
+        final WalletLoginOutcomeAudit outcomes = new WalletLoginOutcomeAudit(audit);
+
+        outcomes.failed(new WalletLoginOutcomeAudit.Marker(REALM, "tx-9", ALIAS, "mso_mdoc", "CN=Issuer"));
+
+        final ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(audit).emit(event.capture());
+        assertThat(event.getValue().type()).isEqualTo("WALLET_LOGIN_FAILURE");
+        assertThat(event.getValue().detail()).containsEntry("transactionId", "tx-9").containsEntry("format", "mso_mdoc")
+                .containsEntry("reason", "INVALID_RESPONSE");
+    }
+
+    @Test
+    void existing_whoseLoginStillWaitsOnAnotherPendingView_isNotAuditedAsASuccess() {
+        // Final review F2: any view the shared completer answers while the login is not yet complete (here the MFA
+        // enrolment page) is pending, not a success.
+        when(completer.completeLogin(eq("user-7"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/mfa/enable", FederatedLoginCompleter.Outcome.PENDING));
+
+        walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
+                new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Existing("user-7")),
+                null, request, response);
+
+        verifyNoInteractions(audit);
+    }
+
+    @Test
     void provision_createsTheUserWithoutEmail_thenLinksTheNumberInsertIfAbsent() {
         when(store.provisionUser(any(), any())).thenReturn("new-user");
         when(links.link(eq(REALM), eq("new-user"), eq(ALIAS), any())).thenReturn(WalletLinkService.LinkResult.LINKED);
-        when(completer.complete("new-user", LOA, request, response, null)).thenReturn("redirect:/done");
+        when(completer.completeLogin(eq("new-user"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/done", FederatedLoginCompleter.Outcome.COMPLETED));
 
         final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
                 new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
@@ -160,7 +223,8 @@ class WalletLoginCompleterTest {
         when(links.link(eq(REALM), eq("loser"), eq(ALIAS), any()))
                 .thenReturn(WalletLinkService.LinkResult.LINKED_TO_ANOTHER_USER);
         when(links.find(eq(REALM), eq(ALIAS), any())).thenReturn(Optional.of("winner"));
-        when(completer.complete("winner", LOA, request, response, null)).thenReturn("redirect:/done");
+        when(completer.completeLogin(eq("winner"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/done", FederatedLoginCompleter.Outcome.COMPLETED));
 
         final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
                 new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
@@ -189,7 +253,8 @@ class WalletLoginCompleterTest {
         when(store.provisionUser(any(), any())).thenThrow(new org.springframework.dao.DataIntegrityViolationException(
                 "duplicate username"));
         when(links.find(eq(REALM), eq(ALIAS), any())).thenReturn(Optional.of("winner"));
-        when(completer.complete("winner", LOA, request, response, null)).thenReturn("redirect:/done");
+        when(completer.completeLogin(eq("winner"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/done", FederatedLoginCompleter.Outcome.COMPLETED));
 
         final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
                 new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
@@ -223,7 +288,8 @@ class WalletLoginCompleterTest {
                 .thenReturn("new-user");
         when(links.find(eq(REALM), eq(ALIAS), any())).thenReturn(Optional.empty());
         when(links.link(eq(REALM), eq("new-user"), eq(ALIAS), any())).thenReturn(WalletLinkService.LinkResult.LINKED);
-        when(completer.complete("new-user", LOA, request, response, null)).thenReturn("redirect:/done");
+        when(completer.completeLogin(eq("new-user"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion("redirect:/done", FederatedLoginCompleter.Outcome.COMPLETED));
 
         final String view = walletCompleter(AccountLinkingPolicy.defaults()).complete(ALIAS,
                 new VerifiedIdentityJson.StoredLogin(identity(), new WalletLinkService.Decision.Provision()),
@@ -320,8 +386,8 @@ class WalletLoginCompleterTest {
      */
     @Test
     void existing_whenTheSharedCompleterItselfFails_auditsAFailure_notASuccess() {
-        when(completer.complete("user-7", LOA, request, response, null))
-                .thenReturn(FederatedLoginCompleter.LOGIN_ERROR_VIEW);
+        when(completer.completeLogin(eq("user-7"), eq(LOA), eq(request), eq(response), isNull(), any()))
+                .thenReturn(new FederatedLoginCompleter.Completion(FederatedLoginCompleter.LOGIN_ERROR_VIEW, FederatedLoginCompleter.Outcome.FAILED));
         final VerifiedIdentityJson.StoredLogin login = new VerifiedIdentityJson.StoredLogin(identity(),
                 new WalletLinkService.Decision.Existing("user-7")).withTransactionId("tx-9");
 

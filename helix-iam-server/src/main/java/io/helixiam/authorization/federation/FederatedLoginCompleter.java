@@ -51,16 +51,9 @@ public class FederatedLoginCompleter {
 
     private static final Logger LOG = LogManager.getLogger(FederatedLoginCompleter.class);
 
-    /**
-     * The redirect view on a FAILED post-broker flow (never a completed login). Public so a connector (e.g.
-     * {@code WalletLoginCompleter}, Task 22) can tell a completed login apart from a failed or still-pending one by
-     * comparing its own return value, without this class knowing anything about that connector.
-     */
+    /** The redirect view on a FAILED post-broker flow (never a completed login). */
     public static final String LOGIN_ERROR_VIEW = "redirect:/login?error=federation";
-    /**
-     * The redirect view while a post-broker step-up is pending (not yet a completed login): see
-     * {@link #LOGIN_ERROR_VIEW}.
-     */
+    /** The redirect view while a post-broker step-up is pending (not yet a completed login). */
     public static final String STEP_UP_VIEW = "redirect:/flow";
     private static final String LOGIN_ERROR = LOGIN_ERROR_VIEW;
 
@@ -129,6 +122,32 @@ public class FederatedLoginCompleter {
      */
     public String complete(final String userId, final String acr, final HttpServletRequest request,
                            final HttpServletResponse response, final java.io.Serializable pendingCommit) {
+        return completeLogin(userId, acr, request, response, pendingCommit, null).view();
+    }
+
+    /** Final review F2: how far {@link #completeLogin} got. */
+    public enum Outcome {
+        /** Signed in: the session is full. */
+        COMPLETED,
+        /** Waiting on the user (a step-up); whoever ends it reports the {@code pendingOutcome} marker. */
+        PENDING,
+        /** Ended without a session. */
+        FAILED
+    }
+
+    /** The view to send the browser to and how far the login got. */
+    public record Completion(String view, Outcome outcome) {
+    }
+
+    /**
+     * Final review F2: as {@link #complete(String, String, HttpServletRequest, HttpServletResponse, java.io.Serializable)},
+     * answering how far the login got, so a connector audits a success only on an explicit {@link Outcome#COMPLETED}
+     * (never by recognising the views it knows), and carrying {@code pendingOutcome} ({@link FederatedLoginOutcome}):
+     * when the login is {@link Outcome#PENDING}, whoever ends it reports this marker exactly once.
+     */
+    public Completion completeLogin(final String userId, final String acr, final HttpServletRequest request,
+                                    final HttpServletResponse response, final java.io.Serializable pendingCommit,
+                                    final java.io.Serializable pendingOutcome) {
         final UserCredentials user = sessionEstablisher.loadUser(userId);
         final Authentication fullAuthentication =
                 UsernamePasswordAuthenticationToken.authenticated(user, null, user.getAuthorities());
@@ -148,6 +167,9 @@ public class FederatedLoginCompleter {
         if (pendingCommit != null) {
             state.setPendingCommit(pendingCommit); // made by FlowController if this flow challenges first
         }
+        if (pendingOutcome != null) {
+            state.setPendingOutcome(pendingOutcome); // reported by FlowController if this flow challenges first
+        }
         final FlowProgress progress = flowExecutor.begin(flow, state);
 
         final HttpSession session = request.getSession();
@@ -165,7 +187,7 @@ public class FederatedLoginCompleter {
                     request.getSession().invalidate();
                     LOG.warn("Federated login for user {} refused: its pending commit was not accepted",
                             LogSafe.sanitize(userId));
-                    yield LOGIN_ERROR;
+                    yield new Completion(LOGIN_ERROR, Outcome.FAILED);
                 }
                 authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
                 if (acr != null && !acr.isBlank()) {
@@ -177,17 +199,17 @@ public class FederatedLoginCompleter {
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
                 LOG.info("Federated login completed for user {} (no step-up required)", LogSafe.sanitize(userId));
                 // SSO P1: resume the originating /oauth2/authorize (if any), else the SP base URL.
-                yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
+                yield new Completion(savedRequestRedirect.redirectView(request, response, spBaseUrl), Outcome.COMPLETED);
             }
             case CHALLENGE -> {
                 // Hold the user pending the post-broker factor; /flow promotes this to a full session.
                 sessionEstablisher.persist(new MfaAuthentication(fullAuthentication), request, response);
                 LOG.info("Federated login for user {} requires step-up — routing to the flow engine", LogSafe.sanitize(userId));
-                yield STEP_UP_VIEW;
+                yield new Completion(STEP_UP_VIEW, Outcome.PENDING);
             }
             case FAILED -> {
                 LOG.warn("Federated login post-broker flow failed for user {}", LogSafe.sanitize(userId));
-                yield LOGIN_ERROR;
+                yield new Completion(LOGIN_ERROR, Outcome.FAILED);
             }
         };
     }
