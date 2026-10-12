@@ -18,6 +18,8 @@ import io.helixiam.authorization.flow.persistence.AuthFlowMapper;
 import io.helixiam.authorization.security.flow.FlowLoginSuccessHandler;
 import io.helixiam.authorization.security.flow.InFlightClientResolver;
 import io.helixiam.authorization.security.flow.ResolveSavedRequestRedirect;
+import io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement;
+import io.helixiam.authorization.security.mfa.MfaSessionState;
 import io.helixiam.authorization.security.mfa.domain.MfaAuthentication;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,7 +41,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>flow COMPLETES immediately (no MFA / no stored step-up) → establish a full session, redirect
- *       to the SP;</li>
+ *       to the SP — unless the realm requires MFA and the user has not enrolled: then the MFA gate and
+ *       {@code /mfa/enable}, like the magic-link sign-in;</li>
  *   <li>flow CHALLENGES → hold a non-authenticated {@link MfaAuthentication} gate (promoted to full
  *       by the {@code /flow} controller once the factor passes), stash the flow state, redirect to
  *       {@code /flow};</li>
@@ -60,6 +63,7 @@ public class FederatedLoginCompleter {
     private final String spBaseUrl;
     private final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier;
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
+    private final MfaEnrolmentRequirement mfaEnrolment;
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
 
@@ -67,7 +71,9 @@ public class FederatedLoginCompleter {
                                    final AuthFlowMapper authFlowMapper,
                                    final FederatedSessionEstablisher sessionEstablisher,
                                    @Value("${sp.base.url}") final String spBaseUrl,
-                                   final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier) {
+                                   final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier,
+                                   final MfaEnrolmentRequirement mfaEnrolment) {
+        this.mfaEnrolment = mfaEnrolment;
         this.flowExecutor = flowExecutor;
         this.authFlowPublisher = authFlowPublisher;
         this.authFlowMapper = authFlowMapper;
@@ -90,12 +96,23 @@ public class FederatedLoginCompleter {
         state.setUserId(user.getUserId());
         final FlowProgress progress = flowExecutor.begin(flow, state);
 
+        // A new sign-in: a new session id (the session that carried the broker state is not reused as the
+        // authenticated one) and no second-factor pass from an earlier sign-in.
+        request.getSession(true);
+        request.changeSessionId();
+        MfaSessionState.clear(request);
         final HttpSession session = request.getSession();
         session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
         session.setAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE, definition);
 
         return switch (progress.type()) {
             case COMPLETED -> {
+                if (mfaEnrolment.mustEnrol(RealmContextHolder.get(), user.getUserId())) {
+                    // The realm requires a second factor the user has not enrolled: no full session yet.
+                    sessionEstablisher.persist(new MfaAuthentication(fullAuthentication), request, response);
+                    LOG.info("Federated login for user {} must enrol a second factor first", LogSafe.sanitize(userId));
+                    yield "redirect:/mfa/enable";
+                }
                 sessionEstablisher.persist(fullAuthentication, request, response);
                 authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3

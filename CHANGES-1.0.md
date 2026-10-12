@@ -65,6 +65,12 @@ question. Newest first within each phase.
   a date at most 30 days ahead. `HELIX_ALLOW_PLAINTEXT_SECRETS` again only accepts running without a key, and an
   empty `DB_ENCRYPTION` now means "no key" (it failed startup with "Empty key" before). The per-thread record of
   plaintext reads is removed after each entity load and at the end of each transaction.
+- **security** — In a realm that requires MFA, a user who had not enrolled a second factor got a full session from a
+  federated sign-in, and from a password sign-in whose post-password flow completed (the flow engine, and resuming
+  after required actions such as a password update). The authorize, SAML and account gates still asked for
+  enrolment, but the session was full. Both now keep the MFA gate and send the user to `/mfa/enable`, like the
+  magic-link and legacy password paths. A federated sign-in also gets a new session id (`changeSessionId`) and drops
+  any second-factor pass from an earlier sign-in in that session.
 
 ## v1.0.0-rc.7 (security hotfix)
 

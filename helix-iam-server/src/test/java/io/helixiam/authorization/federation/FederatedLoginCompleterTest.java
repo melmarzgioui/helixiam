@@ -45,10 +45,13 @@ class FederatedLoginCompleterTest {
     private final AuthFlowMapper authFlowMapper = mock(AuthFlowMapper.class);
     private final FederatedSessionEstablisher establisher = mock(FederatedSessionEstablisher.class);
 
+    private final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement enrolment =
+            mock(io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement.class);
+
     private final FederatedLoginCompleter completer = new FederatedLoginCompleter(
             flowExecutor, authFlowPublisher, authFlowMapper, establisher, SP,
             new io.helixiam.authorization.security.realm.SessionPolicyApplier(
-                    mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
+                    mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)), enrolment);
 
     @AfterEach
     void clear() {
@@ -140,7 +143,7 @@ class FederatedLoginCompleterTest {
         when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(seededBrowserFlow());
         return new FederatedLoginCompleter(engine, authFlowPublisher, new AuthFlowMapper(), establisher, SP,
                 new io.helixiam.authorization.security.realm.SessionPolicyApplier(
-                        mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
+                        mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)), enrolment);
     }
 
     private static UserCredentials user(final String id, final boolean mfaEnabled) throws Exception {
@@ -175,5 +178,39 @@ class FederatedLoginCompleterTest {
         final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
         verify(establisher).persist(auth.capture(), any(), any());
         assertThat(auth.getValue().isAuthenticated()).isTrue();
+    }
+
+    // --- review #1: a realm that requires MFA, a brokered user who has not enrolled ------------------
+
+    @Test
+    void aBrokeredLogin_inARealmThatRequiresMfa_ofAUserNotEnrolled_goesToEnrolment_withoutAFullSession()
+            throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("bob", false));
+        when(enrolment.mustEnrol(any(), org.mockito.ArgumentMatchers.eq("bob"))).thenReturn(true);
+
+        final String view = completer.complete("bob", new MockHttpServletRequest(), new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/mfa/enable");
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getValue()).isInstanceOf(MfaAuthentication.class);
+        assertThat(auth.getValue().isAuthenticated()).isFalse();
+    }
+
+    // --- review #2: a federated sign-in gets a new session id and forgets any earlier MFA pass ---------
+
+    @Test
+    void aBrokeredLogin_rotatesTheSessionId_andClearsAnEarlierSecondFactorPass() throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("bob", false));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final org.springframework.mock.web.MockHttpSession session = new org.springframework.mock.web.MockHttpSession();
+        session.setAttribute("HELIX_MFA_VERIFIED_USER", "bob");
+        request.setSession(session);
+        final String before = session.getId();
+
+        completer.complete("bob", request, new MockHttpServletResponse());
+
+        assertThat(request.getSession().getId()).isNotEqualTo(before);
+        assertThat(request.getSession().getAttribute("HELIX_MFA_VERIFIED_USER")).isNull();
     }
 }

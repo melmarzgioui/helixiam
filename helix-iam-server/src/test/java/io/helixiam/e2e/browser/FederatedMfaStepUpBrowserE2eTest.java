@@ -73,6 +73,28 @@ class FederatedMfaStepUpBrowserE2eTest extends AbstractBrowserE2eTest {
         assertThat(assertLandedOnRpCallback().subject()).isEqualTo(bob.userId());
     }
 
+    /** Review #2: the session that carried the broker round-trip is not the one that becomes signed in. */
+    @Test
+    void aBrokeredSignIn_getsANewSessionId() {
+        final ReferenceSetup.Realm realm = referenceRealm(ReferenceSetup.Options.withoutMfa());
+        final E2eSeed.SeededUser bob = seed().user(realm.realm(), E2eSeed.unique("bob"), PASSWORD);
+        startSignInAtRp(realm.web());
+        assertOnIdpPath("/login");
+        final String before = sessionCookie();
+
+        page().navigate(baseUrl() + realm.path() + "/broker/e2e-stub/complete?userId=" + bob.userId());
+
+        assertLandedOnRpCallback();
+        assertThat(before).as("a session existed before the broker callback").isNotNull();
+        assertThat(sessionCookie()).as("session id after the federated sign-in").isNotNull().isNotEqualTo(before);
+    }
+
+    private String sessionCookie() {
+        return page().context().cookies(baseUrl()).stream()
+                .filter(c -> "SESSION".equals(c.name) || "JSESSIONID".equals(c.name))
+                .map(c -> c.value).findFirst().orElse(null);
+    }
+
     private void assertNoCode(final String what) {
         assertThat(rp().callbacks().stream().filter(c -> c.code() != null).toList())
                 .as(what + ": the RP must not receive an authorization code\n" + describeBrowser()).isEmpty();

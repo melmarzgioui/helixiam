@@ -50,6 +50,8 @@ public class FlowLoginSuccessHandler implements AuthenticationSuccessHandler {
     private final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier;
     // Auth-hardening (feature 6): optional per-realm concurrent-session cap, applied on completion.
     private final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter;
+    /** Realm requires MFA, user not enrolled → enrolment instead of a full session (null: not checked). */
+    private final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement mfaEnrolment;
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
 
@@ -75,12 +77,33 @@ public class FlowLoginSuccessHandler implements AuthenticationSuccessHandler {
         this(flowExecutor, authFlowPublisher, authFlowMapper, spBaseUrl, savedRequestRedirect, sessionPolicyApplier, null);
     }
 
+    /** Production wiring: also sends a user who must enrol a second factor to enrolment (no full session). */
+    public FlowLoginSuccessHandler(final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher,
+                                   final AuthFlowMapper authFlowMapper, final String spBaseUrl,
+                                   final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier,
+                                   final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter,
+                                   final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement mfaEnrolment) {
+        this(flowExecutor, authFlowPublisher, authFlowMapper, spBaseUrl, new ResolveSavedRequestRedirect(),
+                sessionPolicyApplier, concurrentSessionLimiter, mfaEnrolment);
+    }
+
     /** Test seam: inject the saved-request resolver + the concurrent-session limiter. */
     FlowLoginSuccessHandler(final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher,
                             final AuthFlowMapper authFlowMapper, final String spBaseUrl,
                             final ResolveSavedRequestRedirect savedRequestRedirect,
                             final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier,
                             final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter) {
+        this(flowExecutor, authFlowPublisher, authFlowMapper, spBaseUrl, savedRequestRedirect, sessionPolicyApplier,
+                concurrentSessionLimiter, null);
+    }
+
+    FlowLoginSuccessHandler(final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher,
+                            final AuthFlowMapper authFlowMapper, final String spBaseUrl,
+                            final ResolveSavedRequestRedirect savedRequestRedirect,
+                            final io.helixiam.authorization.security.realm.SessionPolicyApplier sessionPolicyApplier,
+                            final io.helixiam.authorization.security.realm.ConcurrentSessionLimiter concurrentSessionLimiter,
+                            final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement mfaEnrolment) {
+        this.mfaEnrolment = mfaEnrolment;
         this.flowExecutor = flowExecutor;
         this.authFlowPublisher = authFlowPublisher;
         this.authFlowMapper = authFlowMapper;
@@ -114,6 +137,11 @@ public class FlowLoginSuccessHandler implements AuthenticationSuccessHandler {
 
         switch (progress.type()) {
             case COMPLETED -> {
+                if (mfaEnrolment != null && mfaEnrolment.mustEnrol(RealmContextHolder.get(), userCredentials.getUserId())) {
+                    // The realm requires a second factor the user has not enrolled: keep the MFA gate, enrol first.
+                    response.sendRedirect(request.getContextPath() + "/mfa/enable");
+                    return;
+                }
                 // Promote to the full authentication FIRST, then resume the saved /oauth2/authorize so the
                 // SAS chain sees an authenticated session and issues a code for the originating client.
                 SecurityContextHolder.getContext().setAuthentication(authentication);

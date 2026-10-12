@@ -47,7 +47,7 @@ class RequiredActionsVerifyEmailTest {
 
     @Test
     void theRequiredActionsPage_isAGetWithoutSideEffects_itSendsNoEmail() throws Exception {
-        final RequiredActionsController controller = new RequiredActionsController(users, null, null, null, null, null, "/");
+        final RequiredActionsController controller = new RequiredActionsController(users, null, null, null, null, null, "/", null);
         controller.setEmailVerification(verification, "https://idp.example");
         when(verification.emailOf("u-1")).thenReturn(Optional.of("ada@example.com"));
         final MockHttpServletRequest request = new MockHttpServletRequest("GET", "/required-actions");
