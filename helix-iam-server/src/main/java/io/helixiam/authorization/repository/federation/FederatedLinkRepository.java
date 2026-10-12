@@ -31,6 +31,11 @@ public interface FederatedLinkRepository extends JpaRepository<FederatedLinkEnti
     int insertIfAbsent(@Param("id") String id, @Param("alias") String alias, @Param("subject") String subject,
                        @Param("userId") String userId);
 
+    /** Task 21a: delete a link only while {@code userId} still owns it (the stale-link replacement). */
+    @Modifying
+    @Query(value = "DELETE FROM federated_link WHERE id = :id AND user_id = :userId", nativeQuery = true)
+    int deleteIfOwnedBy(@Param("id") String id, @Param("userId") String userId);
+
     /** Task 21a: the owner of a link id, read from the database (not the persistence context). */
     @Query(value = "SELECT user_id FROM federated_link WHERE id = :id", nativeQuery = true)
     Optional<String> findUserIdById(@Param("id") String id);

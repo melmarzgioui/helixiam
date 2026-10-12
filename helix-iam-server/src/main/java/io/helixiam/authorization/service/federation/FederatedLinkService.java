@@ -40,20 +40,32 @@ public class FederatedLinkService {
     }
 
     /**
-     * Task 21a: record the link only if this (alias, subject) is not linked yet, race-safely (insert-if-absent, then
-     * re-read); an existing link is never overwritten. The result names the user the subject is linked to afterwards
-     * (another user when it already belonged to someone else) and whether this call created the link.
+     * Task 21a: link (alias, subject) to {@code userId} only if it is free, race-safely, in one transaction: insert if
+     * absent; if another owner holds it and {@code isLive} says that owner no longer counts (deleted, or not in the
+     * caller's realm), delete that row only while it still names that owner, and insert again. Concurrent claims
+     * serialise on the primary key, so exactly one row survives and every caller reads its owner back; a live link is
+     * never overwritten.
      */
     @Transactional
-    public LinkIfAbsent linkIfAbsent(final String idpAlias, final String externalSubject, final String userId) {
+    public LinkIfAbsent claim(final String idpAlias, final String externalSubject, final String userId,
+                              final java.util.function.Predicate<String> isLive) {
         final String id = FederatedLinkEntity.key(idpAlias, externalSubject);
-        final boolean created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId) == 1;
-        final String owner = repository.findUserIdById(id)
-                .orElseThrow(() -> new IllegalStateException("The federated link could not be stored"));
-        return new LinkIfAbsent(owner, created);
+        boolean created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId) == 1;
+        String owner = owner(id);
+        if (!owner.equals(userId) && !isLive.test(owner)) {
+            repository.deleteIfOwnedBy(id, owner);
+            created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId) == 1;
+            owner = owner(id);
+        }
+        return new LinkIfAbsent(owner, created && owner.equals(userId));
     }
 
-    /** The outcome of {@link #linkIfAbsent}: the subject's user afterwards, and whether this call linked it. */
+    private String owner(final String id) {
+        return repository.findUserIdById(id)
+                .orElseThrow(() -> new IllegalStateException("The federated link could not be stored"));
+    }
+
+    /** The outcome of {@link #claim}: the subject's owner afterwards, and whether this call linked it. */
     public record LinkIfAbsent(String ownerUserId, boolean created) {
     }
 

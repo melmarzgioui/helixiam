@@ -30,8 +30,14 @@ public sealed interface WalletSubject {
         return WalletErrorCode.SUBJECT_UNAVAILABLE;
     }
 
-    /** Hex HMAC of {@code issuing_country + ":" + personal_administrative_number}. */
-    record AdminNumber(String value) implements WalletSubject {
+    /**
+     * Hex HMAC of {@code issuing_country + ":" + personal_administrative_number}.
+     *
+     * @param tupleValue the same PID's {@link Tuple} value, for the upgrade path (a wallet linked by tuple that now
+     *                   presents a number); {@code null} unless {@code acknowledgeWeakSubject} is set and every
+     *                   configured tuple field is present
+     */
+    record AdminNumber(String value, String tupleValue) implements WalletSubject {
     }
 
     /** Hex HMAC of the normalised attribute tuple; a link key only. */
@@ -49,7 +55,8 @@ public sealed interface WalletSubject {
         WEAK_SUBJECT_NOT_ACKNOWLEDGED,
         /** The provider's subject strategy is not implemented ({@code NONE}, verify-only step-up). */
         STRATEGY_NOT_SUPPORTED,
-        /** No administrative number, and the PID lacks a name or the birth date the tuple needs. */
+        /** No administrative number, and the PID lacks a configured tuple field (names, birth date, issuing
+         *  country, and the place-of-birth parts when configured). */
         MISSING_IDENTITY_ATTRIBUTES,
         /** The subject is valid but no account is linked to it, and it may not create one: the user must sign in
          *  another way and link the wallet from the account console. */

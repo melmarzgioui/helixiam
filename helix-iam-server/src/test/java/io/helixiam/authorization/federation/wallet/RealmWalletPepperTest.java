@@ -135,6 +135,15 @@ class RealmWalletPepperTest extends AbstractE2eTest {
     }
 
     @Test
+    void aDevPlaintextPepper_failsClosedOnceDbEncryptionIsSet() {
+        store(null, DeploymentProfile.development()).pepper(realm);
+
+        assertThatThrownBy(() -> store(KEY, DeploymentProfile.production()).pepper(realm))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(rows(realm)).isEqualTo(1);
+    }
+
+    @Test
     void aBlankRealmIsRefused() {
         assertThatThrownBy(() -> peppers.pepper(" ")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> peppers.pepper(null)).isInstanceOf(IllegalArgumentException.class);

@@ -7,8 +7,12 @@ package io.helixiam.authorization.amqp.federation.adapter;
 
 import io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher;
 import io.helixiam.authorization.amqp.federation.FederatedLink;
+import io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult;
 import io.helixiam.authorization.amqp.federation.FederatedLinkLookup;
 import io.helixiam.authorization.amqp.federation.FederatedUserProvision;
+import io.helixiam.authorization.amqp.federation.RealmFederatedLink;
+import io.helixiam.authorization.amqp.federation.RealmFederatedLinkLookup;
+import io.helixiam.authorization.amqp.federation.RealmFederatedUnlink;
 import io.helixiam.authorization.amqp.support.DtoBridge;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.service.federation.FederatedIdentityService;
@@ -54,5 +58,22 @@ public class FederatedIdentityLocalAdapter implements FederatedIdentityPublisher
     @Override
     public UserCredentials loadUser(final String userId) {
         return bridge.to(federatedIdentityService.loadUser(userId), UserCredentials.class);
+    }
+
+    @Override
+    public String findRealmLinkedUser(final RealmFederatedLinkLookup lookup) {
+        return federatedIdentityService.findLinkedUserInRealm(lookup.realmId(), lookup.idpAlias(),
+                lookup.externalSubject()).orElse(null);
+    }
+
+    @Override
+    public FederatedLinkClaimResult claimLink(final RealmFederatedLink link) {
+        return federatedIdentityService.claimLink(link.realmId(), link.idpAlias(), link.externalSubject(),
+                link.userId());
+    }
+
+    @Override
+    public Integer unlinkAll(final RealmFederatedUnlink unlink) {
+        return federatedIdentityService.unlinkAll(unlink.realmId(), unlink.userId(), unlink.idpAlias());
     }
 }

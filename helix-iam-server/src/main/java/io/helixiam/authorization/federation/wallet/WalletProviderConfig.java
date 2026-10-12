@@ -210,6 +210,11 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
      *
      * @param strategy               default {@link Strategy#ADMINISTRATIVE_NUMBER}
      * @param acknowledgeWeakSubject the admin accepts the attribute-tuple link fallback and its residual risk
+     *
+     * <p><b>Warning (no validator warnings channel exists, so it is documented here and in
+     * docs/eudi-wallet-spec-notes.md):</b> the attribute tuple's field set follows {@code pid.requestedClaims}: adding
+     * or removing {@code place_of_birth} there changes every tuple subject of this provider and orphans its existing
+     * tuple links (users must link their wallet again). Administrative-number subjects are not affected.
      */
     public record Subject(Strategy strategy, boolean acknowledgeWeakSubject) {
 

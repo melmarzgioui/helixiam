@@ -35,20 +35,33 @@ import java.util.regex.Pattern;
  * and upper-cased ({@link Locale#ROOT}, ISO 3166-1 alpha-2), the number trimmed. The country is part of the input
  * because numbers are only unique within their member state. This applies under either strategy: the number is the
  * strongest subject a PID offers. The number is read from the matched presentations directly (Task 20 keeps it out of
- * the brokered attributes): from the SD-JWT presentation when there is one, else from the mdoc; when both carry it
- * they must agree, else {@code INVALID_RESPONSE}. A number without a country is ignored (it is ambiguous).
+ * the brokered attributes), and the number and the country come from the SAME presentation: the first one that
+ * carries both (never one presentation's number with another's country). Every disclosed number must be the same, and
+ * every complete pair must agree, else {@code INVALID_RESPONSE}. A number without a country in its own presentation
+ * is ignored (it is ambiguous).
  *
  * <h2>Attribute tuple</h2>
- * Without a number, and only when the provider sets {@code subject.acknowledgeWeakSubject=true} (whatever the
- * strategy; the validator also refuses {@code ATTRIBUTE_TUPLE} without it), the subject is
- * {@link WalletSubject.Tuple}: {@code hex(HMAC-SHA256(realmPepper, encode(issuing_country?, family_name, given_name,
- * birthdate, place_of_birth.country?, place_of_birth.region?, place_of_birth.locality?)))}, in that fixed order, each
- * value normalised: Unicode NFC, trimmed, lower-cased with {@link Locale#ROOT}, internal whitespace runs collapsed to
- * one space. The encoding is unambiguous: a version tag, then for each <em>present</em> field its name, its length
- * and its value ({@code name=length:value;}), so no two different tuples (e.g. {@code ("ab","c")} and
- * {@code ("a","bc")}, or a value moved between fields) produce the same input. A tuple without both names and the
- * birth date is {@link WalletSubject.Reason#MISSING_IDENTITY_ATTRIBUTES}; without the acknowledgement it is
- * {@link WalletSubject.Reason#WEAK_SUBJECT_NOT_ACKNOWLEDGED}. The tuple is a link key only (see
+ * Only when the provider sets {@code subject.acknowledgeWeakSubject=true} (whatever the strategy; the validator also
+ * refuses {@code ATTRIBUTE_TUPLE} without it) is the tuple computed at all. Its field set is fixed by CONFIGURATION,
+ * never by what a presentation happens to contain, so the same person always gets the same tuple:
+ * {@code issuing_country, family_name, given_name, birthdate}, plus {@code place_of_birth.country, .region,
+ * .locality} exactly when the provider's {@code pid.requestedClaims} include {@code place_of_birth}. Every configured
+ * field is required: one that is missing, or empty after normalisation, makes the tuple unavailable
+ * ({@link WalletSubject.Reason#MISSING_IDENTITY_ATTRIBUTES}); a shorter tuple is never computed. The subject is
+ * {@code hex(HMAC-SHA256(realmPepper, encode(fields)))}, each value normalised: Unicode NFC, lower-cased with
+ * {@link Locale#ROOT} (no case folding: {@code ß} stays {@code ß}), internal whitespace runs (NBSP and tabs included)
+ * collapsed to one space, trimmed. The encoding is unambiguous: the tag {@code helix-wallet-tuple-v1;}, then for each
+ * field {@code name=length:value;}, so no two different tuples (e.g. {@code ("ab","c")} and {@code ("a","bc")}, or a
+ * value moved between fields) produce the same input; known-answer tests pin it.
+ * <ul>
+ *   <li>Without a number, the subject is {@link WalletSubject.Tuple}; without the acknowledgement it is
+ *       {@link WalletSubject.Reason#WEAK_SUBJECT_NOT_ACKNOWLEDGED}.</li>
+ *   <li>With a number, the tuple (when complete) rides along as {@link WalletSubject.AdminNumber#tupleValue()} for
+ *       the upgrade path in {@link WalletLinkService#decide}.</li>
+ * </ul>
+ * <b>Changing {@code place_of_birth} in {@code pid.requestedClaims} changes every tuple subject of the provider and
+ * orphans its existing tuple links</b> (the validator has no warnings channel; documented on
+ * {@code WalletProviderConfig.Subject} and in docs/eudi-wallet-spec-notes.md). The tuple is a link key only (see
  * {@link WalletLinkService}): it never creates an account and is never matched against names or email.
  *
  * <p>Strategy {@code NONE} (verify-only step-up) is out of this plan:
@@ -66,10 +79,13 @@ public class WalletSubjectResolver {
     private static final String TUPLE_VERSION = "helix-wallet-tuple-v1;";
     private static final Pattern WHITESPACE = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS);
 
-    /** Tuple fields in their fixed order; the first and the last three are optional. */
-    private static final List<String> TUPLE_FIELDS = List.of(DcqlQueryBuilder.ISSUING_COUNTRY_CLAIM, "family_name",
-            "given_name", "birthdate", "place_of_birth.country", "place_of_birth.region", "place_of_birth.locality");
-    private static final List<String> REQUIRED_TUPLE_FIELDS = List.of("family_name", "given_name", "birthdate");
+    /** The tuple fields every tuple has, in their fixed order. */
+    private static final List<String> BASE_TUPLE_FIELDS = List.of(DcqlQueryBuilder.ISSUING_COUNTRY_CLAIM,
+            "family_name", "given_name", "birthdate");
+    /** The requested claim that adds {@link #PLACE_OF_BIRTH_TUPLE_FIELDS} to the tuple. */
+    static final String PLACE_OF_BIRTH_CLAIM = "place_of_birth";
+    private static final List<String> PLACE_OF_BIRTH_TUPLE_FIELDS = List.of("place_of_birth.country",
+            "place_of_birth.region", "place_of_birth.locality");
 
     private final RealmWalletPepper peppers;
 
@@ -77,61 +93,92 @@ public class WalletSubjectResolver {
         this.peppers = peppers;
     }
 
+    /** {@link #resolve(String, MatchedPresentations, WalletProviderConfig.Subject, List)} for a provider. */
+    public WalletSubject resolve(final String realmId, final MatchedPresentations matched,
+            final WalletProviderConfig config) {
+        return resolve(realmId, matched, config.subject(), config.pid().requestedClaims());
+    }
+
     /**
      * The subject for {@code matched} (Task 14's DCQL result) in {@code realmId} under the provider's subject
      * configuration. Never {@code null}; an unusable PID is {@link WalletSubject.Unavailable}.
      *
+     * @param requestedClaims the provider's {@code pid.requestedClaims}: they fix the tuple's field set (see the class
+     *                        javadoc)
      * @throws WalletVerificationException {@code INVALID_RESPONSE} when the presentations contradict each other (see
      *                                      {@link WalletAttributeMapper#pidAttributes} and the class javadoc)
      * @throws IllegalStateException       when the realm's pepper cannot be created (see {@link RealmWalletPepper})
      */
     public WalletSubject resolve(final String realmId, final MatchedPresentations matched,
-            final WalletProviderConfig.Subject subjectConfig) {
+            final WalletProviderConfig.Subject subjectConfig, final List<String> requestedClaims) {
         Objects.requireNonNull(realmId, "realmId");
         Objects.requireNonNull(matched, "matched");
         Objects.requireNonNull(subjectConfig, "subjectConfig");
+        Objects.requireNonNull(requestedClaims, "requestedClaims");
         if (subjectConfig.strategy() == WalletProviderConfig.Subject.Strategy.NONE) {
             return unavailable(realmId, WalletSubject.Reason.STRATEGY_NOT_SUPPORTED);
         }
         final Map<String, String> attributes = WalletAttributeMapper.pidAttributes(matched);
-        final String number = administrativeNumber(matched);
-        final String country = attributes.get(DcqlQueryBuilder.ISSUING_COUNTRY_CLAIM);
-        if (number != null && country != null && !country.isBlank()) {
-            final String input = country.trim().toUpperCase(Locale.ROOT) + ":" + number;
-            return resolved(realmId, new WalletSubject.AdminNumber(hmacHex(peppers.pepper(realmId), input)));
+        final String adminInput = administrativeNumberInput(matched);
+        // The weak tuple is never even computed without the acknowledgement (also not for the upgrade path).
+        final String tupleInput = subjectConfig.acknowledgeWeakSubject()
+                ? tupleInput(attributes, tupleFields(requestedClaims)) : null;
+        if (adminInput != null) {
+            final byte[] pepper = peppers.pepper(realmId);
+            return resolved(realmId, new WalletSubject.AdminNumber(hmacHex(pepper, adminInput),
+                    tupleInput == null ? null : hmacHex(pepper, tupleInput)));
         }
         if (!subjectConfig.acknowledgeWeakSubject()) {
             return unavailable(realmId, WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED);
         }
-        for (final String field : REQUIRED_TUPLE_FIELDS) {
-            final String value = attributes.get(field);
-            if (value == null || normalise(value).isEmpty()) {
-                return unavailable(realmId, WalletSubject.Reason.MISSING_IDENTITY_ATTRIBUTES);
-            }
+        if (tupleInput == null) {
+            return unavailable(realmId, WalletSubject.Reason.MISSING_IDENTITY_ATTRIBUTES);
         }
-        return resolved(realmId, new WalletSubject.Tuple(hmacHex(peppers.pepper(realmId), tupleInput(attributes))));
+        return resolved(realmId, new WalletSubject.Tuple(hmacHex(peppers.pepper(realmId), tupleInput)));
     }
 
     // ------------------------------------------------------------------------------------------- number
 
-    /** The authoritative presentation's number (SD-JWT, else mdoc), trimmed; {@code null} when absent or blank. */
-    private static String administrativeNumber(final MatchedPresentations matched) {
-        String fromSdJwt = null;
-        String fromMdoc = null;
+    /**
+     * {@code COUNTRY:number} from a presentation that carries BOTH (ruling: never pair one presentation's number with
+     * another's country); {@code null} when none does. Every number disclosed must be the same, and every complete
+     * pair must agree, else {@code INVALID_RESPONSE} (the detail never carries the values).
+     */
+    private static String administrativeNumberInput(final MatchedPresentations matched) {
+        String number = null;
+        String pair = null;
         for (final VerifiedPresentation vp : matched.presentations()) {
-            final Map<String, Object> claims = vp.claims() == null ? Map.of() : vp.claims();
-            if (DcqlQueryBuilder.SD_JWT_FORMAT.equals(vp.format())) {
-                fromSdJwt = text(claims.get(DcqlQueryBuilder.ADMINISTRATIVE_NUMBER_CLAIM));
-            } else if (DcqlQueryBuilder.MDOC_FORMAT.equals(vp.format())
-                    && claims.get(DcqlQueryBuilder.PID_NAMESPACE) instanceof Map<?, ?> elements) {
-                fromMdoc = text(elements.get(DcqlQueryBuilder.ADMINISTRATIVE_NUMBER_CLAIM));
+            final Map<?, ?> claims = pidClaims(vp);
+            final String n = text(claims.get(DcqlQueryBuilder.ADMINISTRATIVE_NUMBER_CLAIM));
+            if (n == null) {
+                continue;
             }
+            if (number != null && !number.equals(n)) {
+                throw new WalletVerificationException(WalletErrorCode.INVALID_RESPONSE,
+                        "the presentations disagree on the administrative number");
+            }
+            number = n;
+            final String country = text(claims.get(DcqlQueryBuilder.ISSUING_COUNTRY_CLAIM));
+            if (country == null) {
+                continue;
+            }
+            final String candidate = country.toUpperCase(Locale.ROOT) + ":" + n;
+            if (pair != null && !pair.equals(candidate)) {
+                throw new WalletVerificationException(WalletErrorCode.INVALID_RESPONSE,
+                        "the presentations disagree on the issuing country");
+            }
+            pair = candidate;
         }
-        if (fromSdJwt != null && fromMdoc != null && !fromSdJwt.equals(fromMdoc)) {
-            throw new WalletVerificationException(WalletErrorCode.INVALID_RESPONSE,
-                    "the sd-jwt and mdoc presentations disagree on the administrative number");
+        return pair;
+    }
+
+    /** The PID claims of one presentation: the SD-JWT claims, or the mdoc PID namespace. */
+    private static Map<?, ?> pidClaims(final VerifiedPresentation vp) {
+        final Map<String, Object> claims = vp.claims() == null ? Map.of() : vp.claims();
+        if (DcqlQueryBuilder.MDOC_FORMAT.equals(vp.format())) {
+            return claims.get(DcqlQueryBuilder.PID_NAMESPACE) instanceof Map<?, ?> elements ? elements : Map.of();
         }
-        return fromSdJwt != null ? fromSdJwt : fromMdoc;
+        return DcqlQueryBuilder.SD_JWT_FORMAT.equals(vp.format()) ? claims : Map.of();
     }
 
     private static String text(final Object raw) {
@@ -144,16 +191,24 @@ public class WalletSubjectResolver {
 
     // ------------------------------------------------------------------------------------------- tuple
 
-    private static String tupleInput(final Map<String, String> attributes) {
+    /** The configured tuple fields, in order (ruling: fixed by configuration, never by the presentation). */
+    static List<String> tupleFields(final List<String> requestedClaims) {
+        if (!requestedClaims.contains(PLACE_OF_BIRTH_CLAIM)) {
+            return BASE_TUPLE_FIELDS;
+        }
+        final List<String> fields = new java.util.ArrayList<>(BASE_TUPLE_FIELDS);
+        fields.addAll(PLACE_OF_BIRTH_TUPLE_FIELDS);
+        return List.copyOf(fields);
+    }
+
+    /** The encoded tuple, or {@code null} when any configured field is missing or empty after normalisation. */
+    private static String tupleInput(final Map<String, String> attributes, final List<String> fields) {
         final StringBuilder input = new StringBuilder(TUPLE_VERSION);
-        for (final String field : TUPLE_FIELDS) {
+        for (final String field : fields) {
             final String raw = attributes.get(field);
-            if (raw == null) {
-                continue;
-            }
-            final String value = normalise(raw);
+            final String value = raw == null ? "" : normalise(raw);
             if (value.isEmpty()) {
-                continue;
+                return null;
             }
             input.append(field).append('=').append(value.length()).append(':').append(value).append(';');
         }

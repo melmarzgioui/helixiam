@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.federation.wallet;
 
+import io.helixiam.authorization.amqp.user.UserAdminPublisher;
+import io.helixiam.authorization.amqp.user.UserAdminRef;
 import io.helixiam.authorization.federation.AccountLinkingPolicy;
 import io.helixiam.authorization.federation.wallet.dcql.MatchedPresentations;
 import io.helixiam.e2e.AbstractE2eTest;
@@ -38,6 +40,9 @@ class WalletLinkServiceTest extends AbstractE2eTest {
 
     private static final WalletProviderConfig.Subject NUMBER_ELSE_LINK =
             new WalletProviderConfig.Subject(WalletProviderConfig.Subject.Strategy.ADMINISTRATIVE_NUMBER, true);
+    private static final WalletProviderConfig.Subject NUMBER_ONLY =
+            new WalletProviderConfig.Subject(WalletProviderConfig.Subject.Strategy.ADMINISTRATIVE_NUMBER, false);
+    private static final List<String> CLAIMS = List.of("given_name", "family_name", "birthdate");
     private static final AccountLinkingPolicy JIT = new AccountLinkingPolicy(true, true);
     private static final AccountLinkingPolicy NO_JIT = new AccountLinkingPolicy(true, false);
 
@@ -79,7 +84,11 @@ class WalletLinkServiceTest extends AbstractE2eTest {
     }
 
     private WalletSubject subject(final String given, final String family, final String number) {
-        return resolver.resolve(realm, pid(given, family, number), NUMBER_ELSE_LINK);
+        return resolver.resolve(realm, pid(given, family, number), NUMBER_ELSE_LINK, CLAIMS);
+    }
+
+    private void deleteUser(final String userId) {
+        assertThat(context.getBean(UserAdminPublisher.class).delete(new UserAdminRef(realm, userId))).isTrue();
     }
 
     private static String value(final WalletSubject subject) {
@@ -258,6 +267,122 @@ class WalletLinkServiceTest extends AbstractE2eTest {
         links.link(realm, erika, alias, tuple);
 
         assertThat(links.decide(realm, alias, tuple, JIT)).isEqualTo(new WalletLinkService.Decision.Existing(erika));
+    }
+
+    // ------------------------------------------------------------------------------------------- upgrade (ruling 1)
+
+    @Test
+    void upgrade_numberUnlinked_tupleLinked_signsInAsTheTupleUser_andAddsTheNumberLink() {
+        final String erika = user("erika");
+        links.link(realm, erika, alias, subject("Erika", "Mustermann", null));
+        final WalletSubject number = subject("Erika", "Mustermann", "123");
+
+        assertThat(links.decide(realm, alias, number, JIT)).isEqualTo(new WalletLinkService.Decision.Existing(erika));
+
+        final WalletSubject numberOnly = new WalletSubject.AdminNumber(value(number), null);
+        assertThat(links.find(realm, alias, numberOnly)).contains(erika);
+        assertThat(rows()).hasSize(2);
+    }
+
+    @Test
+    void upgrade_numberLinkedToB_tupleLinkedToA_theNumberWins() {
+        final String a = user("anna");
+        final String b = user("bert");
+        final WalletSubject number = subject("Erika", "Mustermann", "123");
+        links.link(realm, a, alias, subject("Erika", "Mustermann", null));
+        links.link(realm, b, alias, new WalletSubject.AdminNumber(value(number), null));
+
+        assertThat(links.decide(realm, alias, number, JIT)).isEqualTo(new WalletLinkService.Decision.Existing(b));
+        assertThat(rows()).hasSize(2);
+    }
+
+    @Test
+    void upgrade_withTheFlagOff_theTupleIsNeverConsulted() {
+        final String erika = user("erika");
+        links.link(realm, erika, alias, subject("Erika", "Mustermann", null));
+        final WalletSubject number = resolver.resolve(realm, pid("Erika", "Mustermann", "123"), NUMBER_ONLY, CLAIMS);
+
+        assertThat(links.decide(realm, alias, number, JIT)).isEqualTo(new WalletLinkService.Decision.Provision());
+        assertThat(links.decide(realm, alias, number, NO_JIT))
+                .isEqualTo(new WalletLinkService.Decision.Refused(WalletSubject.Reason.LINK_REQUIRED));
+        assertThat(rows()).hasSize(1);
+    }
+
+    // ------------------------------------------------------------------------------------------- stale links (ruling 2)
+
+    @Test
+    void staleLink_ownerDeleted_isFree_jitThenLinkWorks() {
+        final String gone = user("gone");
+        final WalletSubject number = subject("Erika", "Mustermann", "123");
+        links.link(realm, gone, alias, number);
+        deleteUser(gone);
+
+        assertThat(links.find(realm, alias, number)).isEmpty();
+        assertThat(links.decide(realm, alias, number, JIT)).isEqualTo(new WalletLinkService.Decision.Provision());
+        final String provisioned = user("jit");
+        assertThat(links.link(realm, provisioned, alias, number)).isEqualTo(WalletLinkService.LinkResult.LINKED);
+        assertThat(links.find(realm, alias, number)).contains(provisioned);
+        assertThat(rows()).singleElement().satisfies(row -> assertThat(row.get("user_id")).isEqualTo(provisioned));
+    }
+
+    @Test
+    void staleLink_ownerDeleted_consoleRelinkOfTheTupleWorks() {
+        final String gone = user("gone");
+        final WalletSubject tuple = subject("Erika", "Mustermann", null);
+        links.link(realm, gone, alias, tuple);
+        deleteUser(gone);
+        final String erika = user("erika");
+
+        assertThat(links.link(realm, erika, alias, tuple)).isEqualTo(WalletLinkService.LinkResult.LINKED);
+        assertThat(links.find(realm, alias, tuple)).contains(erika);
+    }
+
+    @Test
+    void staleLink_ownerInAnotherRealm_isFreeInThisRealm() {
+        final String otherRealm = E2eSeed.unique("wlink-other");
+        seed.realm(otherRealm);
+        final String stranger = seed.user(otherRealm, E2eSeed.unique("stranger"), "Correct-Horse-9-Battery").userId();
+        final WalletSubject tuple = subject("Erika", "Mustermann", null);
+        new TransactionTemplate(transactions).executeWithoutResult(s -> jdbc.update(
+                "INSERT INTO federated_link (id, idp_alias, external_subject, user_id) VALUES (?, ?, ?, ?)",
+                alias + "|" + value(tuple), alias, value(tuple), stranger));
+        final String erika = user("erika");
+
+        assertThat(links.find(realm, alias, tuple)).isEmpty();
+        assertThat(links.link(realm, erika, alias, tuple)).isEqualTo(WalletLinkService.LinkResult.LINKED);
+        assertThat(links.find(realm, alias, tuple)).contains(erika);
+    }
+
+    @Test
+    void concurrentClaimsOfAStaleSubject_onlyOneWins() throws Exception {
+        final String gone = user("gone");
+        final WalletSubject tuple = subject("Erika", "Mustermann", null);
+        links.link(realm, gone, alias, tuple);
+        deleteUser(gone);
+        final String erika = user("erika");
+        final String mallory = user("mallory");
+        final ExecutorService pool = Executors.newFixedThreadPool(2);
+        final CountDownLatch start = new CountDownLatch(1);
+        try {
+            final List<Future<WalletLinkService.LinkResult>> results = new ArrayList<>();
+            for (final String userId : List.of(erika, mallory)) {
+                final Callable<WalletLinkService.LinkResult> call = () -> {
+                    start.await();
+                    return links.link(realm, userId, alias, tuple);
+                };
+                results.add(pool.submit(call));
+            }
+            start.countDown();
+            final List<WalletLinkService.LinkResult> outcomes = new ArrayList<>();
+            for (final Future<WalletLinkService.LinkResult> result : results) {
+                outcomes.add(result.get(30, TimeUnit.SECONDS));
+            }
+            assertThat(outcomes).containsExactlyInAnyOrder(WalletLinkService.LinkResult.LINKED,
+                    WalletLinkService.LinkResult.LINKED_TO_ANOTHER_USER);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(rows()).hasSize(1);
     }
 
     @Test

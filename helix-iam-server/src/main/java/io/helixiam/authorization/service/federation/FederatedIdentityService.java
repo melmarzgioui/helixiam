@@ -52,6 +52,48 @@ public class FederatedIdentityService {
         return links.findLinkedUser(idpAlias, externalSubject).filter(this::eligibleInCurrentRealm);
     }
 
+    /** Task 21a: the user of {@code realmId} linked to (alias, subject); a stale link counts as none. */
+    public Optional<String> findLinkedUserInRealm(final String realmId, final String idpAlias,
+                                                  final String externalSubject) {
+        return links.findLinkedUser(idpAlias, externalSubject).filter(userId -> inRealm(realmId, userId));
+    }
+
+    /** Task 21a: claim (alias, subject) for {@code userId} of {@code realmId}; see {@link FederatedLinkService#claim}. */
+    public io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult claimLink(final String realmId,
+            final String idpAlias, final String externalSubject, final String userId) {
+        if (!inRealm(realmId, userId)) {
+            return new io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult(
+                    io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.USER_NOT_IN_REALM, null);
+        }
+        final FederatedLinkService.LinkIfAbsent outcome =
+                links.claim(idpAlias, externalSubject, userId, owner -> inRealm(realmId, owner));
+        final io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status status =
+                !userId.equals(outcome.ownerUserId())
+                        ? io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.LINKED_TO_ANOTHER_USER
+                        : outcome.created()
+                        ? io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.CREATED
+                        : io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.ALREADY_LINKED;
+        return new io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult(status, outcome.ownerUserId());
+    }
+
+    /** Task 21a: remove every link {@code userId} of {@code realmId} has for the alias; 0 for a user not in it. */
+    public int unlinkAll(final String realmId, final String userId, final String idpAlias) {
+        return inRealm(realmId, userId) ? links.unlinkAll(userId, idpAlias) : 0;
+    }
+
+    /**
+     * Task 21a: the user exists and belongs to {@code realmId} (its own realm, or a realm membership). Stricter than
+     * {@link #eligibleInCurrentRealm}: a user without any realm is not in the realm, and a deleted user is in none.
+     */
+    private boolean inRealm(final String realmId, final String userId) {
+        if (realmId == null || realmId.isBlank() || userId == null || userId.isBlank()) {
+            return false;
+        }
+        return users.findByUserId(userId).map(user -> realmId.equals(user.getRealmId())
+                || (memberships != null && memberships.findAllByUserId(userId).stream()
+                .anyMatch(m -> realmId.equals(m.getTenantId())))).orElse(false);
+    }
+
     /** Record (or overwrite) the federated link. */
     public void link(final String idpAlias, final String externalSubject, final String userId) {
         links.link(idpAlias, externalSubject, userId);
