@@ -185,6 +185,17 @@ public final class AuthorizationRequestFactory {
      */
     public String signedRequestObject(final WalletTransaction tx, final WalletProviderConfig cfg,
             final SigningKeyHandle key, final String requestUriBase) {
+        return signedRequestObject(tx, cfg, key, requestUriBase, null);
+    }
+
+    /**
+     * As {@link #signedRequestObject(WalletTransaction, WalletProviderConfig, SigningKeyHandle, String)}, adding the
+     * {@code wallet_nonce} a wallet sent with a {@code request_uri_method=post} fetch (OpenID4VP §5.10: "When received,
+     * the Verifier MUST use it as the wallet_nonce value in the signed authorization request object"); {@code null}
+     * adds nothing.
+     */
+    public String signedRequestObject(final WalletTransaction tx, final WalletProviderConfig cfg,
+            final SigningKeyHandle key, final String requestUriBase, final String walletNonce) {
         final Instant now = clock.instant();
         if (tx.isExpiredAt(now)) {
             throw new IllegalStateException("Wallet transaction has expired");
@@ -203,7 +214,7 @@ public final class AuthorizationRequestFactory {
         }
         final boolean encrypted = cfg.responseMode() == WalletProviderConfig.ResponseMode.DIRECT_POST_JWT;
 
-        final JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        final JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
                 .claim("response_type", "vp_token")
                 .claim("client_id", clientId)
                 .claim("response_mode", cfg.responseMode().value())
@@ -214,8 +225,11 @@ public final class AuthorizationRequestFactory {
                 .claim("client_metadata", clientMetadata(tx, cfg, encrypted))
                 .audience(AUDIENCE)
                 .issueTime(Date.from(now))
-                .expirationTime(Date.from(Instant.ofEpochSecond(exp)))
-                .build();
+                .expirationTime(Date.from(Instant.ofEpochSecond(exp)));
+        if (walletNonce != null) {
+            builder.claim("wallet_nonce", walletNonce);
+        }
+        final JWTClaimsSet claims = builder.build();
         final JWSHeader header = new JWSHeader.Builder(key.algorithm())
                 .type(new JOSEObjectType(REQUEST_OBJECT_TYP))
                 .x509CertChain(x5c(key))

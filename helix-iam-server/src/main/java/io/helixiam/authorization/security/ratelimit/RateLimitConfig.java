@@ -32,17 +32,24 @@ public class RateLimitConfig {
     private final long loginRefillPerMin;
     private final long tokenBurst;
     private final long tokenRefillPerMin;
+    private final long walletBurst;
+    private final long walletRefillPerMin;
 
     public RateLimitConfig(@Value("${helix.ratelimit.enabled:true}") final boolean enabled,
                            @Value("${helix.ratelimit.login.burst:20}") final long loginBurst,
                            @Value("${helix.ratelimit.login.refill-per-minute:20}") final long loginRefillPerMin,
                            @Value("${helix.ratelimit.token.burst:120}") final long tokenBurst,
-                           @Value("${helix.ratelimit.token.refill-per-minute:120}") final long tokenRefillPerMin) {
+                           @Value("${helix.ratelimit.token.refill-per-minute:120}") final long tokenRefillPerMin,
+                           // Task 18: the EUDI wallet endpoints' own budget per client IP (two requests per login)
+                           @Value("${helix.ratelimit.wallet.burst:120}") final long walletBurst,
+                           @Value("${helix.ratelimit.wallet.refill-per-minute:120}") final long walletRefillPerMin) {
         this.enabled = enabled;
         this.loginBurst = loginBurst;
         this.loginRefillPerMin = loginRefillPerMin;
         this.tokenBurst = tokenBurst;
         this.tokenRefillPerMin = tokenRefillPerMin;
+        this.walletBurst = walletBurst;
+        this.walletRefillPerMin = walletRefillPerMin;
     }
 
     @Bean
@@ -58,7 +65,9 @@ public class RateLimitConfig {
         limiters.put("/register", loginLimiter);
         limiters.put("/reset/password", loginLimiter);
         limiters.put("/oauth2/token", tokenLimiter);
-        return new RateLimitFilter(enabled, limiters);
+        // Task 18: the wallet's OpenID4VP endpoints (GET and POST), keyed per IP for the whole group.
+        limiters.put("/oid4vp", new RateLimiter(walletBurst, walletRefillPerMin, minute));
+        return new RateLimitFilter(enabled, limiters, java.util.Set.of("/oid4vp"));
     }
 
     @Bean

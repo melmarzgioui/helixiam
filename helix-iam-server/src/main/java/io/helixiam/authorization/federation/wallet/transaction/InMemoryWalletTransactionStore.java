@@ -127,7 +127,7 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore, A
                 evictExpired();
             }
             if (!reserveSlot()) {
-                throw new IllegalStateException("Too many wallet logins in progress (" + maxEntries
+                throw new WalletTransactionCapacityException("Too many wallet logins in progress (" + maxEntries
                         + "); try again later");
             }
         }

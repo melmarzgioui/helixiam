@@ -95,4 +95,33 @@ class RateLimitFilterTest {
         filter.doFilter(b, res, new MockFilterChain());
         assertThat(res.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
     }
+    /**
+     * Task 18: the EUDI wallet endpoints get their own limiter for every method (the request object is a GET), keyed
+     * by client IP and the group, not the full path: each transaction has fresh random ids, so a per-path key would
+     * never limit anything.
+     */
+    @Test
+    void walletGroup_limitsEveryMethod_perIpAcrossDistinctPaths() throws Exception {
+        final RateLimitFilter filter = new RateLimitFilter(true,
+                Map.of("/oid4vp", new RateLimiter(2, 2, 60_000, 1000, () -> 0L)), java.util.Set.of("/oid4vp"));
+
+        final int[] statuses = new int[3];
+        for (int i = 0; i < 3; i++) {
+            final MockHttpServletRequest req = new MockHttpServletRequest(i == 1 ? "POST" : "GET",
+                    "/oid4vp/eudi/request/id-" + i);
+            req.setServletPath("/oid4vp/eudi/request/id-" + i);
+            req.setRemoteAddr("2.2.2.2");
+            final MockHttpServletResponse res = new MockHttpServletResponse();
+            filter.doFilter(req, res, new MockFilterChain());
+            statuses[i] = res.getStatus();
+        }
+        assertThat(statuses).containsExactly(200, 200, 429);
+
+        final MockHttpServletRequest otherIp = new MockHttpServletRequest("GET", "/oid4vp/eudi/request/x");
+        otherIp.setServletPath("/oid4vp/eudi/request/x");
+        otherIp.setRemoteAddr("3.3.3.3");
+        final MockHttpServletResponse res = new MockHttpServletResponse();
+        filter.doFilter(otherIp, res, new MockFilterChain());
+        assertThat(res.getStatus()).isEqualTo(200);
+    }
 }

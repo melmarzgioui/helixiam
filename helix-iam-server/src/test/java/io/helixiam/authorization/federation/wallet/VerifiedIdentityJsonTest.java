@@ -71,4 +71,82 @@ class VerifiedIdentityJsonTest {
         assertThatThrownBy(() -> VerifiedIdentityJson.read("eudi-wallet", null))
                 .isInstanceOf(WalletVerificationException.class);
     }
+    // ------------------------------------------------------------------------------------------- Task 18: decision
+
+    private static BrokeredIdentity walletIdentity() {
+        return new BrokeredIdentity("eudi-wallet", "a1b2c3", null, false, Map.of("given_name", "Erika"),
+                "http://eidas.europa.eu/LoA/high");
+    }
+
+    @Test
+    void roundTripsAnExistingDecisionWithItsPendingLink() {
+        final WalletLinkService.PendingLink pending = new WalletLinkService.PendingLink("acme", "eudi-wallet",
+                "number-hmac", "user-7");
+        final WalletLinkService.Decision decision = new WalletLinkService.Decision.Existing("user-7", pending);
+
+        final VerifiedIdentityJson.StoredLogin read = VerifiedIdentityJson.readLogin("eudi-wallet",
+                VerifiedIdentityJson.write(walletIdentity(), decision));
+
+        assertThat(read.identity()).isEqualTo(walletIdentity());
+        assertThat(read.decision()).isEqualTo(decision);
+    }
+
+    @Test
+    void roundTripsAnExistingDecisionWithoutPendingLink_andAProvisionDecision() {
+        final WalletLinkService.Decision existing = new WalletLinkService.Decision.Existing("user-7");
+        final WalletLinkService.Decision provision = new WalletLinkService.Decision.Provision();
+
+        assertThat(VerifiedIdentityJson.readLogin("eudi-wallet",
+                VerifiedIdentityJson.write(walletIdentity(), existing)).decision()).isEqualTo(existing);
+        assertThat(VerifiedIdentityJson.readLogin("eudi-wallet",
+                VerifiedIdentityJson.write(walletIdentity(), provision)).decision()).isEqualTo(provision);
+    }
+
+    @Test
+    void aRefusedDecisionStoresNoIdentityAtAll() {
+        final WalletLinkService.Decision refused =
+                new WalletLinkService.Decision.Refused(WalletSubject.Reason.LINK_REQUIRED);
+
+        final String json = VerifiedIdentityJson.write(null, refused);
+        final VerifiedIdentityJson.StoredLogin read = VerifiedIdentityJson.readLogin("eudi-wallet", json);
+
+        assertThat(json).doesNotContain("Erika").doesNotContain("externalSubject");
+        assertThat(read.identity()).isNull();
+        assertThat(read.decision()).isEqualTo(refused);
+        // the plain SPI read has no identity to return
+        assertThatThrownBy(() -> VerifiedIdentityJson.read("eudi-wallet", json))
+                .isInstanceOf(WalletVerificationException.class);
+    }
+
+    @Test
+    void aDecisionThatNeedsAnIdentityRefusesToBeWrittenWithout() {
+        assertThatThrownBy(() -> VerifiedIdentityJson.write(null, new WalletLinkService.Decision.Provision()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void readLogin_withoutADecision_isRefused() {
+        final String legacy = VerifiedIdentityJson.write(walletIdentity());
+
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLogin("eudi-wallet", legacy))
+                .isInstanceOf(WalletVerificationException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "{\"v\":1,\"externalSubject\":\"s\",\"emailVerified\":false,\"attributes\":{},\"decision\":{}}",
+        "{\"v\":1,\"externalSubject\":\"s\",\"emailVerified\":false,\"attributes\":{},\"decision\":{\"kind\":\"other\"}}",
+        "{\"v\":1,\"externalSubject\":\"s\",\"emailVerified\":false,\"attributes\":{},\"decision\":{\"kind\":\"existing\"}}",
+        "{\"v\":1,\"externalSubject\":\"s\",\"emailVerified\":false,\"attributes\":{},\"decision\":{\"kind\":\"provision\",\"x\":1}}",
+        "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"decision\":{\"kind\":\"provision\"}}",
+        "{\"v\":1,\"emailVerified\":false,\"attributes\":{},\"decision\":{\"kind\":\"refused\",\"reason\":\"NOPE\"}}",
+        "{\"v\":1,\"externalSubject\":\"s\",\"emailVerified\":false,\"attributes\":{},\"decision\":"
+                + "{\"kind\":\"existing\",\"userId\":\"u\",\"pendingLink\":{\"realmId\":\"r\"}}}"
+    })
+    void readLogin_refusesAnythingButTheExactDecisionShape(final String json) {
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLogin("eudi-wallet", json))
+                .isInstanceOf(WalletVerificationException.class)
+                .satisfies(e -> assertThat(((WalletVerificationException) e).code())
+                        .isEqualTo(WalletErrorCode.INVALID_RESPONSE));
+    }
 }

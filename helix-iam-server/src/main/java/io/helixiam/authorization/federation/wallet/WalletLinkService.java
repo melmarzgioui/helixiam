@@ -83,9 +83,11 @@ public class WalletLinkService {
 
     /**
      * The administrative-number link the upgrade path wants: {@code subject} (the number's HMAC) for {@code userId},
-     * the user the tuple matched. {@link #decide} only returns it; {@link #commitPendingLink} records it.
+     * the user the tuple matched. {@link #decide} only returns it; {@link #commitPendingLink} records it. Serializable:
+     * while a step-up is pending it waits in the login's flow state (Task 18, {@link WalletPendingLinkCommit}).
      */
-    public record PendingLink(String realmId, String alias, String subject, String userId) {
+    public record PendingLink(String realmId, String alias, String subject, String userId)
+            implements java.io.Serializable {
     }
 
     /**

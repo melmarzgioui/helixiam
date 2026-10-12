@@ -21,6 +21,7 @@ import io.helixiam.authorization.federation.wallet.dcql.DcqlResultMatcher;
 import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
 import io.helixiam.authorization.federation.wallet.status.TokenStatusListClient;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction;
+import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionCapacityException;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
 import io.helixiam.authorization.service.key.SigningKeyHandle;
@@ -147,11 +148,20 @@ public final class WalletIdentityProvider implements IdentityProvider {
                 token(NONCE_BYTES), encryptionKey().toJSONString(), dcqlQuery(), null,
                 WalletTransaction.Status.CREATED, null, null, null, now,
                 now.plusSeconds(config.transactionTtlSeconds()));
-        transactions.create(tx);
+        // Context-relative: the broker answers "redirect:" + location, which Spring resolves under the realm's virtual
+        // context path (/realms/<realm>), like the broker's own /login redirects.
+        final String walletPage = "/broker/" + segment(config.alias()) + "/wallet";
+        try {
+            transactions.create(tx);
+        } catch (final WalletTransactionCapacityException e) {
+            // Task 18: a temporary condition, not a federation error: the wallet page says "try again later" (503).
+            LOG.warn("Wallet login not started, the transaction store is full: alias={} realm={}",
+                    LogSafe.sanitize(config.alias()), LogSafe.sanitize(context.realmId()));
+            return new RedirectResponse(walletPage + "/unavailable", Map.of());
+        }
         LOG.info("Wallet login started: alias={} realm={} tx={}", LogSafe.sanitize(config.alias()),
                 LogSafe.sanitize(context.realmId()), tx.transactionId());
-        return new RedirectResponse("/realms/" + segment(context.realmId()) + "/broker/" + segment(config.alias())
-                + "/wallet?tx=" + tx.transactionId(), Map.of());
+        return new RedirectResponse(walletPage + "?tx=" + tx.transactionId(), Map.of());
     }
 
     /** The ephemeral response-decryption key of one transaction (private part included; the store drops it). */
@@ -177,6 +187,21 @@ public final class WalletIdentityProvider implements IdentityProvider {
 
     @Override
     public BrokeredIdentity callback(final CallbackContext context) {
+        final WalletTransaction tx = redeemTransaction(context);
+        return VerifiedIdentityJson.read(config.alias(), tx.verifiedIdentityJson());
+    }
+
+    /**
+     * Task 18: what {@link #callback} redeems, with the account decision the response endpoint stored
+     * ({@link VerifiedIdentityJson#readLogin}); the broker hands it to {@link WalletLoginCompleter}. Same checks and
+     * refusals as {@link #callback}.
+     */
+    public VerifiedIdentityJson.StoredLogin redeem(final CallbackContext context) {
+        final WalletTransaction tx = redeemTransaction(context);
+        return VerifiedIdentityJson.readLogin(config.alias(), tx.verifiedIdentityJson());
+    }
+
+    private WalletTransaction redeemTransaction(final CallbackContext context) {
         final String code = context.parameters() == null ? null : context.parameters().get(RESPONSE_CODE_PARAM);
         if (blank(code)) {
             throw refused(WalletErrorCode.INVALID_RESPONSE, "the callback has no response_code", null);
@@ -194,10 +219,9 @@ public final class WalletIdentityProvider implements IdentityProvider {
             throw refused(WalletErrorCode.INVALID_RESPONSE, "the transaction belongs to another provider or realm",
                     tx.transactionId());
         }
-        final BrokeredIdentity identity = VerifiedIdentityJson.read(config.alias(), tx.verifiedIdentityJson());
         LOG.info("Wallet login redeemed: alias={} realm={} tx={}", LogSafe.sanitize(config.alias()),
                 LogSafe.sanitize(tx.realmId()), tx.transactionId());
-        return identity;
+        return tx;
     }
 
     private WalletVerificationException refused(final WalletErrorCode code, final String safeDetail,

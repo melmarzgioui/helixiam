@@ -16,6 +16,10 @@ import io.helixiam.authorization.amqp.federation.IdentityProviderRef;
 import io.helixiam.authorization.federation.saml.Saml2IdentityProvider;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
+import io.helixiam.authorization.federation.wallet.VerifiedIdentityJson;
+import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
+import io.helixiam.authorization.federation.wallet.WalletLinkService;
+import io.helixiam.authorization.federation.wallet.WalletLoginCompleter;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.common.log.LogSafe;
@@ -85,6 +89,8 @@ public class FederationBrokerController {
     private final IdentityProviderConfigPublisher idpConfig;
     private final String idpBaseUrl;
     private final Supplier<String> stateGenerator;
+    /** Task 18: completes EUDI wallet logins (account decision, JIT, link); without it a wallet callback is refused. */
+    private WalletLoginCompleter walletLoginCompleter;
 
     @org.springframework.beans.factory.annotation.Autowired
     public FederationBrokerController(final IdentityProviderRegistry registry, final IdentityBroker broker,
@@ -115,6 +121,12 @@ public class FederationBrokerController {
         this.idpConfig = idpConfig;
         this.idpBaseUrl = idpBaseUrl;
         this.stateGenerator = stateGenerator;
+    }
+
+    /** Task 18: the wallet-aware completion (setter, so the existing constructors and their callers stay as they are). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWalletLoginCompleter(final WalletLoginCompleter walletLoginCompleter) {
+        this.walletLoginCompleter = walletLoginCompleter;
     }
 
     @GetMapping("/broker/{alias}")
@@ -184,12 +196,24 @@ public class FederationBrokerController {
         session.removeAttribute(REQUEST_ID_ATTR + alias);
 
         final BrokeredIdentity identity;
+        VerifiedIdentityJson.StoredLogin walletLogin = null;
         try {
             final IdentityProvider provider = registry.get(alias);
             final IdentityProvider.CallbackContext context = new IdentityProvider.CallbackContext(
                     RealmContextHolder.get(), parameters(request), expectedState, expectedNonce,
                     callbackUri(alias), expectedRequestId, BrowserBinding.current(session, alias));
-            identity = provider.callback(context);
+            final WalletIdentityProvider wallet = WalletIdentityProvider.from(provider).orElse(null);
+            if (wallet != null) {
+                // Task 18: a wallet login carries the account decision made when the presentation was verified; it
+                // never goes through IdentityBroker (no email linking, no overwriting link).
+                if (walletLoginCompleter == null) {
+                    throw new IllegalStateException("EUDI wallet logins are not wired");
+                }
+                walletLogin = wallet.redeem(context);
+                identity = walletLogin.identity();
+            } else {
+                identity = provider.callback(context);
+            }
         } catch (final WalletVerificationException e) {
             // The browser only ever sees error=federation; which check failed is logged, never shown.
             LOG.warn("Federation: wallet callback refused for provider {}: reason={} detail={}",
@@ -201,6 +225,14 @@ public class FederationBrokerController {
             return LOGIN_ERROR;
         }
         BrowserBinding.clear(session, alias);
+
+        if (walletLogin != null) {
+            if (!(walletLogin.decision() instanceof WalletLinkService.Decision.Refused)) {
+                session.setAttribute(IDP_SOURCE_ATTR, alias);
+                session.setAttribute(IDP_SUBJECT_ATTR, identity.externalSubject());
+            }
+            return walletLoginCompleter.complete(alias, walletLogin, mapperConfigFor(alias), request, response);
+        }
 
         // B5: apply this provider's configured attribute/claim mappers during link/JIT provisioning.
         final BrokerResult result = broker.broker(identity, policy, mapperConfigFor(alias));

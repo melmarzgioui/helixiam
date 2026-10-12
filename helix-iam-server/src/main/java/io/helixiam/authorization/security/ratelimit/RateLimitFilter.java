@@ -35,27 +35,43 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final boolean enabled;
     /** servlet-path → endpoint-group limiter. The longest matching prefix wins. */
     private final Map<String, RateLimiter> limiters;
+    /**
+     * Task 18: groups limited for every HTTP method and keyed by client IP + group (not the full path): their paths
+     * carry fresh random ids (the EUDI wallet's {@code /oid4vp/...}), so a per-path key would never limit anything.
+     */
+    private final java.util.Set<String> anyMethodGroups;
 
     public RateLimitFilter(final boolean enabled, final Map<String, RateLimiter> limiters) {
+        this(enabled, limiters, java.util.Set.of());
+    }
+
+    public RateLimitFilter(final boolean enabled, final Map<String, RateLimiter> limiters,
+                           final java.util.Set<String> anyMethodGroups) {
         this.enabled = enabled;
         // Insertion-ordered so the most specific prefixes are listed first.
         this.limiters = new LinkedHashMap<>(limiters);
+        this.anyMethodGroups = java.util.Set.copyOf(anyMethodGroups);
     }
 
     @Override
     protected void doFilterInternal(final HttpServletRequest request, final HttpServletResponse response,
                                     final FilterChain chain) throws ServletException, IOException {
-        if (!enabled || !"POST".equalsIgnoreCase(request.getMethod())) {
+        if (!enabled) {
             chain.doFilter(request, response);
             return;
         }
         final String path = request.getServletPath();
-        final RateLimiter limiter = matchLimiter(path);
+        final String group = anyMethodGroup(path);
+        if (group == null && !"POST".equalsIgnoreCase(request.getMethod())) {
+            chain.doFilter(request, response);
+            return;
+        }
+        final RateLimiter limiter = group != null ? limiters.get(group) : matchLimiter(path);
         if (limiter == null) {
             chain.doFilter(request, response);
             return;
         }
-        final String key = clientIp(request) + "|" + path;
+        final String key = clientIp(request) + "|" + (group != null ? group : path);
         final RateLimiter.Decision decision = limiter.check(key);
         if (decision.allowed()) {
             chain.doFilter(request, response);
@@ -66,6 +82,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
         response.setContentType("text/plain;charset=UTF-8");
         response.getWriter().write("Too many requests. Try again in " + decision.retryAfterSeconds() + "s.");
+    }
+
+    /** The any-method group {@code path} belongs to ({@code <group>} or {@code <group>/...}), or null. */
+    private String anyMethodGroup(final String path) {
+        if (path == null) {
+            return null;
+        }
+        for (final String group : anyMethodGroups) {
+            if (path.equals(group) || path.startsWith(group + "/")) {
+                return group;
+            }
+        }
+        return null;
     }
 
     private RateLimiter matchLimiter(final String path) {

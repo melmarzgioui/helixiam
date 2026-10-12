@@ -219,6 +219,15 @@ class AuthorizationRequestFactoryTest {
         assertThat(header.getJWK()).isNull();
     }
 
+    /** Task 18: OpenID4VP §5.10, a wallet_nonce sent with a POST to the request_uri is echoed in the request. */
+    @Test
+    void walletNonce_isAddedOnlyWhenTheWalletSentOne() throws Exception {
+        assertThat(SignedJWT.parse(factory.signedRequestObject(tx(), hashConfig(), key, BASE, "wn-123"))
+                .getJWTClaimsSet().getStringClaim("wallet_nonce")).isEqualTo("wn-123");
+        assertThat(SignedJWT.parse(factory.signedRequestObject(tx(), hashConfig(), key, BASE))
+                .getJWTClaimsSet().getClaims()).doesNotContainKey("wallet_nonce");
+    }
+
     @Test
     void algComesFromTheKey() throws Exception {
         final TestPki.Leaf p384 = PKI.issueLeaf(TestPki.LeafSpec.defaults().withKeyType(TestPki.KeyType.EC_P384));

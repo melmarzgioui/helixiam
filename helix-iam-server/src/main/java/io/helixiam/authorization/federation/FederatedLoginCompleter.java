@@ -62,6 +62,8 @@ public class FederatedLoginCompleter {
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
+    /** Task 18: makes a connector's pending commit once the login has succeeded; absent → a pending commit refuses. */
+    private FederatedLoginCommit loginCommit;
 
     public FederatedLoginCompleter(final FlowExecutor flowExecutor, final AuthFlowPublisher authFlowPublisher,
                                    final AuthFlowMapper authFlowMapper,
@@ -74,6 +76,12 @@ public class FederatedLoginCompleter {
         this.sessionEstablisher = sessionEstablisher;
         this.spBaseUrl = spBaseUrl;
         this.sessionPolicyApplier = sessionPolicyApplier;
+    }
+
+    /** Task 18: the committer of {@link #complete(String, String, HttpServletRequest, HttpServletResponse, java.io.Serializable)}. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLoginCommit(final FederatedLoginCommit loginCommit) {
+        this.loginCommit = loginCommit;
     }
 
     /** Complete a federated login for the broker-resolved {@code userId}; returns the redirect view. */
@@ -98,6 +106,17 @@ public class FederatedLoginCompleter {
      */
     public String complete(final String userId, final String acr, final HttpServletRequest request,
                            final HttpServletResponse response) {
+        return complete(userId, acr, request, response, null);
+    }
+
+    /**
+     * Task 18: as {@link #complete(String, String, HttpServletRequest, HttpServletResponse)}, carrying a connector's
+     * {@code pendingCommit} ({@link FederatedLoginCommit}): made only once the post-broker flow has COMPLETED, right
+     * before the full session is established (here, or in {@code FlowController} after a step-up). A refused commit
+     * (or one with no committer wired) ends the login with no session; a FAILED flow never commits.
+     */
+    public String complete(final String userId, final String acr, final HttpServletRequest request,
+                           final HttpServletResponse response, final java.io.Serializable pendingCommit) {
         final UserCredentials user = sessionEstablisher.loadUser(userId);
         final Authentication fullAuthentication =
                 UsernamePasswordAuthenticationToken.authenticated(user, null, user.getAuthorities());
@@ -114,6 +133,9 @@ public class FederatedLoginCompleter {
             // therefore never leak into a later, unrelated login (which always gets its own fresh state).
             state.setPendingAcr(acr);
         }
+        if (pendingCommit != null) {
+            state.setPendingCommit(pendingCommit); // made by FlowController if this flow challenges first
+        }
         final FlowProgress progress = flowExecutor.begin(flow, state);
 
         final HttpSession session = request.getSession();
@@ -122,6 +144,15 @@ public class FederatedLoginCompleter {
 
         return switch (progress.type()) {
             case COMPLETED -> {
+                if (pendingCommit != null && (loginCommit == null || !loginCommit.commit(pendingCommit, userId))) {
+                    // Task 18: the login succeeded but its pending commit was refused (e.g. another account claimed
+                    // the wallet's number meanwhile): no session at all.
+                    session.removeAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+                    session.removeAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE);
+                    LOG.warn("Federated login for user {} refused: its pending commit was not accepted",
+                            LogSafe.sanitize(userId));
+                    yield LOGIN_ERROR;
+                }
                 request.changeSessionId(); // new sign-in, new session id (mirrors MagicLinkController)
                 sessionEstablisher.persist(fullAuthentication, request, response);
                 authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login

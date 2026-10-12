@@ -162,7 +162,8 @@ class WalletIdentityProviderTest {
         final IdentityProvider.RedirectResponse redirect = provider.start(startContext(bindingHash));
 
         assertThat(redirect.binding()).isEqualTo(IdentityProvider.Binding.REDIRECT);
-        assertThat(redirect.location()).startsWith("/realms/acme/broker/eudi-wallet/wallet?tx=");
+        // context-relative (Task 18): the broker's "redirect:" resolves it under /realms/acme
+        assertThat(redirect.location()).startsWith("/broker/eudi-wallet/wallet?tx=");
         final WalletTransaction tx = store.byTransactionId(txId(redirect)).orElseThrow();
         assertThat(tx.status()).isEqualTo(WalletTransaction.Status.CREATED);
         assertThat(tx.realmId()).isEqualTo(REALM);

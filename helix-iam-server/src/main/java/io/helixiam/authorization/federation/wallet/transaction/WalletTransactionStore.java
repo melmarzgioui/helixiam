@@ -29,7 +29,8 @@ public interface WalletTransactionStore {
      *
      * @throws IllegalArgumentException when the transaction is not a valid new transaction or its id already exists
      * @throws IllegalStateException when the store refuses to persist it (no at-rest encryption outside {@code dev},
-     *                               or the in-memory store is full)
+     *                               or the in-memory store is full: then a
+     *                               {@link WalletTransactionCapacityException}, which the wallet page shows as 503)
      */
     void create(WalletTransaction tx);
 

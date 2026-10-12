@@ -133,6 +133,7 @@ public abstract class AbstractE2eTest {
         // Every e2e request comes from 127.0.0.1; lift the per-IP login/token buckets so the suite never 429s.
         registry.add("helix.ratelimit.login.burst", () -> "100000");
         registry.add("helix.ratelimit.token.burst", () -> "100000");
+        registry.add("helix.ratelimit.wallet.burst", () -> "100000");
         registry.add("helix.e2e.forced-errors", () -> "true"); // ForcedErrorTestController
         registry.add("helix.e2e.capture-magic-links", () -> "true"); // CapturingMagicLinkSender
         registry.add("helix.e2e.capture-backchannel-logout", () -> "true"); // CapturingBackchannelPoster

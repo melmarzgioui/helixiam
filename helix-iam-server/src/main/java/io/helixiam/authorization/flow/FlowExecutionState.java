@@ -33,6 +33,11 @@ public class FlowExecutionState implements Serializable {
      * abandoned challenge's pending acr can never leak into a later, unrelated login.
      */
     private String pendingAcr;
+    /**
+     * Task 18: work a federated login may only do once it has fully succeeded ({@code FederatedLoginCommit}), held
+     * here while this flow is mid-CHALLENGE and made by {@code FlowController} when THIS flow completes.
+     */
+    private java.io.Serializable pendingCommit;
 
     public FlowExecutionState(final String realmId) {
         this.realmId = realmId;
@@ -86,5 +91,14 @@ public class FlowExecutionState implements Serializable {
 
     public void setPendingAcr(final String pendingAcr) {
         this.pendingAcr = pendingAcr;
+    }
+
+    /** The federated login's pending commit, made only when THIS flow completes ({@code FederatedLoginCommit}). */
+    public java.io.Serializable pendingCommit() {
+        return pendingCommit;
+    }
+
+    public void setPendingCommit(final java.io.Serializable pendingCommit) {
+        this.pendingCommit = pendingCommit;
     }
 }

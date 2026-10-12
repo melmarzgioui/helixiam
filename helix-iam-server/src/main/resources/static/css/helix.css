@@ -245,6 +245,83 @@ h1, h2, h3, h4 {
 .hx-break {
   word-break: break-all;
 }
+
+/* ------------------------------------------------- EUDI wallet sign-in (Task 18) -- */
+.hx-wallet-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: calc(var(--hx-space) * 5);
+}
+@media screen and (max-width: 600px) {
+  .hx-wallet-grid {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: calc(var(--hx-space) * 3);
+  }
+}
+.hx-wallet-qr {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--hx-space) * 1.5);
+}
+/* The QR code stays black on white in every theme and colour scheme: a scanner needs the contrast. */
+.hx-wallet-qr img {
+  display: block;
+  box-sizing: border-box;
+  width: 264px;
+  height: 264px;
+  max-width: 100%;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--hx-border);
+  border-radius: var(--hxi-radius-sm);
+}
+.hx-wallet-qr figcaption {
+  color: var(--hx-ink-muted);
+  font-size: 0.875rem;
+}
+.hx-wallet-device h2 {
+  font-family: var(--hx-font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--hx-ink);
+}
+.hx-wallet-device p {
+  margin: var(--hx-space) 0 0;
+}
+.mainWrapper > main > div.container article .hx-wallet-device .buttonHolder {
+  justify-content: flex-start;
+  margin-top: calc(var(--hx-space) * 2.5);
+}
+.hx-wallet-device .buttonHolder > a.button {
+  width: auto;
+  padding: 0 calc(var(--hx-space) * 5);
+}
+@media screen and (max-width: 600px) {
+  .mainWrapper > main > div.container article .hx-wallet-device .buttonHolder {
+    justify-content: center;
+  }
+  .hx-wallet-device .buttonHolder > a.button {
+    width: 100%;
+  }
+}
+.hx-wallet-status {
+  margin: 0;
+  padding: calc(var(--hx-space) * 1.5) calc(var(--hx-space) * 2);
+  border-radius: var(--hxi-radius-sm);
+  background: var(--hx-surface-sunken);
+  color: var(--hx-ink);
+}
+/* [hidden] must win over the buttons' and the grid's display rules (the polling script toggles it). */
+.hx-wallet [hidden],
+.buttonHolder > a.button[hidden] {
+  display: none;
+}
 .hx-alert {
   display: block;
   border-radius: var(--hxi-radius-sm);
@@ -335,7 +412,8 @@ form button.cancel:hover {
 .mainWrapper > main > div.container article .buttonHolder {
   margin-top: calc(var(--hx-space) * 4);
 }
-.buttonHolder > button.secondary > span {
+.buttonHolder > button.secondary > span,
+.buttonHolder > a.button.secondary > span {
   color: var(--hx-ink);
 }
 

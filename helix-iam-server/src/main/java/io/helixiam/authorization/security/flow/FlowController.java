@@ -49,6 +49,8 @@ public class FlowController {
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
+    /** Task 18: makes a federated login's pending commit when its step-up completes. */
+    private io.helixiam.authorization.federation.FederatedLoginCommit loginCommit;
 
     public FlowController(final FlowExecutor flowExecutor, final AuthFlowMapper authFlowMapper,
                           final MfaService mfaService, @Value("${sp.base.url}") final String spBaseUrl,
@@ -60,6 +62,12 @@ public class FlowController {
         this.spBaseUrl = spBaseUrl;
         this.rpId = rpId;
         this.sessionPolicyApplier = sessionPolicyApplier;
+    }
+
+    /** Task 18: the committer of a federated login's pending commit (absent → such a login is refused). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLoginCommit(final io.helixiam.authorization.federation.FederatedLoginCommit loginCommit) {
+        this.loginCommit = loginCommit;
     }
 
     @GetMapping("/flow")
@@ -109,6 +117,14 @@ public class FlowController {
 
         return switch (progress.type()) {
             case COMPLETED -> {
+                if (state.pendingCommit() != null
+                        && (loginCommit == null || !loginCommit.commit(state.pendingCommit(), state.userId()))) {
+                    // Task 18: a federated login whose pending commit is refused must not stay half signed in: drop
+                    // the session holding the MFA gate and the flow state.
+                    org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                    session.invalidate();
+                    yield REDIRECT_PREFIX + flowPath("/login?error=federation");
+                }
                 request.changeSessionId(); // post-broker step-up just completed: rotate before promoting the context
                 mfaService.unlockUser(); // restore the fully authenticated token
                 authTimeStamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
