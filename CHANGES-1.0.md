@@ -93,6 +93,12 @@ question. Newest first within each phase.
   enrolment, but the session was full. Both now keep the MFA gate and send the user to `/mfa/enable`, like the
   magic-link and legacy password paths. A federated sign-in also gets a new session id (`changeSessionId`) and drops
   any second-factor pass from an earlier sign-in in that session.
+- **docs** — eID minimum levels of assurance are documented in `docs/FEATURES.md` ("eID minimum level of
+  assurance"): the keywords and URNs each scheme accepts, and the classic DigiD workaround: store the
+  `urn:oasis:names:tc:SAML:2.0:ac:classes:*` class itself as the minimum through the console's "Other (custom)"
+  minimum-level field, since a keyword such as `loa3` is requested as an `urn:nl-eid-gdi` URN that a Koppelvlak
+  endpoint is unlikely to accept. The DigiD mapping (both the oasis classes and the `urn:nl-eid-gdi:1.0:LoA:*` URNs)
+  still has to be confirmed against the current Logius documentation.
 
 ## v1.0.0-rc.7 (security hotfix)
 
