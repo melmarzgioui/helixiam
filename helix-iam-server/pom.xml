@@ -422,6 +422,17 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- Task 25: runs io.helixiam.testwallet.TestWalletCli (src/test/java, never in the main jar or the
+                 server image) as a small standalone tool for the sandbox "Sign in with EUDI Wallet" demo. No
+                 execution is bound to a lifecycle phase, so `mvn package`/the Docker build never invokes it; it is
+                 only ever run explicitly:
+                 mvn -q -pl helix-iam-server exec:java -Dexec.classpathScope=test \
+                   -Dexec.mainClass=io.helixiam.testwallet.TestWalletCli -Dexec.args="..." -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.6.4</version>
+            </plugin>
             <!-- rc.6 item 1: the e2e context uses the Redis session store. This second run starts its own
                  JVM + context with the queue (PostgreSQL) store, as `HELIX_SESSION_STORE=queue` does in
                  production, and repeats the browser tests whose sessions carry the most state: the account
