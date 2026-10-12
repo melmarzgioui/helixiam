@@ -419,7 +419,8 @@ listed claim (`DcqlQueryBuilder`, `DcqlResultMatcher`).
   so this is documented here and on `WalletProviderConfig.Subject` instead of being reported as a warning.
 - The per-realm pepper (`realm_wallet_pepper`) is created encrypted with `DB_ENCRYPTION`. In the `dev` profile it may
   be created in plaintext; such a pepper **fails closed** once `DB_ENCRYPTION` is set (wallet sign-in errors for that
-  realm). It is never silently replaced; deleting the row creates a new pepper and orphans the realm's wallet links.
+  realm). The same happens when `DB_ENCRYPTION` changes or is rotated (there is no re-encryption of the pepper). It is
+  never silently replaced; deleting the row creates a new pepper and orphans the realm's wallet links.
 
 ### 1.5 Response modes, `direct_post`, `direct_post.jwt`, `redirect_uri`
 

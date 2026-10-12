@@ -35,8 +35,9 @@ import java.util.List;
  *   <li><b>Encrypted:</b> without {@code DB_ENCRYPTION} creation is refused ({@link IllegalStateException}) unless the
  *       {@code dev} profile is active ({@link DeploymentProfile}), where it is stored in plaintext with a warning.</li>
  *   <li><b>Dev plaintext fails closed:</b> a pepper created in plaintext under {@code dev} (no {@code DB_ENCRYPTION})
- *       is refused once {@code DB_ENCRYPTION} is set ({@link AttributeEncryption} would hand the undecryptable value
- *       back as-is, so it is detected explicitly): {@link #pepper} throws {@link IllegalStateException} and
+ *       is refused once {@code DB_ENCRYPTION} is set, and so is a pepper encrypted under a {@code DB_ENCRYPTION} key
+ *       that has since changed or rotated ({@link AttributeEncryption} would hand the undecryptable value back as-is,
+ *       so it is detected explicitly): {@link #pepper} throws {@link IllegalStateException} and
  *       wallet sign-in fails for that realm. It is never silently replaced (that would orphan every wallet link); an
  *       operator who promotes such a database deletes the realm's {@code realm_wallet_pepper} row, accepting that its
  *       wallet links and admin-number JIT links stop matching.</li>
@@ -128,9 +129,11 @@ public class RealmWalletPepper {
         final String column = rows.get(0);
         final String plain = encryption.convertToEntityAttribute(column);
         if (encrypted && column.equals(plain)) {
-            // AttributeEncryption hands back what it cannot decrypt as-is: this is a plaintext (dev) pepper.
-            throw new IllegalStateException("The stored wallet subject pepper is not encrypted (it was created "
-                    + "without DB_ENCRYPTION); refusing to use it");
+            // AttributeEncryption hands back what it cannot decrypt as-is: a plaintext (dev) pepper, or one encrypted
+            // under a DB_ENCRYPTION key that has since changed. Either way: fail closed.
+            throw new IllegalStateException("The stored wallet subject pepper cannot be decrypted with the current "
+                    + "DB_ENCRYPTION key: it was either created without DB_ENCRYPTION (dev), or DB_ENCRYPTION has "
+                    + "changed or rotated since; refusing to use it");
         }
         final byte[] pepper;
         try {

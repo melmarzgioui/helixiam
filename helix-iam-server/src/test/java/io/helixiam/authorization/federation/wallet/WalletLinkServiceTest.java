@@ -272,16 +272,62 @@ class WalletLinkServiceTest extends AbstractE2eTest {
     // ------------------------------------------------------------------------------------------- upgrade (ruling 1)
 
     @Test
-    void upgrade_numberUnlinked_tupleLinked_signsInAsTheTupleUser_andAddsTheNumberLink() {
+    void upgrade_decideIsPure_returnsTheTupleUserWithAPendingNumberLink_andCommitCreatesIt() {
         final String erika = user("erika");
         links.link(realm, erika, alias, subject("Erika", "Mustermann", null));
         final WalletSubject number = subject("Erika", "Mustermann", "123");
-
-        assertThat(links.decide(realm, alias, number, JIT)).isEqualTo(new WalletLinkService.Decision.Existing(erika));
-
         final WalletSubject numberOnly = new WalletSubject.AdminNumber(value(number), null);
+
+        final WalletLinkService.Decision decision = links.decide(realm, alias, number, JIT);
+
+        assertThat(decision).isEqualTo(new WalletLinkService.Decision.Existing(erika,
+                new WalletLinkService.PendingLink(realm, alias, value(number), erika)));
+        assertThat(links.find(realm, alias, numberOnly)).isEmpty();
+        assertThat(rows()).hasSize(1);
+
+        final WalletLinkService.PendingLink pending =
+                ((WalletLinkService.Decision.Existing) decision).pendingNumberLink();
+        assertThat(links.commitPendingLink(pending)).contains(erika);
+
         assertThat(links.find(realm, alias, numberOnly)).contains(erika);
         assertThat(rows()).hasSize(2);
+        assertThat(links.commitPendingLink(pending)).contains(erika); // idempotent
+        assertThat(rows()).hasSize(2);
+    }
+
+    @Test
+    void upgrade_aCommitThatRacesAConcurrentNumberOwner_returnsTheWinner() {
+        final String erika = user("erika");
+        final String bert = user("bert");
+        links.link(realm, erika, alias, subject("Erika", "Mustermann", null));
+        final WalletSubject number = subject("Erika", "Mustermann", "123");
+        final WalletLinkService.PendingLink pending =
+                ((WalletLinkService.Decision.Existing) links.decide(realm, alias, number, JIT)).pendingNumberLink();
+        // between decide and commit, the number is linked to someone else
+        links.link(realm, bert, alias, new WalletSubject.AdminNumber(value(number), null));
+
+        assertThat(links.commitPendingLink(pending)).contains(bert);
+        assertThat(links.find(realm, alias, new WalletSubject.AdminNumber(value(number), null))).contains(bert);
+    }
+
+    @Test
+    void decide_neverWrites_onAnyPath() {
+        final String erika = user("erika");
+        final String bert = user("bert");
+        links.link(realm, erika, alias, subject("Erika", "Mustermann", null));
+        links.link(realm, bert, alias, subject("Bert", "Mustermann", "456"));
+        final List<Map<String, Object>> before = rows();
+
+        // upgrade path, linked number, linked tuple, JIT number, refused number, refused tuple, unavailable
+        links.decide(realm, alias, subject("Erika", "Mustermann", "123"), JIT);
+        links.decide(realm, alias, subject("Bert", "Mustermann", "456"), JIT);
+        links.decide(realm, alias, subject("Erika", "Mustermann", null), JIT);
+        links.decide(realm, alias, subject("Hans", "Mustermann", "789"), JIT);
+        links.decide(realm, alias, subject("Hans", "Mustermann", "789"), NO_JIT);
+        links.decide(realm, alias, subject("Hans", "Mustermann", null), JIT);
+        links.decide(realm, alias, new WalletSubject.Unavailable(WalletSubject.Reason.LINK_REQUIRED), JIT);
+
+        assertThat(rows()).containsExactlyInAnyOrderElementsOf(before);
     }
 
     @Test

@@ -139,7 +139,18 @@ class RealmWalletPepperTest extends AbstractE2eTest {
         store(null, DeploymentProfile.development()).pepper(realm);
 
         assertThatThrownBy(() -> store(KEY, DeploymentProfile.production()).pepper(realm))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("without DB_ENCRYPTION").hasMessageContaining("changed or rotated");
+        assertThat(rows(realm)).isEqualTo(1);
+    }
+
+    @Test
+    void aPepperEncryptedWithAnotherKey_failsClosed() {
+        store(KEY, DeploymentProfile.production()).pepper(realm);
+
+        assertThatThrownBy(() -> store("fedcba9876543210fedcba9876543210", DeploymentProfile.production())
+                .pepper(realm))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("changed or rotated");
         assertThat(rows(realm)).isEqualTo(1);
     }
 
