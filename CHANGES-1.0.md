@@ -55,6 +55,8 @@ question. Newest first within each phase.
   from any other peer they are removed. **Operators:** behind a TLS-terminating ingress or load balancer,
   `HELIX_TRUSTED_PROXIES` (Helm: `config.trustedProxies`) is now required: without it the server sees plain HTTP and the
   issuer and redirects become `http://`. A startup warning says so when `IDP_BASE_URL` is https and the list is empty.
+- **security** — eHerkenning EH2+ (`loa2plus`) ranked the same as EH2, so a connection with minimum `loa2plus` accepted
+  a plain EH2 assertion. EH2+ now has its own rung between EH2 and EH3 (the ladders are spaced by 10 internally).
 
 ## v1.0.0-rc.7 (security hotfix)
 

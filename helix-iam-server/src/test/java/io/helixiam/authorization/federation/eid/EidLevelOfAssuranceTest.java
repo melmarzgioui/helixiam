@@ -22,9 +22,9 @@ class EidLevelOfAssuranceTest {
 
     @Test
     void eidasUrnsMapToTheirRungInOrder() {
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/low")).isEqualTo(1);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/substantial")).isEqualTo(2);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/high")).isEqualTo(3);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/low")).isEqualTo(10);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/substantial")).isEqualTo(20);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EIDAS, "http://eidas.europa.eu/LoA/high")).isEqualTo(30);
     }
 
     @Test
@@ -39,10 +39,10 @@ class EidLevelOfAssuranceTest {
 
     @Test
     void digidUrnsMapToTheirRungInOrder() {
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Low")).isEqualTo(1);         // Basis
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Midden")).isEqualTo(2);      // Midden
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Substantial")).isEqualTo(3); // Substantieel
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High")).isEqualTo(4);        // Hoog
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Low")).isEqualTo(10);         // Basis
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Midden")).isEqualTo(20);      // Midden
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Substantial")).isEqualTo(30); // Substantieel
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High")).isEqualTo(40);        // Hoog
     }
 
     @Test
@@ -55,9 +55,9 @@ class EidLevelOfAssuranceTest {
 
     @Test
     void eherkenningUrnsMapToTheirRung() {
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa2")).isEqualTo(2);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa3")).isEqualTo(3);
-        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa4")).isEqualTo(4);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa2")).isEqualTo(20);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa3")).isEqualTo(30);
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, "urn:etoegang:core:assurance-class:loa4")).isEqualTo(40);
         assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING,
                 "urn:etoegang:core:assurance-class:loa3", "urn:etoegang:core:assurance-class:loa3")).isTrue();
     }
@@ -134,10 +134,10 @@ class EidLevelOfAssuranceTest {
 
     @Test
     void classicDigidClassesSitOnTheDigidLadder() {
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, PPT)).isEqualTo(1);           // Basis
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, MOBILE_2F)).isEqualTo(2);     // Midden
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD)).isEqualTo(3);     // Substantieel
-        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD_PKI)).isEqualTo(4); // Hoog
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, PPT)).isEqualTo(10);           // Basis
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, MOBILE_2F)).isEqualTo(20);     // Midden
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD)).isEqualTo(30);     // Substantieel
+        assertThat(EidLevelOfAssurance.rung(EidScheme.DIGID, SMARTCARD_PKI)).isEqualTo(40); // Hoog
     }
 
     @Test
@@ -170,5 +170,28 @@ class EidLevelOfAssuranceTest {
                 "urn:etoegang:core:assurance-class:loa3", "loa3")).isTrue();
         assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EIDAS,
                 "http://eidas.europa.eu/LoA/substantial", "substantial")).isTrue();
+    }
+
+    // --- eHerkenning EH2+ sits between EH2 and EH3 --------------------------------------------------
+
+    private static final String EH2 = "urn:etoegang:core:assurance-class:loa2";
+    private static final String EH2_PLUS = "urn:etoegang:core:assurance-class:loa2plus";
+    private static final String EH3 = "urn:etoegang:core:assurance-class:loa3";
+
+    @Test
+    void eherkenningLoa2plus_isItsOwnRung_betweenLoa2AndLoa3() {
+        assertThat(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, EH2_PLUS))
+                .isGreaterThan(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, EH2))
+                .isLessThan(EidLevelOfAssurance.rung(EidScheme.EHERKENNING, EH3));
+    }
+
+    @Test
+    void aLoa2Assertion_doesNotMeetALoa2plusMinimum() {
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2, "loa2plus")).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2, EH2_PLUS)).isFalse();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2_PLUS, "loa2plus")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2_PLUS, "loa2")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH3, "loa2plus")).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.EHERKENNING, EH2_PLUS, "loa3")).isFalse();
     }
 }
