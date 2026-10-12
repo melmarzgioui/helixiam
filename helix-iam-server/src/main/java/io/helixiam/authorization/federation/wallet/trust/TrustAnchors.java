@@ -69,17 +69,29 @@ public record TrustAnchors(Set<TrustAnchor> anchors, List<X509Certificate> pinne
     }
 
     private static void requireCaAnchor(final X509Certificate cert) {
+        final String problem = trustAnchorProblem(cert);
+        if (problem != null) {
+            throw new IllegalArgumentException(problem);
+        }
+    }
+
+    /**
+     * Why {@code cert} cannot be a trust anchor ({@link #fromPem}'s rule: a CA certificate whose key usage, if any,
+     * allows certificate signing, with an allowed key), or {@code null} when it can. The admin console's certificate
+     * preview shows it per certificate.
+     */
+    public static String trustAnchorProblem(final X509Certificate cert) {
         if (cert.getBasicConstraints() < 0) {
-            throw new IllegalArgumentException("A trust anchor is not a CA certificate");
+            return "A trust anchor is not a CA certificate";
         }
         final boolean[] keyUsage = cert.getKeyUsage();
         if (keyUsage != null && (keyUsage.length <= KEY_CERT_SIGN || !keyUsage[KEY_CERT_SIGN])) {
-            throw new IllegalArgumentException("A trust anchor's key usage does not allow certificate signing");
+            return "A trust anchor's key usage does not allow certificate signing";
         }
         if (!IssuerTrustValidator.allowedKey(cert.getPublicKey())) {
-            throw new IllegalArgumentException(
-                    "A trust anchor's key type or size is not allowed (EC P-256/P-384/P-521 or RSA >= 2048)");
+            return "A trust anchor's key type or size is not allowed (EC P-256/P-384/P-521 or RSA >= 2048)";
         }
+        return null;
     }
 
     private static List<X509Certificate> parse(final String pem, final String what) {

@@ -64,6 +64,17 @@ class DcqlQueryBuilderTest {
     }
 
     @Test
+    void pidClaimCatalogue_listsEveryRequestableClaim_inOrder_withItsMdocAvailability() {
+        // Task 24: the console's claim picker reads this catalogue (GET /admin/realms/{r}/wallet/metadata).
+        final java.util.Map<String, Boolean> catalogue = DcqlQueryBuilder.pidClaimCatalogue();
+        assertThat(catalogue.keySet()).startsWith("family_name", "given_name", "birthdate", "place_of_birth")
+                .contains("personal_administrative_number", "issuing_country", "address.house_number")
+                .allMatch(DcqlQueryBuilder::isPidClaim);
+        assertThat(catalogue).containsEntry("address.house_number", false).containsEntry("given_name", true);
+        assertThat(catalogue).hasSize(27);
+    }
+
+    @Test
     void bothFormatsGiveTheNotesPresetExactly() throws Exception {
         assertThat((JsonNode) build(PRESET, List.of(SD_JWT, MDOC))).isEqualTo(json("""
                 { "credentials": [ %s, %s ],

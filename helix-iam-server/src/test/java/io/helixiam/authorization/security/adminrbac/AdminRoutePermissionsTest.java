@@ -45,6 +45,19 @@ class AdminRoutePermissionsTest {
     }
 
     @Test
+    void walletVerifierKeysAndWalletMetadata_requireManageIdentityProviders() {
+        // Task 24: the verifier access keys and the wallet console helpers belong to identity-provider management.
+        for (final String method : new String[] {"GET", "POST"}) {
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov/verifier-keys", method))
+                    .contains("manage-identity-providers");
+        }
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/wallet/metadata", "GET"))
+                .contains("manage-identity-providers");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/wallet/certificates/preview", "POST"))
+                .contains("manage-identity-providers");
+    }
+
+    @Test
     void sessionsGroup_splitsViewVsManage() {
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/sessions", "GET")).contains("view-events");
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/sessions/s-1", "DELETE")).contains("manage-events");

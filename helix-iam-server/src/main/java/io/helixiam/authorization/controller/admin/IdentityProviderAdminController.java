@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -191,7 +192,10 @@ public class IdentityProviderAdminController {
 
     private static IdentityProviderConfig toConfig(final String realmId, final String alias,
                                                    final IdentityProviderRequest request) {
-        return new IdentityProviderConfig(realmId, alias, request.protocol(), request.displayName(),
+        // Task 19 carry-over: the protocol is stored trimmed and lower-case, so every lookup by protocol
+        // (ProviderSecretKeys.keysFor, the provider factory, the console) sees the canonical value.
+        return new IdentityProviderConfig(realmId, alias, request.protocol().trim().toLowerCase(Locale.ROOT),
+                request.displayName(),
                 request.enabled(), request.config() == null ? Map.of() : request.config());
     }
 }

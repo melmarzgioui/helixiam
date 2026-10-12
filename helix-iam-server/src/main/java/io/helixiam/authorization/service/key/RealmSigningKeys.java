@@ -13,11 +13,20 @@ package io.helixiam.authorization.service.key;
  *
  * <p>Errors: a malformed reference or invalid import input is an {@link IllegalArgumentException} (with a message
  * fit for an admin); a reference to a key that does not exist <em>in the given realm</em> (including another realm's
- * key) is a {@link java.util.NoSuchElementException} ("not found").
+ * key) is a {@link java.util.NoSuchElementException} ("not found"). An import refusal is a {@link KeyImportException}
+ * (an {@code IllegalArgumentException} naming the form field it belongs to).
  */
 public interface RealmSigningKeys {
     /** "software:<realm>/<name>" now; "pkcs11:" / "kms:" refs are rejected with a clear message (seam for later). */
     SigningKeyHandle resolve(String realmId, String keyRef);
     /** Admin upload of a key + chain (software store, DB-encrypted). Returns the keyRef. */
     String importKey(String realmId, String name, String privateKeyPem, String certificateChainPem);
+
+    /**
+     * The keys stored for {@code realmId}, oldest first, public parts only (the admin console's key picker). A backend
+     * whose keys cannot be enumerated (an HSM / KMS seam) lists none.
+     */
+    default java.util.List<SigningKeySummary> list(final String realmId) {
+        return java.util.List.of();
+    }
 }

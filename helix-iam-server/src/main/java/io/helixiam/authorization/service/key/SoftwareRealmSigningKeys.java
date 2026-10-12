@@ -222,33 +222,35 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
                             final String certificateChainPem) {
         requireRealm(realmId);
         if (name == null || !NAME.matcher(name).matches()) {
-            throw new IllegalArgumentException("Key name must be 1-64 characters of A-Z, a-z, 0-9, '.', '_' or '-'");
+            throw new KeyImportException(KeyImportException.NAME,
+                    "Key name must be 1-64 characters of A-Z, a-z, 0-9, '.', '_' or '-'");
         }
         if (privateKeyPem == null || privateKeyPem.isBlank()) {
-            throw new IllegalArgumentException("A PEM private key is required");
+            throw new KeyImportException(KeyImportException.PRIVATE_KEY, "A PEM private key is required");
         }
         if (certificateChainPem == null || certificateChainPem.isBlank()) {
-            throw new IllegalArgumentException("A PEM certificate chain is required");
+            throw new KeyImportException(KeyImportException.CHAIN, "A PEM certificate chain is required");
         }
         if (!encrypted) {
             if (!profile.isDev()) {
-                throw new IllegalArgumentException("Database encryption is not configured: set DB_ENCRYPTION before "
-                        + "importing a verifier signing key");
+                throw new KeyImportException(KeyImportException.PRIVATE_KEY, "Database encryption is not configured: "
+                        + "set DB_ENCRYPTION before importing a verifier signing key");
             }
             LOG.warn("DB_ENCRYPTION is not set: storing verifier signing key realm={} name={} UNENCRYPTED (dev profile)",
                     LogSafe.sanitize(realmId), LogSafe.sanitize(name));
         }
-        final PrivateKey privateKey = parsePrivateKey(privateKeyPem);
+        final PrivateKey privateKey = field(KeyImportException.PRIVATE_KEY, () -> parsePrivateKey(privateKeyPem));
         if ("RSA".equalsIgnoreCase(privateKey.getAlgorithm())) {
-            throw new IllegalArgumentException("RSA keys are not supported for verifier access certificates; "
-                    + "use an EC P-256, P-384 or P-521 key");
+            throw new KeyImportException(KeyImportException.PRIVATE_KEY, "RSA keys are not supported for verifier "
+                    + "access certificates; use an EC P-256, P-384 or P-521 key");
         }
         if (!(privateKey instanceof ECPrivateKey ec)) {
-            throw new IllegalArgumentException("Unsupported private key type " + privateKey.getAlgorithm()
-                    + "; use an EC P-256, P-384 or P-521 key");
+            throw new KeyImportException(KeyImportException.PRIVATE_KEY, "Unsupported private key type "
+                    + privateKey.getAlgorithm() + "; use an EC P-256, P-384 or P-521 key");
         }
-        final JWSAlgorithm alg = algorithmFor(ec);
-        final List<X509Certificate> chain = validateChain(parseChain(certificateChainPem), ec, alg);
+        final JWSAlgorithm alg = field(KeyImportException.PRIVATE_KEY, () -> algorithmFor(ec));
+        final List<X509Certificate> chain = field(KeyImportException.CHAIN,
+                () -> validateChain(parseChain(certificateChainPem), ec, alg));
 
         final String encrypted = encryption.convertToDatabaseColumn(toPkcs8Pem(privateKey));
         try {
@@ -256,11 +258,49 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
                     + "private_key, certificate_chain_pem) VALUES (?, ?, ?, ?, ?)", realmId, name, alg.getName(),
                     encrypted, toPem(chain)));
         } catch (final DuplicateKeyException e) {
-            throw new IllegalArgumentException("A signing key named '" + name + "' already exists in this realm");
+            throw new KeyImportException(KeyImportException.NAME,
+                    "A signing key named '" + name + "' already exists in this realm");
         }
         LOG.info("Imported verifier signing key realm={} name={} alg={} subject={}", LogSafe.sanitize(realmId),
                 LogSafe.sanitize(name), alg, LogSafe.sanitize(chain.get(0).getSubjectX500Principal().getName()));
         return SOFTWARE_SCHEME + realmId + "/" + name;
+    }
+
+    /** Runs an import step; an {@link IllegalArgumentException} it throws is reported on {@code field}. */
+    private static <T> T field(final String field, final java.util.function.Supplier<T> step) {
+        try {
+            return step.get();
+        } catch (final KeyImportException e) {
+            throw e;
+        } catch (final IllegalArgumentException e) {
+            throw new KeyImportException(field, e.getMessage());
+        }
+    }
+
+    /**
+     * The keys of {@code realmId}, oldest first, with their stored (x5c) chains; the private key column is never read.
+     * A row whose chain cannot be parsed any more is left out (with a warning naming realm and key only).
+     */
+    @Override
+    public List<SigningKeySummary> list(final String realmId) {
+        requireRealm(realmId);
+        final List<SigningKeySummary> out = new ArrayList<>();
+        final List<Object[]> rows = readTx.execute(s -> jdbc.query("SELECT name, alg, certificate_chain_pem, created_at "
+                + "FROM verifier_signing_key WHERE realm_id = ? ORDER BY created_at, name",
+                (rs, i) -> new Object[] {rs.getString(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4)},
+                realmId));
+        for (final Object[] row : rows == null ? List.<Object[]>of() : rows) {
+            final String name = (String) row[0];
+            try {
+                final java.sql.Timestamp created = (java.sql.Timestamp) row[3];
+                out.add(new SigningKeySummary(SOFTWARE_SCHEME + realmId + "/" + name, name, (String) row[1],
+                        parseChain((String) row[2]), created == null ? null : created.toInstant()));
+            } catch (final IllegalArgumentException e) {
+                LOG.warn("Stored verifier signing key has an unreadable chain realm={} name={}",
+                        LogSafe.sanitize(realmId), LogSafe.sanitize(name));
+            }
+        }
+        return out;
     }
 
     /** Leaf-first chain checks; returns the chain to store (without a trailing trust anchor). */

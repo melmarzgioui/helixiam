@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { fromIdpResponse, secretWriteConfig, idpSecretKeys } from "./idpSecrets";
+import { fromIdpResponse, secretWriteConfig, idpSecretKeys, clearFlag } from "./idpSecrets";
 
 describe("fromIdpResponse", () => {
   it("moves the <key>Set flags out of config into secretsSet", () => {
@@ -52,5 +52,17 @@ describe("idpSecretKeys", () => {
     expect(idpSecretKeys("DigiD")).toEqual(["spDecryptionPrivateKey", "spSigningPrivateKey"]);
     expect(idpSecretKeys("ldap")).toContain("bindPassword");
     expect(idpSecretKeys("saml")).toEqual([]);
+  });
+});
+
+describe("clearFlag", () => {
+  it("names the write flag that removes a stored secret, as the server does", () => {
+    expect(clearFlag("clientSecret")).toBe("clearClientSecret");
+    expect(clearFlag("accessCertificatePrivateKey")).toBe("clearAccessCertificatePrivateKey");
+  });
+
+  it("is sent as is (it is not a secret value)", () => {
+    expect(secretWriteConfig({ clearAccessCertificatePrivateKey: "true", accessCertificatePrivateKey: "" }))
+      .toEqual({ clearAccessCertificatePrivateKey: "true" });
   });
 });

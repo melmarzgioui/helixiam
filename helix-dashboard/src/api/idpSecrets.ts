@@ -55,3 +55,8 @@ export function secretWriteConfig(config: Record<string, string>): Record<string
   }
   return out;
 }
+
+/** The write flag that removes a stored secret: `clientSecret` → `clearClientSecret` (ProviderSecretKeys.clearFlag). */
+export function clearFlag(key: string): string {
+  return `clear${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+}

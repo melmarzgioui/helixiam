@@ -65,7 +65,9 @@ public final class AdminRoutePermissions {
             case "users" -> read ? VIEW_USERS : MANAGE_USERS;
             case "clients", "applications", "saml-clients", "client-scopes" -> read ? VIEW_CLIENTS : MANAGE_CLIENTS;
             case "claims" -> MANAGE_AUTHORIZATION;
-            case "identity-providers" -> MANAGE_IDENTITY_PROVIDERS;
+            // Task 24: the EUDI wallet's verifier access keys and the wallet form's helpers (metadata, certificate
+            // preview) are identity-provider management, read and write.
+            case "identity-providers", "verifier-keys", "wallet" -> MANAGE_IDENTITY_PROVIDERS;
             case "groups", "organizations" -> MANAGE_ORGANIZATIONS;
             case "flows", "authenticators", "authorization" -> MANAGE_AUTHORIZATION;
             case "sessions" -> read ? VIEW_EVENTS : MANAGE_EVENTS;

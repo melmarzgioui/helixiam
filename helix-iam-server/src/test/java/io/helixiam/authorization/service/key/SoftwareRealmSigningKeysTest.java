@@ -340,6 +340,66 @@ class SoftwareRealmSigningKeysTest extends AbstractE2eTest {
                 .isInstanceOf(NoSuchElementException.class).hasMessageContaining("not found");
     }
 
+    // ---------------------------------------------------------------- Task 24: listing and field-tagged refusals
+
+    @Test
+    void list_returnsThisRealmsKeys_withTheirChains_neverTheOtherRealms() throws Exception {
+        final Pki pki = Pki.ec("secp256r1", "SHA256withECDSA");
+        final String ref = keys.importKey(realm, "listed", pem(pki.leafKey.getPrivate()), pem(pki.leaf) + pem(pki.ca));
+        final String other = E2eSeed.unique("vkeys-list-other");
+        keys.importKey(other, "elsewhere", pem(pki.leafKey.getPrivate()), pem(pki.leaf));
+
+        final java.util.List<SigningKeySummary> listed = keys.list(realm);
+        assertThat(listed).extracting(SigningKeySummary::name).containsExactly("listed");
+        final SigningKeySummary summary = listed.get(0);
+        assertThat(summary.keyRef()).isEqualTo(ref);
+        assertThat(summary.algorithm()).isEqualTo("ES256");
+        assertThat(summary.certificateChain()).containsExactly(pki.leaf); // the stored x5c chain, root dropped
+        assertThat(summary.createdAt()).isNotNull();
+        assertThat(summary.toString()).doesNotContain("PRIVATE");
+        assertThat(keys.list(E2eSeed.unique("vkeys-empty"))).isEmpty();
+    }
+
+    @Test
+    void importRefusals_nameTheFormFieldTheyBelongTo() throws Exception {
+        final Pki pki = Pki.ec("secp256r1", "SHA256withECDSA");
+        final String key = pem(pki.leafKey.getPrivate());
+        final String chain = pem(pki.leaf);
+        assertField(() -> keys.importKey(realm, "bad/name", key, chain), KeyImportException.NAME);
+        assertField(() -> keys.importKey(realm, "nokey", "not a pem", chain), KeyImportException.PRIVATE_KEY);
+        assertField(() -> keys.importKey(realm, "blankkey", " ", chain), KeyImportException.PRIVATE_KEY);
+        assertField(() -> keys.importKey(realm, "nochain", key, ""), KeyImportException.CHAIN);
+        assertField(() -> keys.importKey(realm, "badchain", key,
+                "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----"), KeyImportException.CHAIN);
+        assertField(() -> keys.importKey(realm, "mismatch", pem(ecKeyPair("secp256r1").getPrivate()), chain),
+                KeyImportException.CHAIN);
+
+        final KeyPair self = ecKeyPair("secp256r1");
+        final X509Certificate selfSigned = cert("CN=self", self, "CN=self", self.getPublic(), "SHA256withECDSA", false,
+                Instant.now().plus(Duration.ofDays(30)));
+        assertField(() -> keys.importKey(realm, "self", pem(self.getPrivate()), pem(selfSigned)),
+                KeyImportException.CHAIN);
+
+        final KeyPairGenerator gen = KeyPairGenerator.getInstance("EC", new BouncyCastleProvider());
+        gen.initialize(new ECGenParameterSpec("secp256k1"));
+        final String k1 = pem(gen.generateKeyPair().getPrivate());
+        assertField(() -> keys.importKey(realm, "k1", k1, chain), KeyImportException.PRIVATE_KEY);
+
+        keys.importKey(realm, "taken", key, chain);
+        assertField(() -> keys.importKey(realm, "taken", key, chain), KeyImportException.NAME);
+
+        final RealmSigningKeys production = new SoftwareRealmSigningKeys(context.getBean(JdbcTemplate.class),
+                context.getBean(PlatformTransactionManager.class), new AttributeEncryption(null),
+                DeploymentProfile.production());
+        assertField(() -> production.importKey(realm, "plain", key, chain), KeyImportException.PRIVATE_KEY);
+    }
+
+    private static void assertField(final org.assertj.core.api.ThrowableAssert.ThrowingCallable call,
+                                    final String field) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(KeyImportException.class,
+                e -> assertThat(e.field()).as(e.getMessage()).isEqualTo(field));
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private int rows(final String name) {

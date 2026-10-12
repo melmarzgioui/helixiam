@@ -248,4 +248,16 @@ class IdentityProviderAdminControllerTest {
         }
         verify(publisher, never()).save(any(IdentityProviderConfig.class));
     }
+
+    @Test
+    void theProtocolIsStoredNormalised_trimmedAndLowerCase() {
+        // Task 19 carry-over: ProviderSecretKeys.keysFor (and every runtime lookup) sees the canonical protocol.
+        when(publisher.save(any(IdentityProviderConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+        controller.create("gov", new IdentityProviderRequest("up", "  OIDC ", "Upstream", true, Map.of("clientId", "c")));
+        controller.update("gov", "up", new IdentityProviderRequest("up", "Oidc\t", "Upstream", true, Map.of()));
+
+        final ArgumentCaptor<IdentityProviderConfig> captor = ArgumentCaptor.forClass(IdentityProviderConfig.class);
+        verify(publisher, org.mockito.Mockito.times(2)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(IdentityProviderConfig::protocol).containsOnly("oidc");
+    }
 }

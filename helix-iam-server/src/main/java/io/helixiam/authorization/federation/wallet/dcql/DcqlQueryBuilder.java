@@ -113,6 +113,17 @@ public final class DcqlQueryBuilder {
     }
 
     /**
+     * Every PID claim this builder can request (canonical names, in the Rulebook order of {@link #isPidClaim}) and
+     * whether an mdoc PID has an element for it ({@code false}: requested from SD-JWT VC only). The admin console's
+     * claim picker reads it, so the console never offers a name the validator would refuse.
+     */
+    public static Map<String, Boolean> pidClaimCatalogue() {
+        final Map<String, Boolean> out = new LinkedHashMap<>();
+        PID_CLAIMS.forEach((name, element) -> out.put(name, element != null));
+        return Collections.unmodifiableMap(out);
+    }
+
+    /**
      * The PID preset for {@code formats} (a non-empty, duplicate-free list of {@code dc+sd-jwt} and/or
      * {@code mso_mdoc}). Returns a fresh JSON object to place in the request's {@code dcql_query}.
      *

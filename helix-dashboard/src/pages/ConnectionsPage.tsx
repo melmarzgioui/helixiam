@@ -17,6 +17,11 @@ import { ProviderWizard } from "../components/ProviderWizard";
 import { findProviderType } from "../components/providerCatalog";
 import { IdentityProviderApi, IdentityProviderConfig, toRequest, fromConfig } from "../api/client";
 import { useT } from "../i18n/LocaleContext";
+import { AdminApiError } from "../api/adminError";
+import { createWalletHttpClient, type WalletAdminApi } from "../api/wallet";
+import { isWalletProtocol } from "./walletProvider";
+
+const defaultWalletApi = createWalletHttpClient();
 
 export interface ConnectionsPageProps {
   api: IdentityProviderApi;
@@ -35,6 +40,8 @@ export interface ConnectionsPageProps {
   emptyMessage?: string;
   /** When provided, a row (or "Edit") navigates to a full detail page instead of opening the edit modal. */
   onOpen?: (alias: string) => void;
+  /** The EUDI wallet provider's admin API (access keys, claim catalogue); defaults to HTTP on this origin. */
+  walletApi?: WalletAdminApi;
 }
 
 interface Note {
@@ -44,7 +51,7 @@ interface Note {
 }
 
 /** E8.4/E8.3: the live "Identity providers" screen — premium + responsive. */
-export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, protocols, aboveContent, emptyTitle, emptyMessage, onOpen }: ConnectionsPageProps) {
+export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, protocols, aboveContent, emptyTitle, emptyMessage, onOpen, walletApi = defaultWalletApi }: ConnectionsPageProps) {
   const { t } = useT();
   const [allRows, setAllRows] = React.useState<IdentityProviderConfig[] | null>(null);
   const rows = allRows == null ? null : (protocols ? allRows.filter((c) => protocols.includes(c.protocol)) : allRows);
@@ -54,9 +61,11 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
   const [toDelete, setToDelete] = React.useState<IdentityProviderConfig | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [note, setNote] = React.useState<Note | null>(null);
+  // A refused save's fieldErrors, handed to the wizard so it shows them on its fields (it stays mounted while saving).
+  const [serverErrors, setServerErrors] = React.useState<Record<string, string> | null>(null);
 
   const editorOpen = wizardOpen || toEdit !== null;
-  const closeEditor = () => { setWizardOpen(false); setToEdit(null); };
+  const closeEditor = () => { setWizardOpen(false); setToEdit(null); setServerErrors(null); };
   // When a detail route is wired (onOpen), editing happens on a full page; otherwise fall back to the modal.
   const editConn = (c: IdentityProviderConfig) => (onOpen ? onOpen(c.alias) : setToEdit(c));
 
@@ -72,6 +81,7 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
 
   const submitWizard = async (result: Parameters<NonNullable<React.ComponentProps<typeof ProviderWizard>["onComplete"]>>[0]) => {
     setBusy(true);
+    setServerErrors(null);
     try {
       if (toEdit) {
         await api.update(realmId, toEdit.alias, toRequest(result));
@@ -83,6 +93,7 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
       closeEditor();
       reload();
     } catch (e: unknown) {
+      if (e instanceof AdminApiError && Object.keys(e.fieldErrors).length) setServerErrors({ ...e.fieldErrors });
       setNote({ tone: "error", title: t("connections.errSave"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
@@ -189,16 +200,18 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
       </PageBody>
 
       <Modal open={editorOpen} title={toEdit ? t("connections.modalEditTitle") : t("connections.modalAddTitle")} onClose={closeEditor} width={720}>
-        {busy ? (
-          <div className="hx-loadwrap"><Spinner size={28} label={t("connections.saving")} /></div>
-        ) : (
-          <ProviderWizard
-            key={toEdit?.alias ?? "new"}
-            initial={toEdit ? fromConfig(toEdit) : undefined}
-            onComplete={submitWizard}
-            onCancel={closeEditor}
-          />
-        )}
+        {/* The wizard stays mounted while saving, so a refused save keeps everything the admin entered. */}
+        <ProviderWizard
+          key={toEdit?.alias ?? "new"}
+          initial={toEdit ? fromConfig(toEdit) : undefined}
+          onComplete={submitWizard}
+          onCancel={closeEditor}
+          realmId={realmId}
+          walletApi={walletApi}
+          busy={busy}
+          serverErrors={serverErrors}
+        />
+        {busy && <div className="hx-loadwrap"><Spinner size={28} label={t("connections.saving")} /></div>}
       </Modal>
 
       <ConfirmDialog
@@ -219,12 +232,13 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
 }
 
 function kindOf(c: IdentityProviderConfig): ProviderKind {
+  if (isWalletProtocol(c.protocol)) return "wallet";
   const known: ProviderKind[] = ["digid", "eherkenning", "eidas", "oidc", "saml", "ldap", "google", "microsoft", "github"];
   return findProviderType(c.protocol)?.kind ?? (known.includes(c.protocol as ProviderKind) ? (c.protocol as ProviderKind) : "social");
 }
 
 function ProtocolTag({ protocol }: { protocol: string }) {
-  const label = protocol === "oidc" ? "OIDC" : protocol === "saml" || protocol === "ldap" ? protocol.toUpperCase() : "SAML2";
+  const label = isWalletProtocol(protocol) ? "OpenID4VP" : protocol === "oidc" ? "OIDC" : protocol === "saml" || protocol === "ldap" ? protocol.toUpperCase() : "SAML2";
   return <Badge tone="neutral">{label}</Badge>;
 }
 

@@ -536,3 +536,33 @@ td.hx-col-sticky { background: var(--bg); }
   .hx-dialog > footer { flex-direction: column-reverse; align-items: stretch; }
   .hx-dialog > footer > .hx-btn { width: 100%; justify-content: center; }
 }
+
+/* ---- EUDI Wallet provider form (WalletProviderForm.tsx) ---- */
+/* Uniform field rhythm for everything a wallet section stacks (fields, alerts, detail lists, badges, panels). */
+.hx-wallet .hx-section__body > *:not(:last-child) { margin-bottom: var(--field-gap); }
+.hx-wallet .hx-section__body > .hx-field:last-child { margin-bottom: 0; }
+/* A file picker that looks like a ghost button (the <input type=file> itself is visually hidden). */
+.hx-filebtn { cursor: pointer; }
+.hx-filebtn:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* An inline sub-form inside a section (the key import). */
+.hx-subpanel { display: grid; gap: 0; padding: var(--sp-4); border: 1px dashed var(--border); border-radius: var(--r-sm); background: var(--bg); }
+.hx-subpanel__head { display: grid; gap: .15rem; margin-bottom: var(--field-gap); }
+.hx-subpanel__head > strong { font: 600 .95rem var(--font); color: var(--fg); }
+.hx-subpanel > .hx-alert { margin-bottom: var(--field-gap); }
+/* Checkbox option grids (formats, PID claims) with a title + muted technical line per option. */
+.hx-optiongrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--sp-3) var(--sp-4); align-items: start; }
+.hx-optiongrid--claims { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.hx-optlabel { display: inline-grid; gap: .1rem; min-width: 0; }
+.hx-optlabel__sub { color: var(--fg-faint); font-size: .8rem; overflow-wrap: anywhere; }
+/* Trust-anchor certificate preview. */
+.hx-certpreview { display: grid; gap: var(--sp-2); }
+.hx-certlist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.hx-certlist__item { display: grid; gap: .3rem; padding: .75rem .9rem; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); min-width: 0; }
+.hx-certlist__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+.hx-certlist__head > strong { font: 600 .95rem var(--font); color: var(--fg); overflow-wrap: anywhere; }
+.hx-certlist__meta { display: flex; flex-wrap: wrap; gap: .25rem var(--sp-3); color: var(--fg-muted); font-size: .85rem; }
+.hx-certlist__dn { color: var(--fg-faint); font-size: .78rem; overflow-wrap: anywhere; }
+.hx-certlist__ok { color: var(--accent); font-size: .85rem; }
+.hx-certlist__item > .hx-field__error { margin-top: 0; }
+/* Wizard: the wallet steps stack full sections. */
+.hx-wizard__wallet { display: grid; gap: var(--stack-gap); }

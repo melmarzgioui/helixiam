@@ -21,6 +21,21 @@ import { findProviderType, AttributeMapper, ProtocolFamily } from "../components
 import { IdentityProviderApi, IdentityProviderConfig } from "../api/client";
 import { isEidScheme, eidFacilitatedConfig, EidScheme } from "../api/eidCatalog";
 import { useT } from "../i18n/LocaleContext";
+import { SecretInput } from "../components/SecretInput";
+import {
+  WalletAccessSection, WalletCredentialsSection, WalletPoliciesSection, useWalletData, walletContext,
+} from "../components/WalletProviderForm";
+import { AdminApiError } from "../api/adminError";
+import { clearFlag } from "../api/idpSecrets";
+import { createWalletHttpClient, type WalletAdminApi } from "../api/wallet";
+import {
+  DEFAULT_WALLET_FORM, DEV_KEY, clearEditedErrors, firstErrorSection, isWalletProtocol, splitWalletServerErrors,
+  validateWallet, walletConfigFromForm, walletFormFromConfig, walletFormsEqual, type WalletForm, type WalletSection,
+} from "./walletProvider";
+
+const defaultWalletApi = createWalletHttpClient();
+/** The detail page's tab for each part of the wallet form. */
+const WALLET_TAB: Record<WalletSection, string> = { general: "settings", access: "access", credentials: "credentials", policies: "policies" };
 
 export interface ConnectionDetailPageProps {
   api: IdentityProviderApi;
@@ -28,6 +43,8 @@ export interface ConnectionDetailPageProps {
   alias: string;
   onBack: () => void;
   onDeleted?: () => void;
+  /** The EUDI wallet provider's admin API (access keys, claim catalogue); defaults to HTTP on this origin. */
+  walletApi?: WalletAdminApi;
 }
 
 interface Note { tone: ToastTone; title: string; message?: string; }
@@ -35,6 +52,7 @@ interface Note { tone: ToastTone; title: string; message?: string; }
 /** Which protocol family a stored connection belongs to (eID schemes are SAML under the hood). */
 function familyOf(protocol: string): ProtocolFamily | "eid" {
   const p = protocol.toLowerCase();
+  if (isWalletProtocol(p)) return "wallet";
   if (isEidScheme(p)) return "eid";
   if (p === "saml" || p === "saml2") return "saml";
   if (p === "ldap" || p === "ad") return "ldap";
@@ -42,6 +60,7 @@ function familyOf(protocol: string): ProtocolFamily | "eid" {
 }
 
 function kindOf(protocol: string): ProviderKind {
+  if (isWalletProtocol(protocol)) return "wallet";
   const known: ProviderKind[] = ["digid", "eherkenning", "eidas", "oidc", "saml", "ldap", "google", "microsoft", "github"];
   return findProviderType(protocol)?.kind ?? (known.includes(protocol as ProviderKind) ? (protocol as ProviderKind) : "social");
 }
@@ -63,7 +82,7 @@ const parseMappers = (s?: string): AttributeMapper[] =>
  * Full-page identity-provider editor (replaces the edit modal). Exposes every backend-honored config key
  * per protocol — OIDC, SAML2 broker, LDAP, and the facilitated eID schemes (DigiD / eHerkenning / eIDAS).
  */
-export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }: ConnectionDetailPageProps) {
+export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, walletApi = defaultWalletApi }: ConnectionDetailPageProps) {
   const { t } = useT();
 
   const BINDINGS = [
@@ -90,6 +109,10 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
   // Write-only secrets: which ones are stored, and which ones the admin is replacing.
   const [secretsSet, setSecretsSet] = React.useState<Record<string, boolean>>({});
   const [replacing, setReplacing] = React.useState<Record<string, boolean>>({});
+  // EUDI wallet: the form model (pages/walletProvider.ts), its stored original, and a refused save's errors.
+  const [walletForm, setWalletForm] = React.useState<WalletForm>(DEFAULT_WALLET_FORM);
+  const [walletOriginal, setWalletOriginal] = React.useState<WalletForm>(DEFAULT_WALLET_FORM);
+  const [walletServer, setWalletServer] = React.useState<{ fields: Record<string, string>; other: string[] }>({ fields: {}, other: [] });
 
   const runSync = async () => {
     setSyncing(true);
@@ -116,6 +139,10 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
     setMappers(parseMappers(serial));
     setSecretsSet(c.secretsSet ?? {});
     setReplacing({});
+    const wf = walletFormFromConfig(rest);
+    setWalletForm(wf);
+    setWalletOriginal(wf);
+    setWalletServer({ fields: {}, other: [] });
   }, []);
 
   const reload = React.useCallback(() => {
@@ -127,6 +154,8 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
   React.useEffect(reload, [reload]);
 
   const family = loaded ? familyOf(loaded.protocol) : "oidc";
+  const isWallet = family === "wallet";
+  const wallet = useWalletData(walletApi, realmId, isWallet);
   const type = loaded ? findProviderType(loaded.protocol) : undefined;
   const scheme = (loaded && isEidScheme(loaded.protocol.toLowerCase()) ? loaded.protocol.toLowerCase() : (config.scheme || "")) as EidScheme | "";
   // Login-button preview mark: prefer the eID scheme inferred from the name/alias (eHerkenning/eIDAS are
@@ -141,15 +170,27 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
     const { [k]: _old, ...rest } = c;
     return v ? { ...rest, [k]: v } : rest;
   });
+  // Remove sends "clear<Key>": "true" (ProviderSecretKeys); the flag leaves the config again on undo.
+  const setClear = (k: string, on: boolean) => setConfig((c) => {
+    const { [k]: _value, [clearFlag(k)]: _flag, ...rest } = c;
+    return on ? { ...rest, [clearFlag(k)]: "true" } : rest;
+  });
   const secretProps = (k: string) => ({
-    value: config[k] ?? "", stored: !!secretsSet[k], replacing: !!replacing[k],
+    value: config[k] ?? "", stored: !!secretsSet[k], replacing: !!replacing[k], clearing: config[clearFlag(k)] === "true",
     onChange: (v: string) => setSecret(k, v),
     onReplace: (on: boolean) => { setReplacing((r) => ({ ...r, [k]: on })); if (!on) setSecret(k, ""); },
+    onClear: (on: boolean) => { setReplacing((r) => ({ ...r, [k]: false })); setClear(k, on); },
   });
+  const devKey = secretProps(DEV_KEY);
+  const patchWallet = (patch: Partial<WalletForm>) => {
+    setWalletForm((f) => ({ ...f, ...patch }));
+    setWalletServer((sv) => ({ ...sv, fields: clearEditedErrors(sv.fields, patch) }));
+  };
 
   const dirty = !!loaded && (
     displayName !== (loaded.displayName ?? "") ||
     enabled !== loaded.enabled ||
+    (isWallet && !walletFormsEqual(walletForm, walletOriginal)) ||
     JSON.stringify({ ...config, ...(serializeMappers(mappers) ? { mappers: serializeMappers(mappers) } : {}) }) !==
       JSON.stringify(loaded.config ?? {})
   );
@@ -170,22 +211,35 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
     return m;
   };
   const errs = missing();
-  const fieldErr = (k: string) => (attempted && errs.includes(k) ? t("connectionDetail.fieldRequired") : undefined);
+  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKey)) : {};
+  for (const k of errs) walletLocal[k] = "connectionDetail.fieldRequired";
+  const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
+  const fieldErr = (k: string) => (isWallet
+    ? (walletShown[k] ? t(walletShown[k]) : undefined)
+    : attempted && errs.includes(k) ? t("connectionDetail.fieldRequired") : undefined);
 
   const save = async () => {
     if (!loaded) return;
     setAttempted(true);
-    if (errs.length) { setTab("settings"); return; }
+    if (isWallet) {
+      const section = firstErrorSection(walletLocal);
+      if (section) { setTab(WALLET_TAB[section]); return; }
+    } else if (errs.length) { setTab("settings"); return; }
     setBusy(true);
     try {
       const serial = serializeMappers(mappers);
-      await api.update(realmId, alias, {
-        alias, protocol: loaded.protocol, displayName, enabled,
-        config: { ...config, ...(serial ? { mappers: serial } : {}) },
-      });
+      const body = isWallet ? walletConfigFromForm(walletForm, config) : { ...config, ...(serial ? { mappers: serial } : {}) };
+      await api.update(realmId, alias, { alias, protocol: loaded.protocol, displayName, enabled, config: body });
       setNote({ tone: "success", title: t("connectionDetail.toastSaved"), message: t("connectionDetail.toastSavedMsg", { name: displayName || alias }) });
       reload();
     } catch (e: unknown) {
+      if (isWallet && e instanceof AdminApiError && Object.keys(e.fieldErrors).length) {
+        // The server's 400 {message, fieldErrors}: on the fields, opening the tab of the first one.
+        const split = splitWalletServerErrors(e.fieldErrors);
+        setWalletServer(split);
+        const section = firstErrorSection(split.fields);
+        if (section) setTab(WALLET_TAB[section]);
+      }
       setNote({ tone: "error", title: t("connectionDetail.errSave"), message: String((e as Error).message ?? e) });
     } finally { setBusy(false); }
   };
@@ -226,7 +280,9 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
     </Page>
   );
 
-  const TABS = family === "oidc"
+  const TABS = isWallet
+    ? [{ id: "settings", label: t("connectionDetail.tabSettings") }, { id: "access", label: t("wallet.tab.access") }, { id: "credentials", label: t("wallet.tab.credentials") }, { id: "policies", label: t("wallet.tab.policies") }]
+    : family === "oidc"
     ? [{ id: "settings", label: t("connectionDetail.tabSettings") }, { id: "connection", label: t("connectionDetail.tabConnection") }, { id: "mappers", label: t("connectionDetail.tabMappers") }]
     : family === "saml"
       ? [{ id: "settings", label: t("connectionDetail.tabSettings") }, { id: "connection", label: t("connectionDetail.tabConnection") }, { id: "signing", label: t("connectionDetail.tabSigning") }, { id: "attributes", label: t("connectionDetail.tabAttributes") }]
@@ -234,7 +290,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
         ? [{ id: "settings", label: t("connectionDetail.tabSettings") }, { id: "eid", label: t("connectionDetail.tabEid") }, { id: "connection", label: t("connectionDetail.tabConnection") }, { id: "certs", label: t("connectionDetail.tabCerts") }]
         : [{ id: "settings", label: t("connectionDetail.tabSettings") }, { id: "connection", label: t("connectionDetail.tabConnection") }, { id: "search", label: t("connectionDetail.tabSearch") }];
 
-  const protoLabel = family === "eid" ? "SAML2 · eID" : family.toUpperCase();
+  const protoLabel = family === "eid" ? "SAML2 · eID" : isWallet ? t("wallet.protocolLabel") : family.toUpperCase();
 
   return (
     <Page>
@@ -260,6 +316,30 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted }:
 
       <PageBody>
         <Tabs tabs={TABS} value={tab} onChange={setTab} />
+
+        {isWallet && walletServer.other.length > 0 && (
+          <Alert tone="danger" title={t("wallet.serverErrors")}>{walletServer.other.join(" ")}</Alert>
+        )}
+        {isWallet && attempted && tab !== "settings" && Object.keys(walletLocal).length > 0 && (
+          <Alert tone="danger">{t("wallet.fixErrors")}</Alert>
+        )}
+        {isWallet && tab !== "settings" && wallet.error && <Alert tone="danger" title={t("wallet.errMeta")}>{wallet.error}</Alert>}
+        {isWallet && tab !== "settings" && !wallet.error && (!wallet.meta || !wallet.keys) && (
+          <div className="hx-loadwrap"><Spinner size={28} label={t("wallet.loadingMeta")} /></div>
+        )}
+        {isWallet && tab !== "settings" && wallet.meta && wallet.keys && (() => {
+          const props = {
+            realmId, api: walletApi, form: walletForm, onChange: patchWallet, errors: walletShown, meta: wallet.meta,
+            keys: wallet.keys, onKeyImported: wallet.addKey, original: walletOriginal, devKey,
+          };
+          return (
+            <div className="hx-stack hx-wallet">
+              {tab === "access" && <WalletAccessSection {...props} />}
+              {tab === "credentials" && <WalletCredentialsSection {...props} />}
+              {tab === "policies" && <WalletPoliciesSection {...props} />}
+            </div>
+          );
+        })()}
 
         {tab === "settings" && (
           <Section title={t("connectionDetail.sectionGeneralTitle")} description={t("connectionDetail.sectionGeneralDesc")}>
@@ -479,33 +559,6 @@ function MapperEditor({ mappers, setMappers, placeholderSource = "department" }:
         </div>
       ))}
       <div><Button variant="ghost" onClick={add}>{t("connectionDetail.mapperAddBtn")}</Button></div>
-    </div>
-  );
-}
-
-/**
- * A write-only identity-provider secret: "Set" / "Not set" and Replace, like the email settings. The stored value is
- * never shown or prefilled; an empty field is never sent, so the API keeps the stored secret.
- */
-function SecretInput({ label, value, stored, replacing, multiline, onChange, onReplace }: {
-  label: string; value: string; stored: boolean; replacing: boolean; multiline?: boolean;
-  onChange: (v: string) => void; onReplace: (on: boolean) => void;
-}) {
-  const { t } = useT();
-  const editing = !stored || replacing;
-  const pending = !!value.trim() && editing;
-  return (
-    <div className="hx-secretstate">
-      {pending
-        ? <Badge tone="accent">{t(stored ? "email.secret.pendingReplace" : "email.secret.pendingNew")}</Badge>
-        : stored ? <Badge tone="success">{t("email.secret.set")}</Badge> : <Badge tone="neutral">{t("email.secret.notSet")}</Badge>}
-      {editing && (multiline
-        ? <Textarea className="hx-mono" value={value} onChange={(e) => onChange(e.target.value)} rows={4} aria-label={label}
-            placeholder="-----BEGIN PRIVATE KEY-----…" spellCheck={false} />
-        : <Input type="password" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}
-            placeholder="••••••••" autoComplete="new-password" spellCheck={false} />)}
-      {stored && !replacing && <Button variant="ghost" onClick={() => onReplace(true)}>{t("email.secret.replace")}</Button>}
-      {stored && replacing && <Button variant="ghost" onClick={() => onReplace(false)}>{t("email.secret.keep")}</Button>}
     </div>
   );
 }

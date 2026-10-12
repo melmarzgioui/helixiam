@@ -6,7 +6,7 @@
 import { ProviderKind } from "./ProviderLogo";
 import { LoaLevel } from "./LoaBadge";
 
-export type ProtocolFamily = "oidc" | "saml" | "ldap";
+export type ProtocolFamily = "oidc" | "saml" | "ldap" | "wallet";
 
 /** One selectable assurance level for an eID scheme. */
 export interface LoaOption {
@@ -74,6 +74,8 @@ export const PROVIDER_TYPES: ProviderType[] = [
   { id: "digid", kind: "digid", name: "DigiD (CombiConnect)", description: "NL citizen eID — BSN via EncryptedID", protocol: "saml", defaultLoa: "substantial", loaOptions: DIGID_LOA, defaultLoaValue: "loa3", metadataImport: true },
   { id: "eherkenning", kind: "eherkenning", name: "eHerkenning", description: "NL business eID — KvK number", protocol: "saml", defaultLoa: "substantial", loaOptions: EHERKENNING_LOA, defaultLoaValue: "loa3", metadataImport: true },
   { id: "eidas", kind: "eidas", name: "eIDAS (EU)", description: "Cross-border EU citizen login", protocol: "saml", defaultLoa: "substantial", loaOptions: EIDAS_LOA, defaultLoaValue: "substantial", metadataImport: true },
+  // OpenID4VP verifier for the EU Digital Identity Wallet; its own form (walletProvider.ts / WalletProviderForm.tsx).
+  { id: "eudi-wallet", kind: "wallet", name: "EUDI Wallet (OpenID4VP)", description: "Sign in with a European Digital Identity Wallet (PID)", protocol: "wallet" },
 ];
 
 export function findProviderType(id: string): ProviderType | undefined {
@@ -115,6 +117,7 @@ export function missingConnectionFields(
     if (!has("bindDn")) missing.push("bindDn");
   }
   if (type.loaOptions && !has("minimumLoa")) missing.push("minimumLoa");
+  // The wallet's own fields are checked by validateWallet (pages/walletProvider.ts), which mirrors the server.
   return missing;
 }
 
@@ -144,4 +147,6 @@ export const DEFAULT_MAPPERS: Record<ProtocolFamily, (AttributeMapper & { requir
     { source: "mail", target: "email" },
     { source: "cn", target: "displayName" },
   ],
+  // The wallet maps PID claims itself (WalletAttributeMapper); it has no mapper step.
+  wallet: [],
 };

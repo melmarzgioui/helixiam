@@ -11,14 +11,28 @@ import { Select } from "./Select";
 import { Checkbox } from "./Choice";
 import { Switch } from "./Switch";
 import { Divider } from "./Divider";
+import { Spinner } from "./Spinner";
 import { ProviderLogo } from "./ProviderLogo";
 import { ProviderTile } from "./ProviderTile";
 import { LoaBadge } from "./LoaBadge";
 import { Badge } from "./Badge";
 import { MetadataUpload } from "./MetadataUpload";
 import { PROVIDER_TYPES, DEFAULT_MAPPERS, findProviderType, loaBandOf, missingConnectionFields, ProviderType, AttributeMapper } from "./providerCatalog";
+import { Alert } from "./Alert";
+import { Section } from "./Page";
+import {
+  WalletAccessSection, WalletCredentialsSection, WalletPoliciesSection, WalletReview, useWalletData, walletContext,
+} from "./WalletProviderForm";
+import type { WalletAdminApi } from "../api/wallet";
+import {
+  DEFAULT_WALLET_FORM, DEV_KEY, clearEditedErrors, firstErrorSection, splitWalletServerErrors, validateWallet,
+  walletConfigFromForm, walletFormFromConfig, type WalletForm, type WalletSection,
+} from "../pages/walletProvider";
+import { useT } from "../i18n/LocaleContext";
 
 const STEPS = ["Provider", "Connection", "Mappers", "Review"];
+/** The wallet's steps: provider, connection (+ access key), credentials, policies, review. */
+const WALLET_STEP_OF: Record<WalletSection, number> = { general: 1, access: 1, credentials: 2, policies: 3 };
 
 export interface WizardResult {
   providerType: string;
@@ -34,6 +48,13 @@ export interface ProviderWizardProps {
   onCancel?: () => void;
   /** When set, the wizard edits an existing connection instead of creating a new one. */
   initial?: WizardResult;
+  /** The realm and the wallet admin API: needed to offer the EUDI Wallet provider (keys, claim catalogue). */
+  realmId?: string;
+  walletApi?: WalletAdminApi;
+  /** A save is in flight: the final button is disabled. */
+  busy?: boolean;
+  /** The fieldErrors of a refused save (400): shown on the wizard's fields, opening the step that holds them. */
+  serverErrors?: Record<string, string> | null;
 }
 
 /** Splits a stored mapper list into the ticked presets vs the free-form custom rows. */
@@ -47,7 +68,8 @@ function seedMappers(typeId: string | null, mappers: AttributeMapper[]) {
 }
 
 /** The E8.4 "Add identity provider" wizard, composed from the design system. */
-export function ProviderWizard({ onComplete, onCancel, initial }: ProviderWizardProps) {
+export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletApi, busy, serverErrors }: ProviderWizardProps) {
+  const { t } = useT();
   const editing = !!initial;
   const seeded = seedMappers(initial?.providerType ?? null, initial?.mappers ?? []);
   const [step, setStep] = React.useState(editing ? 1 : 0);
@@ -63,10 +85,46 @@ export function ProviderWizard({ onComplete, onCancel, initial }: ProviderWizard
   const type = typeId ? findProviderType(typeId) : undefined;
   const missing = step === 1 && type ? missingConnectionFields(type, config, alias, displayName) : [];
 
+  // ---- EUDI Wallet: its own form model and steps (pages/walletProvider.ts, WalletProviderForm.tsx).
+  const isWallet = type?.protocol === "wallet";
+  const offered = walletApi && realmId ? PROVIDER_TYPES : PROVIDER_TYPES.filter((p) => p.protocol !== "wallet");
+  const steps = isWallet ? ["Provider", t("wallet.step.connection"), t("wallet.step.credentials"), t("wallet.step.policies"), "Review"] : STEPS;
+  const wallet = useWalletData(walletApi, realmId, isWallet);
+  const [walletForm, setWalletForm] = React.useState<WalletForm>(() =>
+    initial && findProviderType(initial.providerType)?.protocol === "wallet" ? walletFormFromConfig(initial.config) : DEFAULT_WALLET_FORM);
+  const [devKey, setDevKey] = React.useState({ value: "", replacing: false, clearing: false });
+  const [walletServer, setWalletServer] = React.useState<{ fields: Record<string, string>; other: string[] }>({ fields: {}, other: [] });
+  const devKeyState = {
+    stored: false, ...devKey,
+    onChange: (v: string) => setDevKey((d) => ({ ...d, value: v })),
+    onReplace: (on: boolean) => setDevKey((d) => ({ ...d, replacing: on, value: on ? d.value : "" })),
+    onClear: (on: boolean) => setDevKey((d) => ({ ...d, clearing: on, value: "" })),
+  };
+  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKeyState)) : {};
+  if (isWallet && !alias.trim()) walletLocal.alias = "connectionDetail.fieldRequired";
+  if (isWallet && !displayName.trim()) walletLocal.displayName = "connectionDetail.fieldRequired";
+  const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
+  const walletStepErrors = (s: number) => Object.keys(walletLocal).filter((k) => {
+    const section = firstErrorSection({ [k]: "x" });
+    return section !== null && WALLET_STEP_OF[section] === s;
+  });
+  const patchWallet = (patch: Partial<WalletForm>) => {
+    setWalletForm((f) => ({ ...f, ...patch }));
+    setWalletServer((sv) => ({ ...sv, fields: clearEditedErrors(sv.fields, patch) }));
+  };
+  React.useEffect(() => {
+    if (!serverErrors || !isWallet) return;
+    const split = splitWalletServerErrors(serverErrors);
+    setWalletServer(split);
+    const section = firstErrorSection(split.fields);
+    if (section) setStep(WALLET_STEP_OF[section]);
+  }, [serverErrors]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const pickType = (t: ProviderType) => {
     setTypeId(t.id);
-    setAlias(t.id);
-    setDisplayName(t.name);
+    setAlias(t.protocol === "wallet" ? "eudi-wallet" : t.id);
+    setDisplayName(t.protocol === "wallet" ? "EUDI Wallet" : t.name);
+    setWalletForm(DEFAULT_WALLET_FORM);
     setConfig(t.defaultLoaValue ? { minimumLoa: t.defaultLoaValue } : {});
     setPresetSources(DEFAULT_MAPPERS[t.protocol].filter((m) => m.required).map((m) => m.source));
     setCustomMappers([]);
@@ -86,10 +144,27 @@ export function ProviderWizard({ onComplete, onCancel, initial }: ProviderWizard
   const firstStep = editing ? 1 : 0; // in edit mode the provider is fixed — start at Connection
   const canNext = step === 0 ? !!type : true; // the Connection step validates on click, not by disabling
   const next = () => {
+    if (isWallet) {
+      if (step >= 1 && step < steps.length - 1 && walletStepErrors(step).length) { setAttempted(true); return; }
+      if (step < steps.length - 1) { setAttempted(false); setStep(step + 1); return; }
+      const all = Object.keys(walletLocal);
+      if (all.length) {
+        setAttempted(true);
+        const section = firstErrorSection(walletLocal);
+        if (section) setStep(WALLET_STEP_OF[section]);
+        return;
+      }
+      if (type) {
+        const walletConfig = walletConfigFromForm(walletForm, {});
+        if (devKey.value.trim()) walletConfig[DEV_KEY] = devKey.value;
+        onComplete?.({ providerType: type.id, alias: alias.trim(), displayName: displayName.trim(), config: walletConfig, mappers: [], enabled });
+      }
+      return;
+    }
     if (step === 1) {
       if (missing.length) { setAttempted(true); return; } // block + reveal errors
     }
-    if (step < STEPS.length - 1) { setAttempted(false); setStep(step + 1); }
+    if (step < steps.length - 1) { setAttempted(false); setStep(step + 1); }
     else if (type) onComplete?.({ providerType: type.id, alias, displayName, config, mappers: builtMappers(), enabled });
   };
   const back = () => { setAttempted(false); step > firstStep ? setStep(step - 1) : onCancel?.(); };
@@ -97,12 +172,12 @@ export function ProviderWizard({ onComplete, onCancel, initial }: ProviderWizard
   return (
     <div style={{ maxWidth: 640 }}>
       <div style={{ marginBottom: "1.6rem" }}>
-        <Stepper steps={STEPS} current={step} />
+        <Stepper steps={steps} current={step} />
       </div>
 
       {step === 0 && (
         <div style={{ display: "grid", gap: ".7rem" }}>
-          {PROVIDER_TYPES.map((t) => (
+          {offered.map((t) => (
             <ProviderTile
               key={t.id}
               kind={t.kind}
@@ -116,11 +191,51 @@ export function ProviderWizard({ onComplete, onCancel, initial }: ProviderWizard
         </div>
       )}
 
-      {step === 1 && type && (
+      {isWallet && step > 0 && walletServer.other.length > 0 && (
+        <Alert tone="danger" title={t("wallet.serverErrors")}>{walletServer.other.join(" ")}</Alert>
+      )}
+      {isWallet && step > 0 && step < steps.length - 1 && wallet.error && <Alert tone="danger" title={t("wallet.errMeta")}>{wallet.error}</Alert>}
+      {isWallet && step > 0 && step < steps.length - 1 && !wallet.error && (!wallet.meta || !wallet.keys) && (
+        <div className="hx-loadwrap"><Spinner size={28} label={t("wallet.loadingMeta")} /></div>
+      )}
+      {isWallet && type && step > 0 && wallet.meta && wallet.keys && realmId && walletApi && (() => {
+        const props = {
+          realmId, api: walletApi, form: walletForm, onChange: patchWallet, errors: walletShown, meta: wallet.meta,
+          keys: wallet.keys, onKeyImported: wallet.addKey, original: null, devKey: devKeyState,
+        };
+        return (
+          <div className="hx-stack hx-wallet">
+            {step === 1 && (
+              <>
+                <Section title={type.name} description={type.description}>
+                  <FormField label="Alias" required error={walletShown.alias ? t(walletShown.alias) : undefined}
+                    hint={editing ? "The connection's stable id — fixed once created." : "Stable id used in the broker callback URL."}>
+                    <Input value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editing} disabled={editing} />
+                  </FormField>
+                  <FormField label="Display name" required error={walletShown.displayName ? t(walletShown.displayName) : undefined}>
+                    <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+                  </FormField>
+                </Section>
+                <WalletAccessSection {...props} />
+              </>
+            )}
+            {step === 2 && <WalletCredentialsSection {...props} />}
+            {step === 3 && <WalletPoliciesSection {...props} />}
+            {step === 4 && (
+              <Section title={type.name}>
+                <WalletReview form={walletForm} keys={wallet.keys} />
+                <Switch checked={enabled} onChange={setEnabled} label="Enable immediately after creation" />
+              </Section>
+            )}
+          </div>
+        );
+      })()}
+
+      {!isWallet && step === 1 && type && (
         <ConnectionForm type={type} alias={alias} setAlias={setAlias} displayName={displayName} setDisplayName={setDisplayName} config={config} set={set} unset={unset} lockAlias={editing} errors={attempted ? missing : []} />
       )}
 
-      {step === 2 && type && (
+      {!isWallet && step === 2 && type && (
         <MappersStep
           type={type}
           presetSources={presetSources}
@@ -130,15 +245,15 @@ export function ProviderWizard({ onComplete, onCancel, initial }: ProviderWizard
         />
       )}
 
-      {step === 3 && type && (
+      {!isWallet && step === 3 && type && (
         <ReviewStep type={type} alias={alias} displayName={displayName} config={config} mappers={builtMappers()} enabled={enabled} setEnabled={setEnabled} />
       )}
 
       <Divider gap="1.5rem" />
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <Button variant="ghost" onClick={back}>{step === firstStep ? "Cancel" : "Back"}</Button>
-        <Button variant="primary" onClick={next} disabled={!canNext}>
-          {step === STEPS.length - 1 ? (editing ? "Save changes" : "Create connection") : "Continue"}
+        <Button variant="primary" onClick={next} disabled={!canNext || (busy && step === steps.length - 1)}>
+          {step === steps.length - 1 ? (editing ? "Save changes" : "Create connection") : "Continue"}
         </Button>
       </div>
     </div>

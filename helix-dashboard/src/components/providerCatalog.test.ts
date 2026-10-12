@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { PROVIDER_TYPES, findProviderType, loaBandOf, missingConnectionFields } from "./providerCatalog";
+import { PROVIDER_TYPES, DEFAULT_MAPPERS, findProviderType, loaBandOf, missingConnectionFields } from "./providerCatalog";
 
 describe("eID assurance ladders", () => {
   it("DigiD offers all four DigiD rungs, defaulting to Substantieel (LoA 3)", () => {
@@ -86,5 +86,21 @@ describe("loaBandOf", () => {
 
   it("returns undefined when no type is given", () => {
     expect(loaBandOf(undefined, "loa3")).toBeUndefined();
+  });
+});
+
+describe("EUDI Wallet catalogue entry", () => {
+  it("is the wallet family, with the neutral wallet mark, and no mappers", () => {
+    const wallet = findProviderType("eudi-wallet");
+    expect(wallet?.protocol).toBe("wallet");
+    expect(wallet?.kind).toBe("wallet");
+    expect(wallet?.name).toBe("EUDI Wallet (OpenID4VP)");
+    expect(DEFAULT_MAPPERS.wallet).toEqual([]);
+  });
+
+  it("needs only alias and display name at catalogue level (validateWallet checks the rest)", () => {
+    const wallet = findProviderType("eudi-wallet")!;
+    expect(missingConnectionFields(wallet, {}, "eudi", "EUDI Wallet")).toEqual([]);
+    expect(missingConnectionFields(wallet, {}, "", "")).toEqual(["alias", "displayName"]);
   });
 });
