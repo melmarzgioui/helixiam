@@ -99,6 +99,11 @@ question. Newest first within each phase.
   minimum-level field, since a keyword such as `loa3` is requested as an `urn:nl-eid-gdi` URN that a Koppelvlak
   endpoint is unlikely to accept. The DigiD mapping (both the oasis classes and the `urn:nl-eid-gdi:1.0:LoA:*` URNs)
   still has to be confirmed against the current Logius documentation.
+- **security (checked, no change)** — Re-spelling the sign-in path does not bypass the login rate limit.
+  `RateLimitFilter` matches the still-encoded servlet path that `RealmRoutingFilter` passes on, so
+  `/realms/{r}/l%6Fgin` is not counted. But Spring Security's `StrictHttpFirewall` then refuses any `%` or `;` in the
+  URL (400), Tomcat refuses `%2F`, `/./` and `//` are refused, and a different case or a trailing slash is not the
+  login endpoint (401), so no sign-in attempt is processed. `LoginRateLimitPathEncodingE2eTest` keeps it that way.
 
 ## v1.0.0-rc.7 (security hotfix)
 
