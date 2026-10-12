@@ -115,4 +115,65 @@ class FederatedLoginCompleterTest {
         assertThat(view).startsWith("redirect:/login?error");
         verify(establisher, never()).persist(any(), any(), any());
     }
+
+    // --- the real flow engine with the realm's seeded browser flow (mfa-enabled condition gating otp) ---
+
+    private static io.helixiam.authorization.flow.persistence.AuthFlowDefinition seededBrowserFlow() {
+        return new io.helixiam.authorization.flow.persistence.AuthFlowDefinition("browser", "gov", java.util.List.of(
+                new io.helixiam.authorization.flow.persistence.AuthExecutionDefinition("step-up", null, null,
+                        "CONDITIONAL", false, 10),
+                new io.helixiam.authorization.flow.persistence.AuthExecutionDefinition("gate", "step-up", "mfa-enabled",
+                        "REQUIRED", true, 10),
+                new io.helixiam.authorization.flow.persistence.AuthExecutionDefinition("otp", "step-up", "otp",
+                        "REQUIRED", false, 20)));
+    }
+
+    private FederatedLoginCompleter realEngineCompleter(final UserCredentials user) {
+        final io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher users =
+                mock(io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher.class);
+        when(users.loadUser(user.getUserId())).thenReturn(user);
+        final FlowExecutor engine = new FlowExecutor(new io.helixiam.authorization.flow.spi.AuthenticatorRegistry(
+                java.util.List.of(new io.helixiam.authorization.security.flow.MfaEnabledCondition(users),
+                        new io.helixiam.authorization.flow.authenticators.OtpAuthenticator((id, code) -> false))),
+                new io.helixiam.authorization.flow.FlowEvaluator());
+        when(establisher.loadUser(user.getUserId())).thenReturn(user);
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(seededBrowserFlow());
+        return new FederatedLoginCompleter(engine, authFlowPublisher, new AuthFlowMapper(), establisher, SP,
+                new io.helixiam.authorization.security.realm.SessionPolicyApplier(
+                        mock(io.helixiam.authorization.security.realm.RealmSettingsResolver.class)));
+    }
+
+    private static UserCredentials user(final String id, final boolean mfaEnabled) throws Exception {
+        return new ObjectMapper().readValue("{\"userId\":\"" + id + "\",\"username\":\"ada@corp\",\"mfaEnabled\":"
+                + mfaEnabled + ",\"authorities\":[{\"role\":\"ROLE_USER\"}]}", UserCredentials.class);
+    }
+
+    @Test
+    void aBrokeredLoginOfAnMfaUser_stopsAtTheSecondFactor_withoutAFullSession() throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("ada", true));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final String view = completer.complete("ada", request, new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/flow");
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getAllValues()).allSatisfy(a -> assertThat(a.isAuthenticated()).isFalse());
+        assertThat(auth.getValue()).isInstanceOf(MfaAuthentication.class);
+        final FlowExecutionState state =
+                (FlowExecutionState) request.getSession().getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        assertThat(state.currentChallengeExecutionId()).isEqualTo("otp");
+    }
+
+    @Test
+    void aBrokeredLoginOfAUserWithoutMfa_completes() throws Exception {
+        final FederatedLoginCompleter completer = realEngineCompleter(user("bob", false));
+
+        final String view = completer.complete("bob", new MockHttpServletRequest(), new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:" + SP);
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getValue().isAuthenticated()).isTrue();
+    }
 }

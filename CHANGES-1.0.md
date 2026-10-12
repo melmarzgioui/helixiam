@@ -5,6 +5,14 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.7`)
 
+- **security** — A federated sign-in (OIDC, SAML or eID broker) skipped the post-broker second factor. The realm's
+  browser flow gates the TOTP step with the `mfa-enabled` condition, which read the user from the security context;
+  `FederatedLoginCompleter` starts that flow before anyone is in the context, so the condition answered "MFA not
+  enabled" and a full session was established for a user with MFA enabled. The `/oauth2/authorize`, SAML and account
+  console gates still asked for the code, but other surfaces saw a full session. The condition now answers for the
+  flow's own user (the flow state's user id, loaded by id unless the pending principal is that user), and a flow user
+  that cannot be loaded fails the flow instead of skipping the step. The flow's TOTP check likewise only verifies a
+  code against the flow's own user. No other flow condition read the security context.
 - **security** — An eID connection (DigiD, eHerkenning, eIDAS) whose minimum level of assurance was not a level Helix
   knows accepted every asserted level: `EidLevelOfAssurance.meetsMinimum` ranked the unknown minimum as rung 0, so any
   recognised level met it. An unrecognised non-blank minimum is now never met (fail closed); a blank minimum still
