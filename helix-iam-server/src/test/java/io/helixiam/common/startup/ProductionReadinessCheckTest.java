@@ -65,4 +65,12 @@ class ProductionReadinessCheckTest {
         final ProductionReadinessCheck c = secureProd("deadbeefdeadbeef", false, "https://idp", "https://sp");
         assertThatCode(c::check).doesNotThrowAnyException();
     }
+
+    @Test
+    void plaintextReadMigrationMode_isAnExplicitOptIn_notFatal() {
+        // DB_ENCRYPTION set + HELIX_ALLOW_PLAINTEXT_SECRETS=true: legacy plaintext rows are read (warned), as the
+        // existing opt-in convention allows outside dev.
+        final ProductionReadinessCheck c = secureProd("deadbeefdeadbeef", true, "https://idp", "https://sp");
+        assertThatCode(c::check).doesNotThrowAnyException();
+    }
 }

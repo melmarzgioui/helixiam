@@ -24,7 +24,9 @@ import jakarta.annotation.PostConstruct;
  * production deployment unsafe by accident:
  * <ul>
  *   <li>{@code DB_ENCRYPTION} unset — realm signing keys and TOTP secrets would be stored in
- *       plaintext. Set the key, or explicitly accept the risk with {@code HELIX_ALLOW_PLAINTEXT_SECRETS=true}.</li>
+ *       plaintext. Set the key, or explicitly accept the risk with {@code HELIX_ALLOW_PLAINTEXT_SECRETS=true}.
+ *       With the key set, that same opt-in reads encrypted columns that still hold plaintext (logged per
+ *       entity and column, re-encrypted on the next write) instead of failing the read.</li>
  *   <li>{@code IDP_BASE_URL} / {@code SP_BASE_URL} unset — the server would otherwise fall back to
  *       placeholder URLs and mint tokens/redirects for the wrong host.</li>
  * </ul>
@@ -87,6 +89,10 @@ public class ProductionReadinessCheck {
                         + "in PLAINTEXT. Set DB_ENCRYPTION, or set HELIX_ALLOW_PLAINTEXT_SECRETS=true to "
                         + "accept the risk explicitly.");
             }
+        } else if (allowPlaintextSecrets) {
+            insecure.add("encrypted columns that hold plaintext are READ AS PLAINTEXT (HELIX_ALLOW_PLAINTEXT_SECRETS=true "
+                    + "with DB_ENCRYPTION set) — the migration mode for rows written before DB_ENCRYPTION; it also hides "
+                    + "a changed key. Unset it once those rows are re-encrypted");
         }
         if (!devProfile) {
             if (isBlank(idpBaseUrl)) {

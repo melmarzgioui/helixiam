@@ -117,7 +117,8 @@ Everything is environment-driven. The essentials (sourced from
 | `DB_HOST` / `DB_PORT` / `DB_NAME` | PostgreSQL location (default DB name `helixiam`) |
 | `DB_USERNAME` / `DB_PASSWORD` | PostgreSQL credentials |
 | `DB_RO_HOST` | optional read-replica host (defaults to `DB_HOST`) |
-| `DB_ENCRYPTION` | hex key encrypting secrets at rest (TOTP seeds, signing keys, IdP secrets); keep stable for the life of the install |
+| `DB_ENCRYPTION` | hex key encrypting secrets at rest (TOTP seeds, signing keys, IdP secrets); keep stable for the life of the install. A stored secret that cannot be decrypted with it (a changed key, an altered value, a row written before the key was set) fails the read |
+| `HELIX_ALLOW_PLAINTEXT_SECRETS` | `false` by default. Without `DB_ENCRYPTION`: accept plaintext secrets outside the `dev` profile. With `DB_ENCRYPTION`: migration mode for rows written before the key was set; they are read as plaintext, logged by entity and column, and encrypted on their next write. Unset it once they are re-encrypted, since it also hides a changed key |
 
 **Session store (Redis)**
 

@@ -13,6 +13,16 @@ question. Newest first within each phase.
   unknown minimum; they are now mapped to the scheme's URN, which the AuthnRequest also asks for. An unknown minimum is
   refused when the connection is saved (`400` with `fieldErrors.minimumLoa`) and when it is built (a stored connection
   is skipped with a warning; a connection in `helix.federation.eid` fails startup).
+- **security** — A secret column (TOTP and HOTP secrets, realm signing keys, client and webhook secrets, SCIM tokens,
+  messaging-provider secrets, SAML relying-party certificates) whose stored value could not be decrypted was returned
+  as stored: `AttributeEncryption` fell back to the legacy AES format and then handed back the raw column, so a
+  plaintext row, a value written under another key, or an altered value was read as if it were the secret. The read
+  now fails with an `IllegalStateException` that names the cause (not encrypted, or the key changed or the value was
+  altered), never the value. The legacy AES format still decrypts. **Operators:** a deployment that ran without
+  `DB_ENCRYPTION` and then set it may hold plaintext rows; it sets `HELIX_ALLOW_PLAINTEXT_SECRETS=true` (the existing
+  opt-in, `helix.allow-plaintext-secrets`) while it migrates. Such values are then read as stored, each read is logged
+  with its entity and attribute (never the value), and the value is encrypted on the entity's next write. The
+  startup readiness check lists that mode as an insecure setting; unset it once the rows are rewritten.
 
 ## v1.0.0-rc.7 (security hotfix)
 
