@@ -111,6 +111,28 @@ public final class WalletE2eFixture {
                 WalletProviderConfig.fromStored(alias, "EU Digital Identity Wallet", config));
     }
 
+    /** Task 23: the stored-provider settings accepting BOTH {@code dc+sd-jwt} and {@code mso_mdoc}. */
+    public Map<String, String> storedConfigBothFormats(final String keyRef) {
+        final Map<String, String> config = new LinkedHashMap<>();
+        config.put("accessKeyRef", keyRef);
+        config.put("trustAnchors", wallet.pki().rootPem());
+        config.put("revocationChecking", "OFF");
+        config.put("credentialFormats", "[\"dc+sd-jwt\",\"mso_mdoc\"]");
+        return config;
+    }
+
+    /**
+     * Task 23: a validated STORED provider accepting either format — the default DCQL {@code credential_sets}
+     * (§15: "either satisfies the default DCQL credential_sets") lets a wallet answer with just one of them.
+     */
+    public WalletIdentityProvider storedProviderBothFormats(final String realm, final String alias,
+                                                            final Map<String, String> extra) {
+        final Map<String, String> config = storedConfigBothFormats(importAccessKey(realm));
+        config.putAll(extra);
+        return context.getBean(WalletIdentityProviders.class).build(realm,
+                WalletProviderConfig.fromStored(alias, "EU Digital Identity Wallet", config));
+    }
+
     /** Makes {@code providers} the server's store-backed providers (replacing any earlier set). */
     public void install(final IdentityProvider... providers) {
         context.getBean(IdentityProviderRegistry.class).reload(List.of(providers));
@@ -187,6 +209,15 @@ public final class WalletE2eFixture {
                 request.responseUri());
         final byte[] deviceResponse = TestWallet.mdocDeviceResponse(credential, claims.keySet(), transcript);
         return Map.of("pid_mdoc", List.of(TestWallet.b64url(deviceResponse)));
+    }
+
+    /**
+     * Task 23: the OpenID4VP redirect SessionTranscript {@code request} expects, exposed so a test can build its own
+     * (tampered) mdoc {@code DeviceResponse} structure by hand instead of going through {@link #mdocVpToken}.
+     */
+    public static byte[] mdocSessionTranscript(final Oid4vpWalletClient.VerifiedRequest request) {
+        final byte[] thumbprint = request.encryptionKey() == null ? null : thumbprint(request.encryptionKey());
+        return sessionTranscript(request.clientId(), request.nonce(), thumbprint, request.responseUri());
     }
 
     /** RFC 7638 SHA-256 thumbprint of the response-encryption public key (the mdoc handover input). */
