@@ -144,6 +144,19 @@ public class RealmImportService {
         this.messagingValidator = messagingValidator;
     }
 
+    private io.helixiam.authorization.federation.wallet.WalletConfigValidator walletValidator;
+
+    /**
+     * Task 19: imported EUDI wallet connections are validated like {@code POST/PUT /admin/realms/{r}/identity-providers}
+     * ({@code validateWrite}): an invalid one is not saved and is reported with the same field errors. Without the
+     * validator a wallet connection is refused, never imported unchecked.
+     */
+    @Autowired(required = false)
+    public void setWalletConfigValidator(
+            final io.helixiam.authorization.federation.wallet.WalletConfigValidator walletValidator) {
+        this.walletValidator = walletValidator;
+    }
+
     private io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings;
 
     /** B1: the {@code accountConsole} slice (what the realm's account console allows) is imported when present. */
@@ -731,8 +744,17 @@ public class RealmImportService {
             }
             try {
                 final boolean update = existing.containsKey(idp.alias());
+                final Map<String, String> config = resolveConfigSecrets(idp.config(), opts);
+                if (io.helixiam.authorization.federation.FederationProviderFactory.isWallet(idp.protocol())) {
+                    final Map<String, String> errors = walletErrors(realmId, idp, config, existing.get(idp.alias()));
+                    if (!errors.isEmpty()) {
+                        fieldErrorsFailed(r, SLICE_IDPS, realmId,
+                                "The identity provider " + idp.alias() + " is not valid: ", errors);
+                        continue;
+                    }
+                }
                 idpPublisher.save(new IdentityProviderConfig(realmId, idp.alias(), idp.protocol(),
-                        idp.displayName(), idp.enabled(), resolveConfigSecrets(idp.config(), opts)));
+                        idp.displayName(), idp.enabled(), config));
                 if (update) {
                     r.updated(SLICE_IDPS);
                 } else {
@@ -742,6 +764,18 @@ public class RealmImportService {
                 failed(r, SLICE_IDPS, realmId, ex);
             }
         }
+    }
+
+    /** A wallet connection's field errors, as the admin API names them (refused when no validator is wired). */
+    private Map<String, String> walletErrors(final String realmId, final IdentityProviderConfig idp,
+                                             final Map<String, String> config, final IdentityProviderConfig current) {
+        if (walletValidator == null) {
+            return Map.of("protocol", "EUDI wallet connections cannot be validated on this server, so they cannot be "
+                    + "imported.");
+        }
+        return io.helixiam.authorization.federation.wallet.WalletConfigValidator.asAdminFields(
+                walletValidator.validateWrite(realmId, idp.alias(), idp.displayName(), config,
+                        current == null ? null : current.config()));
     }
 
     // --- auth flows: create the flow if its alias is new, then save its full execution tree. ---

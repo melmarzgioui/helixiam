@@ -84,7 +84,7 @@ public class FederationProviderFactory {
             // An invalid wallet entry is logged with its field errors and skipped, like a malformed stored provider
             // (FederationStoreRefresher): one bad wallet config must not stop the server. Its key lives in master.
             try {
-                providers.add(walletProviders.build(WalletIdentityProviders.YAML_REALM, config));
+                providers.add(walletProviders.buildFromYaml(config));
             } catch (final RuntimeException e) {
                 LOG.warn("Skipping invalid wallet provider '{}' from helix.federation.wallet: {}",
                         LogSafe.sanitize(config.alias()), LogSafe.sanitize(e.getMessage()));
@@ -101,7 +101,7 @@ public class FederationProviderFactory {
      */
     public IdentityProvider fromStored(final io.helixiam.authorization.amqp.federation.IdentityProviderConfig stored) {
         final Map<String, String> c = stored.config() == null ? Map.of() : stored.config();
-        final String protocol = stored.protocol() == null ? "" : stored.protocol().toLowerCase();
+        final String protocol = normalise(stored.protocol());
         final IdentityProvider base = switch (protocol) {
             case "oidc", "social" -> new OidcIdentityProvider(oidcFromStored(stored, c), oidcTokenClient, FederationProviderFactory::token);
             case "saml", "saml2" -> new Saml2IdentityProvider(samlFromStored(stored, c), samlAssertionValidator,
@@ -147,8 +147,13 @@ public class FederationProviderFactory {
 
     /** Whether {@code protocol} (case-insensitive) names an EUDI wallet connection: eudi-wallet, openid4vp, wallet. */
     public static boolean isWallet(final String protocol) {
-        final String p = protocol == null ? "" : protocol.trim().toLowerCase(java.util.Locale.ROOT);
+        final String p = normalise(protocol);
         return "eudi-wallet".equals(p) || "openid4vp".equals(p) || "wallet".equals(p);
+    }
+
+    /** A stored protocol as every lookup compares it: trimmed, lower case ({@link java.util.Locale#ROOT}). */
+    public static String normalise(final String protocol) {
+        return protocol == null ? "" : protocol.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String blankToNull(final String v) {

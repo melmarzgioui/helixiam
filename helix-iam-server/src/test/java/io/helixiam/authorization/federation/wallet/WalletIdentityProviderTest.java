@@ -21,6 +21,7 @@ import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.federation.spi.IdpMetadata;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
+import io.helixiam.authorization.federation.wallet.testwallet.TestAccessKeys;
 import io.helixiam.authorization.federation.wallet.testwallet.TestPki;
 import io.helixiam.authorization.federation.wallet.transaction.InMemoryWalletTransactionStore;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction;
@@ -203,6 +204,32 @@ class WalletIdentityProviderTest {
     void startWithoutABrowserBindingIsRefused() {
         assertThatThrownBy(() -> provider().start(new IdentityProvider.AuthnRequestContext(REALM, STATE, "cb")))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void aStoredProviderStartedFromAnotherRealmIsRefused() {
+        final WalletIdentityProvider provider = provider(); // stored in REALM
+
+        assertThat(provider.keyRealm()).isEqualTo(REALM);
+        assertThatThrownBy(() -> provider.start(new IdentityProvider.AuthnRequestContext("other-realm", STATE,
+                "https://helix.example/realms/other-realm/broker/eudi-wallet/callback", binding("b"))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void aYamlProviderStartsFromAnyRealmWithItsMasterKey() {
+        final TestAccessKeys masterKeys = new TestAccessKeys(ACCESS, "eudi-access", "master");
+        final Map<String, String> stored = valid();
+        stored.put("accessKeyRef", masterKeys.ref("master"));
+        final WalletIdentityProvider provider = providers(masterKeys, DeploymentProfile.production())
+                .buildFromYaml(config(stored));
+
+        assertThat(provider.keyRealm()).isNull();
+        for (final String realm : List.of("acme", "gov", "master")) {
+            final IdentityProvider.RedirectResponse redirect = provider.start(new IdentityProvider.AuthnRequestContext(
+                    realm, STATE, "https://helix.example/cb", binding(realm)));
+            assertThat(store.byTransactionId(txId(redirect)).orElseThrow().realmId()).isEqualTo(realm);
+        }
     }
 
     // ------------------------------------------------------------------------------------------------ callback

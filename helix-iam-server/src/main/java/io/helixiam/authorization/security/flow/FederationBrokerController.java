@@ -125,8 +125,17 @@ public class FederationBrokerController {
         // Ties this login to this browser (a session secret, not the session id, which rotates); the EUDI wallet
         // provider stores the hash in its transaction and the callback must present the same one.
         final String browserBindingHash = BrowserBinding.begin(session, alias);
-        final IdentityProvider.RedirectResponse redirect = provider.start(new IdentityProvider.AuthnRequestContext(
-                RealmContextHolder.get(), state, callbackUri(alias), browserBindingHash));
+        final IdentityProvider.RedirectResponse redirect;
+        try {
+            redirect = provider.start(new IdentityProvider.AuthnRequestContext(
+                    RealmContextHolder.get(), state, callbackUri(alias), browserBindingHash));
+        } catch (final RuntimeException e) {
+            // e.g. a stored wallet provider asked to start in another realm: the browser only sees error=federation
+            BrowserBinding.clear(session, alias);
+            LOG.warn("Federation: provider {} refused to start: {}", LogSafe.sanitize(alias),
+                    LogSafe.sanitize(e.getMessage()));
+            return LOGIN_ERROR;
+        }
 
         session.setAttribute(STATE_ATTR + alias, state);
         if (redirect.parameters() != null && redirect.parameters().get("nonce") != null) {

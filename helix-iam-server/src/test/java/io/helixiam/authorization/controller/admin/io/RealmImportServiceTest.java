@@ -296,6 +296,60 @@ class RealmImportServiceTest {
         assertThat(cap.getValue().config()).containsEntry("clientId", "abc");
     }
 
+    // Task 19 fix round 1 (ruling 10): imported wallet connections are validated like admin writes.
+    private static final io.helixiam.authorization.federation.wallet.testwallet.TestPki WALLET_ACCESS_PKI =
+            io.helixiam.authorization.federation.wallet.testwallet.TestPki.create("Import Access");
+    private static final io.helixiam.authorization.federation.wallet.testwallet.TestPki WALLET_PID_ISSUERS =
+            io.helixiam.authorization.federation.wallet.testwallet.TestPki.create("Import PID Provider");
+
+    private io.helixiam.authorization.federation.wallet.WalletConfigValidator walletValidator() {
+        return new io.helixiam.authorization.federation.wallet.WalletConfigValidator(
+                new io.helixiam.authorization.federation.wallet.testwallet.TestAccessKeys(
+                        WALLET_ACCESS_PKI.issueLeaf(
+                                io.helixiam.authorization.federation.wallet.testwallet.TestPki.LeafSpec.defaults()),
+                        "eudi-access", "gov"),
+                io.helixiam.common.startup.DeploymentProfile.production());
+    }
+
+    @Test
+    void importedWalletConnectionsAreValidatedLikeAdminWrites() {
+        service.setWalletConfigValidator(walletValidator());
+        final java.util.Map<String, String> good = new java.util.LinkedHashMap<>();
+        good.put("accessKeyRef", "software:gov/eudi-access");
+        good.put("trustAnchors", WALLET_PID_ISSUERS.rootPem());
+        final java.util.Map<String, String> bad = new java.util.LinkedHashMap<>(good);
+        bad.put("transactionTtlSeconds", "5");
+        bad.put("accessKeyRef", "software:src/eudi-access"); // the source realm's key does not exist here
+        final RealmExportDocument doc = new RealmExportDocument(2, null, null, null, null, null,
+                List.of(new IdentityProviderConfig("src", "good-wallet", "eudi-wallet", "Wallet", true, good),
+                        new IdentityProviderConfig("src", "bad-wallet", " OpenID4VP", "Wallet", true, bad)),
+                null, null);
+
+        final RealmImportResult result = service.importInto("gov", doc);
+
+        assertThat(result.slices().get(RealmImportService.SLICE_IDPS).created()).isEqualTo(1);
+        assertThat(result.slices().get(RealmImportService.SLICE_IDPS).failed()).isEqualTo(1);
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason).singleElement().asString()
+                .contains("bad-wallet").contains("config.transactionTtlSeconds: ")
+                .contains("config.accessKeyRef: ");
+        final org.mockito.ArgumentCaptor<IdentityProviderConfig> cap =
+                org.mockito.ArgumentCaptor.forClass(IdentityProviderConfig.class);
+        verify(idps).save(cap.capture());
+        assertThat(cap.getValue().alias()).isEqualTo("good-wallet");
+    }
+
+    @Test
+    void withoutTheWalletValidatorAnImportedWalletConnectionIsRefused() {
+        final RealmExportDocument doc = new RealmExportDocument(2, null, null, null, null, null,
+                List.of(new IdentityProviderConfig("src", "w", "wallet", "Wallet", true, java.util.Map.of())),
+                null, null);
+
+        final RealmImportResult result = service.importInto("gov", doc);
+
+        assertThat(result.slices().get(RealmImportService.SLICE_IDPS).failed()).isEqualTo(1);
+        verify(idps, org.mockito.Mockito.never()).save(any());
+    }
+
     @Test
     void missingSecretEnvLeavesUnsetUnderDefaultPolicy() {
         final java.util.Map<String, String> cfg = new java.util.LinkedHashMap<>();

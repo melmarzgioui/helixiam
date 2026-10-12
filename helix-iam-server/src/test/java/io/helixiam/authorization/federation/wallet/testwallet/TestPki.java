@@ -192,6 +192,19 @@ public final class TestPki {
         return new TestPki(rootKeys, root, intermediateKeys, intermediate);
     }
 
+    /**
+     * A second issuing CA ("CN={@code name} Issuing CA") under this PKI's root: a sibling issuer sharing the root, with
+     * its own key. Its {@link #root()} is this root.
+     */
+    public TestPki siblingIssuer(final String name) {
+        final Instant now = Instant.now();
+        final KeyPair keys = KeyType.EC_P256.generate();
+        final X509Certificate sibling = sign(ca(X500Name.getInstance(root.getSubjectX500Principal().getEncoded()),
+                new X500Name("CN=" + name + " Issuing CA"), keys, rootKeys, now.minus(Duration.ofDays(365)),
+                now.plus(Duration.ofDays(3650)), 0), rootKeys.getPrivate(), KeyType.EC_P256);
+        return new TestPki(rootKeys, root, keys, sibling);
+    }
+
     /** A leaf issued by the intermediate. */
     public Leaf issueLeaf(final LeafSpec spec) {
         final KeyPair keys = spec.keyType().generate();

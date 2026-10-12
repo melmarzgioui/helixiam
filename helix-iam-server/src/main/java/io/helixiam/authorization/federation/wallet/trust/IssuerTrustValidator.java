@@ -30,6 +30,7 @@ import java.security.cert.CertPath;
 import java.security.cert.CertPathValidator;
 import java.security.cert.CertPathValidatorException;
 import java.security.cert.CertificateFactory;
+import java.security.cert.PKIXCertPathValidatorResult;
 import java.security.cert.PKIXParameters;
 import java.security.cert.PKIXRevocationChecker;
 import java.security.cert.TrustAnchor;
@@ -113,6 +114,17 @@ public final class IssuerTrustValidator {
 
     /** Validates leaf-first chain (as in x5c / x5chain) to a configured anchor at {@code at}; returns the leaf. */
     public X509Certificate validate(final List<X509Certificate> chain, final TrustAnchors anchors, final Instant at) {
+        return validateChain(chain, anchors, at).leaf();
+    }
+
+    /**
+     * As {@link #validate}, returning what PKIX proved: the validated path (the presented chain with trailing anchor
+     * certificates removed and pinned intermediates added, leaf first) and the {@link TrustAnchor} it chains to. Rules
+     * about <em>who</em> issued a certificate must use this, never the presented chain, which may carry extra
+     * certificates (for example another issuer's anchor appended at the end).
+     */
+    public ValidatedChain validateChain(final List<X509Certificate> chain, final TrustAnchors anchors,
+            final Instant at) {
         Objects.requireNonNull(anchors, "anchors");
         Objects.requireNonNull(at, "at");
         if (chain == null || chain.isEmpty() || chain.stream().anyMatch(Objects::isNull)) {
@@ -136,11 +148,12 @@ public final class IssuerTrustValidator {
         if (keyUsage == null || keyUsage.length == 0 || !keyUsage[0]) {
             throw untrusted("leaf certificate lacks digitalSignature key usage");
         }
-        validatePath(path, anchors, at, leaf);
-        return leaf;
+        final TrustAnchor anchor = validatePath(path, anchors, at, leaf);
+        return new ValidatedChain(path, anchor);
     }
 
-    private void validatePath(final List<X509Certificate> path, final TrustAnchors anchors, final Instant at,
+    /** Returns the anchor PKIX validated the path to. */
+    private TrustAnchor validatePath(final List<X509Certificate> path, final TrustAnchors anchors, final Instant at,
             final X509Certificate leaf) {
         final CertPath certPath;
         final CertPathValidator validator;
@@ -152,8 +165,10 @@ public final class IssuerTrustValidator {
         }
         // Pass 1: the full path check without revocation. No network access happens before the chain is proven to
         // reach a configured anchor, so a forged chain can never make the server fetch its CRL / OCSP URLs.
+        final TrustAnchor anchor;
         try {
-            validator.validate(certPath, parameters(anchors, at));
+            anchor = ((PKIXCertPathValidatorResult) validator.validate(certPath, parameters(anchors, at)))
+                    .getTrustAnchor();
         } catch (final CertPathValidatorException e) {
             throw mapFailure(e);
         } catch (final GeneralSecurityException e) {
@@ -161,14 +176,14 @@ public final class IssuerTrustValidator {
         }
         final RevocationMode mode = anchors.revocation(); // never null: TrustAnchors defaults it to SOFT_FAIL
         if (mode == RevocationMode.OFF) {
-            return;
+            return anchor;
         }
         if (!revocationEndpointsAllowed(path)) {
             if (mode == RevocationMode.HARD_FAIL) {
                 throw untrusted("revocation endpoint not allowed");
             }
             warn("revocation endpoint not allowed", leaf);
-            return;
+            return anchor;
         }
         // Pass 2: revocation only. The path is valid, so every failure here is a revocation outcome. The leaf is
         // checked on its own first (ONLY_END_ENTITY), then the CA certificates below the anchor in one pass: the JDK
@@ -179,6 +194,7 @@ public final class IssuerTrustValidator {
         if (path.size() > 1) {
             checkRevocation(validator, path.subList(1, path.size()), anchors, at, mode, false);
         }
+        return anchor;
     }
 
     /**

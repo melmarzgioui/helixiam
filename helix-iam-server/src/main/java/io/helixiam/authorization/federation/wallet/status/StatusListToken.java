@@ -25,6 +25,7 @@ import io.helixiam.authorization.federation.wallet.mdoc.CoseSign1;
 import io.helixiam.authorization.federation.wallet.mdoc.StrictCbor;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
+import io.helixiam.authorization.federation.wallet.trust.ValidatedChain;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -112,11 +113,11 @@ public final class StatusListToken {
     private final Duration ttl;
     private final int bits;
     private final byte[] list;
-    private final List<X509Certificate> signerChain;
+    private final ValidatedChain signer;
 
     private StatusListToken(final String subject, final Instant issuedAt, final Instant expiresAt,
-            final Duration ttl, final int bits, final byte[] list, final List<X509Certificate> signerChain) {
-        this.signerChain = List.copyOf(signerChain);
+            final Duration ttl, final int bits, final byte[] list, final ValidatedChain signer) {
+        this.signer = signer;
         this.subject = subject;
         this.issuedAt = issuedAt;
         this.expiresAt = expiresAt;
@@ -125,9 +126,9 @@ public final class StatusListToken {
         this.list = list;
     }
 
-    /** The validated signer chain as the token carried it ({@code x5c} / {@code x5chain}), leaf first. */
-    public List<X509Certificate> signerChain() {
-        return signerChain;
+    /** The signer's chain as PKIX validated it (never the presented {@code x5c} / {@code x5chain}). */
+    public ValidatedChain signer() {
+        return signer;
     }
 
     /** {@code sub}: the URI this list claims to be. */
@@ -186,8 +187,8 @@ public final class StatusListToken {
                     "Status List Token alg is not allowed");
         }
         final JWSAlgorithm alg = JWSAlgorithm.parse(algName);
-        final List<X509Certificate> chain = x5c(header.get("x5c"));
-        final X509Certificate leaf = trust.validate(chain, anchors, now);
+        final ValidatedChain chain = trust.validateChain(x5c(header.get("x5c")), anchors, now);
+        final X509Certificate leaf = chain.leaf();
         final JWSVerifier verifier = jwsVerifier(leaf.getPublicKey(), alg);
         try {
             if (!JWSObject.parse(compact.trim()).verify(verifier)) {
@@ -240,8 +241,8 @@ public final class StatusListToken {
             throw new WalletVerificationException(WalletErrorCode.ALGORITHM_NOT_ALLOWED,
                     "Status List Token COSE alg is not allowed");
         }
-        final List<X509Certificate> chain = cose.protectedX5chain();
-        final X509Certificate leaf = trust.validate(chain, anchors, now);
+        final ValidatedChain chain = trust.validateChain(cose.protectedX5chain(), anchors, now);
+        final X509Certificate leaf = chain.leaf();
         if (!cose.verify(leaf.getPublicKey(), null, CWT_ALGORITHMS)) {
             throw signatureInvalid();
         }
@@ -317,7 +318,7 @@ public final class StatusListToken {
     // ------------------------------------------------------------------------------------------- helpers
 
     private static StatusListToken build(final String sub, final Instant iat, final Instant exp, final Duration ttl,
-            final long bits, final byte[] compressed, final Instant now, final List<X509Certificate> chain) {
+            final long bits, final byte[] compressed, final Instant now, final ValidatedChain chain) {
         if (sub == null || sub.isBlank()) {
             throw invalid("Status List Token has no sub");
         }

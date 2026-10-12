@@ -7,31 +7,28 @@ package io.helixiam.authorization.federation.wallet.status;
 
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
-import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
+import io.helixiam.authorization.federation.wallet.trust.ValidatedChain;
 
 import java.io.ByteArrayInputStream;
 import java.security.GeneralSecurityException;
 import java.security.PublicKey;
 import java.security.cert.CertificateFactory;
-import java.security.cert.TrustAnchor;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
 
 /**
  * Who may sign the Token Status List of an mdoc (ISO/IEC 18013-5 2nd ed. draft §12.3.6.2, docs/eudi-wallet-spec-notes.md
- * §6.5). The list is already trusted ({@link StatusListToken} validated its x5chain against the provider's anchors);
- * this binds it to the credential's issuer, so another trusted issuer cannot revoke or vouch for this credential.
+ * §6.5; controller ruling, Task 19 fix round 1). Both chains are the ones PKIX <em>validated</em> (the list's against the
+ * provider's anchors by {@link StatusListToken}, the MSO's by the mdoc verifier): never the presented x5chain, which an
+ * attacker can pad with another issuer's anchor.
  *
  * <ul>
- *   <li><b>With</b> {@code status_list.certificate}: that certificate is the trust point. The list's x5chain must
- *       contain it, or its top certificate must be issued by it. (Stricter than "a trust point" alone: the list must
- *       also chain to the provider's anchors.)</li>
- *   <li><b>Without</b>: the notes' rule is "the list's x5chain top certificate must be signed by the certificate that
- *       signed the MSO x5chain". Accepted: the list chain shares a certificate with the MSO chain (the MSO signer itself,
- *       or the same intermediate, which then has the same issuer); or the list's top is issued by a certificate of the MSO
- *       chain; or the list's top and the MSO chain's top are issued by the same anchor or pinned intermediate (the
- *       IACA). A list under any other CA, however trusted, is refused.</li>
+ *   <li><b>Without</b> {@code status_list.certificate}: the list must be signed by the MSO signer itself, or chain (on its
+ *       validated path or to its anchor) to the MSO signer's <em>own issuing CA</em>, the certificate that issued the
+ *       IssuerAuth document-signer certificate. Sharing only a higher root is not enough: a sibling issuing CA under the
+ *       same root is refused.</li>
+ *   <li><b>With</b> it: that certificate is the trust point. The list must be signed by it or chain to it on its
+ *       validated path or anchor, and (already checked) still to the provider's anchors.</li>
  * </ul>
  * A refusal is {@code STATUS_UNAVAILABLE}: an integrity failure of the list, never subject to {@code onUnavailable}.
  */
@@ -41,62 +38,31 @@ final class MdocStatusListSigner {
     }
 
     /** @throws WalletVerificationException {@code STATUS_UNAVAILABLE} when the list signer is not bound to the issuer */
-    static void check(final List<X509Certificate> listChain, final CredentialIssuer issuer,
-            final TrustAnchors anchors) {
-        if (listChain == null || listChain.isEmpty()) {
-            throw refused("Status List Token has no signer chain");
+    static void check(final ValidatedChain list, final CredentialIssuer issuer) {
+        if (list == null) {
+            throw refused("Status List Token has no validated signer");
         }
-        final X509Certificate listTop = listChain.get(listChain.size() - 1);
         final byte[] certificate = issuer.statusListCertificate();
         if (certificate != null) {
             final X509Certificate point = parse(certificate);
-            if (!listChain.contains(point) && !issuedBy(listTop, point)) {
+            if (!list.leaf().equals(point) && !chainsTo(list, point.getPublicKey())) {
                 throw refused("Status List Token signer does not chain to the MSO status_list certificate");
             }
             return;
         }
-        final List<X509Certificate> msoChain = issuer.chain();
-        if (msoChain.isEmpty()) {
-            throw refused("credential issuer chain is empty");
-        }
-        if (listChain.stream().anyMatch(msoChain::contains)
-                || msoChain.stream().anyMatch(m -> issuedBy(listTop, m))) {
+        final ValidatedChain mso = issuer.validated();
+        if (list.leaf().equals(mso.leaf()) || chainsTo(list, mso.leafIssuerKey())) {
             return;
         }
-        final X509Certificate msoTop = msoChain.get(msoChain.size() - 1);
-        for (final PublicKey caKey : caKeys(anchors)) {
-            if (verifies(msoTop, caKey) && verifies(listTop, caKey)) {
-                return;
-            }
-        }
-        throw refused("Status List Token is not signed under the credential issuer");
+        throw refused("Status List Token is not signed under the MSO signer's issuing CA");
     }
 
-    /** The anchors' and pinned intermediates' public keys: the certificates that can sign the top of a chain. */
-    private static List<PublicKey> caKeys(final TrustAnchors anchors) {
-        final List<PublicKey> keys = new ArrayList<>();
-        for (final TrustAnchor anchor : anchors.anchors()) {
-            keys.add(anchor.getTrustedCert() != null ? anchor.getTrustedCert().getPublicKey() : anchor.getCAPublicKey());
-        }
-        anchors.pinnedIntermediates().forEach(c -> keys.add(c.getPublicKey()));
-        return keys;
-    }
-
-    private static boolean issuedBy(final X509Certificate cert, final X509Certificate issuer) {
-        return cert.getIssuerX500Principal().equals(issuer.getSubjectX500Principal())
-                && verifies(cert, issuer.getPublicKey());
-    }
-
-    private static boolean verifies(final X509Certificate cert, final PublicKey key) {
+    /** Whether {@code key} issues some certificate of the list's validated path, or is its anchor. */
+    private static boolean chainsTo(final ValidatedChain list, final PublicKey key) {
         if (key == null) {
             return false;
         }
-        try {
-            cert.verify(key);
-            return true;
-        } catch (final GeneralSecurityException | RuntimeException e) {
-            return false;
-        }
+        return list.issuerKeys().stream().anyMatch(k -> k != null && Arrays.equals(k.getEncoded(), key.getEncoded()));
     }
 
     private static X509Certificate parse(final byte[] der) {

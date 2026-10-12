@@ -60,7 +60,7 @@ class MdocPresentationVerifierTest {
     private static TrustAnchors anchors;
 
     private final AtomicReference<StatusReference> evaluated = new AtomicReference<>();
-    private StatusEvaluator status = (ref, a) -> {
+    private StatusEvaluator status = (ref, a, issuer) -> {
         evaluated.set(ref);
         return StatusEvaluator.VALID;
     };
@@ -698,7 +698,7 @@ class MdocPresentationVerifierTest {
     void statusIsNotEvaluatedWhenDeviceAuthFails() {
         final String vp = TestWallet.b64url(TestWallet.mdocDeviceResponse(pid(), pidClaims().keySet(),
                 transcript(CLIENT_ID, "another-nonce", null, RESPONSE_URI)));
-        status = (ref, a) -> {
+        status = (ref, a, issuer) -> {
             evaluated.set(ref);
             throw new WalletVerificationException(WalletErrorCode.CREDENTIAL_REVOKED, "revoked");
         };
@@ -711,7 +711,7 @@ class MdocPresentationVerifierTest {
 
     @Test
     void revokedStatusIsCredentialRevoked() {
-        status = (ref, a) -> {
+        status = (ref, a, issuer) -> {
             throw new WalletVerificationException(WalletErrorCode.CREDENTIAL_REVOKED, "revoked");
         };
 
@@ -721,7 +721,7 @@ class MdocPresentationVerifierTest {
     @Test
     void statusEvaluatorReceivesTheConfiguredAnchors() {
         final AtomicReference<TrustAnchors> seen = new AtomicReference<>();
-        status = (ref, a) -> {
+        status = (ref, a, issuer) -> {
             seen.set(a);
             return StatusEvaluator.VALID;
         };
@@ -734,17 +734,9 @@ class MdocPresentationVerifierTest {
     @Test
     void statusEvaluatorReceivesTheIssuerAuthChainAndTheStatusListCertificate() throws Exception {
         final AtomicReference<CredentialIssuer> seen = new AtomicReference<>();
-        status = new StatusEvaluator() {
-            @Override
-            public String evaluate(final StatusReference ref, final TrustAnchors a) {
-                throw new AssertionError("the issuer-aware evaluate must be used");
-            }
-
-            @Override
-            public String evaluate(final StatusReference ref, final TrustAnchors a, final CredentialIssuer issuer) {
-                seen.set(issuer);
-                return StatusEvaluator.VALID;
-            }
+        status = (ref, a, issuer) -> {
+            seen.set(issuer);
+            return StatusEvaluator.VALID;
         };
         final byte[] certificate = wallet.pki().intermediate().getEncoded();
         final MdocCredential withCertificate = pidWithMso(mso -> mso.put("status", Map.of("status_list",
@@ -761,10 +753,10 @@ class MdocPresentationVerifierTest {
 
     @Test
     void anythingButValidFromTheEvaluatorIsStatusUnavailable() {
-        status = (ref, a) -> "SUSPENDED";
+        status = (ref, a, issuer) -> "SUSPENDED";
         assertRejected(presentAll(pid()), WalletErrorCode.STATUS_UNAVAILABLE);
 
-        status = (ref, a) -> {
+        status = (ref, a, issuer) -> {
             throw new IllegalStateException("boom");
         };
         assertRejected(presentAll(pid()), WalletErrorCode.STATUS_UNAVAILABLE);
@@ -772,7 +764,7 @@ class MdocPresentationVerifierTest {
 
     @Test
     void unreachableEvaluatorFollowsFailOpen() {
-        status = (ref, a) -> {
+        status = (ref, a, issuer) -> {
             throw new IllegalStateException("network down");
         };
 
@@ -782,7 +774,7 @@ class MdocPresentationVerifierTest {
 
     @Test
     void nonValidEvaluatorAnswerIsNeverAcceptedEvenWhenFailOpen() {
-        status = (ref, a) -> "REVOKED";
+        status = (ref, a, issuer) -> "REVOKED";
 
         assertRejected(presentAll(pid()), failOpenContext(), WalletErrorCode.STATUS_UNAVAILABLE);
     }

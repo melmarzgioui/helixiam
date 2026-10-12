@@ -74,6 +74,24 @@ class IssuerTrustValidatorTest {
     }
 
     @Test
+    void validateChainReturnsThePathPkixProvedAndItsAnchorNotThePresentedChain() {
+        final TestPki other = TestPki.create("Appended");
+        final Leaf leaf = pki.issueLeaf(LeafSpec.defaults());
+        final TrustAnchors anchors = new TrustAnchors(java.util.Set.of(
+                new java.security.cert.TrustAnchor(pki.intermediate(), null),
+                new java.security.cert.TrustAnchor(other.intermediate(), null)), List.of(),
+                TrustAnchors.RevocationMode.OFF);
+        // The presented chain carries another issuer's anchor at the end; PKIX validates the leaf to its own CA.
+        final ValidatedChain validated = validator.validateChain(
+                List.of(leaf.certificate(), pki.intermediate(), other.intermediate()), anchors, Instant.now());
+
+        assertThat(validated.path()).containsExactly(leaf.certificate());
+        assertThat(validated.anchor().getTrustedCert()).isEqualTo(pki.intermediate());
+        assertThat(validated.leafIssuer()).isEqualTo(pki.intermediate());
+        assertThat(validator.validate(leaf.chain(), anchors, Instant.now())).isEqualTo(leaf.certificate());
+    }
+
+    @Test
     void chainToConfiguredAnchorReturnsTheLeaf() {
         final Leaf leaf = leaf(LeafSpec.defaults());
 

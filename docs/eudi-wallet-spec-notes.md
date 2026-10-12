@@ -1206,6 +1206,11 @@ redirect flows. Nothing in the texts read says so.
   - an MSO is revoked iff its `id` is present in `"identifiers"`
 - **Certificate trust:** if `"certificate"` is absent, the list's x5chain top certificate must be signed by the
   certificate that signed the MSO x5chain (the IACA, for mDL).
+- **Helix implementation (controller ruling, Task 19 fix round 1):** stricter than "same root". Both chains are the
+  PKIX-validated paths and anchors, never the presented x5chain (which can be padded with another issuer's anchor).
+  Without `"certificate"` the list is accepted only when signed by the MSO signer itself or chained to the MSO signer's
+  own issuing CA; a sibling issuing CA under the same root is refused. With `"certificate"` the list must chain to it
+  and still to the provider's trust anchors (`MdocStatusListSigner`).
 
 ARF Annex 2 (v3.0.0), VCR_12:
 

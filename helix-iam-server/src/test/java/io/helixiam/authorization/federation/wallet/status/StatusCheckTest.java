@@ -23,6 +23,12 @@ class StatusCheckTest {
 
     private static final StatusReference REF = new StatusReference(7, "https://status.example/1");
     private static final TrustAnchors ANCHORS = new TrustAnchors(java.util.Set.of(), List.of(), null);
+    private static final io.helixiam.authorization.federation.wallet.testwallet.TestPki PKI =
+            io.helixiam.authorization.federation.wallet.testwallet.TestPki.create("Status Check");
+    private static final CredentialIssuer ISSUER = new CredentialIssuer(
+            new io.helixiam.authorization.federation.wallet.trust.ValidatedChain(
+                    PKI.issueLeaf(io.helixiam.authorization.federation.wallet.testwallet.TestPki.LeafSpec.defaults())
+                            .chain(), new java.security.cert.TrustAnchor(PKI.root(), null)), null);
     private static final StatusPolicy CLOSED = policy(false, StatusPolicy.OnUnavailable.FAIL_CLOSED);
     private static final StatusPolicy OPEN = policy(false, StatusPolicy.OnUnavailable.FAIL_OPEN_WITH_AUDIT);
 
@@ -59,36 +65,43 @@ class StatusCheckTest {
     @Test
     void evaluatorValidIsValidAndGetsTheReferenceAndAnchors() {
         final AtomicReference<Object[]> seen = new AtomicReference<>();
-        assertThat(StatusCheck.evaluate((ref, anchors) -> {
-            seen.set(new Object[] {ref, anchors});
+        assertThat(StatusCheck.evaluate((ref, anchors, issuer) -> {
+            seen.set(new Object[] {ref, anchors, issuer});
             return StatusEvaluator.VALID;
-        }, REF, ANCHORS, CLOSED)).isEqualTo(StatusEvaluator.VALID);
-        assertThat(seen.get()).containsExactly(REF, ANCHORS);
+        }, REF, ANCHORS, ISSUER, CLOSED)).isEqualTo(StatusEvaluator.VALID);
+        assertThat(seen.get()).containsExactly(REF, ANCHORS, ISSUER);
     }
 
     @Test
     void walletExceptionsPassThroughUnderBothPolicies() {
         for (final StatusPolicy p : List.of(CLOSED, OPEN)) {
-            assertCode(() -> StatusCheck.evaluate((ref, a) -> {
+            assertCode(() -> StatusCheck.evaluate((ref, a, issuer) -> {
                 throw new WalletVerificationException(WalletErrorCode.CREDENTIAL_REVOKED, "revoked");
-            }, REF, ANCHORS, p), WalletErrorCode.CREDENTIAL_REVOKED);
+            }, REF, ANCHORS, ISSUER, p), WalletErrorCode.CREDENTIAL_REVOKED);
         }
     }
 
     @Test
     void nonValidAnswerIsNeverAccepted() {
         for (final StatusPolicy p : List.of(CLOSED, OPEN)) {
-            assertCode(() -> StatusCheck.evaluate((ref, a) -> "REVOKED", REF, ANCHORS, p),
+            assertCode(() -> StatusCheck.evaluate((ref, a, issuer) -> "REVOKED", REF, ANCHORS, ISSUER, p),
                     WalletErrorCode.STATUS_UNAVAILABLE);
         }
     }
 
     @Test
     void nonWalletExceptionFollowsOnUnavailable() {
-        final StatusEvaluator broken = (ref, a) -> {
+        final StatusEvaluator broken = (ref, a, issuer) -> {
             throw new IllegalStateException("down");
         };
-        assertCode(() -> StatusCheck.evaluate(broken, REF, ANCHORS, CLOSED), WalletErrorCode.STATUS_UNAVAILABLE);
-        assertThat(StatusCheck.evaluate(broken, REF, ANCHORS, OPEN)).isEqualTo(StatusCheck.UNAVAILABLE_ACCEPTED);
+        assertCode(() -> StatusCheck.evaluate(broken, REF, ANCHORS, ISSUER, CLOSED),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(StatusCheck.evaluate(broken, REF, ANCHORS, ISSUER, OPEN)).isEqualTo(StatusCheck.UNAVAILABLE_ACCEPTED);
+    }
+
+    @Test
+    void aMissingIssuerIsABugNeverAnAcceptedUnavailableStatus() {
+        assertThatThrownBy(() -> StatusCheck.evaluate((ref, a, issuer) -> StatusEvaluator.VALID, REF, ANCHORS, null,
+                OPEN)).isInstanceOf(NullPointerException.class);
     }
 }

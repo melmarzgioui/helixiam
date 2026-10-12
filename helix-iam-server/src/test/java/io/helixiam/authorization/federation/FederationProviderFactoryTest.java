@@ -219,6 +219,27 @@ class FederationProviderFactoryTest {
         assertThat(WalletIdentityProvider.from(provider)).isPresent();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {" wallet ", "EUDI-WALLET", "\tOpenID4VP"})
+    void fromStored_normalisesAPaddedOrUpperCaseProtocolLikeIsWallet(final String protocol) {
+        final var stored = new io.helixiam.authorization.amqp.federation.IdentityProviderConfig(
+                "acme", "my-wallet", protocol, "Wallet", true, walletSettings("acme"));
+
+        assertThat(FederationProviderFactory.isWallet(protocol)).isTrue();
+        final IdentityProvider provider = factory.fromStored(stored);
+        assertThat(provider.metadata().protocol()).isEqualTo(IdpMetadata.Protocol.WALLET);
+        assertThat(provider.metadata().iconKey()).isEqualTo("eudi-wallet");
+        assertThat(WalletIdentityProvider.from(provider).orElseThrow().keyRealm()).isEqualTo("acme");
+    }
+
+    @Test
+    void fromYaml_aWalletProviderIsNotBoundToARealm() {
+        final FederationProviderProperties props = new FederationProviderProperties();
+        props.setWallet(List.of(WalletProviderConfig.fromStored("eudi-wallet", "EUDI Wallet", walletSettings("master"))));
+
+        assertThat(WalletIdentityProvider.from(factory.build(props).get(0)).orElseThrow().keyRealm()).isNull();
+    }
+
     @Test
     void fromStored_anInvalidWalletConfigThrowsSoTheRefresherSkipsIt() {
         final Map<String, String> settings = walletSettings("acme");

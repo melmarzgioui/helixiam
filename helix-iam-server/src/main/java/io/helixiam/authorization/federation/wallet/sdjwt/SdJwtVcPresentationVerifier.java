@@ -26,6 +26,7 @@ import io.helixiam.authorization.federation.wallet.status.StatusEvaluator;
 import io.helixiam.authorization.federation.wallet.status.StatusCheck;
 import io.helixiam.authorization.federation.wallet.status.StatusReference;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
+import io.helixiam.authorization.federation.wallet.trust.ValidatedChain;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -199,8 +200,8 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
             throw fail(WalletErrorCode.UNSUPPORTED_FORMAT, "Issuer-signed JWT typ is not dc+sd-jwt");
         }
         final JWSAlgorithm alg = allowedAlg(issuerJwt.header(), "Issuer-signed JWT");
-        final List<X509Certificate> issuerChain = x5c(issuerJwt.header());
-        final X509Certificate leaf = trust.validate(issuerChain, ctx.anchors(), ctx.now());
+        final ValidatedChain issuerChain = trust.validateChain(x5c(issuerJwt.header()), ctx.anchors(), ctx.now());
+        final X509Certificate leaf = issuerChain.leaf();
         final JWSVerifier issuerVerifier = verifierFor(leaf.getPublicKey(), alg);
         if (issuerVerifier == null) {
             throw fail(WalletErrorCode.ALGORITHM_NOT_ALLOWED, "Issuer-signed JWT alg does not fit the certificate key");
@@ -369,7 +370,7 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
     // ------------------------------------------------------------------------------------------- status
 
     /** Status policy via the shared {@link StatusCheck} (identical for every format). */
-    private String checkStatus(final Map<String, Object> payload, final List<X509Certificate> issuerChain,
+    private String checkStatus(final Map<String, Object> payload, final ValidatedChain issuerChain,
             final VerificationContext ctx) {
         if (!payload.containsKey("status")) {
             return StatusCheck.absent(ctx.statusPolicy(), "credential has no status claim");

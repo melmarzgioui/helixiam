@@ -205,40 +205,29 @@ public final class TokenStatusListClient implements StatusEvaluator {
         return policy;
     }
 
-    /** Evaluates a reference to a Status List Token in JWT form (SD-JWT VC: "MUST be in JWT format"). */
-    @Override
+    /**
+     * Evaluates a reference to a Status List Token in JWT form (SD-JWT VC: "MUST be in JWT format"). The Token Status
+     * List draft and SD-JWT VC define no rule binding a JWT list's signer to the credential issuer (the list must chain
+     * to the same anchors), so this form needs no issuer.
+     */
     public String evaluate(final StatusReference ref, final TrustAnchors anchors) {
         return evaluate(ref, anchors, Form.JWT, null);
     }
 
-    /**
-     * JWT form: the Token Status List draft and SD-JWT VC define no rule binding the list signer to the credential
-     * issuer (the list must chain to the same anchors), so {@code issuer} is not used.
-     */
+    /** JWT form, as the presentation verifiers call it; {@code issuer} is required but has no rule to apply here. */
     @Override
     public String evaluate(final StatusReference ref, final TrustAnchors anchors, final CredentialIssuer issuer) {
+        Objects.requireNonNull(issuer, "issuer");
         return evaluate(ref, anchors, Form.JWT, null);
     }
 
     /**
-     * The same client for Status List Tokens in CWT form ({@code application/statuslist+cwt}, ISO mdoc). Given the
-     * {@link CredentialIssuer} it also enforces the ISO §12.3.6 signer rule ({@link MdocStatusListSigner}), on every
-     * evaluation including cache hits; that refusal always fails closed. Without it (the two-argument form) only the
-     * anchors are checked.
+     * The same client for Status List Tokens in CWT form ({@code application/statuslist+cwt}, ISO mdoc). It always
+     * enforces the ISO §12.3.6 signer rule ({@link MdocStatusListSigner}) on the PKIX-validated chains, on every
+     * evaluation including cache hits; that refusal always fails closed. There is no CWT form without the issuer.
      */
     public StatusEvaluator cwtEvaluator() {
-        return new StatusEvaluator() {
-            @Override
-            public String evaluate(final StatusReference ref, final TrustAnchors anchors) {
-                return TokenStatusListClient.this.evaluate(ref, anchors, Form.CWT, null);
-            }
-
-            @Override
-            public String evaluate(final StatusReference ref, final TrustAnchors anchors,
-                    final CredentialIssuer issuer) {
-                return TokenStatusListClient.this.evaluate(ref, anchors, Form.CWT, issuer);
-            }
-        };
+        return (ref, anchors, issuer) -> evaluate(ref, anchors, Form.CWT, Objects.requireNonNull(issuer, "issuer"));
     }
 
     private String evaluate(final StatusReference ref, final TrustAnchors anchors, final Form form,
@@ -249,7 +238,7 @@ public final class TokenStatusListClient implements StatusEvaluator {
         try {
             token = load(ref.uri(), anchors, form);
             if (issuer != null) {
-                MdocStatusListSigner.check(token.signerChain(), issuer, anchors);
+                MdocStatusListSigner.check(token.signer(), issuer);
             }
         } catch (final TransientFailure e) {
             return unavailable(ref.uri(), e.getMessage());

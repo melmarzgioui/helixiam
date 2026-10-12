@@ -74,11 +74,26 @@ public class WalletIdentityProviders {
     }
 
     /**
-     * A validated provider whose key lives in {@code realmId}.
+     * A validated STORED provider of {@code realmId}: its key lives there, and it starts logins only there.
      *
      * @throws IllegalArgumentException when the config is invalid (the message names each field, never key material)
      */
     public WalletIdentityProvider build(final String realmId, final WalletProviderConfig config) {
+        return build(realmId, realmId, config);
+    }
+
+    /**
+     * A validated YAML provider ({@code helix.federation.wallet[*]}): its key lives in {@link #YAML_REALM}, and it serves
+     * every realm.
+     *
+     * @throws IllegalArgumentException when the config is invalid
+     */
+    public WalletIdentityProvider buildFromYaml(final WalletProviderConfig config) {
+        return build(YAML_REALM, null, config);
+    }
+
+    private WalletIdentityProvider build(final String realmId, final String keyRealm,
+                                         final WalletProviderConfig config) {
         final SigningKeyHandle signingKey = signingKey(realmId, config);
         validator.requireValid(realmId, config, signingKey);
         if (signingKey == null) { // valid on a second resolve that the first one missed: refuse, never sign unchecked
@@ -101,7 +116,7 @@ public class WalletIdentityProviders {
                         limits.maxJwtBytes(), limits.cborLimits()));
             }
         }
-        return new WalletIdentityProvider(config, signingKey, anchors, statusPolicy, statusClient, verifiers,
+        return new WalletIdentityProvider(config, keyRealm, signingKey, anchors, statusPolicy, statusClient, verifiers,
                 transactions, clock);
     }
 

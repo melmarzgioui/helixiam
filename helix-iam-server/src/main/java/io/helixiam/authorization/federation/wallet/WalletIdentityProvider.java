@@ -50,7 +50,8 @@ import java.util.Optional;
  *       ids and response id; {@code helixState} = the broker's state; the browser binding hash; the PID DCQL query; the
  *       configured TTL) and sends the browser to Helix's own wallet page
  *       {@code /realms/<realm>/broker/<alias>/wallet?tx=<transactionId>} (Task 18 serves it, and the request and
- *       response endpoints).</li>
+ *       response endpoints). A stored provider starts only in its own realm ({@link #keyRealm()}); a YAML provider
+ *       (key in master) in any.</li>
  *   <li>{@link #callback}: redeems {@code response_code} with the broker's expected state and this browser's binding
  *       ({@link WalletTransactionStore#redeem}, single use, constant time) and returns the identity stored at
  *       verification ({@link VerifiedIdentityJson}). Every refusal is a {@link WalletVerificationException}; the broker
@@ -81,6 +82,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
     private static final int KID_BYTES = 16;
 
     private final WalletProviderConfig config;
+    /** The realm a stored provider (and its key) belongs to; null for a YAML provider, which serves every realm. */
+    private final String keyRealm;
     private final SigningKeyHandle signingKey;
     private final TrustAnchors trustAnchors;
     private final StatusPolicy statusPolicy;
@@ -93,11 +96,12 @@ public final class WalletIdentityProvider implements IdentityProvider {
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
-    WalletIdentityProvider(final WalletProviderConfig config, final SigningKeyHandle signingKey,
+    WalletIdentityProvider(final WalletProviderConfig config, final String keyRealm, final SigningKeyHandle signingKey,
                            final TrustAnchors trustAnchors, final StatusPolicy statusPolicy,
                            final TokenStatusListClient statusClient, final Map<String, PresentationVerifier> verifiers,
                            final WalletTransactionStore transactions, final Clock clock) {
         this.config = Objects.requireNonNull(config, "config");
+        this.keyRealm = keyRealm;
         this.signingKey = Objects.requireNonNull(signingKey, "signingKey");
         this.trustAnchors = Objects.requireNonNull(trustAnchors, "trustAnchors");
         this.statusPolicy = Objects.requireNonNull(statusPolicy, "statusPolicy");
@@ -131,6 +135,11 @@ public final class WalletIdentityProvider implements IdentityProvider {
         }
         if (blank(context.browserBindingHash())) {
             throw new IllegalStateException("A wallet login needs a browser binding");
+        }
+        // The registry is keyed by alias only (spec conflict 6): a stored provider signs with its own realm's key and
+        // must never start a login for another realm. The broker turns this into /login?error=federation.
+        if (keyRealm != null && !keyRealm.equals(context.realmId())) {
+            throw new IllegalStateException("Wallet provider '" + config.alias() + "' belongs to another realm");
         }
         final Instant now = clock.instant();
         final WalletTransaction tx = new WalletTransaction(token(ID_BYTES), token(ID_BYTES), token(ID_BYTES),
@@ -193,7 +202,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
 
     private WalletVerificationException refused(final WalletErrorCode code, final String safeDetail,
                                                 final String transactionId) {
-        LOG.info("Wallet callback refused: alias={} tx={} reason={}", LogSafe.sanitize(config.alias()),
+        // DEBUG only: the broker logs the refusal once, at WARN, with its reason
+        LOG.debug("Wallet callback refused: alias={} tx={} reason={}", LogSafe.sanitize(config.alias()),
                 transactionId == null ? "-" : transactionId, code.reason());
         return new WalletVerificationException(code, safeDetail);
     }
@@ -205,6 +215,11 @@ public final class WalletIdentityProvider implements IdentityProvider {
     }
 
     // ------------------------------------------------------------------------------------------------ Task 18 view
+
+    /** The realm of a stored provider (its key's realm); {@code null} for a YAML provider, usable in every realm. */
+    public String keyRealm() {
+        return keyRealm;
+    }
 
     /** The validated configuration. */
     public WalletProviderConfig config() {

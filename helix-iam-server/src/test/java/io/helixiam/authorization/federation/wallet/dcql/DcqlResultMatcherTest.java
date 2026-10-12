@@ -572,7 +572,7 @@ class DcqlResultMatcherTest {
                 wallet.pki().trustAnchors(RevocationMode.OFF),
                 new StatusPolicy(false, StatusPolicy.OnUnavailable.FAIL_CLOSED, Duration.ofSeconds(900), List.of()),
                 Set.of(PID_VCT), NS, false);
-        final StatusEvaluator neverCalled = (ref, anchors) -> {
+        final StatusEvaluator neverCalled = (ref, anchors, issuer) -> {
             throw new AssertionError("no status reference");
         };
 
@@ -607,7 +607,7 @@ class DcqlResultMatcherTest {
                 wallet.pki().trustAnchors(RevocationMode.OFF),
                 new StatusPolicy(true, StatusPolicy.OnUnavailable.FAIL_CLOSED, Duration.ofSeconds(900), List.of()),
                 Set.of(PID_VCT), NS, false);
-        final StatusEvaluator valid = (ref, anchors) -> StatusEvaluator.VALID;
+        final StatusEvaluator valid = (ref, anchors, issuer) -> StatusEvaluator.VALID;
 
         final MatchedPresentations result = new DcqlResultMatcher().match(
                 json("{\"pid_sd_jwt\": [\"" + vp + "\"]}"), PRESET,

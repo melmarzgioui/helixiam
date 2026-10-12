@@ -304,4 +304,36 @@ class FederationBrokerControllerTest {
         assertThat(view).isEqualTo("redirect:/login?error=federation");
         assertThat(BrowserBinding.current(request.getSession(), ALIAS)).isEqualTo(bound);
     }
+
+    // ------------------------------------------------------------------ fix round 1
+
+    @Test
+    void aWalletRefusalRedirectsToTheGenericFederationErrorAndLeaksNoReason() {
+        when(registry.get(ALIAS)).thenReturn(provider);
+        when(provider.callback(any())).thenThrow(new io.helixiam.authorization.federation.wallet
+                .WalletVerificationException(io.helixiam.authorization.federation.wallet.WalletErrorCode.REPLAY,
+                "response code unknown, expired, already used"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+
+        final String view = controller.callback(ALIAS, request, response);
+
+        assertThat(view).isEqualTo("redirect:/login?error=federation");
+        assertThat(view.toLowerCase()).doesNotContain("replay").doesNotContain("wallet").doesNotContain("code");
+        assertThat(response.getContentAsByteArray()).isEmpty();
+        assertThat(response.getHeaderNames()).isEmpty();
+        verify(broker, never()).broker(any(), any(), any());
+    }
+
+    @Test
+    void aProviderThatRefusesToStartGoesToTheFederationErrorPage() {
+        when(registry.get(ALIAS)).thenReturn(provider);
+        when(provider.start(any())).thenThrow(new IllegalStateException("provider not usable in this realm"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final String view = controller.start(ALIAS, request, new org.springframework.ui.ConcurrentModel());
+
+        assertThat(view).isEqualTo("redirect:/login?error=federation");
+        assertThat(request.getSession().getAttribute("HELIX_FED_STATE_" + ALIAS)).isNull();
+    }
 }

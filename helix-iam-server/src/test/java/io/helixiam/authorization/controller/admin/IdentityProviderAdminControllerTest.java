@@ -223,4 +223,29 @@ class IdentityProviderAdminControllerTest {
                 + java.util.Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(key.getEncoded())
                 + "\n-----END PRIVATE KEY-----\n";
     }
+
+    @Test
+    void withoutTheWalletValidatorAWalletWriteFailsClosed() {
+        final IdentityProviderRequest body = new IdentityProviderRequest("eudi", "eudi-wallet", "Wallet", true,
+                walletSettings());
+
+        assertThatThrownBy(() -> controller.create("gov", body))
+                .isInstanceOf(ProviderValidationException.class)
+                .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors()).containsKey("protocol"));
+        verify(publisher, never()).save(any(IdentityProviderConfig.class));
+    }
+
+    @Test
+    void aPaddedOrUpperCaseWalletProtocolIsValidatedToo() {
+        final Map<String, String> settings = walletSettings();
+        settings.put("transactionTtlSeconds", "5");
+        for (final String protocol : List.of(" Wallet ", "OPENID4VP")) {
+            assertThatThrownBy(() -> walletController(DeploymentProfile.production()).create("gov",
+                    new IdentityProviderRequest("eudi", protocol, "Wallet", true, settings)))
+                    .isInstanceOf(ProviderValidationException.class)
+                    .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors())
+                            .containsKey("config.transactionTtlSeconds"));
+        }
+        verify(publisher, never()).save(any(IdentityProviderConfig.class));
+    }
 }

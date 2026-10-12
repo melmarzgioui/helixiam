@@ -583,16 +583,17 @@ class TokenStatusListClientTest {
                 ? WalletErrorCode.LIMIT_EXCEEDED : WalletErrorCode.STATUS_UNAVAILABLE;
 
         assertCode(() -> evaluator(scenario, OnUnavailable.FAIL_CLOSED).evaluate(
-                new StatusReference(0, scenario.uri()), anchors), closedCode);
+                new StatusReference(0, scenario.uri()), anchors, sameIssuer()), closedCode);
         assertThat(audits).isEmpty();
 
         final StatusEvaluator failOpen = evaluator(scenario, OnUnavailable.FAIL_OPEN_WITH_AUDIT);
         if (failure.failOpenOutcome == Outcome.OPEN) {
-            assertThat(failOpen.evaluate(new StatusReference(0, scenario.uri()), anchors))
+            assertThat(failOpen.evaluate(new StatusReference(0, scenario.uri()), anchors, sameIssuer()))
                     .isEqualTo(StatusEvaluator.VALID);
             assertThat(audits).singleElement().asString().endsWith("|STATUS_UNAVAILABLE");
         } else {
-            assertCode(() -> failOpen.evaluate(new StatusReference(0, scenario.uri()), anchors), closedCode);
+            assertCode(() -> failOpen.evaluate(new StatusReference(0, scenario.uri()), anchors, sameIssuer()),
+                    closedCode);
             assertThat(audits).isEmpty();
         }
     }
@@ -754,8 +755,9 @@ class TokenStatusListClientTest {
     void cwtStatusListIsEvaluated() {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0, 1}, Map.of()));
         final StatusEvaluator cwt = client(failClosed()).cwtEvaluator();
-        assertThat(cwt.evaluate(new StatusReference(0, uri("/cwt/1")), anchors)).isEqualTo(StatusEvaluator.VALID);
-        assertCode(() -> cwt.evaluate(new StatusReference(1, uri("/cwt/1")), anchors),
+        assertThat(cwt.evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()))
+                .isEqualTo(StatusEvaluator.VALID);
+        assertCode(() -> cwt.evaluate(new StatusReference(1, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.CREDENTIAL_REVOKED);
         assertThat(stub.requests()).singleElement().satisfies(r -> assertThat(r.accept()).isEqualTo(CWT_TYPE));
     }
@@ -763,7 +765,7 @@ class TokenStatusListClientTest {
     @Test
     void cwtWithBadSignatureIsStatusUnavailable() {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of("tamper", true)));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
@@ -771,28 +773,28 @@ class TokenStatusListClientTest {
     void cwtFromAnUntrustedSignerIsStatusUnavailable() {
         final Leaf stranger = TestPki.create("Stranger").issueLeaf(LeafSpec.defaults());
         stub.serveCwt(cwt(stranger, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
     @Test
     void cwtWithWrongSubjectIsStatusUnavailable() {
         stub.serveCwt(cwt(signer, uri("/cwt/other"), 1, new int[] {0}, Map.of()));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
     @Test
     void cwtWithWrongTypeIsStatusUnavailable() {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of("typ", "application/cwt")));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
     @Test
     void cwtWithX5chainOnlyInTheUnprotectedHeaderIsStatusUnavailable() {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of("unprotectedX5chain", true)));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
@@ -800,21 +802,21 @@ class TokenStatusListClientTest {
     void cwtExpiredIsStatusUnavailable() {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0},
                 Map.of("exp", clock.instant().minusSeconds(300).getEpochSecond())));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
     @Test
     void cwtUntaggedIsStatusUnavailable() {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of("untagged", true)));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
     @Test
     void cwtZipBombIsLimitExceeded() {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of("lst", zlib(new byte[3 * 1024 * 1024]))));
-        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors),
+        assertCode(() -> client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors, sameIssuer()),
                 WalletErrorCode.LIMIT_EXCEEDED);
     }
 
@@ -838,8 +840,9 @@ class TokenStatusListClientTest {
         final StatusEvaluator cwt = client(failOpen()).cwtEvaluator();
         final StatusReference ref = new StatusReference(0, uri("/cwt/1"));
 
-        assertThat(cwt.evaluate(ref, trusted)).as("the list itself is trusted").isEqualTo(StatusEvaluator.VALID);
-        assertCode(() -> cwt.evaluate(ref, trusted, new CredentialIssuer(msoSigner.chain(), null)),
+        assertThat(cwt.evaluate(ref, trusted, mdocIssuer(otherSigner.chain(), trusted, null)))
+                .as("the list itself is trusted, for its own issuer's credentials").isEqualTo(StatusEvaluator.VALID);
+        assertCode(() -> cwt.evaluate(ref, trusted, mdocIssuer(msoSigner.chain(), trusted, null)),
                 WalletErrorCode.STATUS_UNAVAILABLE);
         assertThat(audits).as("a signer refusal is never fail-open").isEmpty();
     }
@@ -850,7 +853,7 @@ class TokenStatusListClientTest {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
 
         assertThat(client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors,
-                new CredentialIssuer(msoSigner.chain(), null))).isEqualTo(StatusEvaluator.VALID);
+                mdocIssuer(msoSigner.chain(), anchors, null))).isEqualTo(StatusEvaluator.VALID);
     }
 
     @Test
@@ -858,7 +861,7 @@ class TokenStatusListClientTest {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
 
         assertThat(client(failClosed()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors,
-                new CredentialIssuer(List.of(signer.certificate()), null))).isEqualTo(StatusEvaluator.VALID);
+                mdocIssuer(signer.chain(), anchors, null))).isEqualTo(StatusEvaluator.VALID);
     }
 
     @Test
@@ -872,11 +875,11 @@ class TokenStatusListClientTest {
 
         stub.serveCwt(cwt(otherSigner, uri("/cwt/delegated"), 1, new int[] {0}, Map.of()));
         assertThat(cwt.evaluate(new StatusReference(0, uri("/cwt/delegated")), trusted,
-                new CredentialIssuer(msoSigner.chain(), certificate))).isEqualTo(StatusEvaluator.VALID);
+                mdocIssuer(msoSigner.chain(), trusted, certificate))).isEqualTo(StatusEvaluator.VALID);
 
         stub.serveCwt(cwt(signer, uri("/cwt/issuer"), 1, new int[] {0}, Map.of()));
         assertCode(() -> cwt.evaluate(new StatusReference(0, uri("/cwt/issuer")), trusted,
-                new CredentialIssuer(msoSigner.chain(), certificate)), WalletErrorCode.STATUS_UNAVAILABLE);
+                mdocIssuer(msoSigner.chain(), trusted, certificate)), WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
     @Test
@@ -884,7 +887,61 @@ class TokenStatusListClientTest {
         stub.serveCwt(cwt(signer, uri("/cwt/1"), 1, new int[] {0}, Map.of()));
 
         assertCode(() -> client(failOpen()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/1")), anchors,
-                new CredentialIssuer(List.of(signer.certificate()), new byte[] {1, 2, 3})),
+                mdocIssuer(signer.chain(), anchors, new byte[] {1, 2, 3})),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+    }
+
+    // Fix round 1 (review Critical 1, ruling 1): the rule runs on the PKIX-validated path, and the list signer must chain
+    // to the MSO signer's own issuing CA. The attacker below appends the victim's anchor to its own list chain.
+
+    /** Two issuing CAs, each trusted directly as an anchor (as IACAs are for mDL). */
+    private static TrustAnchors issuingCaAnchors(final TestPki a, final TestPki b) {
+        return new TrustAnchors(java.util.Set.of(new java.security.cert.TrustAnchor(a.intermediate(), null),
+                new java.security.cert.TrustAnchor(b.intermediate(), null)), List.of(), TrustAnchors.RevocationMode.OFF);
+    }
+
+    @Test
+    void mdocListOfASiblingIssuerWithTheVictimsAnchorAppendedIsRefused() {
+        final TestPki attacker = TestPki.create("Attacker Issuer");
+        final Leaf victimDs = pki.issueLeaf(LeafSpec.defaults());
+        final Leaf attackerList = attacker.issueLeaf(LeafSpec.defaults());
+        final Leaf forged = new Leaf(attackerList.certificate(), attackerList.privateKey(),
+                List.of(attackerList.certificate(), attacker.intermediate(), pki.intermediate()));
+        final TrustAnchors trusted = issuingCaAnchors(pki, attacker);
+        stub.serveCwt(cwt(forged, uri("/cwt/forged"), 1, new int[] {0}, Map.of()));
+
+        assertCode(() -> client(failOpen()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/forged")),
+                trusted, mdocIssuer(victimDs.chain(), trusted, null)), WalletErrorCode.STATUS_UNAVAILABLE);
+    }
+
+    @Test
+    void mdocListOfASiblingIssuerUnderTheSameRootIsRefused() {
+        final TestPki sibling = pki.siblingIssuer("Sibling Status");
+        final Leaf victimDs = pki.issueLeaf(LeafSpec.defaults());
+        final Leaf siblingList = sibling.issueLeaf(LeafSpec.defaults());
+        stub.serveCwt(cwt(siblingList, uri("/cwt/sibling"), 1, new int[] {0}, Map.of()));
+        final StatusEvaluator cwt = client(failOpen()).cwtEvaluator();
+
+        assertCode(() -> cwt.evaluate(new StatusReference(0, uri("/cwt/sibling")), anchors,
+                mdocIssuer(victimDs.chain(), anchors, null)), WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(cwt.evaluate(new StatusReference(0, uri("/cwt/sibling")), anchors,
+                mdocIssuer(sibling.issueLeaf(LeafSpec.defaults()).chain(), anchors, null)))
+                .as("the sibling's own credentials").isEqualTo(StatusEvaluator.VALID);
+    }
+
+    @Test
+    void mdocListWithTheCertificatesAnchorAppendedIsRefused() throws Exception {
+        final TestPki attacker = TestPki.create("Attacker Certificate");
+        final Leaf victimDs = pki.issueLeaf(LeafSpec.defaults());
+        final Leaf attackerList = attacker.issueLeaf(LeafSpec.defaults());
+        final Leaf forged = new Leaf(attackerList.certificate(), attackerList.privateKey(),
+                List.of(attackerList.certificate(), attacker.intermediate(), pki.intermediate()));
+        final TrustAnchors trusted = issuingCaAnchors(pki, attacker);
+        stub.serveCwt(cwt(forged, uri("/cwt/forged-cert"), 1, new int[] {0}, Map.of()));
+        final byte[] victimCa = pki.intermediate().getEncoded();
+
+        assertCode(() -> client(failOpen()).cwtEvaluator().evaluate(new StatusReference(0, uri("/cwt/forged-cert")),
+                trusted, mdocIssuer(victimDs.chain(), trusted, victimCa)),
                 WalletErrorCode.STATUS_UNAVAILABLE);
     }
 
@@ -895,7 +952,7 @@ class TokenStatusListClientTest {
         stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}));
 
         assertThat(client(failClosed()).evaluate(new StatusReference(0, uri("/lists/1")), anchors,
-                new CredentialIssuer(msoSigner.chain(), null))).isEqualTo(StatusEvaluator.VALID);
+                mdocIssuer(msoSigner.chain(), bothRoots(other), null))).isEqualTo(StatusEvaluator.VALID);
     }
 
     @Test
@@ -906,7 +963,7 @@ class TokenStatusListClientTest {
                 : StubResponse.ok(JWT_TYPE, token.getBytes(StandardCharsets.US_ASCII)));
         final TokenStatusListClient client = client(failClosed());
         assertThat(client.evaluate(new StatusReference(0, uri("/lists/1")), anchors)).isEqualTo(StatusEvaluator.VALID);
-        assertCode(() -> client.cwtEvaluator().evaluate(new StatusReference(0, uri("/lists/1")), anchors),
+        assertCode(() -> client.cwtEvaluator().evaluate(new StatusReference(0, uri("/lists/1")), anchors, sameIssuer()),
                 WalletErrorCode.CREDENTIAL_REVOKED);
     }
 
@@ -976,6 +1033,18 @@ class TokenStatusListClientTest {
 
     private String uri(final String path) {
         return "https://localhost:" + stub.port() + path;
+    }
+
+    /** The credential issuer as the mdoc verifier passes it. */
+    private CredentialIssuer mdocIssuer(final List<X509Certificate> chain, final TrustAnchors trusted,
+            final byte[] certificate) {
+        return new CredentialIssuer(new IssuerTrustValidator().validateChain(chain, trusted, clock.instant()),
+                certificate);
+    }
+
+    /** The status list signer's own credentials: a credential issuer the default list may speak for. */
+    private CredentialIssuer sameIssuer() {
+        return mdocIssuer(signer.chain(), anchors, null);
     }
 
     private static StatusPolicy failClosed() {

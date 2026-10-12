@@ -11,6 +11,7 @@ import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jose.util.Base64URL;
 import io.helixiam.authorization.federation.eid.EidLevelOfAssurance;
 import io.helixiam.authorization.federation.eid.EidScheme;
+import io.helixiam.authorization.federation.ProviderSecretKeys;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
 import io.helixiam.authorization.service.key.RealmSigningKeys;
@@ -78,6 +79,8 @@ public class WalletConfigValidator {
     private static final int MAX_STATUS_CACHE = 900;
 
     private static final String CHAIN = "accessCertificateChain";
+    /** The secret keys are the same under every wallet protocol alias. */
+    private static final String SECRET_PROTOCOL = "eudi-wallet";
     private static final String KEY_REF = "accessKeyRef";
     private static final String DEV_KEY = "accessCertificatePrivateKey";
 
@@ -104,6 +107,44 @@ public class WalletConfigValidator {
         final Map<String, String> errors = new LinkedHashMap<>(parsed.fieldErrors());
         validate(realmId, parsed.config()).forEach(errors::putIfAbsent);
         return errors;
+    }
+
+    /**
+     * Field → message for an admin or import write of a wallet connection, judged as it will be stored: the write's
+     * settings without control flags, plus each stored secret the write leaves out and does not clear (secrets are
+     * write-only, so an update normally omits them). Shared by the admin API and realm import so both refuse the
+     * same configs with the same messages ({@link #asAdminFields} names the fields as the admin API does).
+     *
+     * @param stored the stored connection's settings (with secrets), or an empty map / null for a new one
+     */
+    public Map<String, String> validateWrite(final String realmId, final String alias, final String displayName,
+                                             final Map<String, String> write, final Map<String, String> stored) {
+        final Map<String, String> effective = new LinkedHashMap<>();
+        if (write != null) {
+            write.forEach((k, v) -> {
+                if (k != null && !ProviderSecretKeys.isControlKey(k)) {
+                    effective.put(k, v);
+                }
+            });
+        }
+        if (stored != null) {
+            for (final String key : ProviderSecretKeys.keysFor(SECRET_PROTOCOL)) {
+                final String given = effective.get(key);
+                if ((given == null || given.isBlank()) && !ProviderSecretKeys.clears(write, key)
+                        && stored.get(key) != null && !stored.get(key).isBlank()) {
+                    effective.put(key, stored.get(key));
+                }
+            }
+        }
+        return validateStored(realmId, alias, displayName, effective);
+    }
+
+    /** The admin API's field names: {@code alias} and {@code displayName} as is, settings as {@code config.<field>}. */
+    public static Map<String, String> asAdminFields(final Map<String, String> fieldErrors) {
+        final Map<String, String> out = new LinkedHashMap<>();
+        fieldErrors.forEach((field, message) ->
+                out.put("alias".equals(field) || "displayName".equals(field) ? field : "config." + field, message));
+        return out;
     }
 
     /** Field → message for every problem (empty when the config is usable in {@code realmId}). */
