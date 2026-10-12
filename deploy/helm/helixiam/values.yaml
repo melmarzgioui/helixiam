@@ -55,9 +55,10 @@ database:
   readHost: ""            # optional read-replica host; defaults to database.host
 
 # Redis is used only by sessionStore=redis and tokenStore=redis. It is required when either is redis; with
-# sessionStore=queue and tokenStore=queue leave host empty and run without Redis. Nothing else uses Redis: rate
-# limits, the SAML assertion replay cache and the QR / push / transaction-signing / device-enrolment stores are kept
-# in each replica's memory whatever the stores are.
+# sessionStore=queue and tokenStore=queue leave host empty and run without Redis. EUDI wallet login transactions
+# follow: in Redis when either store is redis, otherwise in process memory (one replica only; a startup WARN says so).
+# Nothing else uses Redis: rate limits, the SAML assertion replay cache and the QR / push / transaction-signing /
+# device-enrolment stores are kept in each replica's memory whatever the stores are.
 redis:
   host: ""                # e.g. redis-master.redis.svc; required when sessionStore or tokenStore is redis
   port: 6379
