@@ -45,19 +45,35 @@ class WalletAttributeMapperTest {
         ((Map<String, Object>) mdocClaims.get(NS)).put(element, value);
     }
 
-    private static Map<String, Object> fullSdJwtPid() {
-        final Map<String, Object> address = new LinkedHashMap<>();
-        address.put("locality", "Berlin");
-        address.put("country", "DE");
-        address.put("house_number", "12");
+    /** notes §7.2: both encodings' `place_of_birth` is an object/map of country/region/locality, never a string. */
+    private static Map<String, Object> placeOfBirth() {
+        final Map<String, Object> pob = new LinkedHashMap<>();
+        pob.put("country", "DE");
+        pob.put("region", "Brandenburg");
+        pob.put("locality", "Potsdam");
+        return pob;
+    }
 
+    private static Map<String, Object> address() {
+        final Map<String, Object> address = new LinkedHashMap<>();
+        address.put("formatted", "Hauptstr. 7, 10117 Berlin, DE");
+        address.put("country", "DE");
+        address.put("region", "Berlin");
+        address.put("locality", "Berlin");
+        address.put("postal_code", "10117");
+        address.put("street_address", "Hauptstr.");
+        address.put("house_number", "7");
+        return address;
+    }
+
+    private static Map<String, Object> fullSdJwtPid() {
         final Map<String, Object> claims = new LinkedHashMap<>();
         claims.put("given_name", "Erika");
         claims.put("family_name", "Mustermann");
         claims.put("birthdate", "1964-08-12");
         claims.put("nationalities", List.of("DE"));
-        claims.put("place_of_birth", "Berlin");
-        claims.put("address", address);
+        claims.put("place_of_birth", placeOfBirth());
+        claims.put("address", address());
         claims.put("issuing_country", "DE");
         claims.put("issuing_authority", "DE Government");
         return claims;
@@ -69,9 +85,16 @@ class WalletAttributeMapperTest {
         elements.put("family_name", "Mustermann");
         elements.put("birth_date", "1964-08-12");
         elements.put("nationality", List.of("DE"));
-        elements.put("place_of_birth", "Berlin");
-        elements.put("resident_city", "Berlin");
+        // mdoc's place_of_birth is ONE element whose value is the country/region/locality map (notes §7.2) — unlike
+        // address, which the Rulebook gives as separate flat resident_* elements.
+        elements.put("place_of_birth", placeOfBirth());
+        elements.put("resident_address", "Hauptstr. 7, 10117 Berlin, DE");
         elements.put("resident_country", "DE");
+        elements.put("resident_state", "Berlin");
+        elements.put("resident_city", "Berlin");
+        elements.put("resident_postal_code", "10117");
+        elements.put("resident_street", "Hauptstr.");
+        // resident_house_number has no mdoc element ("not listed for mdoc"); SD-JWT VC only.
         elements.put("issuing_country", "DE");
         elements.put("issuing_authority", "DE Government");
         return Map.of(NS, elements);
@@ -97,9 +120,29 @@ class WalletAttributeMapperTest {
         assertThat(sdJwtAttrs).isEqualTo(mdocAttrs);
         assertThat(sdJwtAttrs).containsEntry("given_name", "Erika").containsEntry("family_name", "Mustermann")
                 .containsEntry("birthdate", "1964-08-12").containsEntry("nationalities", "DE")
-                .containsEntry("place_of_birth", "Berlin").containsEntry("address.locality", "Berlin")
-                .containsEntry("address.country", "DE").containsEntry("issuing_country", "DE")
-                .containsEntry("issuing_authority", "DE Government");
+                .containsEntry("place_of_birth.country", "DE").containsEntry("place_of_birth.region", "Brandenburg")
+                .containsEntry("place_of_birth.locality", "Potsdam")
+                .containsEntry("address.formatted", "Hauptstr. 7, 10117 Berlin, DE")
+                .containsEntry("address.country", "DE").containsEntry("address.region", "Berlin")
+                .containsEntry("address.locality", "Berlin").containsEntry("address.postal_code", "10117")
+                .containsEntry("address.street_address", "Hauptstr.")
+                .containsEntry("issuing_country", "DE").containsEntry("issuing_authority", "DE Government");
+    }
+
+    @Test
+    void placeOfBirthMapsIdenticallyFromBothFormats() {
+        // place_of_birth is an object (country/region/locality) in BOTH encodings (notes §7.2), decomposed the same
+        // way address.* is; SD-JWT's claim and mdoc's single "place_of_birth" element must yield the same attributes.
+        final BrokeredIdentity fromSdJwt = WalletAttributeMapper.map("eudi-wallet", "sub-1",
+                matched(presentation(SD_JWT, fullSdJwtPid(), ISSUER_DN)), null);
+        final BrokeredIdentity fromMdoc = WalletAttributeMapper.map("eudi-wallet", "sub-1",
+                matched(presentation(MDOC, fullMdocPid(), ISSUER_DN)), null);
+
+        for (final BrokeredIdentity identity : List.of(fromSdJwt, fromMdoc)) {
+            assertThat(identity.attributes()).containsEntry("place_of_birth.country", "DE")
+                    .containsEntry("place_of_birth.region", "Brandenburg")
+                    .containsEntry("place_of_birth.locality", "Potsdam");
+        }
     }
 
     @Test
@@ -107,7 +150,7 @@ class WalletAttributeMapperTest {
         final BrokeredIdentity identity = WalletAttributeMapper.map("eudi-wallet", "sub-1",
                 matched(presentation(SD_JWT, fullSdJwtPid(), ISSUER_DN)), null);
 
-        assertThat(identity.attributes()).containsEntry("address.house_number", "12");
+        assertThat(identity.attributes()).containsEntry("address.house_number", "7");
     }
 
     @Test
@@ -127,6 +170,19 @@ class WalletAttributeMapperTest {
                 matched(presentation(SD_JWT, claims, ISSUER_DN)), null);
 
         assertThat(identity.attributes()).containsEntry("nationalities", "DE,NL");
+    }
+
+    @Test
+    void mdocNationalityAsABareScalarBecomesAOneElementList() {
+        // ISO/IEC 18013-5 PID test fixtures elsewhere in this codebase always encode nationality as a CBOR array,
+        // but the mapper must not assume that — a bare scalar is still "a list", just a one-element one.
+        final Map<String, Object> claims = fullMdocPid();
+        setMdocElement(claims, "nationality", "DE");
+
+        final BrokeredIdentity identity = WalletAttributeMapper.map("eudi-wallet", "sub-1",
+                matched(presentation(MDOC, claims, ISSUER_DN)), null);
+
+        assertThat(identity.attributes()).containsEntry("nationalities", "DE");
     }
 
     // ------------------------------------------------------------------------------------------- not mapped

@@ -44,7 +44,10 @@ import java.util.stream.Collectors;
  * <p><b>Mapped:</b> {@code given_name}, {@code family_name}, {@code birthdate} (normalised to {@code YYYY-MM-DD}),
  * {@code nationalities} (always treated as a list — even an mdoc's single-valued {@code nationality} element is one
  * — and joined with {@code ,}, the same convention {@code AttributeMapperRules} examples use for a multi-valued
- * claim), {@code place_of_birth}, {@code address.formatted/country/region/locality/postal_code/street_address}
+ * claim), {@code place_of_birth.country/region/locality} (an object in BOTH encodings per the Rulebook — "object
+ * (country/region/locality, &ge;1)" for SD-JWT VC, the mdoc map {@code {? "country", ? "region", ? "locality"}} for
+ * one shared mdoc element — decomposed the same way {@code address} is, see {@link #PLACE_OF_BIRTH_ELEMENT}),
+ * {@code address.formatted/country/region/locality/postal_code/street_address}
  * ({@code address.house_number} has no mdoc element per the Rulebook table — "not listed for mdoc" — so it is
  * SD-JWT VC only), {@code issuing_country}, {@code issuing_authority}, plus the Helix-only {@code
  * helix_wallet_format} and {@code helix_wallet_issuer} below. <b>Not mapped</b> (controller rulings, 2026-10-09):
@@ -87,13 +90,26 @@ public final class WalletAttributeMapper {
     /** The eIDAS rung this mapper always asserts (the ladder's top); see the class javadoc. */
     public static final String LOA_HIGH = "http://eidas.europa.eu/LoA/high";
 
+    /** The single mdoc element holding the whole {@code place_of_birth} object (ARF Annex 3.01 PID Rulebook v1.7;
+     *  docs/eudi-wallet-spec-notes.md §7.2: mdoc {@code place_of_birth} is ONE element whose value is the map
+     *  {@code {? "country", ? "region", ? "locality"}} — unlike {@code address}, which the Rulebook gives as
+     *  separate flat {@code resident_*} elements). Handled outside {@link #PID_ATTRIBUTE_ELEMENTS} because that
+     *  table otherwise assumes a flat canonical-dotted-name &rarr; flat-mdoc-element mapping, which this claim
+     *  does not fit. */
+    private static final String PLACE_OF_BIRTH_ELEMENT = "place_of_birth";
+
+    /** The sub-fields of {@code place_of_birth} in both encodings (notes §7.2: "object (country/region/locality,
+     *  &ge;1)"), decomposed into dotted canonical names the same way {@code address.*} is. */
+    private static final List<String> PLACE_OF_BIRTH_FIELDS = List.of("country", "region", "locality");
+
     /** Canonical SD-JWT VC claim name this mapper reads from an SD-JWT presentation &rarr; its mdoc element id in the
      *  {@code eu.europa.ec.eudi.pid.1} namespace (ARF Annex 3.01 PID Rulebook v1.7; docs/eudi-wallet-spec-notes.md
      *  §7.2). Restricted to the claims this mapper copies into Helix attributes — see the class javadoc for what is
-     *  deliberately left out. */
+     *  deliberately left out. Does NOT include {@code place_of_birth.*}; see {@link #PLACE_OF_BIRTH_ELEMENT}. */
     private static final Map<String, String> PID_ATTRIBUTE_ELEMENTS = pidAttributeElements();
 
-    /** {@link #PID_ATTRIBUTE_ELEMENTS}'s keys plus {@code address.house_number}, which has no mdoc element. */
+    /** {@link #PID_ATTRIBUTE_ELEMENTS}'s keys, plus {@code address.house_number} (no mdoc element) and the
+     *  {@code place_of_birth.*} dotted names (see {@link #PLACE_OF_BIRTH_FIELDS}). */
     private static final Set<String> MAPPED_CLAIMS = mappedClaims();
 
     /** Cross-checked between an SD-JWT and an mdoc presentation when both are answered; see the class javadoc. */
@@ -110,7 +126,6 @@ public final class WalletAttributeMapper {
         m.put("family_name", "family_name");
         m.put("birthdate", "birth_date");
         m.put("nationalities", "nationality");
-        m.put("place_of_birth", "place_of_birth");
         m.put("address.formatted", "resident_address");
         m.put("address.country", "resident_country");
         m.put("address.region", "resident_state");
@@ -125,6 +140,9 @@ public final class WalletAttributeMapper {
     private static Set<String> mappedClaims() {
         final Set<String> names = new LinkedHashSet<>(PID_ATTRIBUTE_ELEMENTS.keySet());
         names.add("address.house_number");
+        for (final String field : PLACE_OF_BIRTH_FIELDS) {
+            names.add(PLACE_OF_BIRTH_ELEMENT + "." + field);
+        }
         return Collections.unmodifiableSet(names);
     }
 
@@ -218,6 +236,15 @@ public final class WalletAttributeMapper {
         }
         for (final Map.Entry<String, String> entry : PID_ATTRIBUTE_ELEMENTS.entrySet()) {
             put(out, entry.getKey(), toAttributeValue(entry.getKey(), elements.get(entry.getValue())));
+        }
+        // place_of_birth is one shared mdoc element holding the whole object; decompose it the same way an SD-JWT
+        // nested claim is (sdJwtRaw), rather than through the flat canonical->element table above.
+        final Object placeOfBirth = elements.get(PLACE_OF_BIRTH_ELEMENT);
+        if (placeOfBirth instanceof Map<?, ?> fields) {
+            for (final String field : PLACE_OF_BIRTH_FIELDS) {
+                final String name = PLACE_OF_BIRTH_ELEMENT + "." + field;
+                put(out, name, toAttributeValue(name, fields.get(field)));
+            }
         }
         return out;
     }

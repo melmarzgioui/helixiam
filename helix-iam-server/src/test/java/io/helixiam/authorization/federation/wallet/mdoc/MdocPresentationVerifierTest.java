@@ -224,6 +224,10 @@ class MdocPresentationVerifierTest {
                 .containsEntry("personal_administrative_number", "PAN-0001");
         assertThat(result.issuerSubjectDn())
                 .isEqualTo(wallet.issuer().certificate().getSubjectX500Principal().getName());
+        // Pinned to the PKIX-validated leaf (IssuerTrustValidator#validateChain -> ValidatedChain#leaf()), not merely
+        // some certificate on the presented x5chain: the intermediate CA has a different, distinguishable subject.
+        assertThat(result.issuerSubjectDn())
+                .isNotEqualTo(wallet.pki().intermediate().getSubjectX500Principal().getName());
         assertThat(result.issuerSerialHex()).isEqualTo(wallet.issuer().certificate().getSerialNumber().toString(16));
         assertThat(result.statusResult()).isEqualTo(StatusEvaluator.VALID);
         assertThat(evaluated.get()).isEqualTo(STATUS_REF);

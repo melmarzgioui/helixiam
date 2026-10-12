@@ -160,6 +160,10 @@ class SdJwtVcPresentationVerifierTest {
                 .containsEntry("address", Map.of("locality", "Berlin", "country", "DE"));
         assertThat(result.issuerSubjectDn())
                 .isEqualTo(wallet.issuer().certificate().getSubjectX500Principal().getName());
+        // Pinned to the PKIX-validated leaf (IssuerTrustValidator#validateChain -> ValidatedChain#leaf()), not merely
+        // some certificate on the presented x5c: the intermediate CA has a different, distinguishable subject.
+        assertThat(result.issuerSubjectDn())
+                .isNotEqualTo(wallet.pki().intermediate().getSubjectX500Principal().getName());
         assertThat(result.issuerSerialHex()).isEqualTo(wallet.issuer().certificate().getSerialNumber().toString(16));
         assertThat(result.statusResult()).isEqualTo("VALID");
         assertThat(evaluated.get()).isEqualTo(STATUS_REF);
