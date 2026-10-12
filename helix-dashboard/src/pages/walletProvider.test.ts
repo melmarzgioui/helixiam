@@ -171,7 +171,13 @@ describe("validateWallet (mirrors WalletConfigValidator)", () => {
     expect(validateWallet(valid({ requestedClaims: ["given_name", "given_name"] }), prod())["pid.requestedClaims"]).toBe("wallet.err.claimRepeated");
   });
 
-  it("refuses an mdoc-only request whose claims have no mdoc element (the query builder's rule)", () => {
+  it("refuses mso_mdoc whenever none of the claims has an mdoc element, also with dc+sd-jwt (the query builder's rule)", () => {
+    expect(validateWallet(valid({ credentialFormats: ["dc+sd-jwt", "mso_mdoc"], requestedClaims: ["address.house_number"] }), prod())["pid.requestedClaims"])
+      .toBe("wallet.err.claimsNoMdoc");
+    expect(validateWallet(valid({ credentialFormats: ["dc+sd-jwt"], requestedClaims: ["address.house_number"] }), prod())).toEqual({});
+  });
+
+  it("refuses an mdoc-only request whose claims have no mdoc element", () => {
     expect(validateWallet(valid({ credentialFormats: ["mso_mdoc"], requestedClaims: ["address.house_number"] }), prod())["pid.requestedClaims"])
       .toBe("wallet.err.claimsNoMdoc");
     expect(validateWallet(valid({ credentialFormats: ["mso_mdoc"], requestedClaims: ["address.house_number", "given_name"] }), prod())).toEqual({});

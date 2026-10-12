@@ -254,7 +254,9 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
   if (claims.length === 0) add("pid.requestedClaims", "wallet.err.claimsRequired");
   else if (known && claims.some((c) => !known.has(c))) add("pid.requestedClaims", "wallet.err.claimUnknown");
   else if (new Set(claims).size !== claims.length) add("pid.requestedClaims", "wallet.err.claimRepeated");
-  else if (known && formatsOk && formats.includes(MDOC_FORMAT) && !formats.includes(SD_JWT_FORMAT)
+  // DcqlQueryBuilder.pidQuery builds one query per format: an mdoc query with no mdoc claim is refused even when
+  // dc+sd-jwt is requested too (the server's rule, not "either format will do").
+  else if (known && formatsOk && formats.includes(MDOC_FORMAT)
     && !claims.some((c) => known.get(c))) add("pid.requestedClaims", "wallet.err.claimsNoMdoc");
 
   if (form.subjectStrategy === "ATTRIBUTE_TUPLE" && !form.acknowledgeWeakSubject) add("subject.strategy", "wallet.err.ackRequired");

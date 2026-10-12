@@ -170,13 +170,13 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
   const back = () => { setAttempted(false); step > firstStep ? setStep(step - 1) : onCancel?.(); };
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <div style={{ marginBottom: "1.6rem" }}>
+    <div className="hx-wizard">
+      <div className="hx-wizard__steps">
         <Stepper steps={steps} current={step} />
       </div>
 
       {step === 0 && (
-        <div style={{ display: "grid", gap: ".7rem" }}>
+        <div className="hx-wizard__tiles">
           {offered.map((t) => (
             <ProviderTile
               key={t.id}
@@ -250,7 +250,7 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
       )}
 
       <Divider gap="1.5rem" />
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
+      <div className="hx-wizard__nav">
         <Button variant="ghost" onClick={back}>{step === firstStep ? "Cancel" : "Back"}</Button>
         <Button variant="primary" onClick={next} disabled={!canNext || (busy && step === steps.length - 1)}>
           {step === steps.length - 1 ? (editing ? "Save changes" : "Create connection") : "Continue"}

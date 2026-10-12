@@ -564,5 +564,8 @@ td.hx-col-sticky { background: var(--bg); }
 .hx-certlist__dn { color: var(--fg-faint); font-size: .78rem; overflow-wrap: anywhere; }
 .hx-certlist__ok { color: var(--accent); font-size: .85rem; }
 .hx-certlist__item > .hx-field__error { margin-top: 0; }
-/* Wizard: the wallet steps stack full sections. */
-.hx-wizard__wallet { display: grid; gap: var(--stack-gap); }
+/* "Add identity provider" wizard (ProviderWizard.tsx): fills the modal's width; stepper, provider tiles, nav row. */
+.hx-wizard { width: 100%; min-width: 0; }
+.hx-wizard__steps { margin-bottom: 1.6rem; }
+.hx-wizard__tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .7rem; }
+.hx-wizard__nav { display: flex; justify-content: space-between; gap: var(--sp-3); }
