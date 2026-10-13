@@ -24,4 +24,9 @@ public interface ServiceProviderRepository extends JpaRepository<ServiceProvider
     /** Helix IAM (Application model): the live OIDC clients linked to an Application, for cascade-delete. */
     List<ServiceProviderOAuthClient> findAllByApplicationIdAndDeleted(final String applicationId, final boolean deleted);
     boolean existsByClientIdAndDeleted(final String clientId, final boolean deleted);
+
+    /** private_key_jwt clients without a JWKS URL (they cannot authenticate with a key). */
+    @org.springframework.data.jpa.repository.Query("SELECT c FROM ServiceProviderOAuthClient c WHERE c.deleted = false"
+            + " AND c.tokenEndpointAuthMethod = 'PRIVATE_KEY_JWT' AND (c.jwksUrl IS NULL OR c.jwksUrl = '')")
+    List<ServiceProviderOAuthClient> findPrivateKeyJwtWithoutJwksUrl();
 }

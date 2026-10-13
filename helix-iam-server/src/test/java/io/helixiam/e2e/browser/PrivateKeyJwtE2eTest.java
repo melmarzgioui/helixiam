@@ -81,12 +81,20 @@ class PrivateKeyJwtE2eTest extends AbstractE2eTest {
         refused.stop(0);
     }
 
+    /**
+     * A private_key_jwt client whose JWKS is a local http listener. The admin API requires an https JWKS URL outside
+     * the dev profile, so the client is written through the client publisher (what the admin API calls after its
+     * validation); the token endpoint behaviour is what this test is about.
+     */
     private String client(final String realm, final String jwksUrl) {
         final String clientId = E2eSeed.unique("pkj");
-        final E2eHttp.Response created = adminSession().post("/admin/realms/" + realm + "/clients", Map.of(
-                "clientId", clientId, "grantTypes", List.of("client_credentials"),
-                "tokenEndpointAuthMethod", "PRIVATE_KEY_JWT", "jwksUrl", jwksUrl));
-        assertThat(created.status()).as(created.toString()).isEqualTo(201);
+        final io.helixiam.authorization.amqp.client.ClientDto created = context.getBean(
+                io.helixiam.authorization.amqp.client.ClientAdminPublisher.class).create(
+                new io.helixiam.authorization.amqp.client.ClientWriteDto(realm, null, clientId,
+                        List.of("client_credentials"), List.of(), List.of(), null, null, null, null, List.of(),
+                        List.of(), false, null, null, null, null, null, null, null, null, null, null, null,
+                        "PRIVATE_KEY_JWT", jwksUrl, null, null, null, null, null, null));
+        assertThat(created).isNotNull();
         return clientId;
     }
 

@@ -33,8 +33,16 @@ import java.util.Map;
 public class ClientAdminController {
 
     private final ClientAdminPublisher publisher;
+    private final io.helixiam.common.startup.DeploymentProfile profile;
 
     public ClientAdminController(final ClientAdminPublisher publisher) {
+        this(publisher, io.helixiam.common.startup.DeploymentProfile.production());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ClientAdminController(final ClientAdminPublisher publisher,
+                                 final io.helixiam.common.startup.DeploymentProfile profile) {
+        this.profile = profile;
         this.publisher = publisher;
     }
 
@@ -53,6 +61,11 @@ public class ClientAdminController {
     public ResponseEntity<?> create(@PathVariable final String realmId, @Valid @RequestBody final ClientRequest request) {
         if (secretOnPublicClient(request)) {
             return publicClientHasNoSecret("clientSecret");
+        }
+        final String jwksUrlProblem = jwksUrlProblem(request.jwksUrl());
+        if (jwksUrlProblem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", jwksUrlProblem, "fieldErrors",
+                    Map.of("jwksUrl", jwksUrlProblem)));
         }
         final ClientDto saved = publisher.create(new ClientWriteDto(realmId, null, request.clientId(),
                 request.grantTypes(), request.redirectUris(), request.scopes(), request.subjectClaim(),
@@ -73,6 +86,11 @@ public class ClientAdminController {
                                     @Valid @RequestBody final ClientRequest request) {
         if (secretOnPublicClient(request)) {
             return publicClientHasNoSecret("clientSecret");
+        }
+        final String jwksUrlProblem = jwksUrlProblem(request.jwksUrl());
+        if (jwksUrlProblem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", jwksUrlProblem, "fieldErrors",
+                    Map.of("jwksUrl", jwksUrlProblem)));
         }
         final ClientDto saved = publisher.update(new ClientWriteDto(realmId, id, request.clientId(),
                 request.grantTypes(), request.redirectUris(), request.scopes(), request.subjectClaim(),
@@ -113,6 +131,30 @@ public class ClientAdminController {
     }
 
     /** A {@code 400 {message, fieldErrors}} like {@link AdminValidationAdvice}, written directly (never thrown). */
+    /**
+     * Why {@code jwksUrl} is refused, or null: the token endpoint fetches it to verify private_key_jwt assertions, so it
+     * must be https; {@code http://localhost} / {@code http://127.0.0.1} only in the dev profile.
+     */
+    private String jwksUrlProblem(final String jwksUrl) {
+        if (jwksUrl == null || jwksUrl.isBlank()) {
+            return null;
+        }
+        final java.net.URI uri;
+        try {
+            uri = new java.net.URI(jwksUrl.trim());
+        } catch (final java.net.URISyntaxException e) {
+            return "The JWKS URL is not a valid URL.";
+        }
+        if ("https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null) {
+            return null;
+        }
+        if (profile.isDev() && "http".equalsIgnoreCase(uri.getScheme())
+                && ("localhost".equalsIgnoreCase(uri.getHost()) || "127.0.0.1".equals(uri.getHost()))) {
+            return null;
+        }
+        return "The JWKS URL must be an https URL.";
+    }
+
     private static ResponseEntity<Map<String, Object>> publicClientHasNoSecret(final String field) {
         final String message = "A public client has no secret.";
         return ResponseEntity.badRequest().body(Map.of("message", message, "fieldErrors", Map.of(field, message)));
