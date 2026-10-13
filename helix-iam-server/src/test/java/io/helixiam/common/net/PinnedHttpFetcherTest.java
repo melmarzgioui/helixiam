@@ -424,4 +424,22 @@ class PinnedHttpFetcherTest {
         fetcher.get("http://127.0.0.1:" + port() + "/caf\u00e9/l\u00efst?q=\u00fc", Map.of(), LIMITS);
         assertThat(paths).containsExactly("/caf%C3%A9/l%C3%AFst?q=%C3%BC");
     }
+
+    @Test
+    void invalidRequestHeadersAreRefusedBeforeAnyConnection() {
+        final AtomicInteger lookups = new AtomicInteger();
+        final PinnedHttpFetcher fetcher = PinnedHttpFetcher.plain(guard("hdr.test", host -> {
+            lookups.incrementAndGet();
+            return new InetAddress[] {InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1})};
+        }));
+        final String url = "http://hdr.test:" + port() + "/x";
+        assertThatThrownBy(() -> fetcher.get(url, Map.of("X-A", "a\r\nX-Injected: y"), LIMITS))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> fetcher.get(url, Map.of("X A", "v"), LIMITS))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> fetcher.post(url, Map.of("X-\u00e9", "v"), new byte[0], LIMITS))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(lookups).hasValue(0);
+        assertThat(hits).hasValue(0);
+    }
 }

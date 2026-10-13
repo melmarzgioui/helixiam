@@ -161,6 +161,8 @@ public final class PinnedHttpFetcher {
      * @throws SsrfBlockedException the guard refused the URL (subtype {@link UnresolvableHostException}: the host did
      *                              not resolve); nothing was connected
      * @throws FetchException       no answer within the limits
+     * @throws IllegalArgumentException a header name is not a token or a value is not printable ASCII (checked
+     *                              before any lookup or connection)
      */
     public Response get(final String url, final Map<String, String> headers, final Limits limits)
             throws FetchException {
@@ -176,6 +178,13 @@ public final class PinnedHttpFetcher {
     private Response send(final String method, final String url, final Map<String, String> headers,
             final byte[] body, final Limits limits) throws FetchException {
         Objects.requireNonNull(limits, "limits");
+        // the request is validated whole before any DNS lookup or connection
+        if (headers != null) {
+            headers.forEach((name, value) -> {
+                token(name);
+                value(value);
+            });
+        }
         final long deadline = System.nanoTime() + limits.totalTimeout().toNanos();
         final Exchange exchange = new Exchange(method, url, headers == null ? Map.of() : headers, body, limits,
                 deadline);
@@ -560,9 +569,9 @@ public final class PinnedHttpFetcher {
         return host.indexOf(':') >= 0 || host.matches("[0-9.]+");
     }
 
-    /** A header name from a caller: a token, never CR/LF. */
+    /** A header name from a caller: an RFC 9110 token (never CR/LF, space or non-ASCII). */
     private static String token(final String name) {
-        if (name == null || !name.matches("[A-Za-z0-9-]+")) {
+        if (name == null || !HEADER_NAME.matcher(name).matches()) {
             throw new IllegalArgumentException("invalid header name");
         }
         return name;
