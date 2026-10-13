@@ -93,8 +93,14 @@
 >   IPv4-compatible `::/96`, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) passed the check, so an AAAA answer could reach
 >   loopback or cloud metadata. Such addresses are now judged by their embedded IPv4 address; `192.0.0.0/24`,
 >   `198.18.0.0/15` and `240.0.0.0/4` (incl. broadcast) are blocked; the AWS IPv6 metadata address `fd00:ec2::254`
->   stays blocked even for an allowlisted host. The wallet's issuer CRL/OCSP and status-list fetches pin the
->   connection to the validated address (`PinnedHttpFetcher`), which removes the rebinding window for them.
+>   stays blocked even for an allowlisted host.
+>   **Residual closed 2026-10-13:** the DNS-rebinding TOCTOU is eliminated by connection pinning. Every guard caller
+>   (webhooks, SCIM, HTTP email/SMS/push and Cloudflare email drivers, back-channel and upstream logout, OIDC broker
+>   token + JWKS, WIF JWKS + issuer discovery, FAPI request-object JWKS, eID ArtifactResolve, SAML metadata import,
+>   wallet status lists and issuer CRL/OCSP) connects through `PinnedHttpFetcher` / `PinnedResourceRetriever`:
+>   one guarded resolution inside the request deadline, a socket to the validated address, SNI and hostname
+>   verification on the original name, no redirect following (metadata import re-guards each hop), per-caller size
+>   caps and timeouts. Tests: one public→private rebinding test per caller (`RebindingTarget`).
 >
 > **STILL OPEN — deliberately deferred** (documented in `DEFERRED-SECURITY-WORK.md`): **L5** (the legacy
 > AES/ECB decrypt path is retained deliberately so existing rows stay readable — now logged), **L6** (the

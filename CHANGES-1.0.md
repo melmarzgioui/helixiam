@@ -152,6 +152,16 @@ question. Newest first within each phase.
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
   coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
   same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
+- **security (affects released versions)** — DNS rebinding (M6 residual): every server-initiated call to an
+  admin- or client-configured URL checked the URL with `OutboundUrlGuard` and then let the JDK `HttpClient` (or Nimbus's
+  `HttpURLConnection` for JWKS, which also followed redirects) resolve the host again, so a DNS answer that changed
+  between the check and the connection could reach internal or metadata addresses. All of them now connect through the
+  pinned transport (`PinnedHttpFetcher`): one guarded resolution inside the deadline, a connection to the validated
+  address, TLS verified against the host name, no redirects. Moved: webhooks, SCIM provisioning, HTTP email/SMS/push
+  drivers, the Cloudflare email API, back-channel and upstream logout, the OIDC broker's token endpoint and JWKS, WIF
+  JWKS and issuer discovery, FAPI request-object JWKS, the eID ArtifactResolve, the SAML metadata import. Behaviour is
+  otherwise unchanged (methods, bodies, headers, auth, error mapping); new bounds where there were none: the OIDC token
+  request 10 s, response bodies 64 KB-1 MB depending on the caller. JWKS fetches keep Nimbus's 500 ms / 500 ms / 50 KB.
 - **security (affects released versions)** — SSRF guard bypass: `OutboundUrlGuard` judged an IPv6 address by its
   IPv6 properties only, so a host whose AAAA record was an IPv4-mapped (`::ffff:127.0.0.1`,
   `::ffff:169.254.169.254`) or IPv4-compatible (`::127.0.0.1`) address passed the block-private check and reached

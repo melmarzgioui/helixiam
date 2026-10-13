@@ -54,8 +54,20 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 **Status: DONE (550d78d, 17d6c80).** `::ffff:127.0.0.1`, `::ffff:169.254.169.254`, IPv4-compatible `::/96`, NAT64
 `64:ff9b::/96` and 6to4 `2002::/16` addresses are judged by their embedded IPv4 address; `192.0.0.0/24`,
 `198.18.0.0/15`, `240.0.0.0/4` are blocked; `fd00:ec2::254` and broadcast are blocked even for allowlisted hosts.
-Affected released versions (see `CHANGES-1.0.md`). Residual for non-wallet callers: the DNS-rebinding window of the
-M6 finding remains where a JDK `HttpClient` re-resolves after `checkAllowed`.
+Affected released versions (see `CHANGES-1.0.md`).
+
+## M6 residual: DNS rebinding between the guard's check and the connection — DONE (2026-10-13)
+Every `OutboundUrlGuard` caller now connects through `PinnedHttpFetcher` (or `PinnedResourceRetriever` for Nimbus
+JWKS fetches): the guard resolves the host once, inside the request's deadline, checks every address, and the socket
+connects to one of those addresses with SNI and certificate checks on the original host name; redirects are not
+followed (the admin document fetch re-guards each hop). Callers moved: webhooks (5281eda), SCIM provisioning
+(e19a598), the HTTP notification transport (HTTP email/SMS, Twilio, FCM, APNs) and the Cloudflare email API (5ddd626),
+back-channel and upstream logout (b63aca0), the OIDC broker's token endpoint and JWKS (35ad86d), WIF JWKS and issuer
+discovery and FAPI request-object JWKS (ce6a9ec), the eID ArtifactResolve (7e67f6d), and the SAML metadata import
+fetch (de113fba); transport support in 77b049f. Every moved caller has a rebinding test (first answer validated,
+every later answer `169.254.169.254`). Outside scope, because the guard does not apply to them (operator-configured
+deployment properties or fixed URLs, not realm or client configuration): `HttpCaptchaVerifier`, `HttpAuditForwarder`,
+`BreachedPasswordChecker`.
 
 ## EUDI Wallet: bounded issuer-revocation client (follow-up to Task 7, 2026-10-11)
 **Status: DONE (363fb26, branch `fix/wallet-network-hardening`).** `IssuerTrustValidator` no longer lets the JDK
