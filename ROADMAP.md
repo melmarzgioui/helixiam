@@ -35,15 +35,15 @@ paths are hardened and tested."
   Terraform resource for the wallet identity-provider connection; and a separate plan for the step-up/verify-only
   flow (`subject.strategy=NONE`), deliberately left out of the initial implementation (maintainer decision 4).
 - **EUDI Wallet follow-ups** (from the final review of the wallet branch):
-  - **Before the "Experimental" label is lifted:** check the mdoc path against one third-party `DeviceResponse`
-    vector (ISO 18013-5 Annex D as reproduced in an Apache-2.0 test suite, after a licence check, or a capture from
-    the EU reference wallet). Today IssuerSigned tag-24 encoding, MSO digests and DeviceAuthentication are checked
-    only against the in-repo test wallet, so a misreading shared by both would pass (it fails closed: an interop
-    risk, not a security one).
-  - A PostgreSQL wallet transaction store, so multi-replica deployments on the `queue` session store do not need
-    Redis or sticky sessions for wallet logins (today: in-memory, with a startup WARN; `docs/eudi-wallet.md` §3).
-  - A "wallet linked" notification (email) to the account owner when a wallet is linked, as a signal against the
-    linking-CSRF and QR-relay residuals (`docs/eudi-wallet.md` §6.3).
+  - **Before the "Experimental" label is lifted:** verify an mdoc DeviceAuth made by a third party. The mdoc decoding
+    path is now checked against EU reference wallet DeviceResponses (IssuerAuth, MSO, digests), but no third-party
+    vector with its SessionTranscript was available under a usable licence (ISO 18013-5 Annex D is ISO copyright and
+    uses `deviceMac`), so DeviceAuthentication is still checked only against the OpenID4VP B.2.6.1 transcript and the
+    in-repo test wallet. A capture from a real EU wallet against this verifier (Phase 4) closes it. Also decide whether
+    to accept a short (leading-zero-stripped) device-key coordinate, which one reference credential has; today it is
+    refused, as RFC 9053 requires.
+  - Done: a PostgreSQL wallet transaction store, cross-replica identity-provider refresh, and the "wallet linked"
+    notification (see `CHANGES-1.0.md`, next release).
   - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
     (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
     again under the same name would inherit the previous realm's verifier access key and pepper.

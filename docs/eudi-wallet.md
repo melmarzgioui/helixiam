@@ -262,6 +262,14 @@ new account being created and without any explicit admin action.
   "Link wallet" starts that originate from your own account console, and treat this as an inherent limit of
   cross-device presentation protocols (also true for same-device QR scanning via an arbitrary camera app) rather
   than something this release can fully close.
+- **"Wallet linked" notice.** Because neither limit can be closed in the protocol, the user is told: whenever a
+  wallet is linked to an account (the account console's "Link wallet" flow, or a sign-in that adds the
+  administrative-number link to an account found by the tuple), the account's email address gets "An EU Digital
+  Identity Wallet was linked to your account. If this wasn't you, unlink it and change your password." It goes
+  through the realm's email provider and the `wallet-linked-notice` message template (English and Dutch defaults;
+  reword it in the console under Messaging → Templates). It carries the realm name only: never the wallet subject or
+  its hash, never a PID value. No email address on file, or no email provider configured, means no notice (the
+  latter is logged as a warning). An existing link, or a wallet another account owns, sends none.
 
 ## 7. Credential status (revocation): fail-open vs fail-closed
 
@@ -316,10 +324,18 @@ not "the exact same key that signed this credential."
   `MdocPresentationVerifier.java:469-470`) — only `deviceSignature` (asymmetric holder binding) is accepted for
   mdoc. This is deliberate: MAC-based device authentication needs a reader key the redirect-based flow here has
   no way to establish (the spec notes call out why in their mdoc section), not an oversight.
-- **The mdoc/CBOR interop test vector is self-made, not from a certified source.** The ISO 18013-5 2021 edition is
-  paywalled and was not read; the mdoc/COSE structures used here come from OpenID4VP's Annex B and the public
-  2nd-edition working draft only. A Phase 4 interop run against real wallets/issuers is the place this would be
-  caught if something is subtly wrong.
+- **mdoc interop: one third-party check, no certified source.** Besides the in-repo test wallet, the mdoc decoding
+  path (StrictCbor, IssuerAuth COSE_Sign1 with its own `x5chain`, MSO, IssuerSignedItem digests) is checked against
+  DeviceResponses produced by the EU Digital Identity Wallet reference implementation (Apache-2.0; see
+  `helix-iam-server/src/test/resources/wallet/vectors/SOURCES.md`). Their DeviceAuth cannot be checked (their
+  SessionTranscript is not published), so the DeviceAuthentication construction is still covered only by the
+  OpenID4VP B.2.6.1 transcript vector and our own wallet. The ISO 18013-5 text was not read and its Annex D vectors are
+  not reproduced (ISO copyright). One reference credential carries a 31-byte device-key coordinate, which RFC 9053
+  forbids: such a credential is refused (fail closed). A Phase 4 run against real wallets and issuers remains the real
+  interop test.
+- **Several realms in one browser.** The broker keeps its per-login state (state, browser binding, wallet
+  transaction) per realm and alias, so logins in two realms that use the same alias (the console's default
+  `eudi-wallet`) can run side by side in one browser.
 - **No HSM/KMS key provider.** The verifier access key lives in `RealmSigningKeys`' software (DB-encrypted)
   implementation only; a PKCS#11/KMS provider is an unimplemented SPI seam, not a config option today.
 - **DigiD-style eID caveats apply by analogy, not directly.** This feature is not DigiD/eHerkenning/eIDAS SAML
