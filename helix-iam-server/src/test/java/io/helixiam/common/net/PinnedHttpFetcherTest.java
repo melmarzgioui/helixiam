@@ -505,4 +505,18 @@ class PinnedHttpFetcherTest {
                 .isInstanceOfSatisfying(FetchException.class,
                         e -> assertThat(e.kind()).isEqualTo(FetchException.Kind.PROTOCOL));
     }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+        "HTTP/1.1 200 OK\r\nX-A: a\u0000b\r\nContent-Length: 2\r\n\r\nhi",
+        "HTTP/1.1 200 OK\r\nX-A: a\rb\r\nContent-Length: 2\r\n\r\nhi",
+        "HTTP/1.1 200 OK\r\nX-A: a\nX-B: b\r\nContent-Length: 2\r\n\r\nhi",
+        "HTTP/1.1 200 O\u0000K\r\nContent-Length: 2\r\n\r\nhi"})
+    void nulAndBareCrOrLfInAResponseHeadAreAProtocolFailure(final String response) throws Exception {
+        final int p = raw(response);
+        assertThatThrownBy(() -> PinnedHttpFetcher.plain(OutboundUrlGuard.permissive())
+                .get("http://127.0.0.1:" + p + "/x", Map.of(), LIMITS)).as(response)
+                .isInstanceOfSatisfying(FetchException.class,
+                        e -> assertThat(e.kind()).isEqualTo(FetchException.Kind.PROTOCOL));
+    }
 }

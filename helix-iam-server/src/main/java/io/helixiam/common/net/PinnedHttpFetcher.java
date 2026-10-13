@@ -500,6 +500,12 @@ public final class PinnedHttpFetcher {
             for (int interim = 0; interim <= MAX_INTERIM_RESPONSES; interim++) {
                 final String head = readHead(in);
                 final String[] lines = head.split("\r\n", -1);
+                for (final String line : lines) {
+                    // NUL, a bare CR or a bare LF inside the status line or a header: refused (RFC 9112 2.2, 5)
+                    if (line.indexOf('\0') >= 0 || line.indexOf('\r') >= 0 || line.indexOf('\n') >= 0) {
+                        throw malformed("control character in the response head");
+                    }
+                }
                 final int status = statusCode(lines[0]);
                 final Map<String, java.util.List<String>> fields = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
                 for (int i = 1; i < lines.length; i++) {
