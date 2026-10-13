@@ -56,6 +56,23 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 `198.18.0.0/15`, `240.0.0.0/4` are blocked; `fd00:ec2::254` and broadcast are blocked even for allowlisted hosts.
 Affected released versions (see `CHANGES-1.0.md`).
 
+## Third review of the outbound work (2026-10-13) — all DONE
+- **Virtual-thread carrier pinning (HIGH)** — DONE (46259d54): `FetchLimiter` and `SocketSlot` on
+  `ReentrantLock`/`Condition`; webhook/SCIM deliveries bounded at 1,000 pending per realm, overflow dropped.
+- **Local-use NAT64 `64:ff9b:1::/48`** — DONE (cd71beef): refused outright.
+- **Realm passed explicitly; bounded no-realm partition** — DONE (9d228c0b).
+- **Bounded LRU decoder/JWKS caches** — DONE (5170827a).
+- **`login` split into `login-admin` / `login-client`** — DONE (7a12421f).
+- **DCR lowercase `private_key_jwt`; clients without `jwks_uri`; https `jwksUrl` on the admin API** — DONE (eb32da1c).
+- **Assertion `typ` JWT / absent / `client-authentication+jwt`** — DONE (ddb5986e).
+- **SMTP egress (pre-existing, released versions)** — DONE (6eaedfdf): guarded, pinned, TLS on the configured name,
+  ports 25/465/587/2525 unless `helix.messaging.smtp.allowed-ports`, generic errors.
+- **LDAP egress (pre-existing, released versions)** — DONE (344aedd9): guarded, pinned, LDAPS on the configured name,
+  referrals ignored; internal directories only via `helix.federation.ldap.allowed-hosts`.
+- **Audit webhook timeout** — DONE (b76047b8).
+- **Still open (small):** realm import does not re-validate an `https` `jwksUrl` for `private_key_jwt` clients (the
+  token endpoint still guards the fetch); the console client form does not pre-validate it (the API answers 400).
+
 ## Re-review of the M6 move (2026-10-13) — all DONE
 - **APNs regression (HTTP/2)** — DONE (8b5e8a98): APNs over the JDK client, HTTP/2, Apple's two hosts only; the
   provider `host` is restricted to them.

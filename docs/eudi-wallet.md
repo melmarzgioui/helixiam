@@ -369,7 +369,7 @@ How it works (`IssuerRevocationClient`):
 | `helix.wallet.revocation.max-crl-bytes` | `10485760` (10 MB) | Largest CRL downloaded (at most 100 MB); a larger one is an undeterminable status |
 | `helix.wallet.revocation.cache-max-entries` | `256` | Most cached OCSP responses and CRLs |
 | `helix.wallet.revocation.cache-max-bytes` | `33554432` (32 MB) | Most cached bytes: an OCSP response counts its size, a CRL an estimate of its parsed heap (3 × its size + 256 bytes per revoked entry) |
-| `helix.outbound.fetch.wallet.max-concurrent` (old name `helix.wallet.fetch.max-concurrent` still read) | `16` | Most issuer-revocation and status-list fetches running at once; a fetch that gets no slot before its deadline times out. The other groups (`login`, `otp`, `outbound`) have their own `helix.outbound.fetch.<group>.max-concurrent` (32) and `.per-realm-max` (8) |
+| `helix.outbound.fetch.wallet.max-concurrent` (old name `helix.wallet.fetch.max-concurrent` still read) | `16` | Most issuer-revocation and status-list fetches running at once; a fetch that gets no slot before its deadline times out. The other groups (`login-admin`, `login-client`, `otp`, `outbound`) have their own `helix.outbound.fetch.<group>.max-concurrent` (32) and `.per-realm-max` (8) |
 
 OCSP responses are capped at 64 KB (not configurable).
 

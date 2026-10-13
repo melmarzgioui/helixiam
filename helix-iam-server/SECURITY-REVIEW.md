@@ -107,7 +107,14 @@
 >   https, guard-approved `jwks_uri`. APNs is the one deliberate exception to pinning: HTTP/2 to Apple's two fixed hosts
 >   only (`ApnsHttp2Transport`), no admin-chosen host. Outbound slots are per feature group (wallet, login, OTP,
 >   outbound) with a per-realm share, so a tarpit in one realm cannot starve logins, OTP or other realms. The guard
->   also judges RFC 8215 local-use NAT64 and SIIT addresses by their embedded IPv4 and refuses Teredo and `100::/64`.
+>   also judges SIIT addresses by their embedded IPv4 and refuses Teredo and `100::/64`.
+>   **Third review (2026-10-13):** the fetch limiter no longer pins virtual-thread carriers (`ReentrantLock`), and
+>   webhook/SCIM deliveries are bounded per realm; local-use NAT64 `64:ff9b:1::/48` is refused outright; `login`
+>   slots are split into `login-admin` and `login-client`; decoder/JWKS caches are bounded LRU. Two pre-existing
+>   egress gaps outside HTTP are closed: the **SMTP** driver (guarded, pinned, TLS on the configured name, standard
+>   ports unless `helix.messaging.smtp.allowed-ports`) and **LDAP federation** (guarded, pinned, LDAPS on the configured
+>   name, referrals off, internal directories only via the operator setting `helix.federation.ldap.allowed-hosts`).
+>   The SIEM audit webhook has explicit timeouts and a bounded backlog.
 >
 > **STILL OPEN — deliberately deferred** (documented in `DEFERRED-SECURITY-WORK.md`): **L5** (the legacy
 > AES/ECB decrypt path is retained deliberately so existing rows stay readable — now logged), **L6** (the

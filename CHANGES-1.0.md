@@ -21,6 +21,20 @@ question. Newest first within each phase.
 >    (was `SOFT_FAIL`): an issuer certificate whose CRL / OCSP status cannot be determined, including one that names
 >    no CRL or OCSP endpoint, is refused. Set `revocationChecking` to `SOFT_FAIL` (console: Credentials → Issuer
 >    certificate revocation) for an issuer that publishes neither (see below).
+> 6. An SMTP relay on a private or loopback address (in-cluster mailer, `localhost` relay) must be listed in
+>    `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS` (Helm: `config.egressAllowedPrivateHosts`), and a relay on a port other than
+>    25, 465, 587 or 2525 in `helix.messaging.smtp.allowed-ports` (`HELIX_MESSAGING_SMTP_ALLOWED_PORTS`, ports or ranges
+>    such as `1025,8025-8030`). Until then sends fail with `CONFIGURATION` ("not allowed by the egress policy").
+> 7. An LDAP federation provider pointing at a private or loopback directory (the usual Active Directory setup) must
+>    be listed in `HELIX_FEDERATION_LDAP_ALLOWED_HOSTS` (Helm: `config.ldapAllowedHosts`) by host name or CIDR range.
+>    Until then LDAP logins for that provider fail (logged as refused by the egress policy). Only `ldap://` and
+>    `ldaps://` URLs are accepted.
+> 8. `helix.outbound.fetch.login.*` is split into `login-admin` (OIDC broker, eID, workload identity) and
+>    `login-client` (client-assertion JWKS, FAPI request-object JWKS). The old `login` names are still read as
+>    `login-admin`.
+> 9. Admin and console client writes need an `https` `jwksUrl` (`http://localhost` / `http://127.0.0.1` in `dev`
+>    only). Flyway `V80` rewrites DCR-stored lowercase `private_key_jwt` to `PRIVATE_KEY_JWT`, and the server logs a
+>    WARN at startup for every `private_key_jwt` client without a JWKS URL (it cannot authenticate).
 
 - **security** — SAML runs on OpenSAML **5.2.3** only (M7 done). The unused `spring-security-saml2-service-provider`,
   whose POM still pulled OpenSAML 4.3.2, is removed; the pom declares OpenSAML 5 (`opensaml-saml-api`/`-impl`,
@@ -152,6 +166,39 @@ question. Newest first within each phase.
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
   coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
   same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
+- **security (affects released versions)** — SMTP relays were not egress-checked: the SMTP driver connected to any
+  host and port a realm admin typed, including loopback, cluster-internal and metadata addresses, and resolved the
+  name itself. It now goes through `OutboundUrlGuard` (private hosts only via `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`),
+  connects to the validated address while TLS still verifies the configured host name, accepts only ports 25, 465,
+  587 and 2525 unless `helix.messaging.smtp.allowed-ports` lists more, and reports generic errors (no internal
+  address or banner in the result). **BREAKING** for internal relays, see the checklist.
+- **security (affects released versions)** — LDAP federation was not egress-checked: `JndiLdapDirectory` let JNDI
+  resolve and connect to any URL a realm admin typed (any scheme JNDI accepts, referrals per JNDI default). Now only
+  one `ldap://` or `ldaps://` URL; the host is resolved once and both binds connect to the validated address through a
+  pinned socket factory; LDAPS verifies the certificate against the configured name; referrals are ignored and reads
+  time out. Private and loopback directories need `helix.federation.ldap.allowed-hosts` (host names or CIDR ranges,
+  set by the deployment; a realm admin cannot widen it); metadata and link-local addresses stay refused even inside a
+  listed range. **BREAKING** for internal directories, see the checklist.
+- **security** — APNs: the provider `host` was free text, so push requests carrying the realm's APNs bearer token
+  could be sent to any public host. It is now restricted to `api.push.apple.com` / `api.sandbox.push.apple.com`
+  (HTTP/2, no redirects); anything else is a configuration error.
+- **security** — Virtual-thread pinning: the outbound fetch limiter and socket slots waited inside `synchronized`
+  blocks, which on JDK 21 pins the carrier thread, so 1,000 webhook or SCIM deliveries stuck on one realm's tarpit
+  could stall every virtual thread, logins included. They now use `ReentrantLock` / `Condition`. Webhook and SCIM
+  deliveries are bounded per realm (1,000 pending; overflow dropped and logged once a minute, never blocking the
+  caller).
+- **security** — Outbound slots: the `login` group is split into `login-admin` (OIDC broker, eID, workload identity)
+  and `login-client` (client-assertion and FAPI request-object JWKS, whose URLs any registered client chooses), each
+  with its own `helix.outbound.fetch.<group>.max-concurrent` (32) and `.per-realm-max` (8). Back-channel logout and
+  SAML metadata import pass their realm explicitly; calls without a realm share one bounded "no realm" partition.
+- **security** — The decoder / JWKS caches of the client-assertion decoder, the FAPI request-object filter and the
+  OIDC broker token client are bounded LRU caches (1,000 entries) instead of unbounded maps cleared on overflow.
+- **security** — Local-use NAT64 `64:ff9b:1::/48` is refused outright (it has no public meaning), also for an
+  allowlisted host.
+- **fix** — `private_key_jwt` client assertions are accepted with `typ` `JWT`, absent, or `client-authentication+jwt`.
+- **fix** — The SIEM audit webhook (`helix.audit.http.*`) has an explicit connect timeout, a request timeout within
+  (0, 30 s] (2 s when unset, zero or negative; zero used to make every forward fail), no redirects, and a bounded
+  backlog of 1,000 lines (overflow dropped and logged; stdout keeps every line).
 - **security (affects released versions)** — private_key_jwt client JWKS fetched unguarded: for a `private_key_jwt`
   client, the token endpoint's client-assertion decoder (Spring Authorization Server's) fetched the client's
   `jwk_set_url` with its own RestTemplate: no outbound guard, redirects followed. Anyone who can register a client (an
