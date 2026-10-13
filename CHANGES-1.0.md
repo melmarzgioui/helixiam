@@ -20,11 +20,9 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
-- **security** — An identity provider disabled, deleted or re-keyed through one replica (for example a compromised
-  upstream IdP an admin switches off) stayed live on every other replica until its restart, and a realm import never
-  refreshed the live registry. Every replica now polls the store (`HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60,
-  `0` = off) and reloads only the realms whose stored connections changed; a realm import refreshes the imported realm
-  at once.
+- **security** — Replica convergence: see the version-based poller (`feat/wallet-production`). An identity provider
+  disabled, deleted or re-keyed through one replica, or imported with a realm, reaches the other replicas through that
+  branch's `idp_config_version` poll.
 - **security** — A realm import now checks an eID connection's scheme and minimum level of assurance like an admin
   write (review #9): an unknown one is reported as a failed import with the field error instead of being saved and
   only skipped, with a WARN, when the registry loads it.

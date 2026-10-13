@@ -183,10 +183,11 @@ is merged into this branch; the wallet-specific consequences were resolved in th
   with `helix.federation.store.enabled=true` (default `false`), only `master` was loaded at startup, and each write
   replaced every realm's store-backed providers with the written realm's. The store refresher is now on by default,
   loads every realm at startup, refreshes only the written realm, and keys stored providers by (realm, alias);
-  see `docs/eudi-wallet.md` §2.2. ~~Remaining: a write refreshes only the replica that handled it, and a realm import
-  does not refresh the registry (both go live at the next restart).~~ **DONE (cb558d0):** every replica polls the
-  store (`HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60) and reloads the realms whose connections changed, so a
-  disabled or deleted provider stops working everywhere within one poll; a realm import refreshes the imported realm.
+  see `docs/eudi-wallet.md` §2.2. Remaining: a write refreshes only the replica that handled it, and a realm import
+  does not refresh the registry. **Replica convergence: see the version-based poller (`feat/wallet-production`)**:
+  the `idp_config_version` table, bumped with each identity-provider write and on realm import, polled by every
+  replica, and the import's own realm refresh. (An earlier poller on `fix/security-residuals`, cb558d0, was reverted
+  in favour of it.)
 
 ## Deep SAML pentest (2026-09-17, issue #1) — outcome
 Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md`](../docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md)). Result: 0 critical / 0 high / 1 medium / 2 low.

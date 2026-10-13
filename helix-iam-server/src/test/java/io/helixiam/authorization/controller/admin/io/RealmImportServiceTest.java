@@ -315,20 +315,6 @@ class RealmImportServiceTest {
         assertThat(saved.getValue().alias()).isEqualTo("digid");
     }
 
-    /** An imported identity provider goes live at once (the realm's store-backed providers are refreshed). */
-    @Test
-    void importedIdentityProviders_refreshTheRealmsLiveRegistry() {
-        final io.helixiam.authorization.federation.FederationStoreRefresher refresher =
-                mock(io.helixiam.authorization.federation.FederationStoreRefresher.class);
-        service.setFederationStoreRefresher(refresher);
-        final IdentityProviderConfig idp = new IdentityProviderConfig("src", "google", "oidc", "Google", true,
-                java.util.Map.of("clientId", "abc"));
-
-        service.importInto("gov", new RealmExportDocument(2, null, null, null, null, null, List.of(idp), null, null));
-
-        verify(refresher).refresh("gov");
-    }
-
     // Task 19 fix round 1 (ruling 10): imported wallet connections are validated like admin writes.
     private static final io.helixiam.authorization.federation.wallet.testwallet.TestPki WALLET_ACCESS_PKI =
             io.helixiam.authorization.federation.wallet.testwallet.TestPki.create("Import Access");
