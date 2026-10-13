@@ -713,10 +713,23 @@ public final class PinnedHttpFetcher {
         return name;
     }
 
-    /** A header value from a caller: printable ASCII only. */
+    /**
+     * A header value from a caller: visible ASCII, space and horizontal tab (RFC 9110 field-value). CR, LF, NUL and the
+     * other control characters are refused, and so is non-ASCII (not sent by this client), each with a message that
+     * says which, since it usually means a misconfigured value (a token or name pasted with a stray character).
+     */
     private static String value(final String v) {
-        if (v == null || !v.matches("[\\x20-\\x7E]*")) {
-            throw new IllegalArgumentException("invalid header value");
+        if (v == null) {
+            throw new IllegalArgumentException("invalid header value: missing");
+        }
+        for (int i = 0; i < v.length(); i++) {
+            final char c = v.charAt(i);
+            if (c > 0x7E && c != 0x7F) {
+                throw new IllegalArgumentException("invalid header value: non-ASCII characters are not allowed");
+            }
+            if (c < 0x20 && c != '\t' || c == 0x7F) {
+                throw new IllegalArgumentException("invalid header value: a control character is not allowed");
+            }
         }
         return v;
     }

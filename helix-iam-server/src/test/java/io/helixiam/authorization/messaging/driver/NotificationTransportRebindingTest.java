@@ -67,4 +67,21 @@ class NotificationTransportRebindingTest {
             assertThat(target.lookups()).isEqualTo(1);
         }
     }
+
+    @Test
+    void aCloudflareTokenThatCannotBeAHeaderIsAConfigurationFailure() {
+        final Map<String, String> config = new LinkedHashMap<>();
+        config.put("accountId", "0123456789abcdef0123456789abcdef");
+        final CloudflareEmailDriver driver = new CloudflareEmailDriver(io.helixiam.common.net.OutboundUrlGuard.permissive(),
+                DeploymentProfile.production());
+        final io.helixiam.authorization.messaging.email.DeliveryResult result = driver.deliver(new ResolvedProviderDto(
+                "EMAIL", "CLOUDFLARE", "no-reply@example.com", "Example", config, "t\u00f6ken"),
+                new EmailMessage(EmailMessage.newMessageId(), null, List.of(EmailAddress.of("ada@example.com", "Ada")),
+                        null, "Hi", null, "Hello", Map.of()));
+        assertThat(result.status()).isEqualTo(io.helixiam.authorization.messaging.email.DeliveryResult.Status
+                .PERMANENT_FAILURE);
+        assertThat(result.reason()).isEqualTo(io.helixiam.authorization.messaging.email.DeliveryResult.Reason
+                .CONFIGURATION);
+        assertThat(result.diagnostic()).doesNotContain("t\u00f6ken");
+    }
 }

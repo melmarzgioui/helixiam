@@ -128,6 +128,10 @@ public class CloudflareEmailDriver implements EmailTransport {
             truncated = false;
         } catch (final SsrfBlockedException e) {
             return DeliveryResult.permanent(Reason.CONFIGURATION, "The Cloudflare API URL is not allowed by the egress policy");
+        } catch (final IllegalArgumentException e) {
+            // a request header the client refuses (a token or name with a non-ASCII or control character)
+            return DeliveryResult.permanent(Reason.CONFIGURATION,
+                    "The Cloudflare API token or settings contain a character that cannot be sent in an HTTP header");
         } catch (final PinnedHttpFetcher.FetchException e) {
             switch (e.kind()) {
                 case TOO_LARGE -> {

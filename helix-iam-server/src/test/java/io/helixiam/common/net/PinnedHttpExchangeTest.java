@@ -194,4 +194,20 @@ class PinnedHttpExchangeTest {
         assertThatThrownBy(() -> new PinnedResourceRetriever(OutboundUrlGuard.blocking())
                 .retrieveResource(new URL(url("/jwks")))).isInstanceOf(java.io.IOException.class);
     }
+
+    @Test
+    void aTabInsideAHeaderValueIsAllowed() throws Exception {
+        assertThat(fetcher().get(url("/t"), Map.of("X-Note", "a\tb"), LIMITS).status()).isEqualTo(200);
+    }
+
+    @Test
+    void controlCharactersAndNonAsciiInHeaderValuesAreRefusedClearly() {
+        for (final String bad : List.of("a\u0000b", "a\rb", "a\nb", "a\u0001b", "a\u007fb")) {
+            assertThatThrownBy(() -> fetcher().get(url("/x"), Map.of("X-A", bad), LIMITS))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("control character");
+        }
+        assertThatThrownBy(() -> fetcher().get(url("/x"), Map.of("X-A", "caf\u00e9"), LIMITS))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("non-ASCII");
+        assertThat(seen).isEmpty();
+    }
 }
