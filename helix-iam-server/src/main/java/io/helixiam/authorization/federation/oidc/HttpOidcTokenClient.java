@@ -56,9 +56,9 @@ public class HttpOidcTokenClient implements OidcTokenClient {
 
     public HttpOidcTokenClient(final OutboundUrlGuard egressGuard) {
         this.http = PinnedHttpFetcher.plain(egressGuard,
-                io.helixiam.common.net.FetchLimiter.Group.LOGIN, io.helixiam.authorization.security.realm.RealmContextHolder::get);
+                io.helixiam.common.net.FetchLimiter.Group.LOGIN_ADMIN, io.helixiam.authorization.security.realm.RealmContextHolder::get);
         this.jwksRetriever = new PinnedResourceRetriever(egressGuard,
-                io.helixiam.common.net.FetchLimiter.Group.LOGIN, io.helixiam.authorization.security.realm.RealmContextHolder::get);
+                io.helixiam.common.net.FetchLimiter.Group.LOGIN_ADMIN, io.helixiam.authorization.security.realm.RealmContextHolder::get);
     }
 
     @Override

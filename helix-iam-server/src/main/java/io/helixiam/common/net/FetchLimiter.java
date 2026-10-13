@@ -28,8 +28,13 @@ public final class FetchLimiter {
     public enum Group {
         /** Wallet status lists and issuer CRL / OCSP. */
         WALLET(16, 16),
-        /** Login-critical: OIDC broker token + JWKS, eID ArtifactResolve, client and WIF JWKS, issuer discovery. */
-        LOGIN(32, 8),
+        /** Login, admin-configured targets: OIDC broker token + JWKS, eID ArtifactResolve, WIF JWKS and discovery. */
+        LOGIN_ADMIN(32, 8),
+        /**
+         * Login, client-controlled targets (any client registrant, open DCR included): the token endpoint's client
+         * assertion JWKS and the FAPI request-object JWKS. Kept apart so registered clients cannot starve broker logins.
+         */
+        LOGIN_CLIENT(32, 8),
         /** OTP and notification delivery: HTTP email / SMS / push drivers, the Cloudflare email API. */
         OTP(32, 8),
         /** Webhooks, SCIM provisioning, back-channel and upstream logout, admin document fetches. */

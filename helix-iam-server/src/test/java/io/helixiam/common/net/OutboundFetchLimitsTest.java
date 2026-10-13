@@ -29,8 +29,8 @@ class OutboundFetchLimitsTest {
         runner.withPropertyValues("helix.outbound.fetch.login.max-concurrent=40",
                 "helix.outbound.fetch.login.per-realm-max=5", "helix.outbound.fetch.otp.max-concurrent=12",
                 "helix.outbound.fetch.outbound.per-realm-max=3").run(ctx -> {
-                    assertThat(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN).max()).isEqualTo(40);
-                    assertThat(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN).perPartitionMax()).isEqualTo(5);
+                    assertThat(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_ADMIN).max()).isEqualTo(40);
+                    assertThat(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_ADMIN).perPartitionMax()).isEqualTo(5);
                     assertThat(FetchLimiter.forGroup(FetchLimiter.Group.OTP).max()).isEqualTo(12);
                     assertThat(FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND).perPartitionMax()).isEqualTo(3);
                     assertThat(FetchLimiter.forGroup(FetchLimiter.Group.WALLET).max()).isEqualTo(16);

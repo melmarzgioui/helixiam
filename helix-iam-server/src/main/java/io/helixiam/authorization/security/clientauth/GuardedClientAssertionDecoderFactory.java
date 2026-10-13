@@ -48,7 +48,7 @@ public final class GuardedClientAssertionDecoderFactory implements JwtDecoderFac
             new io.helixiam.common.net.BoundedLruCache<>(MAX_DECODERS);
 
     public GuardedClientAssertionDecoderFactory(final OutboundUrlGuard guard) {
-        this.retriever = new PinnedResourceRetriever(Objects.requireNonNull(guard, "guard"), FetchLimiter.Group.LOGIN,
+        this.retriever = new PinnedResourceRetriever(Objects.requireNonNull(guard, "guard"), FetchLimiter.Group.LOGIN_CLIENT,
                 RealmContextHolder::get);
     }
 

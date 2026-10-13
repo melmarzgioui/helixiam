@@ -62,7 +62,7 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
         this.clients = clients;
         this.egressGuard = egressGuard;
         this.jwksRetriever = new PinnedResourceRetriever(egressGuard,
-                io.helixiam.common.net.FetchLimiter.Group.LOGIN, io.helixiam.authorization.security.realm.RealmContextHolder::get);
+                io.helixiam.common.net.FetchLimiter.Group.LOGIN_CLIENT, io.helixiam.authorization.security.realm.RealmContextHolder::get);
     }
 
     @Override

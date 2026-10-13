@@ -35,7 +35,7 @@ class FetchLimiterTest {
     @Test
     void everyGroupHasItsOwnLimiter() {
         assertThat(FetchLimiter.forGroup(FetchLimiter.Group.WALLET))
-                .isNotSameAs(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN))
+                .isNotSameAs(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_ADMIN))
                 .isSameAs(FetchLimiter.global());
         assertThat(FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND).perPartitionMax())
                 .isLessThan(FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND).max());

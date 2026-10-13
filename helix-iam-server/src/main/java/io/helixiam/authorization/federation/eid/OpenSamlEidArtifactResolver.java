@@ -165,7 +165,7 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
      */
     private String post(final EidProviderConfig config, final String soap) throws Exception {
         final PinnedHttpFetcher.Response response = new PinnedHttpFetcher(egressGuard, clientSslContext(config),
-                io.helixiam.common.net.FetchLimiter.forGroup(io.helixiam.common.net.FetchLimiter.Group.LOGIN), io.helixiam.authorization.security.realm.RealmContextHolder::get)
+                io.helixiam.common.net.FetchLimiter.forGroup(io.helixiam.common.net.FetchLimiter.Group.LOGIN_ADMIN), io.helixiam.authorization.security.realm.RealmContextHolder::get)
                 .exchange(new PinnedHttpFetcher.Request("POST", config.artifactResolutionServiceUrl(), Map.of(
                         "Content-Type", "text/xml; charset=utf-8",
                         "SOAPAction", "http://www.oasis-open.org/committees/security"),
