@@ -126,7 +126,7 @@ public final class IssuerRevocationClient {
     /**
      * Operator settings ({@code helix.wallet.revocation.*}).
      *
-     * @param maxCrlBytes     largest CRL downloaded (default 10 MB)
+     * @param maxCrlBytes     largest CRL downloaded (default 10 MB, at most {@value #MAX_CRL_BYTES_CAP})
      * @param cacheMaxEntries most cached OCSP responses and CRLs together (default 256)
      * @param cacheMaxBytes   most cached bytes, OCSP responses and CRLs together (default 32 MB; a CRL counts its
      *                        estimated parsed heap, see {@link #crlHeapEstimate})
@@ -139,10 +139,16 @@ public final class IssuerRevocationClient {
         public static final Settings DEFAULTS = new Settings(DEFAULT_MAX_CRL_BYTES, DEFAULT_CACHE_MAX_ENTRIES,
                 DEFAULT_CACHE_MAX_BYTES);
 
+        /** The largest {@code max-crl-bytes} accepted: 100 MB. */
+        public static final long MAX_CRL_BYTES_CAP = 100L * 1024 * 1024;
+
         public Settings {
-            if (maxCrlBytes <= 0 || cacheMaxEntries < 0 || cacheMaxBytes < 0) {
-                throw new IllegalArgumentException("helix.wallet.revocation settings must not be negative "
-                        + "(max-crl-bytes must be positive)");
+            if (maxCrlBytes <= 0 || maxCrlBytes > MAX_CRL_BYTES_CAP) {
+                throw new IllegalArgumentException("helix.wallet.revocation.max-crl-bytes must be between 1 and "
+                        + MAX_CRL_BYTES_CAP);
+            }
+            if (cacheMaxEntries < 0 || cacheMaxBytes < 0) {
+                throw new IllegalArgumentException("helix.wallet.revocation cache settings must not be negative");
             }
         }
 

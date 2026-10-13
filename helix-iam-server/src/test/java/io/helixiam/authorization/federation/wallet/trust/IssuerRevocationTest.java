@@ -540,6 +540,17 @@ class IssuerRevocationTest {
     // ------------------------------------------------------------------------------------------- defaults
 
     @Test
+    void maxCrlBytesIsCappedAt100Megabytes() {
+        assertThat(IssuerRevocationClient.Settings.MAX_CRL_BYTES_CAP).isEqualTo(100L * 1024 * 1024);
+        assertThat(IssuerRevocationClient.Settings.DEFAULTS.withMaxCrlBytes(100L * 1024 * 1024).maxCrlBytes())
+                .isEqualTo(100L * 1024 * 1024);
+        assertThatThrownBy(() -> IssuerRevocationClient.Settings.DEFAULTS.withMaxCrlBytes(100L * 1024 * 1024 + 1))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("max-crl-bytes");
+        assertThatThrownBy(() -> IssuerRevocationClient.Settings.DEFAULTS.withMaxCrlBytes(0))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void hardFailIsTheDefaultMode() {
         assertThat(new TrustAnchors(null, null, null).revocation()).isEqualTo(RevocationMode.HARD_FAIL);
     }
