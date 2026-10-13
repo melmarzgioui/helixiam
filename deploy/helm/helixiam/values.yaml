@@ -2,9 +2,10 @@
 
 replicaCount: 2
 
-# Deployment update strategy (spec.strategy). Empty = Kubernetes' default, a RollingUpdate. Set `type: Recreate` for an
-# upgrade whose old and new versions cannot share stored sessions and tokens (the Spring Boot 4 upgrade after 1.0, see
-# docs/UPGRADING.md): every old pod stops before a new one starts. Example RollingUpdate:
+# Deployment update strategy (spec.strategy), always rendered in full. Empty = Kubernetes' default: RollingUpdate with
+# maxSurge/maxUnavailable 25%. Set `type: Recreate` for an upgrade whose old and new versions cannot share stored
+# sessions and tokens (the Spring Boot 4 upgrade after 1.0, see docs/UPGRADING.md): every old pod stops before a new
+# one starts. Back to rolling updates: `--set strategy.type=RollingUpdate`. Example:
 #   strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
 strategy: {}
 

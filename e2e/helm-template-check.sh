@@ -119,10 +119,17 @@ expect_contains "email: global cap" "$out" 'HELIX_NOTIFICATION_EMAIL_RATE_LIMIT_
 expect_contains "email: reset code ttl" "$out" 'HELIX_NOTIFICATION_RESET_PASSWORD_CODE_TTL: "30m"'
 expect_contains "email: signup code ttl" "$out" 'HELIX_NOTIFICATION_SIGNUP_CODE_TTL: "12h"'
 
-# 7. Deployment strategy: Kubernetes' default (RollingUpdate) unless set; Recreate for an upgrade whose old and new
-#    versions cannot share stored state (docs/UPGRADING.md); a RollingUpdate with explicit surge/unavailability.
+# 7. Deployment strategy, always rendered in full so the chart owns every strategy field: under Helm 4's server-side
+#    apply a field Kubernetes defaulted (rollingUpdate) is owned by nobody and survives a switch to Recreate, which the
+#    API server then rejects. Default = Kubernetes' own default (RollingUpdate, 25%/25%); Recreate renders no
+#    rollingUpdate (docs/UPGRADING.md); a RollingUpdate with explicit surge/unavailability.
 out=$(render --set redis.host=redis)
-expect_absent "strategy: default leaves Kubernetes' RollingUpdate" "$out" "strategy:"
+expect_contains "strategy: default is rendered" "$out" "type: RollingUpdate"
+expect_contains "strategy: default maxSurge 25%" "$out" 'maxSurge: "25%"'
+expect_contains "strategy: default maxUnavailable 25%" "$out" 'maxUnavailable: "25%"'
+out=$(render --set redis.host=redis --set strategy.rollingUpdate.maxSurge=1)
+expect_contains "strategy: maxSurge alone" "$out" "maxSurge: 1"
+expect_contains "strategy: maxSurge alone keeps maxUnavailable 25%" "$out" 'maxUnavailable: "25%"'
 out=$(render --set redis.host=redis --set strategy.type=Recreate)
 expect_contains "strategy: Recreate" "$out" "type: Recreate"
 expect_absent "strategy: Recreate has no rollingUpdate" "$out" "rollingUpdate:"
