@@ -9,10 +9,12 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Bounded defaults for the JDK's certificate-revocation fetches (OCSP and CRL distribution points, used by the wallet
- * issuer-trust validator). The JDK defaults are 15 s each, and a synchronous wallet login can make several such
- * fetches. The JDK reads these system properties once, in static initialisers, so {@link #applyDefaults} must run in
- * {@code main} before anything touches PKIX revocation. A value the operator passed with {@code -D} is kept.
+ * Bounded defaults for the JDK's own certificate-revocation fetches (OCSP and CRL distribution points). The wallet
+ * issuer-trust validator no longer lets the JDK fetch (it uses {@code IssuerRevocationClient} over
+ * {@link PinnedHttpFetcher}), so these bound only a JDK fetch that some other PKIX revocation use might still make;
+ * they stay as defence in depth. The JDK defaults are 15 s each. The JDK reads these system properties once, in static
+ * initialisers, so {@link #applyDefaults} must run in {@code main} before anything touches PKIX revocation. A value the
+ * operator passed with {@code -D} is kept.
  */
 public final class RevocationTimeouts {
 

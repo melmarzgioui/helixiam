@@ -69,10 +69,10 @@ class TrustAnchorsPemTest {
     }
 
     @Test
-    void nullRevocationModeDefaultsToSoftFail() {
-        assertThat(TrustAnchors.fromPem(PKI.rootPem(), null, null).revocation()).isEqualTo(RevocationMode.SOFT_FAIL);
+    void nullRevocationModeDefaultsToHardFail() {
+        assertThat(TrustAnchors.fromPem(PKI.rootPem(), null, null).revocation()).isEqualTo(RevocationMode.HARD_FAIL);
         assertThat(new TrustAnchors(java.util.Set.of(), java.util.List.of(), null).revocation())
-                .isEqualTo(RevocationMode.SOFT_FAIL);
+                .isEqualTo(RevocationMode.HARD_FAIL);
     }
 
     @Test

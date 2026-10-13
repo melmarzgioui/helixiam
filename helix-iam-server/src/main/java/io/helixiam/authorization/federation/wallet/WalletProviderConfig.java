@@ -89,7 +89,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         credentialFormats = credentialFormats == null ? DEFAULT_FORMATS : copy(credentialFormats);
         pid = pid == null ? new Pid(null, null, null) : pid;
         customCredentialQueries = customCredentialQueries == null ? List.of() : copy(customCredentialQueries);
-        revocationChecking = revocationChecking == null ? TrustAnchors.RevocationMode.SOFT_FAIL : revocationChecking;
+        revocationChecking = revocationChecking == null ? TrustAnchors.RevocationMode.HARD_FAIL : revocationChecking;
         statusList = statusList == null ? new StatusList(false, null, null, null) : statusList;
         subject = subject == null ? new Subject(null, false) : subject;
         minimumLoa = isBlank(minimumLoa) ? DEFAULT_MINIMUM_LOA : minimumLoa.trim();

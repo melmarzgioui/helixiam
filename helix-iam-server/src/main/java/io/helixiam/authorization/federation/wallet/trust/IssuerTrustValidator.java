@@ -12,16 +12,6 @@ import io.helixiam.common.log.LogSafe;
 import io.helixiam.common.net.OutboundUrlGuard;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.bouncycastle.asn1.ASN1OctetString;
-import org.bouncycastle.asn1.ASN1Primitive;
-import org.bouncycastle.asn1.x509.AccessDescription;
-import org.bouncycastle.asn1.x509.AuthorityInformationAccess;
-import org.bouncycastle.asn1.x509.CRLDistPoint;
-import org.bouncycastle.asn1.x509.DistributionPoint;
-import org.bouncycastle.asn1.x509.DistributionPointName;
-import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.GeneralName;
-import org.bouncycastle.asn1.x509.GeneralNames;
 
 import java.security.AlgorithmParameters;
 import java.security.GeneralSecurityException;
@@ -32,7 +22,6 @@ import java.security.cert.CertPathValidatorException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.PKIXCertPathValidatorResult;
 import java.security.cert.PKIXParameters;
-import java.security.cert.PKIXRevocationChecker;
 import java.security.cert.TrustAnchor;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPublicKey;
@@ -42,7 +31,6 @@ import java.security.spec.ECParameterSpec;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 
@@ -68,28 +56,31 @@ import java.util.Objects;
  *       chaining and, per {@link RevocationMode}, revocation.</li>
  * </ol>
  *
- * <p><b>Revocation</b> runs as a second PKIX pass, only after the first pass (no revocation) has proven the chain
- * reaches an anchor at {@code at}, so every second-pass failure is a revocation outcome. {@code OFF}: no revocation
- * check and no network access. {@code HARD_FAIL}: the JDK {@link PKIXRevocationChecker} (OCSP preferred, CRL
- * distribution point fallback) must establish a good status for every certificate below the anchor, otherwise
- * "certificate revocation status unavailable". {@code SOFT_FAIL}: {@link PKIXRevocationChecker.Option#SOFT_FAIL};
- * an undeterminable status (unreachable responder, or no responder / distribution point at all, which the JDK's own
- * soft-fail does not cover) passes and is logged as a warning carrying only that certificate's serial and subject DN.
- * A {@code REVOKED} answer fails in both modes ("certificate revoked"). The leaf is checked on its own first, then the
- * CA certificates below the anchor together, so an undeterminable CA never hides the leaf's status. Known limit: under
- * SOFT_FAIL, an undeterminable upper CA stops the JDK before it checks a lower CA (only with two or more
- * intermediates).
+ * <p><b>Revocation</b> runs only after the PKIX pass (no revocation) has proven the chain reaches an anchor at
+ * {@code at}, so nothing is fetched for a forged chain. Every certificate below the anchor (the leaf and each
+ * intermediate) is then checked <em>on its own</em> by {@link IssuerRevocationClient}, against its own issuer: OCSP
+ * first, then the CRL distribution points, fetched by HelixIAM (outbound guard, pinned connection, no redirects, size
+ * caps, deadline, cache) and validated by the JDK PKIX revocation checker. Then, per {@link RevocationMode}:
+ * <ul>
+ *   <li>{@code OFF}: no revocation check and no network access.</li>
+ *   <li>any certificate {@code REVOKED}: "certificate revoked", in both other modes, whatever the other
+ *       certificates' status (an undeterminable CA never hides a revoked leaf or lower CA).</li>
+ *   <li>{@code HARD_FAIL} (the default): a certificate whose status cannot be determined (no responder or distribution
+ *       point, unreachable, timed out, too large, or an answer that does not verify) is refused with
+ *       "certificate revocation status unavailable", or "revocation endpoint not allowed" when every source it names
+ *       was refused by policy (a non-http(s) scheme such as {@code ldap:}, a non-URI name, or a host on a loopback /
+ *       private / link-local address).</li>
+ *   <li>{@code SOFT_FAIL}: such a certificate is accepted, with a warning carrying only its serial and subject DN;
+ *       the other certificates are still checked.</li>
+ * </ul>
  *
  * <p><b>SSRF (security concern).</b> The CRL distribution point and OCSP AIA URLs come from the presented,
- * attacker-supplied certificates, and the JDK fetches them itself. Mitigations here: (1) nothing is fetched unless
- * the chain already validates to a configured anchor, so only certificates a trusted CA issued can steer a fetch;
- * (2) every such URL first passes {@link OutboundUrlGuard}: a non-http(s) scheme ({@code ldap:}, {@code file:} ...),
- * a non-URI name, or a host resolving to a loopback / private / link-local address is never fetched
- * ({@code HARD_FAIL}: rejected with "revocation endpoint not allowed"; {@code SOFT_FAIL}: revocation is skipped for
- * this chain with a warning). Residual risks not closed here: DNS rebinding between the guard's resolution and the
- * JDK's; HTTP redirects followed by the JDK's {@code HttpURLConnection}; the JDK-global timeouts
- * ({@code com.sun.security.ocsp.timeout}, {@code com.sun.security.crl.timeout}; bounded to 3 s connect / 5 s read by
- * {@code RevocationTimeouts} in {@code main}) and the unbounded CRL download size. A guarded, size- and time-bounded revocation client is the real fix (follow-up).
+ * attacker-supplied certificates. Mitigations: (1) nothing is fetched unless the chain already validates to a
+ * configured anchor, so only certificates a trusted CA issued can steer a fetch; (2) every URL passes
+ * {@link io.helixiam.common.net.OutboundUrlGuard} (http/https only; loopback, private, link-local and metadata
+ * addresses refused) and is fetched over a connection to the very address the guard validated (no DNS rebinding),
+ * without following redirects, within 3 s connect / 5 s total per fetch and 10 s per chain, capped at 64 KB (OCSP) and
+ * {@code helix.wallet.revocation.max-crl-bytes} (CRL, default 10 MB). The JDK's own revocation fetching is never used.
  */
 public final class IssuerTrustValidator {
 
@@ -101,15 +92,22 @@ public final class IssuerTrustValidator {
     private static final List<ECParameterSpec> ALLOWED_CURVES =
             List.of(curve("secp256r1"), curve("secp384r1"), curve("secp521r1"));
 
-    private final OutboundUrlGuard guard;
+    private final IssuerRevocationClient revocation;
 
     /** Production default: revocation URLs pass the environment-configured (block-private) outbound guard. */
     public IssuerTrustValidator() {
         this(new OutboundUrlGuard());
     }
 
+    /** A validator with its own revocation client (default settings, own cache). */
     public IssuerTrustValidator(final OutboundUrlGuard guard) {
-        this.guard = Objects.requireNonNull(guard, "guard");
+        this(new IssuerRevocationClient(Objects.requireNonNull(guard, "guard"),
+                IssuerRevocationClient.Settings.DEFAULTS, java.time.Clock.systemUTC()));
+    }
+
+    /** A validator on a shared revocation client (one cache and one byte budget for every wallet provider). */
+    public IssuerTrustValidator(final IssuerRevocationClient revocation) {
+        this.revocation = Objects.requireNonNull(revocation, "revocation");
     }
 
     /** Validates leaf-first chain (as in x5c / x5chain) to a configured anchor at {@code at}; returns the leaf. */
@@ -163,8 +161,8 @@ public final class IssuerTrustValidator {
         } catch (final GeneralSecurityException e) {
             throw untrusted("certificate chain not trusted");
         }
-        // Pass 1: the full path check without revocation. No network access happens before the chain is proven to
-        // reach a configured anchor, so a forged chain can never make the server fetch its CRL / OCSP URLs.
+        // The full path check without revocation. No network access happens before the chain is proven to reach a
+        // configured anchor, so a forged chain can never make the server fetch its CRL / OCSP URLs.
         final TrustAnchor anchor;
         try {
             anchor = ((PKIXCertPathValidatorResult) validator.validate(certPath, parameters(anchors, at)))
@@ -174,74 +172,41 @@ public final class IssuerTrustValidator {
         } catch (final GeneralSecurityException e) {
             throw untrusted("certificate chain not trusted");
         }
-        final RevocationMode mode = anchors.revocation(); // never null: TrustAnchors defaults it to SOFT_FAIL
-        if (mode == RevocationMode.OFF) {
-            return anchor;
-        }
-        if (!revocationEndpointsAllowed(path)) {
-            if (mode == RevocationMode.HARD_FAIL) {
-                throw untrusted("revocation endpoint not allowed");
-            }
-            warn("revocation endpoint not allowed", leaf);
-            return anchor;
-        }
-        // Pass 2: revocation only. The path is valid, so every failure here is a revocation outcome. The leaf is
-        // checked on its own first (ONLY_END_ENTITY), then the CA certificates below the anchor in one pass: the JDK
-        // checks anchor-side first and stops at the first undeterminable certificate, so a single pass over the whole
-        // path could leave the leaf unchecked under SOFT_FAIL. The JDK treats ONLY_END_ENTITY as "skip CA
-        // certificates", so a leaf that is (oddly) a CA is checked with the whole path instead.
-        checkRevocation(validator, path, anchors, at, mode, leaf.getBasicConstraints() < 0);
-        if (path.size() > 1) {
-            checkRevocation(validator, path.subList(1, path.size()), anchors, at, mode, false);
+        final RevocationMode mode = anchors.revocation(); // never null: TrustAnchors defaults it to HARD_FAIL
+        if (mode != RevocationMode.OFF) {
+            checkRevocation(path, anchor, at, mode);
         }
         return anchor;
     }
 
     /**
-     * Revocation status of {@code suffix.get(0)} only ({@code endEntityOnly}; the JDK skips CA certificates with that
-     * option, so it is used for the leaf alone), or of every certificate in {@code suffix} (the CA part of the path).
-     * A suffix of a valid path is itself a valid path.
+     * Every certificate below the anchor on its own, against its own issuer (the next certificate, or the anchor for
+     * the top one). A revoked certificate anywhere refuses; an undeterminable one refuses under HARD_FAIL and is
+     * logged under SOFT_FAIL.
      */
-    private static void checkRevocation(final CertPathValidator validator, final List<X509Certificate> suffix,
-            final TrustAnchors anchors, final Instant at, final RevocationMode mode, final boolean endEntityOnly) {
-        try {
-            final CertPath certPath = CertificateFactory.getInstance("X.509").generateCertPath(suffix);
-            final PKIXParameters params = parameters(anchors, at);
-            final PKIXRevocationChecker checker = (PKIXRevocationChecker) validator.getRevocationChecker();
-            final EnumSet<PKIXRevocationChecker.Option> options = EnumSet.noneOf(PKIXRevocationChecker.Option.class);
-            if (endEntityOnly) {
-                options.add(PKIXRevocationChecker.Option.ONLY_END_ENTITY);
-            }
-            if (mode == RevocationMode.SOFT_FAIL) {
-                options.add(PKIXRevocationChecker.Option.SOFT_FAIL);
-            }
-            checker.setOptions(options);
-            params.setRevocationEnabled(true);
-            params.addCertPathChecker(checker);
-            validator.validate(certPath, params);
-            if (!checker.getSoftFailExceptions().isEmpty()) {
-                warn("revocation status unavailable", suffix.get(0));
-            }
-        } catch (final CertPathValidatorException e) {
-            if (e.getReason() == CertPathValidatorException.BasicReason.REVOKED) {
-                throw untrusted("certificate revoked");
-            }
-            final int index = e.getIndex();
-            undetermined(mode, suffix.get(index >= 0 && index < suffix.size() ? index : 0));
-        } catch (final GeneralSecurityException e) {
-            undetermined(mode, suffix.get(0));
+    private void checkRevocation(final List<X509Certificate> path, final TrustAnchor anchor, final Instant at,
+            final RevocationMode mode) {
+        final long deadline = System.nanoTime() + IssuerRevocationClient.CHAIN_BUDGET.toNanos();
+        final List<IssuerRevocationClient.Outcome> outcomes = new ArrayList<>(path.size());
+        for (int i = 0; i < path.size(); i++) {
+            final TrustAnchor issuer = i + 1 < path.size() ? new TrustAnchor(path.get(i + 1), null) : anchor;
+            outcomes.add(revocation.status(path.get(i), issuer, at, deadline));
         }
-    }
-
-    /**
-     * HARD_FAIL rejects; SOFT_FAIL accepts with a warning. The JDK's own soft-fail covers network errors only; a
-     * certificate without any responder or distribution point is equally undeterminable, so it is treated the same.
-     */
-    private static void undetermined(final RevocationMode mode, final X509Certificate cert) {
-        if (mode == RevocationMode.HARD_FAIL) {
-            throw untrusted("certificate revocation status unavailable");
+        if (outcomes.contains(IssuerRevocationClient.Outcome.REVOKED)) {
+            throw untrusted("certificate revoked");
         }
-        warn("revocation status unavailable", cert);
+        for (int i = 0; i < path.size(); i++) {
+            final IssuerRevocationClient.Outcome outcome = outcomes.get(i);
+            if (outcome == IssuerRevocationClient.Outcome.GOOD) {
+                continue;
+            }
+            final boolean blocked = outcome == IssuerRevocationClient.Outcome.BLOCKED;
+            if (mode == RevocationMode.HARD_FAIL) {
+                throw untrusted(blocked ? "revocation endpoint not allowed"
+                        : "certificate revocation status unavailable");
+            }
+            warn(blocked ? "revocation endpoint not allowed" : "revocation status unavailable", path.get(i));
+        }
     }
 
     private static PKIXParameters parameters(final TrustAnchors anchors, final Instant at)
@@ -348,66 +313,6 @@ public final class IssuerTrustValidator {
             return params.getParameterSpec(ECParameterSpec.class);
         } catch (final GeneralSecurityException e) {
             throw new IllegalStateException("EC curve " + name + " is not available", e);
-        }
-    }
-
-    /** True when every CRL / OCSP URL in the path may be fetched under the outbound guard. */
-    private boolean revocationEndpointsAllowed(final List<X509Certificate> path) {
-        for (final X509Certificate cert : path) {
-            for (final String url : revocationUrls(cert)) {
-                if (!guard.isAllowed(url)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    /** The CRL distribution point and OCSP AIA URIs of {@code cert}; an unparsable extension counts as blocked. */
-    static List<String> revocationUrls(final X509Certificate cert) {
-        final List<String> urls = new ArrayList<>();
-        try {
-            final byte[] crlDp = cert.getExtensionValue(Extension.cRLDistributionPoints.getId());
-            if (crlDp != null) {
-                for (final DistributionPoint dp : CRLDistPoint.getInstance(unwrap(crlDp)).getDistributionPoints()) {
-                    final DistributionPointName name = dp.getDistributionPoint();
-                    if (name != null && name.getType() == DistributionPointName.FULL_NAME) {
-                        addUris(GeneralNames.getInstance(name.getName()).getNames(), urls);
-                    } else if (name != null) {
-                        urls.add("relative-name:"); // never fetchable by policy
-                    }
-                }
-            }
-            final byte[] aia = cert.getExtensionValue(Extension.authorityInfoAccess.getId());
-            if (aia != null) {
-                for (final AccessDescription ad : AuthorityInformationAccess.getInstance(unwrap(aia))
-                        .getAccessDescriptions()) {
-                    if (AccessDescription.id_ad_ocsp.equals(ad.getAccessMethod())) {
-                        addUris(new GeneralName[] {ad.getAccessLocation()}, urls);
-                    }
-                }
-            }
-        } catch (final RuntimeException e) {
-            urls.add("malformed:"); // an extension we cannot read is not one we let the JDK fetch from
-        }
-        return urls;
-    }
-
-    private static void addUris(final GeneralName[] names, final List<String> out) {
-        for (final GeneralName name : names) {
-            if (name.getTagNo() == GeneralName.uniformResourceIdentifier) {
-                out.add(name.getName().toString());
-            } else {
-                out.add("non-uri:"); // directoryName etc.: the JDK may resolve these via LDAP cert stores
-            }
-        }
-    }
-
-    private static ASN1Primitive unwrap(final byte[] extensionValue) {
-        try {
-            return ASN1Primitive.fromByteArray(ASN1OctetString.getInstance(extensionValue).getOctets());
-        } catch (final java.io.IOException e) {
-            throw new IllegalArgumentException("malformed extension");
         }
     }
 

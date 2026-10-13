@@ -25,6 +25,9 @@ export type ClientIdScheme = "x509_hash" | "x509_san_dns";
 export type ResponseMode = "direct_post.jwt" | "direct_post";
 export type SubjectStrategy = "ADMINISTRATIVE_NUMBER" | "ATTRIBUTE_TUPLE";
 export type OnUnavailable = "FAIL_CLOSED" | "FAIL_OPEN_WITH_AUDIT";
+/** Issuer X.509 certificate revocation (CRL / OCSP), TrustAnchors.RevocationMode on the server. */
+export type RevocationChecking = "HARD_FAIL" | "SOFT_FAIL" | "OFF";
+export const REVOCATION_MODES: readonly RevocationChecking[] = ["HARD_FAIL", "SOFT_FAIL", "OFF"];
 
 /** Server bounds (WalletConfigValidator). */
 export const TTL_RANGE = { min: 60, max: 900, default: 300 } as const;
@@ -59,6 +62,7 @@ export interface WalletForm {
   /** Dev only: the chain of the raw private key (accessCertificatePrivateKey). */
   accessCertificateChain: string;
   trustAnchors: string;
+  revocationChecking: RevocationChecking;
   credentialFormats: string[];
   requestedClaims: string[];
   subjectStrategy: SubjectStrategy;
@@ -79,6 +83,7 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
   clientIdHost: "",
   accessCertificateChain: "",
   trustAnchors: "",
+  revocationChecking: "HARD_FAIL",
   credentialFormats: [...WALLET_FORMATS],
   requestedClaims: [...DEFAULT_CLAIMS],
   subjectStrategy: "ADMINISTRATIVE_NUMBER",
@@ -94,7 +99,8 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
 
 /** The stored keys the form owns; any other stored key is carried over unchanged on save. */
 export const WALLET_FORM_KEYS = [
-  "accessKeyRef", "clientIdScheme", "clientIdHost", "accessCertificateChain", "trustAnchors", "credentialFormats",
+  "accessKeyRef", "clientIdScheme", "clientIdHost", "accessCertificateChain", "trustAnchors", "revocationChecking",
+  "credentialFormats",
   "pid.requestedClaims", "subject.strategy", "subject.acknowledgeWeakSubject", "minimumLoa", "statusList.required",
   "statusList.onUnavailable", "statusList.maxCacheSeconds", "statusList.allowedHosts", "responseMode",
   "transactionTtlSeconds",
@@ -136,6 +142,7 @@ export function walletFormFromConfig(config: Record<string, string>): WalletForm
     clientIdHost: text(config.clientIdHost),
     accessCertificateChain: config.accessCertificateChain ?? "",
     trustAnchors: config.trustAnchors ?? "",
+    revocationChecking: pick(config.revocationChecking, REVOCATION_MODES, "HARD_FAIL"),
     credentialFormats: list(config.credentialFormats, WALLET_FORMATS),
     requestedClaims: list(config["pid.requestedClaims"], DEFAULT_CLAIMS),
     subjectStrategy: pick(config["subject.strategy"], ["ADMINISTRATIVE_NUMBER", "ATTRIBUTE_TUPLE"] as const, "ADMINISTRATIVE_NUMBER"),
@@ -170,6 +177,7 @@ export function walletConfigFromForm(form: WalletForm, base: Record<string, stri
   if (form.clientIdScheme === "x509_san_dns") put("clientIdHost", form.clientIdHost.trim());
   put("accessCertificateChain", form.accessCertificateChain);
   put("trustAnchors", form.trustAnchors);
+  out.revocationChecking = form.revocationChecking;
   out.credentialFormats = JSON.stringify(form.credentialFormats);
   out["pid.requestedClaims"] = JSON.stringify(form.requestedClaims);
   out["subject.strategy"] = form.subjectStrategy;
@@ -275,7 +283,8 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
 // ---------------------------------------------------------------------------------------------------- warnings
 
 /** Advisory, never blocking: i18n suffixes under `wallet.warn.`. */
-export type WalletWarning = "manyClaims" | "adminNumberWithoutStrategy" | "placeOfBirthOrphans" | "weakTuple" | "failOpen";
+export type WalletWarning = "manyClaims" | "adminNumberWithoutStrategy" | "placeOfBirthOrphans" | "weakTuple" | "failOpen"
+  | "revocationSoftFail" | "revocationOff";
 
 /**
  * The warnings for a form. `original` is the stored form of an existing provider (null/undefined for a new one): adding
@@ -293,6 +302,8 @@ export function walletWarnings(form: WalletForm, original?: WalletForm | null): 
   }
   if (form.subjectStrategy === "ATTRIBUTE_TUPLE") out.push("weakTuple");
   if (form.onUnavailable === "FAIL_OPEN_WITH_AUDIT") out.push("failOpen");
+  if (form.revocationChecking === "SOFT_FAIL") out.push("revocationSoftFail");
+  if (form.revocationChecking === "OFF") out.push("revocationOff");
   return out;
 }
 
@@ -313,7 +324,7 @@ const SECTION_OF: Record<string, WalletSection> = {
   alias: "general", displayName: "general",
   accessKeyRef: "access", clientIdScheme: "access", clientIdHost: "access", accessCertificateChain: "access",
   [DEV_KEY]: "access",
-  trustAnchors: "credentials", credentialFormats: "credentials", "pid.requestedClaims": "credentials",
+  trustAnchors: "credentials", revocationChecking: "credentials", credentialFormats: "credentials", "pid.requestedClaims": "credentials",
   "subject.strategy": "policies", minimumLoa: "policies", "statusList.required": "policies",
   "statusList.onUnavailable": "policies", "statusList.maxCacheSeconds": "policies", "statusList.allowedHosts": "policies",
   responseMode: "policies", transactionTtlSeconds: "policies",
@@ -323,7 +334,8 @@ const SECTION_ORDER: WalletSection[] = ["general", "access", "credentials", "pol
 /** The stored field (error key) a form member is checked under, so editing it can clear that field's server error. */
 const FIELD_OF: Record<keyof WalletForm, string> = {
   accessKeyRef: "accessKeyRef", clientIdScheme: "clientIdHost", clientIdHost: "clientIdHost",
-  accessCertificateChain: "accessCertificateChain", trustAnchors: "trustAnchors", credentialFormats: "credentialFormats",
+  accessCertificateChain: "accessCertificateChain", trustAnchors: "trustAnchors",
+  revocationChecking: "revocationChecking", credentialFormats: "credentialFormats",
   requestedClaims: "pid.requestedClaims", subjectStrategy: "subject.strategy", acknowledgeWeakSubject: "subject.strategy",
   minimumLoa: "minimumLoa", statusRequired: "statusList.required", onUnavailable: "statusList.onUnavailable",
   statusMaxCacheSeconds: "statusList.maxCacheSeconds", statusAllowedHosts: "statusList.allowedHosts",

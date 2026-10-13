@@ -52,18 +52,19 @@ import java.util.Locale;
  * check is always enforced.
  *
  * <p><b>DNS-rebinding / TOCTOU:</b> the guard resolves the host and validates <em>every</em> returned address
- * immediately before the caller connects; the JDK {@code HttpClient} then re-resolves, so a hostile resolver
- * could in theory answer differently the second time. Full elimination would require pinning the connection to
- * the validated {@code InetAddress}, which is too invasive for the shared JDK clients here — the residual window
- * is documented in the M6 report. Resolving-and-checking right before each request is the accepted mitigation.
+ * immediately before the caller connects. Callers that use the JDK {@code HttpClient} after {@link #checkAllowed}
+ * let it re-resolve, so a hostile resolver could in theory answer differently the second time (the residual window
+ * documented in the M6 report). Callers that must close that window use {@link #resolveAllowed}, which returns the
+ * validated addresses, and connect to one of them: {@link PinnedHttpFetcher} does (wallet issuer CRL / OCSP fetches
+ * and Token Status List fetches).
  */
 @Component
 public class OutboundUrlGuard {
 
     private static final Logger LOG = LogManager.getLogger(OutboundUrlGuard.class);
 
-    /** Seam over name resolution so unit tests can drive rebinding / resolution scenarios deterministically. */
-    interface HostResolver {
+    /** Seam over name resolution so tests can drive rebinding / resolution scenarios deterministically. */
+    public interface HostResolver {
         InetAddress[] resolve(String host) throws UnknownHostException;
     }
 
@@ -109,7 +110,9 @@ public class OutboundUrlGuard {
         this(allowPrivate, List.of(), resolver);
     }
 
-    OutboundUrlGuard(final boolean allowPrivate, final List<String> allowedPrivateHosts, final HostResolver resolver) {
+    /** Explicit policy and resolver (tests, and wiring that needs a custom resolver). */
+    public OutboundUrlGuard(final boolean allowPrivate, final List<String> allowedPrivateHosts,
+                            final HostResolver resolver) {
         this.allowPrivate = allowPrivate;
         this.allowedPrivateHosts = allowedPrivateHosts.stream().map(AllowedHost::parse)
                 .filter(java.util.Objects::nonNull).toList();
@@ -224,6 +227,41 @@ public class OutboundUrlGuard {
      *                              (unless {@code allow-private} is enabled, which skips only the address checks).
      */
     public void checkAllowed(final String url) throws SsrfBlockedException {
+        check(url, false);
+    }
+
+    /**
+     * A URL the guard accepted, with the addresses it validated. A caller that connects must connect to one of
+     * {@link #addresses()} (never resolve {@link #host()} again), sending {@link #host()} as the HTTP {@code Host} and
+     * TLS server name.
+     *
+     * @param uri       the parsed URL
+     * @param host      the host as written in the URL (IPv6 without brackets)
+     * @param port      the explicit port, or 80 / 443 by scheme
+     * @param addresses every address the host resolved to, each one checked
+     */
+    public record ResolvedTarget(URI uri, String host, int port, List<InetAddress> addresses) {
+        public ResolvedTarget {
+            addresses = List.copyOf(addresses);
+        }
+
+        /** True for {@code https}. */
+        public boolean https() {
+            return "https".equalsIgnoreCase(uri.getScheme());
+        }
+    }
+
+    /**
+     * As {@link #checkAllowed}, resolving the host exactly once and returning the addresses that were checked, so the
+     * caller can connect to a validated address instead of resolving again (DNS rebinding). Under the deprecated
+     * {@code allow-private} switch the host is still resolved (an unresolvable host throws
+     * {@link UnresolvableHostException}); only the address checks are skipped.
+     */
+    public ResolvedTarget resolveAllowed(final String url) throws SsrfBlockedException {
+        return check(url, true);
+    }
+
+    private ResolvedTarget check(final String url, final boolean needAddresses) throws SsrfBlockedException {
         if (url == null || url.isBlank()) {
             throw new SsrfBlockedException("Outbound URL is missing");
         }
@@ -245,11 +283,11 @@ public class OutboundUrlGuard {
         if (host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
         }
-        if (allowPrivate) {
-            return; // deprecated escape hatch: scheme still enforced above, address checks skipped
+        final int port = uri.getPort() >= 0 ? uri.getPort() : scheme.equalsIgnoreCase("https") ? 443 : 80;
+        if (allowPrivate && !needAddresses) {
+            return null; // deprecated escape hatch: scheme still enforced above, address checks skipped
         }
         final String matchHost = host.toLowerCase(Locale.ROOT);
-        final int port = uri.getPort() >= 0 ? uri.getPort() : scheme.equalsIgnoreCase("https") ? 443 : 80;
         // C6: an allowlisted NAME (never the address it resolves to) may reach private addresses.
         final boolean allowlisted = allowedPrivateHosts.stream().anyMatch(a -> a.matches(matchHost, port));
         final InetAddress[] addresses;
@@ -261,15 +299,18 @@ public class OutboundUrlGuard {
         if (addresses == null || addresses.length == 0) {
             throw new UnresolvableHostException("Outbound host resolved to no address: " + host);
         }
-        for (final InetAddress address : addresses) {
-            if (allowlisted ? isAlwaysBlocked(address) : isBlocked(address)) {
-                LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)",
-                        LogSafe.sanitize(safe(url)),
-                        LogSafe.sanitize(address.getHostAddress()));
-                throw new SsrfBlockedException("Outbound host " + host + " resolves to a blocked ("
-                        + "internal/reserved) address: " + address.getHostAddress());
+        if (!allowPrivate) {
+            for (final InetAddress address : addresses) {
+                if (allowlisted ? isAlwaysBlocked(address) : isBlocked(address)) {
+                    LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)",
+                            LogSafe.sanitize(safe(url)),
+                            LogSafe.sanitize(address.getHostAddress()));
+                    throw new SsrfBlockedException("Outbound host " + host + " resolves to a blocked ("
+                            + "internal/reserved) address: " + address.getHostAddress());
+                }
             }
         }
+        return new ResolvedTarget(uri, host, port, List.of(addresses));
     }
 
     /** True for any address that must never be reachable via a user-configurable URL. */
