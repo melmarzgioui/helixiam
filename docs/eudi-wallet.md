@@ -69,9 +69,11 @@ not specific to the wallet; every admin-API-managed connection (OIDC, SAML, eID,
   realm cannot be started there.
 - A stored connection whose secrets cannot be read (for example after `DB_ENCRYPTION` changed) is skipped with a
   `WARN` naming its id; the realm's other connections still load.
-- Limits: a refresh after a write reaches the replica that handled the write; other replicas pick the change up at
-  their next restart. A realm **import** (`/admin/realms/{realm}/import`) saves its connections without refreshing
-  the registry either; they go live at the next restart or the next admin write in that realm.
+- Other replicas: every replica polls the store (`helix.federation.store.poll-seconds`, env
+  `HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60, `0` = off) and reloads each realm whose stored connections changed
+  since it loaded them, so a connection created, disabled, deleted or re-keyed through one replica is live (or gone)
+  on all of them within one poll. A realm **import** (`/admin/realms/{realm}/import`) refreshes the imported realm on
+  the replica that ran it, and the poll brings it to the others.
 
 ### 2.3 Through the console
 

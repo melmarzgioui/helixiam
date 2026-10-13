@@ -20,6 +20,11 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — An identity provider disabled, deleted or re-keyed through one replica (for example a compromised
+  upstream IdP an admin switches off) stayed live on every other replica until its restart, and a realm import never
+  refreshed the live registry. Every replica now polls the store (`HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60,
+  `0` = off) and reloads only the realms whose stored connections changed; a realm import refreshes the imported realm
+  at once.
 - **security** — Wallet review minors: `IdentityProviderConfig.toString()` (both copies) now redacts every secret
   value, so a future log line of the runtime config cannot leak a client secret, private key, bind password or
   pepper. An identity-provider update that changes the protocol drops the stored secrets the new protocol does not use

@@ -157,6 +157,15 @@ public class RealmImportService {
         this.walletValidator = walletValidator;
     }
 
+    private io.helixiam.authorization.federation.FederationStoreRefresher federationRefresher;
+
+    /** Imported identity providers go live at once on this replica (the store poll brings them to the others). */
+    @Autowired(required = false)
+    public void setFederationStoreRefresher(
+            final io.helixiam.authorization.federation.FederationStoreRefresher federationRefresher) {
+        this.federationRefresher = federationRefresher;
+    }
+
     private io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings;
 
     /** B1: the {@code accountConsole} slice (what the realm's account console allows) is imported when present. */
@@ -734,6 +743,7 @@ public class RealmImportService {
         }
         final Map<String, IdentityProviderConfig> existing = byKey(idpPublisher.list(realmId),
                 IdentityProviderConfig::alias);
+        boolean saved = false;
         for (final IdentityProviderConfig idp : doc.identityProviders()) {
             if (idp == null || isBlank(idp.alias())) {
                 r.skipped(SLICE_IDPS);
@@ -755,6 +765,7 @@ public class RealmImportService {
                 }
                 idpPublisher.save(new IdentityProviderConfig(realmId, idp.alias(), idp.protocol(),
                         idp.displayName(), idp.enabled(), config));
+                saved = true;
                 if (update) {
                     r.updated(SLICE_IDPS);
                 } else {
@@ -762,6 +773,15 @@ public class RealmImportService {
                 }
             } catch (final RuntimeException ex) {
                 failed(r, SLICE_IDPS, realmId, ex);
+            }
+        }
+        if (saved && federationRefresher != null) {
+            try {
+                federationRefresher.refresh(realmId);
+            } catch (final RuntimeException e) {
+                LOG.warn("Imported identity providers of realm {} go live at the next store poll: {}",
+                        io.helixiam.common.log.LogSafe.sanitize(realmId),
+                        io.helixiam.common.log.LogSafe.sanitize(e.getMessage()));
             }
         }
     }

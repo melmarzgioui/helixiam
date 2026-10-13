@@ -141,6 +141,21 @@ public class FederationConfig {
     }
 
     /**
+     * Every replica follows the store: every {@code helix.federation.store.poll-seconds} (default 60, 0 = off) the
+     * realms whose stored connections changed since this replica loaded them are reloaded
+     * ({@link FederationStoreRefresher#refreshChanged}), so a connection disabled, deleted or re-keyed through another
+     * replica, or brought in by a realm import, takes effect everywhere without a restart.
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public FederationStorePoller federationStorePoller(
+            final FederationStoreRefresher refresher,
+            @org.springframework.beans.factory.annotation.Value("${helix.federation.store.poll-seconds:60}")
+            final long pollSeconds) {
+        return new FederationStorePoller(refresher, pollSeconds);
+    }
+
+    /**
      * EUDI wallet logins: the transaction store. Redis (shared by every replica) when the session or the token store is
      * Redis, on the same connection factory; otherwise in process memory, which only works with one replica.
      */
