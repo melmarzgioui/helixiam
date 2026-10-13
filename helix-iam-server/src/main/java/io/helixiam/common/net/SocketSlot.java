@@ -15,31 +15,42 @@ import java.net.Socket;
  */
 final class SocketSlot {
 
-    private Socket current;
+    private final java.util.List<Socket> sockets = new java.util.ArrayList<>(2);
     private boolean aborted;
 
     /** Makes {@code s} the socket an abort closes; refuses (closing {@code s}) once aborted. */
-    synchronized void register(final Socket s) throws PinnedHttpFetcher.FetchException {
-        if (aborted) {
-            close(s);
-            throw new PinnedHttpFetcher.FetchException(PinnedHttpFetcher.FetchException.Kind.TIMEOUT,
-                    "fetch timed out");
+    void register(final Socket s) throws PinnedHttpFetcher.FetchException {
+        synchronized (this) {
+            if (!aborted) {
+                sockets.add(s);
+                return;
+            }
         }
-        current = s;
+        close(s);
+        throw new PinnedHttpFetcher.FetchException(PinnedHttpFetcher.FetchException.Kind.TIMEOUT, "fetch timed out");
     }
 
-    /** Marks the fetch aborted and closes its socket, if any. */
-    synchronized void abort() {
-        aborted = true;
-        close(current);
+    /**
+     * Marks the fetch aborted and closes its sockets, outside the lock and plain TCP sockets first: closing an
+     * {@code SSLSocket} can wait for a read in progress, closing the socket under it never does.
+     */
+    void abort() {
+        final java.util.List<Socket> toClose;
+        synchronized (this) {
+            aborted = true;
+            toClose = new java.util.ArrayList<>(sockets);
+        }
+        toClose.stream().filter(s -> !(s instanceof javax.net.ssl.SSLSocket)).forEach(SocketSlot::close);
+        toClose.stream().filter(s -> s instanceof javax.net.ssl.SSLSocket).forEach(SocketSlot::close);
     }
 
     synchronized boolean aborted() {
         return aborted;
     }
 
+    /** The socket registered last (the one in use), or null. */
     synchronized Socket current() {
-        return current;
+        return sockets.isEmpty() ? null : sockets.get(sockets.size() - 1);
     }
 
     static void close(final Socket s) {

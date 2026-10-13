@@ -442,4 +442,44 @@ class PinnedHttpFetcherTest {
         assertThat(lookups).hasValue(0);
         assertThat(hits).hasValue(0);
     }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void aStalledTlsBodyIsAbandonedAtTheDeadline() throws Exception {
+        final io.helixiam.testsupport.TestTls tls = io.helixiam.testsupport.TestTls.create("stall");
+        try (java.net.ServerSocket raw = tls.serverContext().getServerSocketFactory()
+                .createServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))) {
+            final Thread t = new Thread(() -> {
+                while (!raw.isClosed()) {
+                    try (java.net.Socket s = raw.accept()) {
+                        final java.io.InputStream in = s.getInputStream();
+                        int st = 0;
+                        int c;
+                        while (st < 4 && (c = in.read()) >= 0) {
+                            st = (c == '\r' && (st == 0 || st == 2)) || (c == '\n' && (st == 1 || st == 3)) ? st + 1
+                                    : c == '\r' ? 1 : 0;
+                        }
+                        s.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 65\r\n\r\n0123456789"
+                                .getBytes(StandardCharsets.US_ASCII));
+                        s.getOutputStream().flush();
+                        Thread.sleep(8_000);
+                    } catch (final Exception e) {
+                        // next
+                    }
+                }
+            }, "tls-stall");
+            t.setDaemon(true);
+            t.start();
+            final PinnedHttpFetcher fetcher = new PinnedHttpFetcher(OutboundUrlGuard.permissive(),
+                    io.helixiam.authorization.messaging.email.TlsTrust.context(tls.caPem()));
+            for (int i = 0; i < 3; i++) {
+                final long start = System.nanoTime();
+                assertThatThrownBy(() -> fetcher.get("https://localhost:" + raw.getLocalPort() + "/x", Map.of(),
+                        new Limits(Duration.ofSeconds(1), Duration.ofSeconds(1), 1024)))
+                        .isInstanceOfSatisfying(FetchException.class,
+                                e -> assertThat(e.kind()).isEqualTo(FetchException.Kind.TIMEOUT));
+                assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(1_800));
+            }
+        }
+    }
 }
