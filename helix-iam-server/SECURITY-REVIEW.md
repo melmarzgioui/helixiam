@@ -88,6 +88,13 @@
 >   DCR JWKS, WIF `jwksUri`, eID artifact resolver, upstream + backchannel logout, realm HTTP SMS/email).
 >   Secure default; `helix.egress.allow-private=true` only in dev. Residual: DNS-rebinding TOCTOU mitigated
 >   (resolve-and-check, reject if any resolved IP is internal) but not eliminated by connection pinning.
+>   **Fixed 2026-10-13 (branch `fix/wallet-network-hardening`, also affected released versions):** an IPv6
+>   address that embeds a blocked IPv4 address (IPv4-mapped `::ffff:127.0.0.1` / `::ffff:169.254.169.254`,
+>   IPv4-compatible `::/96`, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) passed the check, so an AAAA answer could reach
+>   loopback or cloud metadata. Such addresses are now judged by their embedded IPv4 address; `192.0.0.0/24`,
+>   `198.18.0.0/15` and `240.0.0.0/4` (incl. broadcast) are blocked; the AWS IPv6 metadata address `fd00:ec2::254`
+>   stays blocked even for an allowlisted host. The wallet's issuer CRL/OCSP and status-list fetches pin the
+>   connection to the validated address (`PinnedHttpFetcher`), which removes the rebinding window for them.
 >
 > **STILL OPEN — deliberately deferred** (documented in `DEFERRED-SECURITY-WORK.md`): **L5** (the legacy
 > AES/ECB decrypt path is retained deliberately so existing rows stay readable — now logged), **L6** (the
@@ -621,30 +628,44 @@ either changes observable behaviour for callers this document has not re-verifie
 ### B.10 Issuer certificate revocation (CRL / OCSP)
 
 The CRL distribution point and OCSP responder URLs come from the presented, attacker-supplied issuer certificates,
-so the fetch is an SSRF and DoS surface. The JDK `PKIXRevocationChecker` no longer fetches anything for wallet
-issuer certificates (it followed redirects, re-resolved names, had no CRL size cap and no cache under our control).
+so the fetch is an SSRF and DoS surface. The JDK no longer fetches anything for wallet issuer certificates (its
+`PKIXRevocationChecker` followed redirects, re-resolved names, had no CRL size cap and no cache under our control).
 `IssuerRevocationClient` fetches instead, over `PinnedHttpFetcher`:
 - nothing is fetched until the chain has validated to a configured anchor, so only a trusted CA's certificates can
   name a URL;
 - every URL passes `OutboundUrlGuard` (http and https only — CRLs and OCSP responses are signed, so plain http is
   normal and their signature is the integrity; `ldap:` and non-URI names are never used), the connection goes to the
   validated address (no DNS rebinding), no redirect is followed, connect 3 s and 5 s in total per fetch including
-  DNS, 10 s per chain, OCSP response at most 64 KB, CRL at most `helix.wallet.revocation.max-crl-bytes` (10 MB);
-- the JDK still decides: an OCSP response goes in through `setOcspResponses` (OCSP only, no fallback; with a response
-  supplied the JDK never contacts a responder), a CRL through a Collection `CertStore` (CRL only). The JDK's own
-  fallback to a certificate's distribution points is hard-wired on for `PKIXRevocationChecker`, so a CRL is first
-  pre-checked against the conditions the JDK applies when it approves a CRL (issuer name and key identifier,
-  cRLSign, signature algorithm and signature, thisUpdate/nextUpdate, no delta / indirect / partial CRL, no unknown
-  critical extension); a CRL failing them is never handed over, so the fallback is never reached
-  (`IssuerRevocationTest.crlSignedByAnotherKeyIsNotAcceptedAndOnlyOurFetchHappens`);
-- answers are cached until `nextUpdate` (24 h at most; without `nextUpdate`, not at all), bounded by
-  `helix.wallet.revocation.cache-max-entries` (256) and `.cache-max-bytes` (32 MB), shared by every provider.
+  DNS, 10 s per chain, OCSP response at most 64 KB, CRL at most `helix.wallet.revocation.max-crl-bytes` (10 MB,
+  100 MB at most); strict HTTP/1.1 framing (conflicting `Content-Length`, `Content-Length` with
+  `Transfer-Encoding`, signed numbers, obs-fold, a protocol switch are refused);
+- concurrent logins share one download per URL (single-flight); at most `helix.wallet.fetch.max-concurrent` (16)
+  fetches run at once, permits held until the worker ends so DNS lookups that hang cannot pile up threads; a URL
+  that served something that is not a CRL (or too large a one) is not downloaded again for 60 s;
+- the JDK validates and never fetches. An OCSP response goes in through `setOcspResponses` (OCSP only, no fallback;
+  with a response supplied it never contacts a responder). A CRL is pre-checked (issuer name and key identifier,
+  cRLSign, signature algorithm and signature, thisUpdate/nextUpdate within the JDK's own 15-minute skew, no delta /
+  indirect / partial CRL, no unknown critical extension) and then handed to the JDK's **legacy** CRL checker in a
+  `CertStore`. Not `PKIXRevocationChecker`: its fallback to fetching every distribution point of the certificate
+  (unpinned, uncapped) is hard-wired on whenever it cannot approve a CRL — the first version of this change relied on
+  the pre-check alone and a review proved that fallback reachable. The legacy checker fetches nothing while
+  `com.sun.security.enableCRLDP` is off (forced off at startup); if an operator re-enables it (or `ocsp.enable`,
+  `com.sun.security.enableAIAcaIssuers`, `com.sun.security.onlyCheckRevocationOfEECert`), CRLs are not evaluated
+  at all and an error is logged (`JdkRevocationNoFetchTest`);
+- answers are cached until `nextUpdate` (a CRL until `nextUpdate` + 15 min; 24 h at most; without `nextUpdate`, not
+  at all), bounded by `helix.wallet.revocation.cache-max-entries` (256) and `.cache-max-bytes` (32 MB; a CRL counts
+  an estimate of its parsed heap: 3 × its encoding + 256 bytes per revoked entry), shared by every provider.
 
 Each certificate below the anchor is checked on its own, against its own issuer, so an undeterminable upper CA no
 longer stops the check before a lower CA (the former SOFT_FAIL gap with two or more intermediates). A `REVOKED`
 answer anywhere refuses. `revocationChecking` defaults to `HARD_FAIL`: a certificate whose status cannot be
 determined is refused; `SOFT_FAIL` accepts it with a warning (serial and subject DN only); `OFF` checks nothing.
-Residual: a CRL that passes the pre-check but that the JDK would still not approve would make the JDK fetch the same,
-already guard-approved URL itself; no such case is known, and the pre-check is stricter than the JDK on every
-condition it covers.
 
+Status lists (B.5) use the same transport. A TLS failure (untrusted certificate, host name mismatch) or an answer
+that is not valid HTTP is an integrity failure and always fails closed, also under `FAIL_OPEN_WITH_AUDIT`; only
+connect / read errors, timeouts (DNS included), 5xx and unresolvable hosts are transient. A provider's own
+`allowedHosts` and https rule are applied before the shared status-list cache is consulted.
+
+**Latency.** Worst case per credential, all endpoints slow: about 25 s — 10 s for the issuer chain's revocation
+budget, 5 s for the status-list fetch, and 10 s for the revocation budget of the status-list signer's chain. Cached
+answers make the common case a few milliseconds.

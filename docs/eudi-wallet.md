@@ -204,7 +204,9 @@ it. This is the same egress guard every other admin-configurable outbound HTTP c
 itself (and every redirect hop, at most 3, each vetted again) runs over a pinned connection: the host is resolved
 once, inside the 5 s deadline, and the connection goes to the address the guard checked, so a resolver that answers
 differently a second time (DNS rebinding) cannot redirect it; TLS is still verified against the host name. Connect
-3 s, everything (DNS included) 5 s, body at most 1 MB. See `helix-iam-server/SECURITY-REVIEW.md` Appendix B.5 for
+3 s, everything (DNS included) 5 s, body at most 1 MB. A provider's own https rule and `statusList.allowedHosts` are
+applied before the (shared) status-list cache is consulted. A TLS failure (untrusted certificate, host name
+mismatch) or an answer that is not valid HTTP fails closed, like any other integrity failure (see §7). See `helix-iam-server/SECURITY-REVIEW.md` Appendix B.5 for
 the detail.
 
 ## 6. The subject: "administrative number, else link"
@@ -293,8 +295,9 @@ Token Status List (IETF `draft-ietf-oauth-status-list-21`) semantics are **asymm
   allowed to fetch, is never treated as merely "unavailable" — it is refused outright
   (`STATUS_UNAVAILABLE`/`ISSUER_UNTRUSTED`).
 - **May fail OPEN, only when `statusList.onUnavailable=FAIL_OPEN_WITH_AUDIT`**, and only for genuinely transient
-  availability problems: a connection/read timeout, a 5xx, a DNS resolution failure, or a thread interruption
-  during the fetch. Even then, the verifier emits an audit entry (`WALLET_STATUS_CHECK_FAILED` /
+  availability problems: a connect or read error, a timeout (DNS included), a 5xx, a host name that does not
+  resolve, or a thread interruption during the fetch. A TLS failure (untrusted server certificate, host name
+  mismatch) or an answer that is not valid HTTP is not transient: it fails closed. Even then, the verifier emits an audit entry (`WALLET_STATUS_CHECK_FAILED` /
   `UNAVAILABLE_ACCEPTED`) so the operator can see that a login proceeded without a revocation check.
 - The **default** is `onUnavailable=FAIL_CLOSED` (so an unreachable status list blocks sign-in by default);
   `statusList.required=false` (so a PID that carries no `status` claim at all is still accepted — most short-lived
@@ -347,18 +350,32 @@ How it works (`IssuerRevocationClient`):
 - Every URL passes `OutboundUrlGuard`; only `http` and `https` (CRL and OCSP are commonly plain `http`; their
   signatures are their integrity), never `ldap:`. The connection goes to the address the guard validated (no DNS
   rebinding), redirects are not followed, connect 3 s, 5 s per fetch in total including DNS, 10 s per chain.
-- What was fetched is validated by the JDK PKIX revocation checker (signatures, responder, validity window); the
-  JDK itself never fetches.
-- Answers are cached until their `nextUpdate` (at most 24 h; an OCSP response without `nextUpdate` is not cached),
-  shared by every provider.
+- Concurrent logins share one download per URL; at most `helix.wallet.fetch.max-concurrent` fetches (revocation and
+  status lists together) run at once. A URL that served something that is not a CRL, or a CRL over the size cap, is
+  not downloaded again for 60 s.
+- What was fetched is validated by the JDK (OCSP: `PKIXRevocationChecker` with the response supplied; CRL: the
+  JDK's legacy CRL checker after HelixIAM's own pre-check). The JDK itself never fetches: HelixIAM sets
+  `com.sun.security.enableCRLDP=false` at startup, and if a JVM setting would let the JDK fetch
+  (`com.sun.security.enableCRLDP`, `com.sun.security.enableAIAcaIssuers`, `ocsp.enable`) or skip CA certificates
+  (`com.sun.security.onlyCheckRevocationOfEECert`), CRLs are not evaluated (an error is logged) — do not set them.
+- A CRL is accepted within the JDK's own 15-minute clock skew: `thisUpdate` up to 15 min in the future,
+  `nextUpdate` up to 15 min in the past.
+- Answers are cached until their `nextUpdate` (a CRL until `nextUpdate` + 15 min; at most 24 h; an OCSP response
+  without `nextUpdate` is not cached), shared by every provider.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `helix.wallet.revocation.max-crl-bytes` | `10485760` (10 MB) | Largest CRL downloaded; a larger one is an undeterminable status |
+| `helix.wallet.revocation.max-crl-bytes` | `10485760` (10 MB) | Largest CRL downloaded (at most 100 MB); a larger one is an undeterminable status |
 | `helix.wallet.revocation.cache-max-entries` | `256` | Most cached OCSP responses and CRLs |
-| `helix.wallet.revocation.cache-max-bytes` | `33554432` (32 MB) | Most cached bytes (encoded) |
+| `helix.wallet.revocation.cache-max-bytes` | `33554432` (32 MB) | Most cached bytes: an OCSP response counts its size, a CRL an estimate of its parsed heap (3 × its size + 256 bytes per revoked entry) |
+| `helix.wallet.fetch.max-concurrent` | `16` | Most issuer-revocation and status-list fetches running at once; a fetch that gets no slot before its deadline times out |
 
 OCSP responses are capped at 64 KB (not configurable).
+
+**Latency.** With every endpoint slow or unreachable, one credential can take about 25 s to verify: up to 10 s for
+the issuer chain's revocation checks, 5 s for the status-list fetch, and up to 10 s for the revocation checks of the
+status-list signer's chain. Cached answers (CRLs and OCSP until `nextUpdate`, status lists for their `ttl`) make the
+usual case fast; the wallet transaction lifetime (`transactionTtlSeconds`, default 300 s) is far longer.
 
 **Why `HARD_FAIL` is the default.** Issuer-key revocation is the remedy for a compromised PID issuer key; under
 `SOFT_FAIL` anyone who can make the issuer's CRL or OCSP endpoint unreachable from your server (or an issuer outage)

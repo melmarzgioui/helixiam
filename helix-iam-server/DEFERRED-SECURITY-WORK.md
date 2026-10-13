@@ -50,6 +50,13 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 - **L5**: legacy AES/ECB decrypt fallback retained for existing-row compatibility (now logged).
 - **L6**: generated bootstrap admin password is logged (zero-config trade-off; set `HELIX_ADMIN_PASSWORD`).
 
+## SSRF: IPv6 addresses embedding a blocked IPv4 address (found 2026-10-13, all `OutboundUrlGuard` callers)
+**Status: DONE (550d78d, 17d6c80).** `::ffff:127.0.0.1`, `::ffff:169.254.169.254`, IPv4-compatible `::/96`, NAT64
+`64:ff9b::/96` and 6to4 `2002::/16` addresses are judged by their embedded IPv4 address; `192.0.0.0/24`,
+`198.18.0.0/15`, `240.0.0.0/4` are blocked; `fd00:ec2::254` and broadcast are blocked even for allowlisted hosts.
+Affected released versions (see `CHANGES-1.0.md`). Residual for non-wallet callers: the DNS-rebinding window of the
+M6 finding remains where a JDK `HttpClient` re-resolves after `checkAllowed`.
+
 ## EUDI Wallet: bounded issuer-revocation client (follow-up to Task 7, 2026-10-11)
 **Status: DONE (363fb26, branch `fix/wallet-network-hardening`).** `IssuerTrustValidator` no longer lets the JDK
 `PKIXRevocationChecker` fetch anything. `IssuerRevocationClient` fetches OCSP and CRLs over `PinnedHttpFetcher` and
@@ -66,8 +73,14 @@ listed here before is closed:
   issuer; a revoked certificate anywhere refuses.
 - Timeouts: connect 3 s, 5 s per fetch including DNS (inside the deadline), 10 s per chain. **Default mode:**
   `HARD_FAIL` (was `SOFT_FAIL`); configurable per provider, console field added. Rationale in
-  `docs/eudi-wallet.md` §7.2. Residual: a CRL that passes the pre-check but that the JDK would still refuse would make
-  the JDK fetch the same, already guard-approved URL itself; no such case is known.
+  `docs/eudi-wallet.md` §7.2.
+- **Review follow-ups (2026-10-13) — DONE.** The first version relied on a pre-check to keep
+  `PKIXRevocationChecker`'s hard-wired distribution-point fallback from running; a review proved it reachable.
+  CRLs now go to the JDK's legacy checker with `com.sun.security.enableCRLDP=false` forced at startup and the
+  relevant JVM settings checked before each use (b79b50b). Also: CRL clock skew equal to the JDK's 15 min (cc681c7),
+  single-flight and a global fetch cap, 60 s negative cache for unparseable CRLs (8739d51), CRL cache sized by
+  parsed heap (a7b28f9), `max-crl-bytes` capped at 100 MB (74b4fcf), strict HTTP framing (c198f98, 5664038),
+  non-ASCII paths (258c6a6), headers validated before connecting (c433541), abort races (fc49b16, 66c4eae).
 
 ## EUDI Wallet: deferred/parked items (Task 26, 2026-10-12)
 
@@ -90,6 +103,9 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
   had no overall byte budget. `StatusListCache` now bounds entries and total decoded list bytes (LRU), shared by every
   provider: `helix.wallet.status-list.cache-max-entries` (64), `helix.wallet.status-list.cache-max-bytes` (32 MB).
   Task 10 review finding #5.
+- **DONE (4b95470) — shared status-list cache consulted before the provider's own policy.** `vet()` (https,
+  `allowedHosts`) now runs before the cache lookup. **DONE (7798cf9)** — a status-list TLS failure or malformed HTTP
+  answer was transient and so could fail open; it fails closed now.
 - **DONE (a7e55e4) — `OutboundUrlGuard`'s DNS resolution is not itself inside the fetch deadline.** Status-list
   fetches now go through `PinnedHttpFetcher`: the guard resolves inside the 5 s deadline and the connection goes to
   the validated address (also closing the rebinding window for status lists). Task 10 review finding #6.

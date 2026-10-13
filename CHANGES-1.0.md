@@ -152,6 +152,15 @@ question. Newest first within each phase.
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
   coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
   same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
+- **security (affects released versions)** — SSRF guard bypass: `OutboundUrlGuard` judged an IPv6 address by its
+  IPv6 properties only, so a host whose AAAA record was an IPv4-mapped (`::ffff:127.0.0.1`,
+  `::ffff:169.254.169.254`) or IPv4-compatible (`::127.0.0.1`) address passed the block-private check and reached
+  loopback or cloud metadata. Every guarded outbound call was affected: webhooks, SCIM, OIDC/eID discovery and JWKS,
+  DCR and WIF JWKS, logout endpoints, realm HTTP email/SMS, wallet status lists and issuer CRL/OCSP. IPv6 addresses
+  embedding an IPv4 address (mapped, compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) are now judged by that
+  address; `192.0.0.0/24`, `198.18.0.0/15` and `240.0.0.0/4` (incl. `255.255.255.255`) are blocked; the AWS IPv6
+  metadata address `fd00:ec2::254` and broadcast stay blocked even for a host in `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`.
+  Upgrade; until then, egress filtering in front of the server is the mitigation.
 - **security (EUDI wallet)** — **BREAKING default.** Issuer-certificate revocation (CRL / OCSP) no longer uses the
   JDK's own fetching, which followed redirects, resolved names a second time after the outbound guard, had no CRL size
   cap and no cache of ours. `IssuerRevocationClient` fetches over a new pinned transport (`PinnedHttpFetcher`): every
@@ -170,6 +179,17 @@ question. Newest first within each phase.
 - **security (EUDI wallet)** — The status-list cache is bounded by total decoded list bytes as well as by entry count,
   and one cache is shared by every wallet provider: `helix.wallet.status-list.cache-max-entries` (64) and
   `helix.wallet.status-list.cache-max-bytes` (32 MB; the worst case was about 128 MB per provider).
+- **security (EUDI wallet)** — Hardening of the above after review: the JDK's own CRL distribution-point fetching is
+  now impossible (CRLs go to the JDK's legacy CRL checker, `com.sun.security.enableCRLDP=false` is forced at startup,
+  and JVM settings that would re-enable JDK fetching make CRL evaluation refuse); a CRL is accepted within the JDK's
+  15-minute clock skew; a status-list TLS failure or malformed HTTP answer fails closed even under
+  `FAIL_OPEN_WITH_AUDIT`; a provider's `allowedHosts` applies before the shared status-list cache; concurrent
+  logins share one download per URL and at most `helix.wallet.fetch.max-concurrent` (16) fetches run at once;
+  unparseable or oversized CRLs are not downloaded again for 60 s; cached CRLs count their parsed heap;
+  `max-crl-bytes` is capped at 100 MB; stricter HTTP framing in the pinned client (conflicting `Content-Length`,
+  `Content-Length` with `Transfer-Encoding`, signed numbers, obs-fold, protocol switch refused; non-ASCII paths
+  percent-encoded; request headers validated before connecting); a stalled TLS fetch is abandoned at its deadline.
+  Worst-case verification time per credential is about 25 s (`docs/eudi-wallet.md` §7.2).
 - **refactor (EUDI wallet)** — The CWT (mdoc) form of a Status List Token is parsed by its own class, `StatusListCwt`;
   no behaviour change.
 - **security (dependencies)** — Sandbox RP: `proxy-addr` pinned to 2.0.8 via an `overrides` entry (CVE-2026-90711,
