@@ -7,7 +7,6 @@ package io.helixiam.authorization.security;
 
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
@@ -56,7 +55,7 @@ public final class AuthorizationBlobs {
         }
         // Boot 4 upgrade: also reads authorization-server objects written by 1.0 (Spring Authorization Server 1.5).
         try (ObjectInputStream ois = LegacyAuthorizationServerSerialization.objectInputStream(
-                new ByteArrayInputStream(Base64.getDecoder().decode(blob)))) {
+                Base64.getDecoder().decode(blob))) {
             ois.setObjectInputFilter(FILTER);
             return (OAuth2Authorization) ois.readObject();
         } catch (final Exception e) {

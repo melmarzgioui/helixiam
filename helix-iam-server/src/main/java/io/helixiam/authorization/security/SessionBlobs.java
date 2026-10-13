@@ -9,7 +9,6 @@ import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
@@ -81,7 +80,7 @@ public final class SessionBlobs {
         final RecordingFilter filter = new RecordingFilter();
         // Boot 4 upgrade: also reads authorization-server objects written by 1.0 (Spring Authorization Server 1.5).
         try (ObjectInputStream ois = LegacyAuthorizationServerSerialization.objectInputStream(
-                new ByteArrayInputStream(Base64.getDecoder().decode(blob)))) {
+                Base64.getDecoder().decode(blob))) {
             ois.setObjectInputFilter(filter);
             final Object o = ois.readObject();
             return o instanceof Map ? (Map<String, Object>) o : new java.util.HashMap<>();

@@ -137,8 +137,7 @@ class PersistedStateUpgradeCompatibilityTest {
     void aClassWhoseSerializedFieldsChanged_isStillRejected() throws IOException {
         // OidcClientRegistration carried the same 1.x UID, but its fields changed: the compatibility does not apply.
         final byte[] bytes = Base64.getDecoder().decode(blob("changed-class.b64"));
-        try (ObjectInputStream compatible = LegacyAuthorizationServerSerialization.objectInputStream(
-                new ByteArrayInputStream(bytes))) {
+        try (ObjectInputStream compatible = LegacyAuthorizationServerSerialization.objectInputStream(bytes)) {
             assertThatThrownBy(compatible::readObject).isInstanceOf(InvalidClassException.class)
                     .hasMessageContaining("OidcClientRegistration");
         }
