@@ -376,8 +376,8 @@ public class OutboundUrlGuard {
         byte[] v4 = null;
         if (zero(b, 0, 10) && (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff) {
             v4 = java.util.Arrays.copyOfRange(b, 12, 16); // ::ffff:0:0/96
-        } else if (zero(b, 0, 12)) {
-            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // ::/96 (also :: and ::1, already blocked as such)
+        } else if (zero(b, 0, 12) && !isUnspecifiedOrLoopbackV6(b)) {
+            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // ::/96, except :: and ::1 (judged as themselves)
         } else if ((b[0] & 0xff) == 0x00 && (b[1] & 0xff) == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
                 && zero(b, 4, 12)) {
             v4 = java.util.Arrays.copyOfRange(b, 12, 16); // 64:ff9b::/96
@@ -392,6 +392,11 @@ public class OutboundUrlGuard {
         } catch (final java.net.UnknownHostException e) {
             return null; // cannot happen for 4 bytes
         }
+    }
+
+    /** {@code ::} or {@code ::1}: IPv6 addresses in their own right, not IPv4-compatible {@code 0.0.0.0/0.0.0.1}. */
+    private static boolean isUnspecifiedOrLoopbackV6(final byte[] b) {
+        return zero(b, 0, 15) && (b[15] == 0 || b[15] == 1);
     }
 
     private static boolean zero(final byte[] b, final int from, final int to) {

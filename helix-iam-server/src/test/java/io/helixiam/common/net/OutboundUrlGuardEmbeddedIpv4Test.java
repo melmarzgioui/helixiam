@@ -95,6 +95,14 @@ class OutboundUrlGuardEmbeddedIpv4Test {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"::1", "::ffff:127.0.0.1"})
+    void anAllowlistedNameResolvingToIpv6LoopbackPassesLikeIpv4Loopback(final String literal) {
+        // "localhost" answers ::1 as well as 127.0.0.1: ::1 is loopback, not the IPv4-compatible 0.0.0.1
+        assertThat(answering(v6(literal), "localhost").isAllowed("http://localhost/x")).as(literal).isTrue();
+        assertThat(answering(v6(literal)).isAllowed("http://localhost/x")).as(literal).isFalse();
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"2606:4700::1111", "64:ff9b::5db8:d822", "2002:5db8:d822::1", "::ffff:93.184.216.34",
         "198.17.255.1", "198.20.0.1", "192.0.1.1", "239.255.255.254"})
     void publicAddressesStillPass(final String literal) {
