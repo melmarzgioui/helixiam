@@ -41,6 +41,19 @@ logged: it is written (0600) to `/tmp/helixiam-admin-password` in the pod that c
 read it before that pod restarts) — `kubectl exec deploy/helixiam -- cat /tmp/helixiam-admin-password` — then sign in
 and change it.
 
+## Upgrades and the update strategy
+
+The Deployment uses Kubernetes' default rolling update unless `strategy` is set. An upgrade whose old and new versions
+cannot share stored sessions and tokens must not mix them: the upgrade from 1.0 to the Spring Boot 4 release is one
+(see [`docs/UPGRADING.md`](../../../docs/UPGRADING.md)). Run it with
+
+```bash
+helm upgrade helixiam deploy/helm/helixiam --reuse-values --set image.tag=<version> --set strategy.type=Recreate
+```
+
+`strategy.type` is `RollingUpdate` or `Recreate`; `strategy.rollingUpdate.maxSurge` / `maxUnavailable` tune a rolling
+update.
+
 ## Behind an ingress: trusted proxies
 HelixIAM honours forwarded headers only when the TCP peer is a trusted proxy: `X-Forwarded-For` for the client IP
 (rate limits, audit log, risk signals, CAPTCHA) and `X-Forwarded-Proto/-Host/-Port/-Prefix` / `Forwarded` for the

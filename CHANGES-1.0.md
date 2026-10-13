@@ -19,19 +19,31 @@ question. Newest first within each phase.
 > 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
-> 5. **Spring Boot 4 (see below).** Only if you set Spring properties directly (environment variables `SPRING_*` /
->    `MANAGEMENT_*` or a mounted `application.properties`; the Helm chart and the `HELIX_*` settings are unchanged):
->    `server.error.*` is now `spring.web.error.*` (e.g. `SERVER_ERROR_INCLUDE_MESSAGE` →
->    `SPRING_WEB_ERROR_INCLUDE_MESSAGE`; the shipped configuration is renamed, see below);
->    `spring.session.redis.*` is now `spring.session.data.redis.*`; the application's JSON mapper is configured by
->    `spring.jackson2.*` (was `spring.jackson.*`, which now configures Boot's Jackson 3 mapper only);
->    `spring.dao.exceptiontranslation.enabled` is now `spring.persistence.exceptiontranslation.enabled`. The
->    upgrade keeps users signed in and keeps every refresh token, authorization code and device code 1.0 issued (see
->    below). The reverse does not hold: a 1.0 replica cannot read what the new version stores, so while 1.0 and new
->    replicas run side by side (a rolling update) a token a new replica issued fails when refreshed or introspected on
->    a 1.0 replica, and rolling back to 1.0 drops the tokens issued since. Prefer a short rollout (`maxSurge`) or one
->    replica set at a time.
+> 5. **Spring Boot 4 (see below): upgrade without mixing versions; rollback signs users out.** The new version reads
+>    every session and token 1.0 stored, but 1.0 cannot read what the new version writes or rewrites. Follow
+>    `docs/UPGRADING.md`:
+>    1. back up PostgreSQL, token store included (`helix_authorization`, `helix_authorization_token`,
+>       `helix_http_session`), and Redis if used;
+>    2. upgrade with the new Helm value `strategy.type=Recreate`, or scale to one replica first, so that no 1.0 pod
+>       and new pod serve at the same time;
+>    3. a rollback to 1.0 signs out every session the new version wrote and drops every authorization it wrote or
+>       rewrote (a sign-in, code exchange, refresh, revocation, consent): those users sign in again. On the queue
+>       stores 1.0 drops them softly; on Redis 1.0 answers HTTP 500 for them, so delete `spring:session:*` (and
+>       `helix:authz:*` with `HELIX_TOKEN_STORE=redis`) before 1.0 takes traffic;
+>    4. sessions: every new sign-in carries Spring Security 7's sign-in factor (`FactorGrantedAuthority`), a class 1.0
+>       does not have, which is why 1.0 cannot read them.
+>
+>    Only if you set Spring properties directly (environment variables `SPRING_*` / `MANAGEMENT_*` or a mounted
+>    `application.properties`; the Helm chart and the `HELIX_*` settings are unchanged): `server.error.*` is now
+>    `spring.web.error.*` (e.g. `SERVER_ERROR_INCLUDE_MESSAGE` → `SPRING_WEB_ERROR_INCLUDE_MESSAGE`; the shipped
+>    configuration is renamed, see below); `spring.session.redis.*` is now `spring.session.data.redis.*`; the
+>    application's JSON mapper is configured by `spring.jackson2.*` (was `spring.jackson.*`, which now configures
+>    Boot's Jackson 3 mapper only); `spring.dao.exceptiontranslation.enabled` is now
+>    `spring.persistence.exceptiontranslation.enabled`.
 
+- **helm** — New value `strategy` (the Deployment's `spec.strategy`; empty = Kubernetes' default RollingUpdate,
+  rendered output unchanged), so the Spring Boot 4 upgrade can run with `strategy.type=Recreate`. An unknown type, or
+  `rollingUpdate` with `Recreate`, is refused at render time; `e2e/helm-template-check.sh` covers it.
 - **security (platform)** — **Spring Boot 4.1.1** (from 3.5.16): Spring Framework **7.0.9**, Spring Security **7.1.1**
   with its OAuth2 authorization server (formerly Spring Authorization Server 1.5.8), Spring Session 4.1, Hibernate
   7.4, Tomcat **11.0.27** (Jakarta EE 11, Servlet 6.1; pinned above Boot's 11.0.24 for CVE-2026-65182 CRITICAL,

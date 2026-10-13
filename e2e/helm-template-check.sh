@@ -9,7 +9,8 @@
 #   - tokenStore=redis requires redis.host again, whatever the session store;
 #   - an unknown store is refused;
 #   - the global email settings are optional; their secrets are mounted as files, never env values;
-#   - the email retry, rate-cap and code-lifetime values are passed through when set (0 and false included).
+#   - the email retry, rate-cap and code-lifetime values are passed through when set (0 and false included);
+#   - the Deployment strategy is Kubernetes' default unless set, and Recreate / RollingUpdate render as given.
 # Needs only helm. Usage (repo root): e2e/helm-template-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -117,6 +118,23 @@ expect_contains "email: realm cap 0 (off)" "$out" 'HELIX_NOTIFICATION_EMAIL_RATE
 expect_contains "email: global cap" "$out" 'HELIX_NOTIFICATION_EMAIL_RATE_LIMIT_GLOBAL_PER_MINUTE: "900"'
 expect_contains "email: reset code ttl" "$out" 'HELIX_NOTIFICATION_RESET_PASSWORD_CODE_TTL: "30m"'
 expect_contains "email: signup code ttl" "$out" 'HELIX_NOTIFICATION_SIGNUP_CODE_TTL: "12h"'
+
+# 7. Deployment strategy: Kubernetes' default (RollingUpdate) unless set; Recreate for an upgrade whose old and new
+#    versions cannot share stored state (docs/UPGRADING.md); a RollingUpdate with explicit surge/unavailability.
+out=$(render --set redis.host=redis)
+expect_absent "strategy: default leaves Kubernetes' RollingUpdate" "$out" "strategy:"
+out=$(render --set redis.host=redis --set strategy.type=Recreate)
+expect_contains "strategy: Recreate" "$out" "type: Recreate"
+expect_absent "strategy: Recreate has no rollingUpdate" "$out" "rollingUpdate:"
+out=$(render --set redis.host=redis --set strategy.type=RollingUpdate --set strategy.rollingUpdate.maxSurge=1 \
+  --set strategy.rollingUpdate.maxUnavailable=0)
+expect_contains "strategy: RollingUpdate" "$out" "type: RollingUpdate"
+expect_contains "strategy: maxSurge" "$out" "maxSurge: 1"
+expect_contains "strategy: maxUnavailable" "$out" "maxUnavailable: 0"
+expect_render_error "strategy: unknown type" "strategy.type must be RollingUpdate or Recreate" --set redis.host=redis \
+  --set strategy.type=BlueGreen
+expect_render_error "strategy: Recreate with rollingUpdate" "strategy.rollingUpdate is only valid with RollingUpdate" \
+  --set redis.host=redis --set strategy.type=Recreate --set strategy.rollingUpdate.maxSurge=1
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2

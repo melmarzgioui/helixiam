@@ -20,6 +20,15 @@ metadata:
   labels: {{- include "helixiam.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- with .Values.strategy }}
+  {{- if and .type (not (has .type (list "RollingUpdate" "Recreate"))) }}
+  {{- fail "strategy.type must be RollingUpdate or Recreate" }}
+  {{- end }}
+  {{- if and .rollingUpdate (eq (.type | default "RollingUpdate") "Recreate") }}
+  {{- fail "strategy.rollingUpdate is only valid with RollingUpdate" }}
+  {{- end }}
+  strategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels: {{- include "helixiam.selectorLabels" . | nindent 6 }}
   template:
