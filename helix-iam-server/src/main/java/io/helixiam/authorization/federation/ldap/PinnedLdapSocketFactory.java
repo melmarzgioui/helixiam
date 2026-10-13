@@ -13,6 +13,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * The JNDI LDAP socket factory ({@code java.naming.ldap.factory.socket}) for {@link JndiLdapDirectory}. JNDI looks
@@ -24,8 +25,40 @@ import java.util.List;
  */
 public final class PinnedLdapSocketFactory extends SocketFactory {
 
-    /** Where the current bind may connect. */
-    record Target(List<InetAddress> addresses, int port, int connectTimeoutMillis, SSLSocketFactory tls) {
+    /** At most this many of the addresses a name resolves to are tried (a name with many dead A records). */
+    static final int MAX_ADDRESSES = 2;
+
+    /** Where the current bind sequence may connect, until when, and how to abort it. */
+    record Target(List<InetAddress> addresses, int port, int connectTimeoutMillis, SSLSocketFactory tls,
+                  long deadlineNanos, Abort abort) {
+    }
+
+    /** Closes every socket of one bind sequence at its deadline, and refuses new ones after that. */
+    static final class Abort {
+        private final List<Socket> sockets = new CopyOnWriteArrayList<>();
+        private volatile boolean aborted;
+
+        void register(final Socket socket) throws IOException {
+            sockets.add(socket);
+            if (aborted) {
+                closeQuietly(socket);
+                throw new IOException("LDAP bind sequence aborted at its deadline");
+            }
+        }
+
+        boolean aborted() {
+            return aborted;
+        }
+
+        void abort() {
+            aborted = true;
+            sockets.forEach(PinnedLdapSocketFactory::closeQuietly);
+        }
+    }
+
+    /** The first {@link #MAX_ADDRESSES} addresses. */
+    static List<InetAddress> toTry(final List<InetAddress> addresses) {
+        return addresses.size() <= MAX_ADDRESSES ? addresses : addresses.subList(0, MAX_ADDRESSES);
     }
 
     private static final ThreadLocal<Target> CURRENT = new ThreadLocal<>();
@@ -55,10 +88,17 @@ public final class PinnedLdapSocketFactory extends SocketFactory {
             throw new IOException("No validated LDAP target");
         }
         IOException last = null;
-        for (final InetAddress address : target.addresses()) {
+        for (final InetAddress address : toTry(target.addresses())) {
+            final long left = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                    target.deadlineNanos() - System.nanoTime());
+            if (left <= 0 || target.abort().aborted()) {
+                throw new IOException("LDAP bind sequence deadline passed");
+            }
             final Socket socket = new Socket();
+            target.abort().register(socket);
             try {
-                socket.connect(new InetSocketAddress(address, target.port()), target.connectTimeoutMillis());
+                socket.connect(new InetSocketAddress(address, target.port()),
+                        (int) Math.max(1, Math.min(target.connectTimeoutMillis(), left)));
             } catch (final IOException e) {
                 closeQuietly(socket);
                 last = e;
@@ -94,7 +134,7 @@ public final class PinnedLdapSocketFactory extends SocketFactory {
         return createSocket(address.getHostAddress(), port);
     }
 
-    private static void closeQuietly(final Socket socket) {
+    static void closeQuietly(final Socket socket) {
         try {
             socket.close();
         } catch (final IOException ignored) {

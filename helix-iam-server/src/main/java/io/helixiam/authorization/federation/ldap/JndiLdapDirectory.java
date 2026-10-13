@@ -47,11 +47,14 @@ public class JndiLdapDirectory implements LdapDirectory {
 
     private static final Logger LOG = LogManager.getLogger(JndiLdapDirectory.class);
 
-    static final int CONNECT_TIMEOUT_MILLIS = 10_000;
-    static final int READ_TIMEOUT_MILLIS = 15_000;
+    static final int CONNECT_TIMEOUT_MILLIS = 5_000;
+    static final int READ_TIMEOUT_MILLIS = 10_000;
+    /** One deadline for a whole bind sequence: DNS, service bind, search and user bind. */
+    static final java.time.Duration TOTAL_TIMEOUT = java.time.Duration.ofSeconds(15);
 
     private final LdapEgressGuard guard;
     private final SSLSocketFactory tls;
+    private final java.time.Duration total;
 
     /** Public directories only (no internal host listed). */
     public JndiLdapDirectory() {
@@ -64,16 +67,46 @@ public class JndiLdapDirectory implements LdapDirectory {
 
     /** {@code tls} null: the JVM default trust. */
     public JndiLdapDirectory(final LdapEgressGuard guard, final SSLSocketFactory tls) {
-        this.guard = guard;
-        this.tls = tls;
+        this(guard, tls, TOTAL_TIMEOUT);
     }
 
+    /** {@code total}: the deadline for one bind sequence, DNS included. */
+    public JndiLdapDirectory(final LdapEgressGuard guard, final SSLSocketFactory tls, final java.time.Duration total) {
+        this.guard = guard;
+        this.tls = tls;
+        this.total = total;
+    }
+
+    /**
+     * One bind sequence under the LDAP group's per-realm slots and {@link #TOTAL_TIMEOUT}: the caller never waits
+     * longer, whatever DNS or the directory does; at the deadline the sequence's sockets are closed.
+     */
     @Override
     public Optional<Map<String, String>> authenticate(final LdapProviderConfig config,
                                                        final String username, final String password) {
+        final PinnedLdapSocketFactory.Abort abort = new PinnedLdapSocketFactory.Abort();
+        final long deadline = System.nanoTime() + total.toNanos();
+        try {
+            return io.helixiam.common.net.BoundedCall.call(io.helixiam.common.net.FetchLimiter.Group.LDAP,
+                    io.helixiam.authorization.security.realm.RealmContextHolder.get(), total,
+                    () -> bindSequence(config, username, password, deadline, abort), abort::abort);
+        } catch (final java.util.concurrent.TimeoutException e) {
+            LOG.warn("LDAP provider {}: no answer within {} s", LogSafe.sanitize(config.alias()), total.toSeconds());
+            return Optional.empty();
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (final java.util.concurrent.ExecutionException e) {
+            LOG.info("LDAP provider {}: bind failed", LogSafe.sanitize(config.alias()));
+            return Optional.empty();
+        }
+    }
+
+    private Optional<Map<String, String>> bindSequence(final LdapProviderConfig config, final String username,
+            final String password, final long deadline, final PinnedLdapSocketFactory.Abort abort) {
         final PinnedLdapSocketFactory.Target target;
         try {
-            target = target(config.url());
+            target = target(config.url(), deadline, abort);
         } catch (final UnresolvableHostException e) {
             LOG.info("LDAP provider {}: the directory host could not be resolved", LogSafe.sanitize(config.alias()));
             return Optional.empty();
@@ -119,7 +152,8 @@ public class JndiLdapDirectory implements LdapDirectory {
     }
 
     /** One {@code ldap://} or {@code ldaps://} URL, its host resolved and checked once. */
-    private PinnedLdapSocketFactory.Target target(final String url) throws SsrfBlockedException {
+    private PinnedLdapSocketFactory.Target target(final String url, final long deadline,
+            final PinnedLdapSocketFactory.Abort abort) throws SsrfBlockedException {
         if (url == null || url.isBlank() || url.trim().chars().anyMatch(Character::isWhitespace)) {
             throw new SsrfBlockedException("The LDAP URL must be a single ldap:// or ldaps:// URL");
         }
@@ -145,7 +179,8 @@ public class JndiLdapDirectory implements LdapDirectory {
         final LdapEgressGuard.Target validated = guard.resolve(host, port);
         final SSLSocketFactory socketTls = !ldaps ? null
                 : tls != null ? tls : (SSLSocketFactory) SSLSocketFactory.getDefault();
-        return new PinnedLdapSocketFactory.Target(validated.addresses(), port, CONNECT_TIMEOUT_MILLIS, socketTls);
+        return new PinnedLdapSocketFactory.Target(validated.addresses(), port, CONNECT_TIMEOUT_MILLIS, socketTls,
+                deadline, abort);
     }
 
     private static Hashtable<String, String> env(final String url, final String principal, final String credentials) {

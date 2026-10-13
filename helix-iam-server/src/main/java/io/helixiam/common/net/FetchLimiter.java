@@ -38,7 +38,9 @@ public final class FetchLimiter {
         /** OTP and notification delivery: HTTP email / SMS / push drivers, the Cloudflare email API. */
         OTP(32, 8),
         /** Webhooks, SCIM provisioning, back-channel and upstream logout, admin document fetches. */
-        OUTBOUND(32, 8);
+        OUTBOUND(32, 8),
+        /** LDAP federation binds (admin-configured directories), one slot per bind sequence. */
+        LDAP(32, 8);
 
         final int defaultMax;
         final int defaultPerPartition;
