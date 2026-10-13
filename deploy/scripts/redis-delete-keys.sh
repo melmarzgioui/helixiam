@@ -47,15 +47,14 @@ nodes() {
 BATCH=500
 [ -n "${REDIS_CLUSTER:-}" ] && BATCH=1
 export REDIS_USER REDIS_PASSWORD REDIS_TLS REDIS_CACERT REDIS_CERT REDIS_KEY 2>/dev/null || true
-KEYS=$(mktemp)
-trap 'rm -f "$KEYS"' EXIT
 total=0
 for node in $(nodes); do
   h=${node%:*}; p=${node##*:}
   # The whole key list first (SCAN may repeat a key), then the deletes: deleting while SCAN iterates can make it miss
-  # keys.
-  cli "$h" "$p" --scan --pattern "$PATTERN" | sort -u > "$KEYS"
-  n=$(xargs -r -n "$BATCH" sh -c '
+  # keys. Held in memory, not a temp file: a Redis pod's file system is often read-only.
+  keys=$(cli "$h" "$p" --scan --pattern "$PATTERN" | sort -u)
+  [ -z "$keys" ] && continue
+  n=$(printf '%s\n' "$keys" | xargs -r -n "$BATCH" sh -c '
       h=$0; p=$1; shift 1 # $0 = host, $1 = port, the rest = keys
       set -- -h "$h" -p "$p" unlink "$@"
       [ -n "${REDIS_USER:-}" ] && set -- --user "$REDIS_USER" "$@"
@@ -68,7 +67,7 @@ for node in $(nodes); do
         REDISCLI_AUTH=$REDIS_PASSWORD redis-cli --no-auth-warning "$@"
       else
         redis-cli "$@"
-      fi' "$h" "$p" < "$KEYS" | awk '{s += $1} END {print s + 0}')
+      fi' "$h" "$p" | awk '{s += $1} END {print s + 0}')
   total=$((total + n))
 done
 echo "deleted $total key(s) matching $PATTERN"

@@ -21,7 +21,9 @@ failures=0
 run() {
   local envs=()
   while [ "$1" != "--" ]; do envs+=(-e "$1"); shift; done; shift
-  docker run --rm --network "$NET" "${envs[@]}" -v "$PWD/deploy/scripts:/scripts:ro" -v "$WORK:/work:ro" "$IMG" "$@"
+  # --read-only: like a hardened Redis pod, where the script must not need a writable file system.
+  docker run --rm --read-only --network "$NET" "${envs[@]}" -v "$PWD/deploy/scripts:/scripts:ro" -v "$WORK:/work:ro" \
+    "$IMG" "$@"
 }
 seed() { # seed <host> <port> <redis-cli connection args...>: 1200 matching keys, 5 others
   local host=$1 port=$2; shift 2
