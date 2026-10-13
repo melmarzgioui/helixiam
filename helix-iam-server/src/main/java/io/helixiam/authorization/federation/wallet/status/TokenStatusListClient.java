@@ -15,19 +15,15 @@ import io.helixiam.authorization.security.audit.AuditLog;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.common.log.LogSafe;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.net.SsrfBlockedException;
 import io.helixiam.common.net.UnresolvableHostException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import javax.net.ssl.SSLContext;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.cert.TrustAnchor;
@@ -39,12 +35,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
@@ -53,12 +44,15 @@ import java.util.stream.Collectors;
  *
  * <p><b>Retrieval.</b> The {@code uri} (and every redirect target, at most {@value #MAX_REDIRECTS}) must be
  * {@code https}, match {@link StatusPolicy#allowedHosts()} when that list is non-empty (exact host name,
- * case-insensitive), and pass {@link OutboundUrlGuard#checkAllowed} (private / loopback / link-local / metadata
- * addresses refused) <em>before</em> any connection is opened. Redirects are followed by hand so each hop is vetted.
- * One GET with {@code Accept: application/statuslist+jwt} ({@code +cwt} for {@link #cwtEvaluator()}); connect timeout
- * {@value #CONNECT_TIMEOUT_SECONDS} s; the response, headers and body together, must arrive within
- * {@value #READ_TIMEOUT_SECONDS} s; the body is capped at {@value #MAX_BODY_BYTES} bytes ({@code LIMIT_EXCEEDED}).
- * The response {@code Content-Type} is not trusted: the signed {@code typ} / COSE type decides.
+ * case-insensitive), and pass {@link OutboundUrlGuard} (private / loopback / link-local / metadata addresses refused)
+ * <em>before</em> any connection is opened. Redirects are followed by hand so each hop is vetted. Each GET goes
+ * through {@link PinnedHttpFetcher}: the guard resolves the host once and the connection goes to the address it
+ * validated (no second resolution, so no DNS rebinding; TLS is still verified against the host name), and that
+ * resolution runs inside the deadline. One GET with {@code Accept: application/statuslist+jwt} ({@code +cwt} for
+ * {@link #cwtEvaluator()}); connect timeout {@value #CONNECT_TIMEOUT_SECONDS} s; DNS, connect, TLS and the response,
+ * headers and body together, across every redirect hop, must complete within {@value #READ_TIMEOUT_SECONDS} s; the
+ * body is capped at {@value #MAX_BODY_BYTES} bytes ({@code LIMIT_EXCEEDED}). The response {@code Content-Type} is not
+ * trusted: the signed {@code typ} / COSE type decides.
  *
  * <p><b>Validation.</b> {@link StatusListToken} verifies the signature with the {@code x5c} / {@code x5chain} chain
  * against the <em>same</em> {@link TrustAnchors} as the credential, {@code iat}, {@code bits} and the inflated size
@@ -99,15 +93,13 @@ public final class TokenStatusListClient implements StatusEvaluator {
     public static final int READ_TIMEOUT_SECONDS = 5;
     public static final int MAX_BODY_BYTES = 1024 * 1024;
     public static final int MAX_REDIRECTS = 3;
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS);
     /** {@code maxCache} when the policy leaves it unset, and its upper bound (spec: status cache max 900 s). */
     public static final Duration DEFAULT_MAX_CACHE = Duration.ofSeconds(900);
 
     private static final Logger LOG = LogManager.getLogger(TokenStatusListClient.class);
     private static final String JWT_MEDIA_TYPE = "application/statuslist+jwt";
     private static final String CWT_MEDIA_TYPE = "application/statuslist+cwt";
-    /** Body reads run here so a stalled body can be abandoned at the deadline. */
-    private static final ExecutorService BODY_READERS = Executors.newThreadPerTaskExecutor(
-            Thread.ofVirtual().name("status-list-read-", 0).factory());
 
     /** Records an unavailable status accepted under {@code FAIL_OPEN_WITH_AUDIT}. Must not throw on success. */
     @FunctionalInterface
@@ -138,7 +130,7 @@ public final class TokenStatusListClient implements StatusEvaluator {
     private final OutboundUrlGuard guard;
     private final Clock clock;
     private final AuditSink audit;
-    private final HttpClient http;
+    private final PinnedHttpFetcher fetcher;
     private final Duration maxCache;
     private final Set<String> allowedHosts;
     private final StatusListCache cache;
@@ -179,16 +171,12 @@ public final class TokenStatusListClient implements StatusEvaluator {
         this.allowedHosts = policy.allowedHosts() == null ? Set.of() : policy.allowedHosts().stream()
                 .filter(Objects::nonNull).map(h -> h.trim().toLowerCase(Locale.ROOT)).filter(h -> !h.isEmpty())
                 .collect(Collectors.toUnmodifiableSet());
-        this.http = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .sslContext(Objects.requireNonNull(sslContext, "sslContext"))
-                .build();
+        this.fetcher = new PinnedHttpFetcher(guard, Objects.requireNonNull(sslContext, "sslContext"));
     }
 
-    /** The connect timeout of the underlying HTTP client. */
+    /** The connect timeout of every connection attempt. */
     Duration connectTimeout() {
-        return http.connectTimeout().orElseThrow();
+        return CONNECT_TIMEOUT;
     }
 
     /** An {@link AuditSink} that emits {@code WALLET_STATUS_CHECK_FAILED} (AUTHN) for the current realm. */
@@ -337,11 +325,10 @@ public final class TokenStatusListClient implements StatusEvaluator {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(READ_TIMEOUT_SECONDS);
         URI target = vet(uri);
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
-            final HttpResponse<InputStream> response = send(target, form, deadline);
-            final int status = response.statusCode();
+            final PinnedHttpFetcher.Response response = send(target, form, deadline);
+            final int status = response.status();
             if (status / 100 == 3) {
-                close(response.body());
-                final String location = response.headers().firstValue("Location").orElse(null);
+                final String location = response.location();
                 if (location == null) {
                     throw nonTransient("status list redirect has no location");
                 }
@@ -353,18 +340,20 @@ public final class TokenStatusListClient implements StatusEvaluator {
                 continue;
             }
             if (status != 200) {
-                close(response.body());
                 if (status / 100 == 5) {
                     throw new TransientFailure("status list server answered HTTP " + status);
                 }
                 throw nonTransient("status list server answered HTTP " + status);
             }
-            return readBody(response.body(), deadline);
+            return response.body();
         }
         throw nonTransient("status list redirected too often");
     }
 
-    /** {@code https}, allowed host, and the outbound guard, before any connection; returns the parsed URI. */
+    /**
+     * {@code https} and an allowed host, before any connection; returns the parsed URI. The outbound guard runs in
+     * {@link #send}, inside the deadline, on the one resolution the connection then uses.
+     */
     private URI vet(final String uri) {
         final URI parsed;
         try {
@@ -381,73 +370,32 @@ public final class TokenStatusListClient implements StatusEvaluator {
         if (!allowedHosts.isEmpty() && !allowedHosts.contains(bareHost(parsed.getHost()))) {
             throw nonTransient("status list host is not in allowedHosts");
         }
-        try {
-            guard.checkAllowed(parsed.toString());
-        } catch (final UnresolvableHostException e) {
-            throw new TransientFailure("status list host could not be resolved");
-        } catch (final SsrfBlockedException e) {
-            throw nonTransient("status list host is not allowed");
-        }
         return parsed;
     }
 
-    private HttpResponse<InputStream> send(final URI target, final Form form, final long deadline) {
+    /**
+     * One GET over {@link PinnedHttpFetcher}: the guard resolves and checks the host inside the deadline and the
+     * connection goes to the address it validated; at most {@link #MAX_BODY_BYTES}; no redirect followed here.
+     */
+    private PinnedHttpFetcher.Response send(final URI target, final Form form, final long deadline) {
         final long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {
             throw new TransientFailure("status list request timed out");
         }
-        final HttpRequest request = HttpRequest.newBuilder(target)
-                .timeout(Duration.ofNanos(remaining))
-                .header("Accept", form == Form.JWT ? JWT_MEDIA_TYPE : CWT_MEDIA_TYPE)
-                .GET()
-                .build();
         try {
-            return http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        } catch (final java.net.http.HttpTimeoutException e) {
-            throw new TransientFailure("status list request timed out");
-        } catch (final IOException e) {
-            throw new TransientFailure("status list could not be fetched");
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new TransientFailure("status list fetch was interrupted");
-        }
-    }
-
-    /** Reads at most {@link #MAX_BODY_BYTES} before {@code deadline}; a stalled body is abandoned and closed. */
-    private static byte[] readBody(final InputStream in, final long deadline) {
-        final CompletableFuture<byte[]> read = CompletableFuture.supplyAsync(() -> {
-            try (in) {
-                return in.readNBytes(MAX_BODY_BYTES + 1);
-            } catch (final IOException e) {
-                throw new java.io.UncheckedIOException(e);
+            return fetcher.get(target.toString(), Map.of("Accept", form == Form.JWT ? JWT_MEDIA_TYPE : CWT_MEDIA_TYPE),
+                    new PinnedHttpFetcher.Limits(CONNECT_TIMEOUT, Duration.ofNanos(remaining), MAX_BODY_BYTES));
+        } catch (final UnresolvableHostException e) {
+            throw new TransientFailure("status list host could not be resolved");
+        } catch (final SsrfBlockedException e) {
+            throw nonTransient("status list host is not allowed");
+        } catch (final PinnedHttpFetcher.FetchException e) {
+            switch (e.kind()) {
+                case TIMEOUT -> throw new TransientFailure("status list request timed out");
+                case TOO_LARGE -> throw new WalletVerificationException(WalletErrorCode.LIMIT_EXCEEDED,
+                        "status list response exceeds " + MAX_BODY_BYTES + " bytes");
+                default -> throw new TransientFailure("status list could not be fetched");
             }
-        }, BODY_READERS);
-        final byte[] body;
-        try {
-            body = read.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
-        } catch (final TimeoutException e) {
-            read.cancel(true);
-            close(in);
-            throw new TransientFailure("status list response timed out");
-        } catch (final ExecutionException e) {
-            throw new TransientFailure("status list could not be read");
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            close(in);
-            throw new TransientFailure("status list fetch was interrupted");
-        }
-        if (body.length > MAX_BODY_BYTES) {
-            throw new WalletVerificationException(WalletErrorCode.LIMIT_EXCEEDED,
-                    "status list response exceeds " + MAX_BODY_BYTES + " bytes");
-        }
-        return body;
-    }
-
-    private static void close(final InputStream in) {
-        try {
-            in.close();
-        } catch (final IOException e) {
-            // nothing to do: the response is abandoned
         }
     }
 

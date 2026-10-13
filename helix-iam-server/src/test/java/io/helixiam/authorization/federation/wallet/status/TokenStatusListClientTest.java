@@ -621,6 +621,63 @@ class TokenStatusListClientTest {
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void slowDnsCountsAgainstTheFetchDeadline() {
+        // The guard's own resolution runs inside the 5 s deadline: a resolver that never answers in time cannot hold a
+        // wallet login for longer than the read timeout.
+        final OutboundUrlGuard slow = new OutboundUrlGuard(false, List.of("slow-dns.test:" + stub.port()), host -> {
+            try {
+                Thread.sleep(15_000);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new java.net.UnknownHostException(host);
+        });
+        final long start = System.nanoTime();
+        assertCode(() -> client(failClosed(), slow).evaluate(
+                new StatusReference(0, "https://slow-dns.test:" + stub.port() + "/lists/1"), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(5_900));
+        assertThat(stub.requests()).isEmpty();
+    }
+
+    @Test
+    void theFetchConnectsToTheAddressTheGuardValidated() throws Exception {
+        // DNS rebinding: the first answer is the (allowlisted) stub address, every later one the metadata address. The
+        // list is fetched (TLS verified against the original name, not the address), and the name is resolved once.
+        final TestTls named = TestTls.createFor("status-rebind", "status.rebind.test");
+        try (StatusStub rebind = StatusStub.https(named)) {
+            final String u = "https://status.rebind.test:" + rebind.port() + "/lists/1";
+            rebind.serveJwt(jwt(u, 1, new int[] {0}));
+            final java.util.concurrent.atomic.AtomicInteger lookups = new java.util.concurrent.atomic.AtomicInteger();
+            final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("status.rebind.test:" + rebind.port()),
+                    host -> {
+                        final byte[] ip = lookups.getAndIncrement() == 0 ? new byte[] {127, 0, 0, 1}
+                                : new byte[] {(byte) 169, (byte) 254, (byte) 169, (byte) 254};
+                        return new InetAddress[] {InetAddress.getByAddress(host, ip)};
+                    });
+            final TokenStatusListClient client = new TokenStatusListClient(failClosed(), new IssuerTrustValidator(guard),
+                    guard, TlsTrust.context(named.caPem()), clock, (host, code, detail) -> audits.add(host));
+
+            assertThat(client.evaluate(new StatusReference(0, u), anchors)).isEqualTo(StatusEvaluator.VALID);
+            assertThat(lookups).hasValue(1);
+            assertThat(rebind.requests()).hasSize(1);
+        }
+    }
+
+    @Test
+    void theTlsCertificateMustMatchTheOriginalHostName() {
+        // pinned to 127.0.0.1, but the certificate (localhost / 127.0.0.1) does not name "other.test"
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("other.test:" + stub.port()),
+                host -> new InetAddress[] {InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1})});
+        final String u = "https://other.test:" + stub.port() + "/lists/1";
+        stub.serveJwt(jwt(u, 1, new int[] {0}));
+        assertCode(() -> client(failClosed(), guard).evaluate(new StatusReference(0, u), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(stub.requests()).isEmpty();
+    }
+
+    @Test
     void maxCacheAbove900SecondsIsClampedTo900() {
         stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 86_400)));
         final TokenStatusListClient client = client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED,
