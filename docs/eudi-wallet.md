@@ -350,8 +350,9 @@ How it works (`IssuerRevocationClient`):
 - Every URL passes `OutboundUrlGuard`; only `http` and `https` (CRL and OCSP are commonly plain `http`; their
   signatures are their integrity), never `ldap:`. The connection goes to the address the guard validated (no DNS
   rebinding), redirects are not followed, connect 3 s, 5 s per fetch in total including DNS, 10 s per chain.
-- Concurrent logins share one download per URL; at most `helix.wallet.fetch.max-concurrent` fetches (revocation and
-  status lists together) run at once. A URL that served something that is not a CRL, or a CRL over the size cap, is
+- Concurrent logins share one download per URL; at most `helix.outbound.fetch.wallet.max-concurrent` wallet fetches
+  (revocation and status lists together) run at once, in slots of their own: other outbound features (logins through
+  OIDC/eID brokers, OTP delivery, webhooks/SCIM/logout) have separate groups and cannot take them. A URL that served something that is not a CRL, or a CRL over the size cap, is
   not downloaded again for 60 s.
 - What was fetched is validated by the JDK (OCSP: `PKIXRevocationChecker` with the response supplied; CRL: the
   JDK's legacy CRL checker after HelixIAM's own pre-check). The JDK itself never fetches: HelixIAM sets
@@ -368,7 +369,7 @@ How it works (`IssuerRevocationClient`):
 | `helix.wallet.revocation.max-crl-bytes` | `10485760` (10 MB) | Largest CRL downloaded (at most 100 MB); a larger one is an undeterminable status |
 | `helix.wallet.revocation.cache-max-entries` | `256` | Most cached OCSP responses and CRLs |
 | `helix.wallet.revocation.cache-max-bytes` | `33554432` (32 MB) | Most cached bytes: an OCSP response counts its size, a CRL an estimate of its parsed heap (3 × its size + 256 bytes per revoked entry) |
-| `helix.wallet.fetch.max-concurrent` | `16` | Most issuer-revocation and status-list fetches running at once; a fetch that gets no slot before its deadline times out |
+| `helix.outbound.fetch.wallet.max-concurrent` (old name `helix.wallet.fetch.max-concurrent` still read) | `16` | Most issuer-revocation and status-list fetches running at once; a fetch that gets no slot before its deadline times out. The other groups (`login`, `otp`, `outbound`) have their own `helix.outbound.fetch.<group>.max-concurrent` (32) and `.per-realm-max` (8) |
 
 OCSP responses are capped at 64 KB (not configurable).
 

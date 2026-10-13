@@ -645,7 +645,7 @@ so the fetch is an SSRF and DoS surface. The JDK no longer fetches anything for 
   DNS, 10 s per chain, OCSP response at most 64 KB, CRL at most `helix.wallet.revocation.max-crl-bytes` (10 MB,
   100 MB at most); strict HTTP/1.1 framing (conflicting `Content-Length`, `Content-Length` with
   `Transfer-Encoding`, signed numbers, obs-fold, a protocol switch are refused);
-- concurrent logins share one download per URL (single-flight); at most `helix.wallet.fetch.max-concurrent` (16)
+- concurrent logins share one download per URL (single-flight); at most `helix.outbound.fetch.wallet.max-concurrent` (16; old name `helix.wallet.fetch.max-concurrent`)
   fetches run at once, permits held until the worker ends so DNS lookups that hang cannot pile up threads; a URL
   that served something that is not a CRL (or too large a one) is not downloaded again for 60 s;
 - the JDK validates and never fetches. An OCSP response goes in through `setOcspResponses` (OCSP only, no fallback;

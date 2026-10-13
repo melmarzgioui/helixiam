@@ -8,6 +8,7 @@ package io.helixiam.authorization.security.webhook;
 import io.helixiam.authorization.amqp.webhook.WebhookConfigPublisher;
 import io.helixiam.authorization.amqp.webhook.WebhookSubscriptionDto;
 import io.helixiam.authorization.security.audit.AuditEvent;
+import io.helixiam.common.net.FetchLimiter;
 import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.log.LogSafe;
@@ -66,12 +67,10 @@ public class WebhookDispatcher {
         this.publisher = publisher;
         this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
-        this.http = PinnedHttpFetcher.plain(egressGuard);
-        this.executor = Executors.newFixedThreadPool(2, r -> {
-            final Thread t = new Thread(r, "webhook-dispatcher");
-            t.setDaemon(true);
-            return t;
-        });
+        this.http = PinnedHttpFetcher.plain(egressGuard, FetchLimiter.Group.OUTBOUND, () -> null);
+        // a virtual thread per delivery: a slow endpoint holds its own thread (bounded in time by the request
+        // deadline and in number by the realm's share of the OUTBOUND slots), never another realm's queue position
+        this.executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("webhook-dispatcher-", 0).factory());
     }
 
     /** Deliver one event (already serialized to {@code json}) to every matching, enabled webhook. */
@@ -82,7 +81,7 @@ public class WebhookDispatcher {
         final List<WebhookSubscriptionDto> hooks = activeFor(event.realm());
         for (final WebhookSubscriptionDto hook : hooks) {
             if (matches(hook.eventTypes(), event.type(), event.category())) {
-                executor.submit(() -> post(hook, json));
+                executor.submit(() -> post(hook, json, event.realm()));
             }
         }
     }
@@ -135,7 +134,7 @@ public class WebhookDispatcher {
         }
     }
 
-    private void post(final WebhookSubscriptionDto hook, final String json) {
+    private void post(final WebhookSubscriptionDto hook, final String json, final String realm) {
         try {
             // M6: the guard resolves the realm's webhook URL once, inside the deadline, and the POST goes to the
             // address it validated (internal / metadata hosts refused), without following redirects
@@ -146,8 +145,9 @@ public class WebhookDispatcher {
             if (!sig.isEmpty()) {
                 headers.put("X-Helix-Signature", "sha256=" + sig);
             }
-            final PinnedHttpFetcher.Response res = http.post(hook.url(), headers,
-                    json.getBytes(StandardCharsets.UTF_8), LIMITS);
+            // the realm's own share of the OUTBOUND slots: a slow endpoint cannot hold other realms' deliveries
+            final PinnedHttpFetcher.Response res = http.exchange(new PinnedHttpFetcher.Request("POST", hook.url(),
+                    headers, json.getBytes(StandardCharsets.UTF_8), LIMITS, false).inPartition(realm));
             if (res.status() >= 300) {
                 LOG.debug("Webhook {} returned {}", hook.id(), res.status());
             }

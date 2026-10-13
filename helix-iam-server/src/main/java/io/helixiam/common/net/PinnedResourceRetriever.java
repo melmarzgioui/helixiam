@@ -37,6 +37,13 @@ public final class PinnedResourceRetriever implements ResourceRetriever {
                 DEFAULT_TOTAL_TIMEOUT, DEFAULT_SIZE_LIMIT));
     }
 
+    /** Nimbus-default limits, slots from {@code group}, per-realm sub-cap by {@code partition}. */
+    public PinnedResourceRetriever(final OutboundUrlGuard guard, final FetchLimiter.Group group,
+            final java.util.function.Supplier<String> partition) {
+        this(PinnedHttpFetcher.plain(guard, group, partition), new PinnedHttpFetcher.Limits(DEFAULT_CONNECT_TIMEOUT,
+                DEFAULT_TOTAL_TIMEOUT, DEFAULT_SIZE_LIMIT));
+    }
+
     public PinnedResourceRetriever(final PinnedHttpFetcher fetcher, final PinnedHttpFetcher.Limits limits) {
         this.fetcher = Objects.requireNonNull(fetcher, "fetcher");
         this.limits = Objects.requireNonNull(limits, "limits");

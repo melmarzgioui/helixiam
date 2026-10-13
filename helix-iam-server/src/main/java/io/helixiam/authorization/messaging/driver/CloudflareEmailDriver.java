@@ -285,7 +285,9 @@ public class CloudflareEmailDriver implements EmailTransport {
             fetchers.clear();
         }
         return fetchers.computeIfAbsent(key, k -> new PinnedHttpFetcher(egressGuard,
-                TlsTrust.context(settings.caBundle())));
+                TlsTrust.context(settings.caBundle()),
+                io.helixiam.common.net.FetchLimiter.forGroup(io.helixiam.common.net.FetchLimiter.Group.OTP),
+                io.helixiam.authorization.security.realm.RealmContextHolder::get));
     }
 
     /** The parsed, validated settings of a Cloudflare provider. */

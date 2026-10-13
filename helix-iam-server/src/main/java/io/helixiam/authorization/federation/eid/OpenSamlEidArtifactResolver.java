@@ -157,7 +157,8 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
      * checked against the host name), without following redirects; the answer is read up to 1 MB.
      */
     private String post(final EidProviderConfig config, final String soap) throws Exception {
-        final PinnedHttpFetcher.Response response = new PinnedHttpFetcher(egressGuard, clientSslContext(config))
+        final PinnedHttpFetcher.Response response = new PinnedHttpFetcher(egressGuard, clientSslContext(config),
+                io.helixiam.common.net.FetchLimiter.forGroup(io.helixiam.common.net.FetchLimiter.Group.LOGIN), io.helixiam.authorization.security.realm.RealmContextHolder::get)
                 .exchange(new PinnedHttpFetcher.Request("POST", config.artifactResolutionServiceUrl(), Map.of(
                         "Content-Type", "text/xml; charset=utf-8",
                         "SOAPAction", "http://www.oasis-open.org/committees/security"),

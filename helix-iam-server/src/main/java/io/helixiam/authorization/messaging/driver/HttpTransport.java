@@ -49,7 +49,8 @@ public interface HttpTransport {
         private final PinnedHttpFetcher http;
 
         public Default(final OutboundUrlGuard egressGuard) {
-            this.http = PinnedHttpFetcher.plain(egressGuard);
+            this.http = PinnedHttpFetcher.plain(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.OTP, io.helixiam.authorization.security.realm.RealmContextHolder::get);
         }
 
         @Override

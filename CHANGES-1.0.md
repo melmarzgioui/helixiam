@@ -194,7 +194,8 @@ question. Newest first within each phase.
   and JVM settings that would re-enable JDK fetching make CRL evaluation refuse); a CRL is accepted within the JDK's
   15-minute clock skew; a status-list TLS failure or malformed HTTP answer fails closed even under
   `FAIL_OPEN_WITH_AUDIT`; a provider's `allowedHosts` applies before the shared status-list cache; concurrent
-  logins share one download per URL and at most `helix.wallet.fetch.max-concurrent` (16) fetches run at once;
+  logins share one download per URL and at most `helix.outbound.fetch.wallet.max-concurrent` (16, old name
+  `helix.wallet.fetch.max-concurrent`) wallet fetches run at once;
   unparseable or oversized CRLs are not downloaded again for 60 s; cached CRLs count their parsed heap;
   `max-crl-bytes` is capped at 100 MB; stricter HTTP framing in the pinned client (conflicting `Content-Length`,
   `Content-Length` with `Transfer-Encoding`, signed numbers, obs-fold, protocol switch refused; non-ASCII paths

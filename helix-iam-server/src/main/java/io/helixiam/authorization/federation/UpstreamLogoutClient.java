@@ -33,7 +33,8 @@ public interface UpstreamLogoutClient {
         }
 
         public Http(final OutboundUrlGuard egressGuard) {
-            this.http = PinnedHttpFetcher.plain(egressGuard);
+            this.http = PinnedHttpFetcher.plain(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.OUTBOUND, io.helixiam.authorization.security.realm.RealmContextHolder::get);
         }
 
         @Override

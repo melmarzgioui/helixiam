@@ -152,7 +152,18 @@ public final class PinnedHttpFetcher {
      * @param readBodyOfAnyStatus read the body of every final answer (error bodies included), not only of a 200
      */
     public record Request(String method, String url, Map<String, String> headers, byte[] body, Limits limits,
-            boolean readBodyOfAnyStatus) {
+            boolean readBodyOfAnyStatus, String partition) {
+
+        /** Without a partition: the fetcher's default partition applies. */
+        public Request(final String method, final String url, final Map<String, String> headers, final byte[] body,
+                final Limits limits, final boolean readBodyOfAnyStatus) {
+            this(method, url, headers, body, limits, readBodyOfAnyStatus, null);
+        }
+
+        /** The same request in {@code value} (a realm) for the limiter's per-realm sub-cap. */
+        public Request inPartition(final String value) {
+            return new Request(method, url, headers, body, limits, readBodyOfAnyStatus, value);
+        }
     }
 
     /** A fetch that did not produce an answer. The message is safe to log (no URL, no peer data). */
@@ -198,6 +209,7 @@ public final class PinnedHttpFetcher {
     private final OutboundUrlGuard guard;
     private final SSLContext sslContext;
     private final FetchLimiter limiter;
+    private final java.util.function.Supplier<String> defaultPartition;
 
     /** A fetcher under the {@linkplain FetchLimiter#global() global} concurrency cap. */
     public PinnedHttpFetcher(final OutboundUrlGuard guard, final SSLContext sslContext) {
@@ -205,9 +217,29 @@ public final class PinnedHttpFetcher {
     }
 
     public PinnedHttpFetcher(final OutboundUrlGuard guard, final SSLContext sslContext, final FetchLimiter limiter) {
+        this(guard, sslContext, limiter, () -> null);
+    }
+
+    /**
+     * A fetcher whose slots come from {@code limiter}; {@code defaultPartition} names the partition (the realm) of a
+     * request that does not name one, for the limiter's per-realm sub-cap (null: none).
+     */
+    public PinnedHttpFetcher(final OutboundUrlGuard guard, final SSLContext sslContext, final FetchLimiter limiter,
+            final java.util.function.Supplier<String> defaultPartition) {
+        this.defaultPartition = Objects.requireNonNull(defaultPartition, "defaultPartition");
         this.guard = Objects.requireNonNull(guard, "guard");
         this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
         this.limiter = Objects.requireNonNull(limiter, "limiter");
+    }
+
+    /** A fetcher of feature {@code group}, using the JDK default TLS context and {@code partition} per request. */
+    public static PinnedHttpFetcher plain(final OutboundUrlGuard guard, final FetchLimiter.Group group,
+            final java.util.function.Supplier<String> partition) {
+        try {
+            return new PinnedHttpFetcher(guard, SSLContext.getDefault(), FetchLimiter.forGroup(group), partition);
+        } catch (final GeneralSecurityException e) {
+            throw new IllegalStateException("No default TLS context", e);
+        }
     }
 
     /** A fetcher using the JDK default TLS context. */
@@ -261,10 +293,11 @@ public final class PinnedHttpFetcher {
             });
         }
         final long deadline = System.nanoTime() + limits.totalTimeout().toNanos();
+        final String partition = request.partition() != null ? request.partition() : defaultPartition.get();
         final Exchange exchange = new Exchange(method, url, headers == null ? Map.of() : headers, body, limits,
                 deadline, request.readBodyOfAnyStatus());
         try {
-            if (!limiter.acquire(deadline)) {
+            if (!limiter.acquire(deadline, partition)) {
                 throw new FetchException(FetchException.Kind.TIMEOUT, "fetch timed out waiting for a free slot");
             }
         } catch (final InterruptedException e) {
@@ -278,11 +311,11 @@ public final class PinnedHttpFetcher {
                 try {
                     return exchange.run();
                 } finally {
-                    limiter.release();
+                    limiter.release(partition);
                 }
             });
         } catch (final RuntimeException e) {
-            limiter.release();
+            limiter.release(partition);
             throw new FetchException(FetchException.Kind.IO, "fetch could not start");
         }
         try {

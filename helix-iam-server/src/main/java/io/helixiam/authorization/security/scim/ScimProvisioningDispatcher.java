@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.scim.ScimTargetConfigPublisher;
 import io.helixiam.authorization.amqp.scim.ScimTargetDto;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
+import io.helixiam.common.net.FetchLimiter;
 import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.log.LogSafe;
@@ -70,12 +71,10 @@ public class ScimProvisioningDispatcher {
         this.mapper = mapper;
         this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
-        this.http = PinnedHttpFetcher.plain(egressGuard);
-        this.executor = Executors.newFixedThreadPool(2, r -> {
-            final Thread t = new Thread(r, "scim-provisioner");
-            t.setDaemon(true);
-            return t;
-        });
+        this.http = PinnedHttpFetcher.plain(egressGuard, FetchLimiter.Group.OUTBOUND, () -> null);
+        // a virtual thread per delivery: a slow endpoint holds its own thread (bounded in time by the request
+        // deadline and in number by the realm's share of the OUTBOUND slots), never another realm's queue position
+        this.executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("scim-provisioner-", 0).factory());
     }
 
     /** Fan a user lifecycle change out to every matching, enabled SCIM target for the realm (best-effort). */
@@ -132,7 +131,7 @@ public class ScimProvisioningDispatcher {
             authed(target, headers);
             final PinnedHttpFetcher.Response res = http.exchange(new PinnedHttpFetcher.Request("GET",
                     ScimProvisioningClient.externalIdFilterUrl(target.baseUrl(), userId), headers, null, LIMITS,
-                    false));
+                    false).inPartition(target.realmId()));
             if (res.status() >= 300) {
                 return null;
             }
@@ -161,7 +160,8 @@ public class ScimProvisioningDispatcher {
         headers.put("Accept", "application/scim+json");
         authed(target, headers);
         final PinnedHttpFetcher.Response res = http.exchange(new PinnedHttpFetcher.Request(method, url, headers,
-                body == null ? null : body.getBytes(StandardCharsets.UTF_8), LIMITS, false));
+                body == null ? null : body.getBytes(StandardCharsets.UTF_8), LIMITS, false)
+                .inPartition(target.realmId())); // the realm's own share of the OUTBOUND slots
         if (res.status() >= 300) {
             LOG.debug("SCIM {} {} returned {}", method, url, res.status());
         }

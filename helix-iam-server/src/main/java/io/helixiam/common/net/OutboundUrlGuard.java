@@ -445,7 +445,8 @@ public class OutboundUrlGuard {
         // the connection goes to the address it validated (no second DNS answer); redirects re-run all of it
         final PinnedHttpFetcher http;
         try {
-            http = new PinnedHttpFetcher(this, fetchTls != null ? fetchTls : javax.net.ssl.SSLContext.getDefault());
+            http = new PinnedHttpFetcher(this, fetchTls != null ? fetchTls : javax.net.ssl.SSLContext.getDefault(),
+                    FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND));
         } catch (final java.security.GeneralSecurityException e) {
             throw new SsrfBlockedException("Could not fetch that URL.");
         }

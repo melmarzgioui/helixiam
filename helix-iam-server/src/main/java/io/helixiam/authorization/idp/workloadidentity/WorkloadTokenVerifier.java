@@ -67,8 +67,10 @@ public class WorkloadTokenVerifier {
     @Autowired
     public WorkloadTokenVerifier(final OutboundUrlGuard egressGuard) {
         this.egressGuard = egressGuard;
-        this.http = PinnedHttpFetcher.plain(egressGuard);
-        this.jwksRetriever = new PinnedResourceRetriever(egressGuard);
+        this.http = PinnedHttpFetcher.plain(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.LOGIN, io.helixiam.authorization.security.realm.RealmContextHolder::get);
+        this.jwksRetriever = new PinnedResourceRetriever(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.LOGIN, io.helixiam.authorization.security.realm.RealmContextHolder::get);
     }
 
     /** M6: rejects an issuer-discovery URL (derived from the admin-configured WIF issuer) the egress policy forbids. */
