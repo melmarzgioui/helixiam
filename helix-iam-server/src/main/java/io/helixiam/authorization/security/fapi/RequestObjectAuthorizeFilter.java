@@ -7,13 +7,14 @@ package io.helixiam.authorization.security.fapi;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
-import com.nimbusds.jose.jwk.source.RemoteJWKSet;
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedResourceRetriever;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,6 +47,7 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
 
     private final RegisteredClientRepository clients;
     private final OutboundUrlGuard egressGuard;
+    private final PinnedResourceRetriever jwksRetriever;
 
     /** Wired from {@code SecurityConfig}; uses the secure-default (block-private) egress guard. */
     public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients) {
@@ -55,6 +57,7 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
     public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients, final OutboundUrlGuard egressGuard) {
         this.clients = clients;
         this.egressGuard = egressGuard;
+        this.jwksRetriever = new PinnedResourceRetriever(egressGuard);
     }
 
     @Override
@@ -110,10 +113,16 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
         egressGuard.checkAllowed(jwksUrl); // M6: JWKS URL comes from (self-service) client/DCR registration
         final SignedJWT jwt = SignedJWT.parse(requestObject);
         final DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
-        final JWKSource<SecurityContext> keys = new RemoteJWKSet<>(new URL(jwksUrl));
+        final JWKSource<SecurityContext> keys = jwkSource(jwksUrl);
         processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, keys));
         final JWTClaimsSet claims = processor.process(jwt, null);
         return RequestObject.toParameters(claims);
+    }
+
+    /** The client's JWKS, fetched through the guard and pinned to the validated address (M6), no redirects. */
+    JWKSource<SecurityContext> jwkSource(final String jwksUrl) throws IOException {
+        return JWKSourceBuilder.create(new URL(jwksUrl), jwksRetriever).cache(false).refreshAheadCache(false)
+                .rateLimited(false).build(); // one fetch per request object, like RemoteJWKSet per request did
     }
 
     private static void error(final HttpServletResponse response, final String error, final String description) throws IOException {

@@ -14,12 +14,18 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
+import io.helixiam.common.net.PinnedResourceRetriever;
 import io.helixiam.common.net.SsrfBlockedException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
+import java.time.Duration;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -47,6 +53,11 @@ public class WorkloadTokenVerifier {
 
     private final ConcurrentHashMap<String, JWKSource<SecurityContext>> jwkSourceCache = new ConcurrentHashMap<>();
     private final OutboundUrlGuard egressGuard;
+    private final PinnedHttpFetcher http;
+    private final PinnedResourceRetriever jwksRetriever;
+    private static final PinnedHttpFetcher.Limits DISCOVERY_LIMITS = new PinnedHttpFetcher.Limits(
+            Duration.ofSeconds(5), Duration.ofSeconds(5), 1024 * 1024);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** Secure default (block-private) for non-Spring construction (tests that build their own JWKSource). */
     public WorkloadTokenVerifier() {
@@ -56,6 +67,8 @@ public class WorkloadTokenVerifier {
     @Autowired
     public WorkloadTokenVerifier(final OutboundUrlGuard egressGuard) {
         this.egressGuard = egressGuard;
+        this.http = PinnedHttpFetcher.plain(egressGuard);
+        this.jwksRetriever = new PinnedResourceRetriever(egressGuard);
     }
 
     /** M6: rejects an issuer-discovery URL (derived from the admin-configured WIF issuer) the egress policy forbids. */
@@ -63,12 +76,32 @@ public class WorkloadTokenVerifier {
         egressGuard.checkAllowed(url);
     }
 
+    /**
+     * GETs the issuer's discovery document at {@code url} (M6: through the guard, pinned to the validated address, no
+     * redirects, 5 s in total, at most 1 MB) and returns its {@code jwks_uri}.
+     *
+     * @throws SsrfBlockedException the guard refused the URL
+     * @throws IllegalStateException a status other than 200, or no {@code jwks_uri}
+     */
+    public String discoverJwksUri(final String url) throws Exception {
+        final PinnedHttpFetcher.Response resp = http.get(url, Map.of("Accept", "application/json"), DISCOVERY_LIMITS);
+        if (resp.status() != 200) {
+            throw new IllegalStateException("issuer discovery returned " + resp.status());
+        }
+        final JsonNode jwks = MAPPER.readTree(resp.bodyAsString()).path("jwks_uri");
+        if (jwks.isMissingNode() || jwks.asText().isBlank()) {
+            throw new IllegalStateException("issuer discovery has no jwks_uri");
+        }
+        return jwks.asText();
+    }
+
     /** A cached JWKS handle for {@code jwksUri} (Nimbus refreshes the key set behind it). */
     public JWKSource<SecurityContext> jwkSource(final String jwksUri) {
         return jwkSourceCache.computeIfAbsent(jwksUri, uri -> {
             try {
                 egressGuard.checkAllowed(uri); // M6: jwksUri comes from the admin/DCR-registered WIF credential
-                return JWKSourceBuilder.create(URI.create(uri).toURL()).build();
+                // ...and every fetch behind the handle is pinned to the address the guard validates then
+                return JWKSourceBuilder.create(URI.create(uri).toURL(), jwksRetriever).build();
             } catch (final SsrfBlockedException e) {
                 throw new IllegalStateException("Blocked JWKS URI (SSRF guard): " + uri, e);
             } catch (final Exception e) {
