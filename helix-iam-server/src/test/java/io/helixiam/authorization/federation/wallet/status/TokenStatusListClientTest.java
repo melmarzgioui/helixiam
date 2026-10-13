@@ -859,6 +859,20 @@ class TokenStatusListClientTest {
     }
 
     @Test
+    void aStricterProviderNeverGetsAListAnotherProviderCached() {
+        stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}));
+        final StatusListCache cache = new StatusListCache();
+        final TokenStatusListClient open = client(failClosed(), cache);
+        open.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        final TokenStatusListClient strict = client(policy(OnUnavailable.FAIL_OPEN_WITH_AUDIT,
+                List.of("status.other.example")), cache);
+        assertCode(() -> strict.evaluate(new StatusReference(0, uri("/lists/1")), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(audits).isEmpty(); // a policy refusal, never the fail-open path
+        assertThat(stub.requests()).hasSize(1);
+    }
+
+    @Test
     void oneCacheServesClientsWithDifferentMaxCache() {
         stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 600)));
         final StatusListCache cache = new StatusListCache();

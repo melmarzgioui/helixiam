@@ -279,6 +279,9 @@ public final class TokenStatusListClient implements StatusEvaluator {
     // ------------------------------------------------------------------------------------------- cache + validation
 
     private StatusListToken load(final String uri, final TrustAnchors anchors, final Form form) {
+        // this provider's policy (https, allowedHosts) first: the cache is shared, so a list another provider was
+        // allowed to fetch must never reach a provider that may not fetch it
+        final URI vetted = vet(uri);
         final StatusListCache.Key key = new StatusListCache.Key(uri, form.name(), anchorIds(anchors));
         final Instant now = clock.instant();
         final StatusListCache.Entry cached = cache.get(key);
@@ -287,7 +290,7 @@ public final class TokenStatusListClient implements StatusEvaluator {
             return cached.token();
         }
 
-        final byte[] body = fetch(uri, form);
+        final byte[] body = fetch(vetted, form);
         final StatusListToken token = form == Form.JWT
                 ? StatusListToken.fromJwt(new String(body, StandardCharsets.UTF_8), anchors, now, trust)
                 : StatusListToken.fromCwt(body, anchors, now, trust);
@@ -321,9 +324,9 @@ public final class TokenStatusListClient implements StatusEvaluator {
 
     // ------------------------------------------------------------------------------------------- retrieval
 
-    private byte[] fetch(final String uri, final Form form) {
+    private byte[] fetch(final URI vetted, final Form form) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(READ_TIMEOUT_SECONDS);
-        URI target = vet(uri);
+        URI target = vetted;
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
             final PinnedHttpFetcher.Response response = send(target, form, deadline);
             final int status = response.status();
