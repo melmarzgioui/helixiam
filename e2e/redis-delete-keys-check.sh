@@ -48,6 +48,22 @@ check "requirepass: deleted" "deleted 1200 key(s) matching spring:session:*" "$o
 check "requirepass: others kept" 5 "$(count rdk-plain 6379 'helix:keep:*' --no-auth-warning -a s3cret)"
 check "requirepass: none left" 0 "$(count rdk-plain 6379 'spring:session:*' --no-auth-warning -a s3cret)"
 
+# 1b. Kubernetes' service variable REDIS_PORT=tcp://<ip>:<port> (set in every pod for a Service named "redis").
+seed rdk-plain 6379 --no-auth-warning -a s3cret
+out=$(run REDIS_HOST=rdk-plain REDIS_PORT=tcp://10.43.0.1:6379 REDIS_PASSWORD=s3cret -- \
+  sh /scripts/redis-delete-keys.sh 'spring:session:*')
+check "k8s REDIS_PORT=tcp://ip:port" "deleted 1200 key(s) matching spring:session:*" "$out"
+
+# 1c. A failure is an error, never "deleted 0": wrong password, unreachable host, nonsense port.
+for bad in "REDIS_HOST=rdk-plain REDIS_PASSWORD=wrong" "REDIS_HOST=no-such-host" "REDIS_HOST=rdk-plain REDIS_PORT=abc"; do
+  # shellcheck disable=SC2086
+  if run $bad -- sh /scripts/redis-delete-keys.sh 'spring:session:*' >/dev/null 2>&1; then
+    check "fails: $bad" "non-zero exit" "exit 0"
+  else
+    check "fails: $bad" x x
+  fi
+done
+
 # 2. ACL user.
 docker run -d --name rdk-acl --network "$NET" "$IMG" redis-server \
   --user default off --user helix on '>u-s3cret' '~*' '&*' '+@all' >/dev/null
