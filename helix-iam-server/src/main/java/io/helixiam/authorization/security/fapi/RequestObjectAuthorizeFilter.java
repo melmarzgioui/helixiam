@@ -48,6 +48,9 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
     private final RegisteredClientRepository clients;
     private final OutboundUrlGuard egressGuard;
     private final PinnedResourceRetriever jwksRetriever;
+    private static final int MAX_JWK_SOURCES = 1_000;
+    private final java.util.Map<String, JWKSource<SecurityContext>> jwkSources =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Wired from {@code SecurityConfig}; uses the secure-default (block-private) egress guard. */
     public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients) {
@@ -120,10 +123,17 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
         return RequestObject.toParameters(claims);
     }
 
-    /** The client's JWKS, fetched through the guard and pinned to the validated address (M6), no redirects. */
+    /**
+     * The client's JWKS, fetched through the guard and pinned to the validated address (M6), no redirects; one cached
+     * source per URL with Nimbus's caching (5 minutes; an unknown kid triggers a rate-limited refetch, so a rotation is
+     * picked up).
+     */
     JWKSource<SecurityContext> jwkSource(final String jwksUrl) throws IOException {
-        return JWKSourceBuilder.create(new URL(jwksUrl), jwksRetriever).cache(false).refreshAheadCache(false)
-                .rateLimited(false).build(); // one fetch per request object, like RemoteJWKSet per request did
+        final URL url = new URL(jwksUrl);
+        if (jwkSources.size() >= MAX_JWK_SOURCES && !jwkSources.containsKey(jwksUrl)) {
+            jwkSources.clear();
+        }
+        return jwkSources.computeIfAbsent(jwksUrl, u -> JWKSourceBuilder.create(url, jwksRetriever).build());
     }
 
     private static void error(final HttpServletResponse response, final String error, final String description) throws IOException {

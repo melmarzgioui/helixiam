@@ -53,4 +53,32 @@ class HttpOidcTokenClientRebindingTest {
             assertThat(jwks.lookups()).isEqualTo(1);
         }
     }
+
+    @Test
+    void theBrokerCachesTheProvidersJwksAcrossLogins() throws Exception {
+        final RSAKey key = new RSAKeyGenerator(2048).keyID("k1").generate();
+        final JWTClaimsSet claims = new JWTClaimsSet.Builder().issuer("https://issuer.test").audience("client-1")
+                .subject("ext-1").expirationTime(new Date(System.currentTimeMillis() + 3_600_000)).build();
+        final SignedJWT idToken = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("k1").build(), claims);
+        idToken.sign(new RSASSASigner(key));
+        try (RebindingTarget op = RebindingTarget.http("op.cache.test")) {
+            op.respond(s -> s.path().equals("/jwks")
+                    ? new RebindingTarget.Answer(200, "application/json", new JWKSet(key.toPublicJWK()).toString())
+                    : new RebindingTarget.Answer(200, "application/json",
+                    "{\"id_token\":\"" + idToken.serialize() + "\",\"access_token\":\"at\"}"));
+            final io.helixiam.common.net.OutboundUrlGuard guard = new io.helixiam.common.net.OutboundUrlGuard(false,
+                    List.of("op.cache.test:" + op.port()), host -> new java.net.InetAddress[] {
+                            java.net.InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1})});
+            final OidcProviderConfig config = new OidcProviderConfig("acme", "ACME", "client-1", "secret",
+                    op.url("http", "/authorize"), op.url("http", "/token"), op.url("http", "/jwks"),
+                    "https://issuer.test", List.of("openid"));
+            final HttpOidcTokenClient client = new HttpOidcTokenClient(guard);
+
+            for (int i = 0; i < 3; i++) {
+                client.exchange(config, "code-" + i, "https://helix/cb");
+            }
+
+            assertThat(op.requests().stream().filter(s -> s.path().equals("/jwks")).count()).isEqualTo(1);
+        }
+    }
 }

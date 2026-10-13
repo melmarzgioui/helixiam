@@ -83,20 +83,27 @@ public final class PinnedHttpFetcher {
      * @param connectTimeout bound of each TCP connect attempt
      * @param totalTimeout   bound of the whole fetch: DNS, connect, TLS, request and the full response
      * @param maxBodyBytes   largest body accepted
+     * @param readTimeout    longest wait for each read (TLS handshake and response), or null for the total only
      */
-    public record Limits(Duration connectTimeout, Duration totalTimeout, long maxBodyBytes) {
+    public record Limits(Duration connectTimeout, Duration totalTimeout, long maxBodyBytes, Duration readTimeout) {
         public Limits {
             Objects.requireNonNull(connectTimeout, "connectTimeout");
             Objects.requireNonNull(totalTimeout, "totalTimeout");
             if (connectTimeout.isNegative() || connectTimeout.isZero() || totalTimeout.isNegative()
-                    || totalTimeout.isZero() || maxBodyBytes < 0) {
+                    || totalTimeout.isZero() || maxBodyBytes < 0
+                    || readTimeout != null && (readTimeout.isNegative() || readTimeout.isZero())) {
                 throw new IllegalArgumentException("fetch limits must be positive");
             }
         }
 
+        /** No limit between reads other than the total. */
+        public Limits(final Duration connectTimeout, final Duration totalTimeout, final long maxBodyBytes) {
+            this(connectTimeout, totalTimeout, maxBodyBytes, null);
+        }
+
         /** The same limits with another total timeout. */
         public Limits withTotalTimeout(final Duration value) {
-            return new Limits(connectTimeout, value, maxBodyBytes);
+            return new Limits(connectTimeout, value, maxBodyBytes, readTimeout);
         }
     }
 
@@ -435,7 +442,7 @@ public final class PinnedHttpFetcher {
             }
             params.setApplicationProtocols(new String[] {"http/1.1"});
             s.setSSLParameters(params);
-            s.setSoTimeout(remainingMillis());
+            s.setSoTimeout(readWaitMillis());
             try {
                 s.startHandshake();
             } catch (final SocketTimeoutException e) {
@@ -589,6 +596,13 @@ public final class PinnedHttpFetcher {
             }
         }
 
+        /** The time left, or the per-read limit when that is shorter. */
+        private int readWaitMillis() throws FetchException {
+            final int remaining = remainingMillis();
+            return limits.readTimeout() == null ? remaining
+                    : (int) Math.max(1, Math.min(remaining, limits.readTimeout().toMillis()));
+        }
+
         private int remainingMillis() throws FetchException {
             final long remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
             if (remaining <= 0 || slot.aborted()) {
@@ -609,13 +623,13 @@ public final class PinnedHttpFetcher {
 
             @Override
             public int read() throws IOException {
-                s.setSoTimeout(remainingMillis());
+                s.setSoTimeout(readWaitMillis());
                 return in.read();
             }
 
             @Override
             public int read(final byte[] b, final int off, final int len) throws IOException {
-                s.setSoTimeout(remainingMillis());
+                s.setSoTimeout(readWaitMillis());
                 return in.read(b, off, len);
             }
         }
