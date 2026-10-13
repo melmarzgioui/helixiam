@@ -331,9 +331,10 @@ public final class PinnedHttpFetcher {
 
         private void writeRequest(final OutputStream out, final OutboundUrlGuard.ResolvedTarget target)
                 throws IOException {
-            final String path = target.uri().getRawPath() == null || target.uri().getRawPath().isEmpty() ? "/"
-                    : target.uri().getRawPath();
-            final String query = target.uri().getRawQuery() == null ? "" : "?" + target.uri().getRawQuery();
+            // toASCIIString percent-encodes any non-ASCII character (UTF-8), which the raw path keeps as is
+            final java.net.URI ascii = java.net.URI.create(target.uri().toASCIIString());
+            final String path = ascii.getRawPath() == null || ascii.getRawPath().isEmpty() ? "/" : ascii.getRawPath();
+            final String query = ascii.getRawQuery() == null ? "" : "?" + ascii.getRawQuery();
             final StringBuilder head = new StringBuilder(256)
                     .append(method).append(' ').append(path).append(query).append(" HTTP/1.1\r\n")
                     .append("Host: ").append(hostHeader(target)).append("\r\n")

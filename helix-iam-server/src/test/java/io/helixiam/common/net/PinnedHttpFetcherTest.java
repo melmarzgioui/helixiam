@@ -410,4 +410,18 @@ class PinnedHttpFetcherTest {
                 .get("http://127.0.0.1:" + p + "/x", Map.of(), LIMITS).body())
                 .isEqualTo("hello".getBytes(StandardCharsets.US_ASCII));
     }
+
+    @Test
+    void aNonAsciiPathIsPercentEncodedNotReplaced() throws Exception {
+        final List<String> paths = new CopyOnWriteArrayList<>();
+        server.createContext("/caf", exchange -> {
+            try (exchange) {
+                paths.add(exchange.getRequestURI().getRawPath() + "?" + exchange.getRequestURI().getRawQuery());
+                exchange.sendResponseHeaders(204, -1);
+            }
+        });
+        final PinnedHttpFetcher fetcher = PinnedHttpFetcher.plain(OutboundUrlGuard.permissive());
+        fetcher.get("http://127.0.0.1:" + port() + "/caf\u00e9/l\u00efst?q=\u00fc", Map.of(), LIMITS);
+        assertThat(paths).containsExactly("/caf%C3%A9/l%C3%AFst?q=%C3%BC");
+    }
 }
