@@ -755,6 +755,14 @@ public class RealmImportService {
             try {
                 final boolean update = existing.containsKey(idp.alias());
                 final Map<String, String> config = resolveConfigSecrets(idp.config(), opts);
+                final Map<String, String> eidErrors = io.helixiam.authorization.controller.admin
+                        .IdentityProviderAdminController.eidFieldErrors(idp.protocol(), config);
+                if (!eidErrors.isEmpty()) {
+                    // review #9: refused like an admin write, not only skipped (WARN) when the registry loads it
+                    fieldErrorsFailed(r, SLICE_IDPS, realmId,
+                            "The identity provider " + idp.alias() + " is not valid: ", eidErrors);
+                    continue;
+                }
                 if (io.helixiam.authorization.federation.FederationProviderFactory.isWallet(idp.protocol())) {
                     final Map<String, String> errors = walletErrors(realmId, idp, config, existing.get(idp.alias()));
                     if (!errors.isEmpty()) {

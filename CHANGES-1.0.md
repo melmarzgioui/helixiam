@@ -25,6 +25,9 @@ question. Newest first within each phase.
   refreshed the live registry. Every replica now polls the store (`HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60,
   `0` = off) and reloads only the realms whose stored connections changed; a realm import refreshes the imported realm
   at once.
+- **security** — A realm import now checks an eID connection's scheme and minimum level of assurance like an admin
+  write (review #9): an unknown one is reported as a failed import with the field error instead of being saved and
+  only skipped, with a WARN, when the registry loads it.
 - **security** — `X-Real-IP` is no longer read, not even from a trusted proxy (review #13). A trusted hop that neither
   set nor stripped it (an L4 load balancer, an ingress with forwarded headers off) let a client that sent no
   `X-Forwarded-For` choose its own address for rate limits and the audit log. **Operators:** a trusted proxy must
