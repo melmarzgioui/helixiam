@@ -65,6 +65,7 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
             Duration.ofSeconds(15), 1024 * 1024);
 
     private final OutboundUrlGuard egressGuard;
+    private final javax.net.ssl.TrustManager[] serverTrust;
 
     /** Secure default (block-private) for non-Spring construction. */
     public OpenSamlEidArtifactResolver() {
@@ -73,7 +74,13 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
 
     @org.springframework.beans.factory.annotation.Autowired
     public OpenSamlEidArtifactResolver(final OutboundUrlGuard egressGuard) {
+        this(egressGuard, null);
+    }
+
+    /** {@code serverTrust}: who the ARS server certificate must chain to; null for the JDK default trust store. */
+    OpenSamlEidArtifactResolver(final OutboundUrlGuard egressGuard, final javax.net.ssl.TrustManager[] serverTrust) {
         this.egressGuard = egressGuard;
+        this.serverTrust = serverTrust;
     }
 
     static {
@@ -171,11 +178,16 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
     }
 
     /** Mutual-TLS: present the SP signing cert/key as the client identity (DigiD ARS requires it). */
-    private static SSLContext clientSslContext(final EidProviderConfig config) throws Exception {
+    private SSLContext clientSslContext(final EidProviderConfig config) throws Exception {
         final X509Certificate spCert = parseCertificate(config.spSigningCertificate());
         final PrivateKey spKey = parsePrivateKey(config.spSigningPrivateKey());
         if (spCert == null || spKey == null) {
-            return SSLContext.getDefault(); // 1-way TLS — server trust via the system truststore
+            if (serverTrust == null) {
+                return SSLContext.getDefault(); // 1-way TLS — server trust via the system truststore
+            }
+            final SSLContext oneWay = SSLContext.getInstance("TLS");
+            oneWay.init(null, serverTrust, null);
+            return oneWay;
         }
         final KeyStore keyStore = KeyStore.getInstance("PKCS12");
         keyStore.load(null, null);
@@ -183,7 +195,7 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
         final KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         kmf.init(keyStore, new char[0]);
         final SSLContext context = SSLContext.getInstance("TLS");
-        context.init(kmf.getKeyManagers(), null, null); // default trust managers verify the server cert chain
+        context.init(kmf.getKeyManagers(), serverTrust, null); // null: the default trust managers verify the server
         return context;
     }
 
