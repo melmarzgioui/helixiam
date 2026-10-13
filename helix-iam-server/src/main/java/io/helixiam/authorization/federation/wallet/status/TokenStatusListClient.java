@@ -72,8 +72,8 @@ import java.util.stream.Collectors;
  * subject to the unavailability policy.
  *
  * <p><b>Fail closed vs. fail open.</b> Only a <em>transient availability failure</em> is subject to
- * {@link StatusPolicy#onUnavailable()}: a connect or read error, a timeout, an HTTP 5xx answer, or a host name that
- * cannot be resolved ({@link UnresolvableHostException} from the guard). These are raised as the private
+ * {@link StatusPolicy#onUnavailable()}: a connect or read error, a timeout (DNS included), an HTTP 5xx answer, or a
+ * host name that cannot be resolved ({@link UnresolvableHostException} from the guard). These are raised as the private
  * {@link TransientFailure} type, so the classification is structural, never by message text. Under {@code FAIL_CLOSED}
  * they throw {@code STATUS_UNAVAILABLE}; under {@code FAIL_OPEN_WITH_AUDIT} they are logged, recorded through the
  * {@link AuditSink} and answered {@code VALID} (if the audit cannot be recorded, it fails closed).
@@ -81,7 +81,8 @@ import java.util.stream.Collectors;
  * <p>Everything else <b>always fails closed</b>, under both policies: policy refusals (a non-https uri or redirect
  * hop, a host the guard blocks, a host outside {@code allowedHosts}), every integrity failure of the fetched list (bad
  * signature, untrusted / expired chain, wrong {@code typ} / type, alg not allowed, {@code sub} not equal to the uri),
- * and any other non-transient failure (non-5xx error status, too many redirects, malformed list, expired token). These
+ * a TLS failure (untrusted server certificate, host name mismatch) or an answer that is not valid HTTP, and any other
+ * non-transient failure (non-5xx error status, too many redirects, malformed list, expired token). These
  * throw {@code STATUS_UNAVAILABLE}, or {@code LIMIT_EXCEEDED} for a size limit (body, inflated list).
  *
  * <p>This class is the single place that applies {@code onUnavailable} to a status-list evaluation: it never lets a
@@ -415,6 +416,9 @@ public final class TokenStatusListClient implements StatusEvaluator {
                 case TIMEOUT -> throw new TransientFailure("status list request timed out");
                 case TOO_LARGE -> throw new WalletVerificationException(WalletErrorCode.LIMIT_EXCEEDED,
                         "status list response exceeds " + MAX_BODY_BYTES + " bytes");
+                // integrity / policy failures, not availability: never subject to onUnavailable
+                case TLS -> throw nonTransient("status list TLS handshake failed");
+                case PROTOCOL -> throw nonTransient("status list answer is not valid HTTP");
                 default -> throw new TransientFailure("status list could not be fetched");
             }
         }

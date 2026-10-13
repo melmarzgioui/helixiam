@@ -114,7 +114,9 @@ public final class PinnedHttpFetcher {
             /** The body is larger than the limit. */
             TOO_LARGE,
             /** The answer is not well-formed HTTP/1.1 (ambiguous framing, bad status line or header). */
-            PROTOCOL
+            PROTOCOL,
+            /** The TLS handshake failed: untrusted certificate, host name mismatch, or no common protocol. */
+            TLS
         }
 
         private final Kind kind;
@@ -328,8 +330,10 @@ public final class PinnedHttpFetcher {
                 s.startHandshake();
             } catch (final SocketTimeoutException e) {
                 throw e;
+            } catch (final javax.net.ssl.SSLException e) {
+                throw new FetchException(FetchException.Kind.TLS, "TLS handshake failed");
             } catch (final IOException e) {
-                throw new FetchException(FetchException.Kind.IO, "TLS handshake failed");
+                throw new FetchException(FetchException.Kind.IO, "connection lost during the TLS handshake");
             }
             return s;
         }

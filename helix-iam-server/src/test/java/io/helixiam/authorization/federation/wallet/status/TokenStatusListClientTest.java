@@ -678,6 +678,80 @@ class TokenStatusListClientTest {
     }
 
     @Test
+    void aTlsHostNameFailureFailsClosedEvenWhenFailOpen() {
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("other.test:" + stub.port()),
+                host -> new InetAddress[] {InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1})});
+        final String u = "https://other.test:" + stub.port() + "/lists/1";
+        stub.serveJwt(jwt(u, 1, new int[] {0}));
+        assertCode(() -> client(failOpen(), guard).evaluate(new StatusReference(0, u), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(audits).isEmpty();
+    }
+
+    @Test
+    void anUntrustedTlsCertificateFailsClosedEvenWhenFailOpen() {
+        final TestTls stranger = TestTls.create("status-stranger");
+        try (StatusStub other = StatusStub.https(stranger)) {
+            final String u = "https://localhost:" + other.port() + "/lists/1";
+            other.serveJwt(jwt(u, 1, new int[] {0}));
+            assertCode(() -> client(failOpen(), guardFor(u)).evaluate(new StatusReference(0, u), anchors),
+                    WalletErrorCode.STATUS_UNAVAILABLE);
+            assertThat(audits).isEmpty();
+        }
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void aMalformedHttpAnswerFailsClosedEvenWhenFailOpen() throws Exception {
+        try (javax.net.ssl.SSLServerSocket raw = (javax.net.ssl.SSLServerSocket) tls.serverContext()
+                .getServerSocketFactory().createServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))) {
+            final Thread t = new Thread(() -> {
+                while (!raw.isClosed()) {
+                    try (java.net.Socket s = raw.accept()) {
+                        final InputStream in = s.getInputStream();
+                        int st = 0;
+                        int c;
+                        while (st < 4 && (c = in.read()) >= 0) {
+                            st = (c == '\r' && (st == 0 || st == 2)) || (c == '\n' && (st == 1 || st == 3)) ? st + 1
+                                    : c == '\r' ? 1 : 0;
+                        }
+                        s.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 9\r\n\r\nhi"
+                                .getBytes(StandardCharsets.US_ASCII));
+                        s.getOutputStream().flush();
+                    } catch (final IOException e) {
+                        // next
+                    }
+                }
+            }, "malformed-status");
+            t.setDaemon(true);
+            t.start();
+            final String u = "https://localhost:" + raw.getLocalPort() + "/lists/1";
+            assertCode(() -> client(failOpen(), guardFor(u)).evaluate(new StatusReference(0, u), anchors),
+                    WalletErrorCode.STATUS_UNAVAILABLE);
+            assertThat(audits).isEmpty();
+        }
+    }
+
+    @Test
+    void aConnectFailureIsStillTransient() {
+        final String u = "https://localhost:" + freePort() + "/lists/1";
+        assertThat(client(failOpen(), guardFor(u)).evaluate(new StatusReference(0, u), anchors))
+                .isEqualTo(StatusEvaluator.VALID);
+        assertThat(audits).containsExactly("localhost|STATUS_UNAVAILABLE");
+    }
+
+    @Test
+    void anUnresolvableHostIsStillTransient() {
+        final OutboundUrlGuard nx = new OutboundUrlGuard(false, List.of(), host -> {
+            throw new java.net.UnknownHostException(host);
+        });
+        final String u = "https://nx.status.test/lists/1";
+        assertThat(client(failOpen(), nx).evaluate(new StatusReference(0, u), anchors))
+                .isEqualTo(StatusEvaluator.VALID);
+        assertThat(audits).containsExactly("nx.status.test|STATUS_UNAVAILABLE");
+    }
+
+    @Test
     void maxCacheAbove900SecondsIsClampedTo900() {
         stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 86_400)));
         final TokenStatusListClient client = client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED,
