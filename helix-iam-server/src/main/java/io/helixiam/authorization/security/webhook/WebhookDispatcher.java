@@ -9,6 +9,7 @@ import io.helixiam.authorization.amqp.webhook.WebhookConfigPublisher;
 import io.helixiam.authorization.amqp.webhook.WebhookSubscriptionDto;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -18,15 +19,13 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -45,10 +44,14 @@ public class WebhookDispatcher {
 
     private static final Logger LOG = LogManager.getLogger(WebhookDispatcher.class);
     private static final long TTL_MS = 30_000L;
+    /** 5 s for the whole delivery (DNS, connect, TLS, response); a 200 body is read up to 64 KB and ignored. */
+    private static final PinnedHttpFetcher.Limits LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(5),
+            Duration.ofSeconds(5), 64 * 1024);
 
     private final ObjectProvider<WebhookConfigPublisher> publisher;
     private final OutboundUrlGuard egressGuard;
-    private final HttpClient httpClient;
+    /** M6: pinned to the address the guard validated (no second DNS answer), no redirects, 5 s in total. */
+    private final PinnedHttpFetcher http;
     private final ExecutorService executor;
     private final LongSupplier nowMillis;
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
@@ -63,7 +66,7 @@ public class WebhookDispatcher {
         this.publisher = publisher;
         this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
-        this.httpClient = HttpClient.newHttpClient();
+        this.http = PinnedHttpFetcher.plain(egressGuard);
         this.executor = Executors.newFixedThreadPool(2, r -> {
             final Thread t = new Thread(r, "webhook-dispatcher");
             t.setDaemon(true);
@@ -134,20 +137,19 @@ public class WebhookDispatcher {
 
     private void post(final WebhookSubscriptionDto hook, final String json) {
         try {
-            egressGuard.checkAllowed(hook.url()); // M6: block SSRF to internal/metadata hosts via realm webhook URL
-            final HttpRequest.Builder req = HttpRequest.newBuilder()
-                    .uri(URI.create(hook.url()))
-                    .timeout(Duration.ofSeconds(5))
-                    .header("Content-Type", "application/json")
-                    .header("X-Helix-Event", "audit")
-                    .POST(HttpRequest.BodyPublishers.ofString(json));
+            // M6: the guard resolves the realm's webhook URL once, inside the deadline, and the POST goes to the
+            // address it validated (internal / metadata hosts refused), without following redirects
+            final Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Content-Type", "application/json");
+            headers.put("X-Helix-Event", "audit");
             final String sig = sign(hook.secret(), json);
             if (!sig.isEmpty()) {
-                req.header("X-Helix-Signature", "sha256=" + sig);
+                headers.put("X-Helix-Signature", "sha256=" + sig);
             }
-            final HttpResponse<Void> res = httpClient.send(req.build(), HttpResponse.BodyHandlers.discarding());
-            if (res.statusCode() >= 300) {
-                LOG.debug("Webhook {} returned {}", hook.id(), res.statusCode());
+            final PinnedHttpFetcher.Response res = http.post(hook.url(), headers,
+                    json.getBytes(StandardCharsets.UTF_8), LIMITS);
+            if (res.status() >= 300) {
+                LOG.debug("Webhook {} returned {}", hook.id(), res.status());
             }
         } catch (final Exception e) {
             LOG.debug("Webhook {} delivery failed (non-fatal): {}", hook.id(), e.getMessage());
