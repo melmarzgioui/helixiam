@@ -114,6 +114,24 @@ public final class RebindingTarget implements AutoCloseable {
         });
     }
 
+    /** One guard for several targets (a caller that talks to more than one host), each host answered as above. */
+    public static OutboundUrlGuard guard(final RebindingTarget... targets) {
+        final java.util.List<String> allow = new java.util.ArrayList<>();
+        for (final RebindingTarget t : targets) {
+            allow.add(t.host + ":" + t.port());
+        }
+        return new OutboundUrlGuard(false, allow, name -> {
+            for (final RebindingTarget t : targets) {
+                if (t.host.equalsIgnoreCase(name)) {
+                    final byte[] ip = t.lookups.getAndIncrement() == 0 ? new byte[] {127, 0, 0, 1}
+                            : new byte[] {(byte) 169, (byte) 254, (byte) 169, (byte) 254};
+                    return new InetAddress[] {InetAddress.getByAddress(name, ip)};
+                }
+            }
+            throw new java.net.UnknownHostException(name);
+        });
+    }
+
     public int port() {
         return server.getAddress().getPort();
     }

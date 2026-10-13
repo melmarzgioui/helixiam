@@ -17,14 +17,14 @@ import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
+import io.helixiam.common.net.PinnedResourceRetriever;
 
 import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 
@@ -37,9 +37,13 @@ import java.util.Set;
  */
 public class HttpOidcTokenClient implements OidcTokenClient {
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    /** Token endpoint: 5 s connect, 10 s in total, response body at most 1 MB. */
+    static final PinnedHttpFetcher.Limits TOKEN_LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(5),
+            Duration.ofSeconds(10), 1024 * 1024);
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final OutboundUrlGuard egressGuard;
+    /** M6: token endpoint and JWKS are fetched on the address the guard validated, without redirects. */
+    private final PinnedHttpFetcher http;
+    private final PinnedResourceRetriever jwksRetriever;
 
     /** Secure default (block-private) — used by the non-Spring test/harness path. */
     public HttpOidcTokenClient() {
@@ -47,7 +51,8 @@ public class HttpOidcTokenClient implements OidcTokenClient {
     }
 
     public HttpOidcTokenClient(final OutboundUrlGuard egressGuard) {
-        this.egressGuard = egressGuard;
+        this.http = PinnedHttpFetcher.plain(egressGuard);
+        this.jwksRetriever = new PinnedResourceRetriever(egressGuard);
     }
 
     @Override
@@ -58,27 +63,20 @@ public class HttpOidcTokenClient implements OidcTokenClient {
                 + "&client_id=" + enc(config.clientId())
                 + "&client_secret=" + enc(config.clientSecret());
         try {
-            egressGuard.checkAllowed(config.tokenEndpoint()); // M6: token endpoint comes from admin IdP config
-            final HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(config.tokenEndpoint()))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(form))
-                    .build();
-            final HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                throw new IllegalStateException("OIDC token endpoint returned " + response.statusCode()
+            // M6: the token endpoint comes from admin IdP config: one guarded resolution, a pinned connection
+            final PinnedHttpFetcher.Response response = http.post(config.tokenEndpoint(), Map.of(
+                    "Content-Type", "application/x-www-form-urlencoded", "Accept", "application/json"),
+                    form.getBytes(StandardCharsets.UTF_8), TOKEN_LIMITS);
+            if (response.status() != 200) {
+                throw new IllegalStateException("OIDC token endpoint returned " + response.status()
                         + " for provider " + config.alias());
             }
-            final JsonNode body = objectMapper.readTree(response.body());
+            final JsonNode body = objectMapper.readTree(response.bodyAsString());
             final String idToken = body.path("id_token").asText(null);
             if (idToken == null) {
                 throw new IllegalStateException("OIDC token response has no id_token for provider " + config.alias());
             }
             return new OidcTokens(validateAndExtract(config, idToken), body.path("access_token").asText(null));
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted during OIDC token exchange", e);
         } catch (final IllegalStateException e) {
             throw e;
         } catch (final Exception e) {
@@ -91,9 +89,9 @@ public class HttpOidcTokenClient implements OidcTokenClient {
         if (config.jwksUri() == null || config.jwksUri().isBlank()) {
             throw new IllegalStateException("OIDC provider " + config.alias() + " has no jwksUri — cannot verify ID token");
         }
-        egressGuard.checkAllowed(config.jwksUri()); // M6: jwksUri comes from admin IdP config
+        // M6: jwksUri comes from admin IdP config: fetched through the guard, pinned, without redirects
         final JWKSource<SecurityContext> jwkSource = JWKSourceBuilder
-                .create(URI.create(config.jwksUri()).toURL()).build();
+                .create(URI.create(config.jwksUri()).toURL(), jwksRetriever).build();
 
         final ConfigurableJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
         processor.setJWSKeySelector(new JWSVerificationKeySelector<>(
