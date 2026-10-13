@@ -80,6 +80,19 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 `198.18.0.0/15`, `240.0.0.0/4` are blocked; `fd00:ec2::254` and broadcast are blocked even for allowlisted hosts.
 Affected released versions (see `CHANGES-1.0.md`).
 
+## Final review of the outbound work (2026-10-13) — all DONE
+- **SMTPS (implicit TLS) not pinned (MEDIUM)** — DONE (9a70d67a): Angus gets the validated IP literal; TLS layered with
+  the configured name (SNI, HTTPS-style endpoint identification, CA bundle); Angus's `checkserveridentity` off on this
+  path only.
+- **LDAP deadline and limits** — DONE (c569c688): 15 s per bind sequence including DNS, two addresses, `ldap` group.
+- **`login-client` limits ignored** — DONE (173f1b5b).
+- **Legacy http `jwksUrl` rows** — DONE (a269fcdd): refused at fetch time outside dev, flagged at startup.
+- **Case-insensitive `private_key_jwt`** — DONE (ecd1d125).
+- **Global ceiling on pending deliveries** — DONE (604dd213).
+- **`3fff::/20` mask** — DONE (70803e91).
+- **Console shows server field errors for clients** — DONE (35cb5c60).
+- **Global SMTP relay guarded** — documented in the upgrade checklist (`CHANGES-1.0.md`).
+
 ## Third review of the outbound work (2026-10-13) — all DONE
 - **Virtual-thread carrier pinning (HIGH)** — DONE (46259d54): `FetchLimiter` and `SocketSlot` on
   `ReentrantLock`/`Condition`; webhook/SCIM deliveries bounded at 1,000 pending per realm, overflow dropped.

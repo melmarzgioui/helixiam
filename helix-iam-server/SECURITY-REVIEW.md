@@ -116,6 +116,11 @@
 >   ports unless `helix.messaging.smtp.allowed-ports`) and **LDAP federation** (guarded, pinned, LDAPS on the configured
 >   name, referrals off, internal directories only via the operator setting `helix.federation.ldap.allowed-hosts`).
 >   The SIEM audit webhook has explicit timeouts and a bounded backlog.
+>   **Final review (2026-10-13):** SMTPS is pinned too (Angus is given the validated IP; TLS is checked against the
+>   configured name by our own endpoint identification); LDAP bind sequences have one 15 s deadline, at most two
+>   addresses and per-realm `ldap` slots; non-https client JWKS URLs left from before the https rule are refused at
+>   fetch time; the token endpoint auth method is case-insensitive with unknown values refused; pending deliveries have
+>   a global ceiling; `3fff::/20` is matched exactly.
 >
 > **STILL OPEN — deliberately deferred** (documented in `DEFERRED-SECURITY-WORK.md`): **L5** (the legacy
 > AES/ECB decrypt path is retained deliberately so existing rows stay readable — now logged), **L6** (the

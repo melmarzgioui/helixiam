@@ -51,7 +51,10 @@ question. Newest first within each phase.
 > 7. An SMTP relay on a private or loopback address (in-cluster mailer, `localhost` relay) must be listed in
 >    `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS` (Helm: `config.egressAllowedPrivateHosts`), and a relay on a port other than
 >    25, 465, 587 or 2525 in `helix.messaging.smtp.allowed-ports` (`HELIX_MESSAGING_SMTP_ALLOWED_PORTS`, ports or ranges
->    such as `1025,8025-8030`). Until then sends fail with `CONFIGURATION` ("not allowed by the egress policy").
+>    such as `1025,8025-8030`). Until then sends fail with `CONFIGURATION` ("not allowed by the egress policy"). This
+>    covers the operator's **global relay** too (`helix.notification.smtp.*`, the fallback when a realm has no email
+>    provider), not only realm providers. List entries as `host:port` (e.g. `mailer.mail.svc.cluster.local:587`) so
+>    only that port of the host is opened.
 > 8. An LDAP federation provider pointing at a private or loopback directory (the usual Active Directory setup) must
 >    be listed in `HELIX_FEDERATION_LDAP_ALLOWED_HOSTS` (Helm: `config.ldapAllowedHosts`) by host name or CIDR range.
 >    Until then LDAP logins for that provider fail (logged as refused by the egress policy). Only `ldap://` and
@@ -355,6 +358,24 @@ question. Newest first within each phase.
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
   coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
   same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
+- **security** — SMTPS (implicit TLS) was not pinned: Angus Mail connects its own socket to the configured name for an
+  SSL socket factory, so the host was resolved again after the egress check. The SMTP driver now hands Angus the
+  validated IP and layers TLS itself with the configured name (SNI, certificate checked against that name, the
+  realm's CA bundle); STARTTLS works the same way.
+- **security** — LDAP federation: one bind sequence (DNS, service bind, search, user bind) has one 15 s deadline, tries
+  at most two resolved addresses, and takes a slot in the new `ldap` outbound group with a per-realm share
+  (`helix.outbound.fetch.ldap.max-concurrent` 32, `.per-realm-max` 8).
+- **security** — A `private_key_jwt` client whose stored JWKS URL is not https (a row from before the https rule) can no
+  longer authenticate outside `dev`: the token endpoint refuses to fetch it, and the startup audit lists such clients.
+- **security** — The token endpoint auth method is matched case-insensitively (`Private_Key_Jwt` used to fall back
+  silently to a client secret) and stored in one spelling; the admin API and realm import refuse unknown values.
+- **security** — Pending webhook and SCIM deliveries are capped across all realms as well (default 20,000 per queue,
+  `helix.outbound.deliveries.max-pending`), on top of the 1,000 per realm.
+- **fix** — `helix.outbound.fetch.login-client.*` was read but never applied; it is now.
+- **fix** — The documentation-prefix check matched `3ff0::/12` instead of `3fff::/20` (RFC 9637), blocking public
+  addresses such as `3fff:1000::1`; it now matches `3fff::/20` exactly.
+- **fix** — Console: a refused client save shows the server's field errors on the form fields (it showed
+  "400 Bad Request").
 - **security (affects released versions)** — SMTP relays were not egress-checked: the SMTP driver connected to any
   host and port a realm admin typed, including loopback, cluster-internal and metadata addresses, and resolved the
   name itself. It now goes through `OutboundUrlGuard` (private hosts only via `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`),

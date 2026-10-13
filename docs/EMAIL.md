@@ -151,7 +151,10 @@ The relay passes the egress guard: its name is resolved once and the connection 
 (TLS still verifies the configured host name). A relay on a private or loopback address needs
 `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`; ports other than 25, 465, 587 and 2525 need
 `helix.messaging.smtp.allowed-ports` (`HELIX_MESSAGING_SMTP_ALLOWED_PORTS`, e.g. `1025,8025-8030`). Both are
-deployment settings: a realm admin cannot widen them.
+deployment settings: a realm admin cannot widen them. The same applies to the global relay
+(`helix.notification.smtp.*`). Prefer `host:port` entries (`mailer.mail.svc.cluster.local:587`) in
+`HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`. With SMTPS and STARTTLS the connection goes to the checked address and the
+certificate is verified against the configured host name.
 
 Certificates are always verified, including the host name. For a private relay with its own CA, give its PEM
 certificates in `caBundle` (per realm) or `helix.notification.smtp.ca-bundle-file` (global); there is no "trust all"
