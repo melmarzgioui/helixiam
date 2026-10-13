@@ -22,15 +22,19 @@ question. Newest first within each phase.
 > 5. **Spring Boot 4 (see below): upgrade without mixing versions; rollback signs users out.** The new version reads
 >    every session and token 1.0 stored, but 1.0 cannot read what the new version writes or rewrites. Follow
 >    `docs/UPGRADING.md`:
->    1. back up PostgreSQL, token store included (`helix_authorization`, `helix_authorization_token`,
+>    1. list roles named `FACTOR_…` (`deploy/scripts/factor-roles-check.sql`): the prefix is now reserved and such a
+>       role is ignored; rename them first;
+>    2. back up PostgreSQL, token store included (`helix_authorization`, `helix_authorization_token`,
 >       `helix_http_session`), and Redis if used;
->    2. upgrade with the new Helm value `strategy.type=Recreate`, or scale to one replica first, so that no 1.0 pod
->       and new pod serve at the same time;
->    3. a rollback to 1.0 signs out every session the new version wrote and drops every authorization it wrote or
->       rewrote (a sign-in, code exchange, refresh, revocation, consent): those users sign in again. On the queue
->       stores 1.0 drops them softly; on Redis 1.0 answers HTTP 500 for them, so delete `spring:session:*` (and
->       `helix:authz:*` with `HELIX_TOKEN_STORE=redis`) before 1.0 takes traffic;
->    4. sessions: every new sign-in carries Spring Security 7's sign-in factor (`FactorGrantedAuthority`), a class 1.0
+>    3. upgrade so that no 1.0 pod runs while a new one serves: `helm upgrade --server-side=false --set
+>       strategy.type=Recreate` (Helm 4 needs the client-side apply once, because the 1.0 chart never rendered
+>       `spec.strategy`), or scale to **0** first and then upgrade. A rolling update, or one replica, still mixes them;
+>    4. a rollback signs out every session the new version wrote and drops every authorization it wrote or rewrote (a
+>       sign-in, code exchange, refresh, revocation, consent). The 1.0 chart has no `strategy` value, so: scale to 0,
+>       delete `spring:session:*` (and `helix:authz:*` with `HELIX_TOKEN_STORE=redis`) with
+>       `deploy/scripts/redis-delete-keys.sh` (on Redis, 1.0 answers HTTP 500 for them), `helm rollback`, scale back
+>       up if needed;
+>    5. sessions: every new sign-in carries Spring Security 7's sign-in factor (`FactorGrantedAuthority`), a class 1.0
 >       does not have, which is why 1.0 cannot read them.
 >
 >    Only if you set Spring properties directly (environment variables `SPRING_*` / `MANAGEMENT_*` or a mounted
@@ -69,9 +73,15 @@ question. Newest first within each phase.
   `spring.session.data.redis.repository-type=indexed` too, where Spring Session would only skip it), each logged once
   at WARN by class name only. Bytes written are unchanged. `FilteredJdkRedisSerializer`, `RedisSessionSerializationConfig`;
   `FilteredJdkRedisSerializerTest`, `RedisSessionAllowlistE2eTest` (a gadget planted in a real Redis session).
-- **helm** — New value `strategy` (the Deployment's `spec.strategy`; empty = Kubernetes' default RollingUpdate,
-  rendered output unchanged), so the Spring Boot 4 upgrade can run with `strategy.type=Recreate`. An unknown type, or
-  `rollingUpdate` with `Recreate`, is refused at render time; `e2e/helm-template-check.sh` covers it.
+- **helm** — New value `strategy` (the Deployment's `spec.strategy`), always rendered in full: by default Kubernetes'
+  own default (RollingUpdate, 25% / 25%; existing releases see no change), `strategy.type=Recreate` for the Spring Boot 4
+  upgrade. Rendering it in full lets Helm 4's server-side apply switch between the two (a Kubernetes-defaulted
+  `rollingUpdate` belongs to no field manager and would otherwise survive a switch to Recreate, which the API server
+  rejects). An unknown type, or `rollingUpdate` with `Recreate`, is refused at render time. `e2e/helm-template-check.sh`
+  covers the rendering; the new `e2e/monthfold/k3d-helm-upgrade.sh` gate installs v1.0.0-rc.8, upgrades with Recreate,
+  switches the strategy both ways and rolls back, on k3d with Helm 4. New `deploy/scripts/redis-delete-keys.sh`
+  (rollback; checked by `e2e/redis-delete-keys-check.sh` against requirepass, ACL, TLS and a cluster) and
+  `deploy/scripts/factor-roles-check.sql` (pre-upgrade check).
 - **security (platform)** — **Spring Boot 4.1.1** (from 3.5.16): Spring Framework **7.0.9**, Spring Security **7.1.1**
   with its OAuth2 authorization server (formerly Spring Authorization Server 1.5.8), Spring Session 4.1, Hibernate
   7.4, Tomcat **11.0.27** (Jakarta EE 11, Servlet 6.1; pinned above Boot's 11.0.24 for CVE-2026-65182 CRITICAL,

@@ -103,7 +103,7 @@ echo "strategy switches both ways under server-side apply"
 # 3. Rollback as docs/UPGRADING.md says: scale to 0, delete the new version's Redis sessions, helm rollback.
 kc scale deploy/helixiam --replicas=0
 kc wait --for=delete pod -l app.kubernetes.io/name=helixiam --timeout=180s || true
-kc exec deploy/redis -- sh -c "redis-cli --scan --pattern 'spring:session:*' | xargs -r redis-cli del" >/dev/null
+kc exec -i deploy/redis -- sh -s 'spring:session:*' < deploy/scripts/redis-delete-keys.sh
 hl rollback helixiam 1
 kc rollout status deploy/helixiam --timeout=420s
 [ "$(kc get deploy helixiam -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$FROM_IMAGE" ] \
