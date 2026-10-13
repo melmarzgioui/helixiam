@@ -34,11 +34,21 @@ import java.util.Map;
 @Component
 public class ApnsPushDriver implements PushDriver {
 
-    /** Production APNs host. (Sandbox is api.sandbox.push.apple.com — overridable via config.host.) */
-    private static final String PROD_HOST = "https://api.push.apple.com";
+    /**
+     * Production APNs host. {@code config.host} may name {@code https://api.sandbox.push.apple.com} instead, and
+     * nothing else: APNs goes over HTTP/2 through {@link ApnsHttp2Transport}, which resolves the host itself, so the
+     * host must not be admin-choosable.
+     */
+    private static final String PROD_HOST = "https://" + ApnsHttp2Transport.PRODUCTION_HOST;
 
     private final HttpTransport http;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /** Production: HTTP/2 to Apple's hosts only (the pinned HTTP/1.1 transport cannot talk to APNs). */
+    @org.springframework.beans.factory.annotation.Autowired
+    public ApnsPushDriver(final io.helixiam.common.net.OutboundUrlGuard guard) {
+        this(new ApnsHttp2Transport(guard));
+    }
 
     public ApnsPushDriver(final HttpTransport http) {
         this.http = http;
@@ -61,6 +71,10 @@ public class ApnsPushDriver implements PushDriver {
             throw new IllegalStateException("APNs provider is missing the bundle id (topic)");
         }
         final String host = config.getOrDefault("host", PROD_HOST);
+        if (!ApnsHttp2Transport.isAppleHost(host + "/3/device/x")) {
+            throw new IllegalStateException("APNs provider host must be https://" + ApnsHttp2Transport.PRODUCTION_HOST
+                    + " or https://" + ApnsHttp2Transport.SANDBOX_HOST);
+        }
         final String jwt = signedJwt(provider.secret(), config.get("keyId"), config.get("teamId"));
         final String payload = apsPayload(title, body, data);
         for (final String token : tokens) {
