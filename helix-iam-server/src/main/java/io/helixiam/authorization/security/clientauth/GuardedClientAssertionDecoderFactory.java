@@ -47,9 +47,26 @@ public final class GuardedClientAssertionDecoderFactory implements JwtDecoderFac
     private final io.helixiam.common.net.BoundedLruCache<String, JwtDecoder> decoders =
             new io.helixiam.common.net.BoundedLruCache<>(MAX_DECODERS);
 
+    /** The field error for a JWKS URL, or null; by default the production {@code JwksUrlPolicy}. */
+    private final java.util.function.Function<String, String> jwksUrlProblem;
+
+    /** Production rules: the JWKS URL must be https. */
     public GuardedClientAssertionDecoderFactory(final OutboundUrlGuard guard) {
+        this(guard, io.helixiam.common.startup.DeploymentProfile.production());
+    }
+
+    /** https, or http to localhost / 127.0.0.1 under the dev profile (the admin API's rule, at fetch time). */
+    public GuardedClientAssertionDecoderFactory(final OutboundUrlGuard guard,
+            final io.helixiam.common.startup.DeploymentProfile profile) {
+        this(guard, url -> io.helixiam.authorization.service.client.JwksUrlPolicy.problem(url, profile.isDev()));
+    }
+
+    /** An explicit URL rule ({@code url -> null} accepts any scheme: tests that serve the JWKS over plain http). */
+    public GuardedClientAssertionDecoderFactory(final OutboundUrlGuard guard,
+            final java.util.function.Function<String, String> jwksUrlProblem) {
         this.retriever = new PinnedResourceRetriever(Objects.requireNonNull(guard, "guard"), FetchLimiter.Group.LOGIN_CLIENT,
                 RealmContextHolder::get);
+        this.jwksUrlProblem = Objects.requireNonNull(jwksUrlProblem, "jwksUrlProblem");
     }
 
     @Override
@@ -60,10 +77,24 @@ public final class GuardedClientAssertionDecoderFactory implements JwtDecoderFac
         }
         final String jwkSetUrl = client.getClientSettings().getJwkSetUrl();
         if (jwkSetUrl == null || jwkSetUrl.isBlank()) {
-            throw new BadJwtException("The client has no registered JWK Set URL");
+            return refusing("The client has no registered JWK Set URL");
+        }
+        // a row stored before the https rule: fail closed, never fetch it
+        if (jwksUrlProblem.apply(jwkSetUrl) != null) {
+            return refusing("The client's JWK Set URL must be https");
         }
         final String key = client.getId() + "|" + jwkSetUrl + "|" + alg.getName();
         return decoders.computeIfAbsent(key, k -> build(client, jwkSetUrl, alg));
+    }
+
+    /**
+     * A decoder that refuses every assertion. SAS only turns a {@link org.springframework.security.oauth2.jwt
+     * .JwtException} from {@code decode} into {@code invalid_client}; one thrown by {@code createDecoder} is a 500.
+     */
+    private static JwtDecoder refusing(final String reason) {
+        return token -> {
+            throw new BadJwtException(reason);
+        };
     }
 
     private JwtDecoder build(final RegisteredClient client, final String jwkSetUrl, final SignatureAlgorithm alg) {

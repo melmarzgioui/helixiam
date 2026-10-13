@@ -29,9 +29,18 @@ public class ClientAuthMethodAudit {
     private static final int MAX_LISTED = 50;
 
     private final ServiceProviderRepository clients;
+    private final boolean dev;
 
+    /** Production rules (no dev exception for http://localhost JWKS URLs). */
     public ClientAuthMethodAudit(final ServiceProviderRepository clients) {
+        this(clients, io.helixiam.common.startup.DeploymentProfile.production());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ClientAuthMethodAudit(final ServiceProviderRepository clients,
+                                 final io.helixiam.common.startup.DeploymentProfile profile) {
         this.clients = clients;
+        this.dev = profile.isDev();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -39,8 +48,33 @@ public class ClientAuthMethodAudit {
         check();
     }
 
-    /** Logs the private_key_jwt clients without a JWKS URL; returns how many there are. */
+    /**
+     * Logs the private_key_jwt clients without a JWKS URL, and those whose JWKS URL breaks the https rule (rows stored
+     * before it; the token endpoint refuses to fetch them, so they cannot authenticate); returns how many in total.
+     */
     public int check() {
+        return withoutJwksUrl() + nonHttpsJwksUrl();
+    }
+
+    private int nonHttpsJwksUrl() {
+        final List<ServiceProviderOAuthClient> legacy;
+        try {
+            legacy = clients.findPrivateKeyJwtWithJwksUrl().stream()
+                    .filter(c -> JwksUrlPolicy.problem(c.getJwksUrl(), dev) != null).toList();
+        } catch (final RuntimeException e) {
+            LOG.debug("private_key_jwt JWKS URL check skipped: {}", LogSafe.sanitize(e.getMessage()));
+            return 0;
+        }
+        if (!legacy.isEmpty()) {
+            LOG.warn("{} private_key_jwt client(s) have a JWKS URL that is not https; the token endpoint refuses to"
+                    + " fetch it, so they cannot authenticate until the URL is changed to https: {}", legacy.size(),
+                    LogSafe.sanitize(legacy.stream().limit(MAX_LISTED)
+                            .map(c -> c.getRealmId() + "/" + c.getClientId()).collect(Collectors.joining(", "))));
+        }
+        return legacy.size();
+    }
+
+    private int withoutJwksUrl() {
         final List<ServiceProviderOAuthClient> broken;
         try {
             broken = clients.findPrivateKeyJwtWithoutJwksUrl();

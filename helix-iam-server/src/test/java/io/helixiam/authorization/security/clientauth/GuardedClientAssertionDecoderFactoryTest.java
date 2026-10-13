@@ -77,6 +77,9 @@ class GuardedClientAssertionDecoderFactoryTest {
                 .resetContext();
     }
 
+    /** These tests serve the JWKS over plain http; the https rule is covered by ClientJwksSchemeTest. */
+    private static final java.util.function.Function<String, String> ANY_SCHEME = url -> null;
+
     private static RegisteredClient client(final String jwkSetUrl) {
         return RegisteredClient.withId(UUID.randomUUID().toString()).clientId("c1")
                 .clientAuthenticationMethod(ClientAuthenticationMethod.PRIVATE_KEY_JWT)
@@ -101,7 +104,7 @@ class GuardedClientAssertionDecoderFactoryTest {
             target.respond(s -> new RebindingTarget.Answer(200, "application/json",
                     new JWKSet(key.toPublicJWK()).toString()));
             final GuardedClientAssertionDecoderFactory factory = new GuardedClientAssertionDecoderFactory(
-                    target.guard());
+                    target.guard(), ANY_SCHEME);
 
             final Jwt jwt = factory.createDecoder(client(target.url("http", "/jwks"))).decode(assertion(key));
 
@@ -114,7 +117,7 @@ class GuardedClientAssertionDecoderFactoryTest {
     @Test
     void aJwksUrlOnTheMetadataAddressIsNeverFetched() {
         final GuardedClientAssertionDecoderFactory factory = new GuardedClientAssertionDecoderFactory(
-                OutboundUrlGuard.blocking());
+                OutboundUrlGuard.blocking(), ANY_SCHEME);
         assertThatThrownBy(() -> factory.createDecoder(client("http://169.254.169.254/latest/meta-data/jwks"))
                 .decode(assertion(key))).isInstanceOf(JwtException.class);
     }
@@ -124,7 +127,7 @@ class GuardedClientAssertionDecoderFactoryTest {
     void aJwksHostThatRebindsToTheMetadataAddressIsRefusedBeforeConnecting() {
         try (RebindingTarget target = RebindingTarget.http("jwks.client.test")) {
             final GuardedClientAssertionDecoderFactory factory = new GuardedClientAssertionDecoderFactory(
-                    target.guard(0)); // every answer is the metadata address
+                    target.guard(0), ANY_SCHEME); // every answer is the metadata address
             assertThatThrownBy(() -> factory.createDecoder(client(target.url("http", "/jwks"))).decode(assertion(key)))
                     .isInstanceOf(JwtException.class);
             assertThat(target.requests()).isEmpty();
@@ -149,7 +152,7 @@ class GuardedClientAssertionDecoderFactoryTest {
             target.respond(s -> new RebindingTarget.Answer(302, null, null,
                     Map.of("Location", "http://127.0.0.1:" + counting.getLocalPort() + "/jwks")));
             final GuardedClientAssertionDecoderFactory factory = new GuardedClientAssertionDecoderFactory(
-                    target.guard());
+                    target.guard(), ANY_SCHEME);
 
             assertThatThrownBy(() -> factory.createDecoder(client(target.url("http", "/jwks"))).decode(assertion(key)))
                     .isInstanceOf(JwtException.class);
@@ -169,7 +172,7 @@ class GuardedClientAssertionDecoderFactoryTest {
             final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("jwks.client.test:" + target.port()),
                     host -> new java.net.InetAddress[] {java.net.InetAddress.getByAddress(host,
                             new byte[] {127, 0, 0, 1})});
-            final GuardedClientAssertionDecoderFactory factory = new GuardedClientAssertionDecoderFactory(guard);
+            final GuardedClientAssertionDecoderFactory factory = new GuardedClientAssertionDecoderFactory(guard, ANY_SCHEME);
             final RegisteredClient c = client(target.url("http", "/jwks"));
 
             factory.createDecoder(c).decode(assertion(key));
@@ -202,7 +205,7 @@ class GuardedClientAssertionDecoderFactoryTest {
             final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("jwks.client.test:" + target.port()),
                     host -> new java.net.InetAddress[] {java.net.InetAddress.getByAddress(host,
                             new byte[] {127, 0, 0, 1})});
-            final var decoder = new GuardedClientAssertionDecoderFactory(guard).createDecoder(
+            final var decoder = new GuardedClientAssertionDecoderFactory(guard, ANY_SCHEME).createDecoder(
                     client(target.url("http", "/jwks")));
             for (final String typ : new String[] {null, "JWT", "client-authentication+jwt"}) {
                 assertThat(decoder.decode(assertionWithTyp(key, typ)).getSubject()).as(String.valueOf(typ))

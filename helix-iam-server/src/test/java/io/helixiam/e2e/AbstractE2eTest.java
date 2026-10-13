@@ -94,6 +94,7 @@ public abstract class AbstractE2eTest {
     public static final Path THEMES_DIR;
 
     static {
+        io.helixiam.testsupport.HarnessTls.install(); // https harness listeners (client JWKS) are trusted
         POSTGRES.start();
         REDIS.start();
         PORT = freePort();

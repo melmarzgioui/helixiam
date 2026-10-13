@@ -62,6 +62,9 @@ question. Newest first within each phase.
 > 10. Admin, console and realm-import client writes need an `https` `jwksUrl` (`http://localhost` / `http://127.0.0.1` in `dev`
 >    only). Flyway `V80` rewrites DCR-stored lowercase `private_key_jwt` to `PRIVATE_KEY_JWT`, and the server logs a
 >    WARN at startup for every `private_key_jwt` client without a JWKS URL (it cannot authenticate).
+> 11. A `private_key_jwt` client stored earlier with an `http` JWKS URL can no longer authenticate outside `dev`: the
+>     token endpoint refuses to fetch it (`invalid_client`). The startup log lists such clients (WARN from
+>     `ClientAuthMethodAudit`); change their JWKS URL to https before upgrading.
 
 - **security** — Token exchange on `/oauth2/token` refuses `actor_token` and `actor_token_type` with
   `invalid_request` (maintainer ruling; HelixIAM's supported delegation is `/agent/delegation/token`). 1.0 could not
