@@ -390,7 +390,7 @@ public class OutboundUrlGuard {
     /** Documentation (2001:db8::/32, 3fff::/20, RFC 9637) and SRv6 SIDs (5f00::/16): never a public destination. */
     private static boolean isNonGlobalIpv6(final byte[] b) {
         return b.length == 16 && (b[0] == 0x20 && b[1] == 0x01 && (b[2] & 0xff) == 0x0d && (b[3] & 0xff) == 0xb8
-                || b[0] == 0x3f && (b[1] & 0xf0) == 0xf0
+                || b[0] == 0x3f && (b[1] & 0xff) == 0xff && (b[2] & 0xf0) == 0x00 // 3fff::/20 exactly
                 || b[0] == 0x5f && b[1] == 0x00);
     }
 

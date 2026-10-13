@@ -167,4 +167,13 @@ class OutboundUrlGuardEmbeddedIpv4Test {
             assertThat(OutboundUrlGuard.isAlwaysBlocked(v6(literal))).as(literal).isTrue();
         }
     }
+
+    /** RFC 9637 documentation prefix 3fff::/20 exactly: 3fff:0000::–3fff:0fff:ffff:..., nothing beyond. */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "3fff::1, true", "3fff:0fff::1, true", "3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff, true",
+        "3fff:1000::1, false", "3fff:ffff::1, false", "3ff0::1, false", "3ffe::1, false"})
+    void documentationPrefix3fffIsExactlyA20(final String literal, final boolean blocked) {
+        assertThat(OutboundUrlGuard.isBlocked(v6(literal))).as(literal).isEqualTo(blocked);
+    }
 }
