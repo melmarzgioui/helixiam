@@ -24,7 +24,11 @@ public class RealmCorsFilterConfig {
 
     @Bean
     public FilterRegistrationBean<CorsFilter> realmCorsFilter(final RealmClientCorsConfigurationSource source) {
-        final FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
+        final CorsFilter filter = new CorsFilter(source);
+        // Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers on every response, as with
+        // Spring Framework 6 (see VaryingCorsProcessor).
+        filter.setCorsProcessor(new VaryingCorsProcessor());
+        final FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(filter);
         // Between the realm routing filter (DEFAULT_FILTER_ORDER - 10) and Spring Security (DEFAULT_FILTER_ORDER).
         registration.setOrder(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 5);
         registration.addUrlPatterns("/*");

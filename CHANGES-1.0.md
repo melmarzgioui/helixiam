@@ -83,6 +83,10 @@ question. Newest first within each phase.
     errors, stack trace or exception class in error bodies) is now set under `spring.web.error.include-*`, where
     Boot reads it (`spring-boot-properties-migrator` found the four keys; Boot's defaults happened to match, so
     production answered the same, but the dev profile's `always` was lost). `ErrorDetailPropertiesTest` guards it.
+  - `Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers` is again on every response that
+    passes HelixIAM's CORS filter (discovery, JWKS, token endpoint, pages, …), CORS request or not, as with Spring
+    Framework 6. Spring Framework 7 adds it only when a CORS configuration applies, so a shared cache could have served
+    one origin's response to another. `VaryingCorsProcessor`; `CorsVaryHeaderE2eTest`.
   - Discovery: the OIDC discovery document and the RFC 8414 metadata carry exactly the same keys and values as in 1.0;
     only the order differs (key order, and `grant_types_supported` lists token exchange before the device code).
     Harmless: JSON object keys and these value sets are unordered. `DiscoveryDocumentsE2eTest` pins both documents in
