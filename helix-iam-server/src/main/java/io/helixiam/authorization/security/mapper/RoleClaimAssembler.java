@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.security.mapper;
 
+import io.helixiam.authorization.security.SignInAuthorities;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,12 +43,13 @@ public final class RoleClaimAssembler {
     public static Map<String, Object> assemble(final Set<String> realmBaseRoles, final List<TypedRole> typedRoles) {
         final Set<String> realm = new TreeSet<>();
         if (realmBaseRoles != null) {
-            realm.addAll(realmBaseRoles);
+            // FACTOR_* is the namespace of Spring Security 7's sign-in factors (reserved for role names): never a role.
+            realmBaseRoles.stream().filter(r -> r != null && !SignInAuthorities.isFactorName(r)).forEach(realm::add);
         }
         final Map<String, Set<String>> byClient = new TreeMap<>();
         if (typedRoles != null) {
             for (final TypedRole role : typedRoles) {
-                if (role == null || role.name() == null) {
+                if (role == null || role.name() == null || SignInAuthorities.isFactorName(role.name())) {
                     continue;
                 }
                 if ("CLIENT".equalsIgnoreCase(role.type()) && role.clientId() != null && !role.clientId().isBlank()) {

@@ -94,6 +94,9 @@ class FederatedLoginCompleterTest {
         verify(establisher).persist(auth.capture(), any(), any());
         assertThat(auth.getValue().isAuthenticated()).isTrue();
         assertThat(auth.getValue().getName()).isEqualTo("user-9");
+        // Spring Security 7: like every sign-in path, exactly one factor authority, which is never a role.
+        assertThat(io.helixiam.authorization.security.SignInAuthorities.factorsOf(auth.getValue()))
+                .containsExactly(io.helixiam.authorization.security.SignInAuthorities.FEDERATED);
     }
 
     @Test

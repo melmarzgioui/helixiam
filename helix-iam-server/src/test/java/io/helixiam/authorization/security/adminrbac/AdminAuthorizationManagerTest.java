@@ -163,4 +163,33 @@ class AdminAuthorizationManagerTest {
         assertThat(AdminAuthorizationManager.realmFromPath("/admin/realms/gov/users")).isEqualTo("gov");
         assertThat(AdminAuthorizationManager.realmFromPath("/admin/audit/config")).isNull();
     }
+
+    @Test
+    void aPasswordLoginsFactorAuthority_isNeverPassedAsARoleName_norPartOfTheCacheKey() {
+        when(publisher.effective(any())).thenReturn(new AdminEffectivePermissionsDto("gov", true, List.of()));
+        final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
+        final Authentication password = UsernamePasswordAuthenticationToken.authenticated("u-1", null, List.of(
+                new org.springframework.security.core.authority.SimpleGrantedAuthority("auditor_gov"),
+                org.springframework.security.core.authority.FactorGrantedAuthority.fromAuthority(
+                        org.springframework.security.core.authority.FactorGrantedAuthority.PASSWORD_AUTHORITY)));
+        final Authentication magicLink = UsernamePasswordAuthenticationToken.authenticated("u-1", null, List.of(
+                new org.springframework.security.core.authority.SimpleGrantedAuthority("auditor_gov")));
+
+        mgr.authorize(() -> password, ctx("POST", "/admin/realms/gov/users"));
+        mgr.authorize(() -> magicLink, ctx("POST", "/admin/realms/gov/users"));
+
+        final var captor = org.mockito.ArgumentCaptor.forClass(AdminEffectivePermissionsRef.class);
+        // One resolution: both sign-ins have the same roles, so they share the cache entry.
+        verify(publisher, times(1)).effective(captor.capture());
+        assertThat(captor.getValue().roleNames()).containsExactly("auditor_gov");
+    }
+
+    @Test
+    void aFactorAuthority_neverMakesAnAdmin() {
+        final Authentication auth = UsernamePasswordAuthenticationToken.authenticated("u-1", null, List.of(
+                org.springframework.security.core.authority.FactorGrantedAuthority.fromFactor("admin_master")));
+        assertThat(RealmAdminAuthorities.isMasterAdmin(auth)).isFalse();
+        assertThat(RealmAdminAuthorities.isAdminOfAny(auth)).isFalse();
+        assertThat(RealmAdminAuthorities.isAdminOf(auth, "master")).isFalse();
+    }
 }

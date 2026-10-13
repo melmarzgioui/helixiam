@@ -87,4 +87,20 @@ class RoleClaimAssemblerTest {
 
         assertEquals(List.of("orphan"), realmRoles(claims));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void factorNamedRoles_neverReachTheToken() {
+        // FACTOR_* is the namespace of Spring Security 7's sign-in factor authorities, never a role.
+        final Map<String, Object> claims = RoleClaimAssembler.assemble(
+                Set.of("FACTOR_PASSWORD_gov", "user_gov", "factor_ott"),
+                List.of(new RoleClaimAssembler.TypedRole("FACTOR_BEARER", "REALM", null),
+                        new RoleClaimAssembler.TypedRole("FACTOR_X", "CLIENT", "web"),
+                        new RoleClaimAssembler.TypedRole("reader", "CLIENT", "web")));
+
+        final List<String> realm = (List<String>) ((Map<String, Object>) claims.get("realm_access")).get("roles");
+        assertEquals(List.of("user_gov"), realm);
+        final Map<String, Object> web = (Map<String, Object>) ((Map<String, Object>) claims.get("resource_access")).get("web");
+        assertEquals(List.of("reader"), web.get("roles"));
+    }
 }
