@@ -246,4 +246,16 @@ class IdentityProviderRegistryTest {
         assertThat(registry.aliases("realm-a")).containsExactly("newer");
         assertThat(registry.version("realm-a")).isEqualTo(7);
     }
+
+    @Test
+    void isWallet_asksTheRealmsOwnProviderFirst_andOtherwiseEveryRealm() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        registry.reload("realm-a", List.of(stub("corp")));
+        registry.reload("realm-b", List.of(wallet("corp", "realm-b")));
+
+        assertThat(registry.isWallet("realm-a", "corp")).as("realm A's own OIDC connection decides").isFalse();
+        assertThat(registry.isWallet("realm-b", "corp")).isTrue();
+        assertThat(registry.isWallet("realm-c", "corp")).as("not served there: any realm's wallet counts").isTrue();
+        assertThat(registry.isWallet("realm-a", null)).isFalse();
+    }
 }

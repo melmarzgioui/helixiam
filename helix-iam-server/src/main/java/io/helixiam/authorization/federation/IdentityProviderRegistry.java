@@ -211,6 +211,24 @@ public class IdentityProviderRegistry {
         return found;
     }
 
+    /**
+     * Whether {@code alias} names an EU Digital Identity Wallet provider, for code that holds a user's link (production
+     * readiness item 5): the provider {@code realmId} serves under that alias decides when there is one, so another
+     * realm's wallet with the same alias never turns this realm's OIDC link into a "wallet" link; for an alias the realm
+     * does not serve (a link made in another realm, or a provider since removed) any realm's wallet of that alias
+     * counts, which keeps a wallet link's HMAC subject out of view (fail safe).
+     */
+    public boolean isWallet(final String realmId, final String alias) {
+        if (alias == null) {
+            return false;
+        }
+        final IdentityProvider own = realmId == null ? null : serving(realmId).get(alias);
+        if (own != null) {
+            return WalletIdentityProvider.from(own).isPresent();
+        }
+        return named(alias).stream().anyMatch(p -> WalletIdentityProvider.from(p).isPresent());
+    }
+
     /** Static providers overlaid with {@code realmId}'s store-backed set (store-backed wins), minus any not serving it. */
     private Map<String, IdentityProvider> serving(final String realmId) {
         final Map<String, IdentityProvider> merged = new LinkedHashMap<>(staticByAlias);
