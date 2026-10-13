@@ -73,6 +73,11 @@ question. Newest first within each phase.
   `spring.session.data.redis.repository-type=indexed` too, where Spring Session would only skip it), each logged once
   at WARN by class name only. Bytes written are unchanged. `FilteredJdkRedisSerializer`, `RedisSessionSerializationConfig`;
   `FilteredJdkRedisSerializerTest`, `RedisSessionAllowlistE2eTest` (a gadget planted in a real Redis session).
+- **helm / config** — Kubernetes service links no longer collide with `REDIS_PORT`. In a namespace with a Service
+  named `redis`, Kubernetes injects `REDIS_PORT=tcp://<ip>:<port>`, the variable the server reads as the Redis port
+  (binding failed at start-up, also without Redis in use). The server now takes the port from that form
+  (`RedisServiceLinkEnvironmentPostProcessor`), and the chart sets `enableServiceLinks: false` (new value, default
+  `false`; the server needs none of the injected variables).
 - **helm** — New value `strategy` (the Deployment's `spec.strategy`), always rendered in full: by default Kubernetes'
   own default (RollingUpdate, 25% / 25%; existing releases see no change), `strategy.type=Recreate` for the Spring Boot 4
   upgrade. Rendering it in full lets Helm 4's server-side apply switch between the two (a Kubernetes-defaulted

@@ -10,7 +10,8 @@
 #   - an unknown store is refused;
 #   - the global email settings are optional; their secrets are mounted as files, never env values;
 #   - the email retry, rate-cap and code-lifetime values are passed through when set (0 and false included);
-#   - the Deployment strategy is Kubernetes' default unless set, and Recreate / RollingUpdate render as given.
+#   - the Deployment strategy is Kubernetes' default unless set, and Recreate / RollingUpdate render as given;
+#   - Kubernetes service links are off unless enabled.
 # Needs only helm. Usage (repo root): e2e/helm-template-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -142,6 +143,13 @@ expect_render_error "strategy: unknown type" "strategy.type must be RollingUpdat
   --set strategy.type=BlueGreen
 expect_render_error "strategy: Recreate with rollingUpdate" "strategy.rollingUpdate is only valid with RollingUpdate" \
   --set redis.host=redis --set strategy.type=Recreate --set strategy.rollingUpdate.maxSurge=1
+
+# 8. Service links off by default: with a Service named "redis" in the namespace, Kubernetes would otherwise inject
+#    REDIS_PORT=tcp://<ip>:<port>, the variable the server reads as the Redis port.
+out=$(render --set redis.host=redis)
+expect_contains "service links off by default" "$out" "enableServiceLinks: false"
+out=$(render --set redis.host=redis --set enableServiceLinks=true)
+expect_contains "service links can be turned on" "$out" "enableServiceLinks: true"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2

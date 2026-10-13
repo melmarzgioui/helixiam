@@ -25,6 +25,10 @@ serviceAccount:
   annotations: {}
 # The server does not talk to the Kubernetes API — do not mount a token.
 automountServiceAccountToken: false
+# Kubernetes service links (one <SERVICE>_HOST/_PORT/... variable set per Service in the namespace). Off: with a
+# Service named "redis" they inject REDIS_PORT=tcp://<ip>:<port>, the variable the server reads as the Redis port
+# (the server also understands that form, but the chart sets REDIS_PORT itself). The app needs none of them.
+enableServiceLinks: false
 
 # ---------------------------------------------------------------------------
 # External URLs (REQUIRED). Fail-fast if unset: the app must know its own base URLs.

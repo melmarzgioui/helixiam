@@ -3,4 +3,5 @@
 # below never ran and /actuator/health reported DOWN without Redis. Spring Boot 4 moved the interface (and so the
 # key) from org.springframework.boot.env.EnvironmentPostProcessor to org.springframework.boot.EnvironmentPostProcessor.
 org.springframework.boot.EnvironmentPostProcessor=\
-io.helixiam.authorization.session.QueueSessionEnvironmentPostProcessor
+io.helixiam.authorization.session.QueueSessionEnvironmentPostProcessor,\
+io.helixiam.authorization.session.RedisServiceLinkEnvironmentPostProcessor
