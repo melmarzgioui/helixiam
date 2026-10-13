@@ -26,12 +26,17 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 `BasicParserPool` XXE/DTD hardening. The full SAML/eID suites pass unchanged.
 
 ## Testing coverage gaps (not code defects — need more pentest depth)
-- **XSW2–XSW8**: only XSW1 was scripted live (and rejected). The deeper signature-wrapping variants should be
-  exercised in a follow-up pentest run.
-- **eID EncryptedID decryption** and the **live DigiD ArtifactResolve mTLS SOAP back-channel** were not
-  exercised (no live DigiD test peer). Cover when an eID test environment is available.
-- **`/broker/{alias}/callback` end-to-end HTTP round-trip + RelayState gate**: the SAML pentest validated the
-  assertion validator directly (stronger) but not the full browser round-trip; worth an integration test.
+- **XSW2–XSW8**: **DONE** — all rejected on both validators in the deep SAML pentest (2026-09-17, below).
+- **eID EncryptedID decryption**: **DONE (covered)** — exercised by the deep pentest and by
+  `OpenSamlEidAssertionValidatorIntegrationTest` (a real signed DigiD response with an encrypted BSN, per level).
+- **Live DigiD ArtifactResolve mTLS SOAP back-channel**: **still environment-blocked** (no live DigiD test peer). The
+  envelope signature is now required (DEEP-3) and tested against a loopback ARS stub; the live round-trip waits for a
+  DigiD test environment.
+- **`/broker/{alias}/callback` end-to-end HTTP round-trip + RelayState gate**: **not a defect (test depth).** The
+  pieces are covered where they decide: the SAML/eID assertion validators directly (stronger than a browser run),
+  the mandatory RelayState/state CSRF check in `FederationBrokerControllerTest` and the provider tests, and the
+  callback over real HTTP by `WalletFlowE2eTest` (state bound to the browser that started the login) and the federated
+  browser e2e tests. A seeded SAML broker browser run would add depth, not close a known gap.
 
 ## Follow-up hardening (lower priority)
 - **InResponseTo binding** — **DONE (issue #2)**. The inbound SAML broker now persists the outbound
@@ -47,11 +52,17 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
   mismatch-reject, missing-on-solicited-reject, unsolicited-reject-when-disallowed, unsolicited-accept-when-allowed),
   `FederationBrokerControllerTest` (persist + bind + single-use consume), and `Saml2IdentityProviderTest`
   (start returns the id, callback threads it).
-- **L5**: legacy AES/ECB decrypt fallback retained for existing-row compatibility (now logged).
-- **L6**: generated bootstrap admin password is logged (zero-config trade-off; set `HELIX_ADMIN_PASSWORD`).
+- **L5 — DONE (2d95f51).** `LegacyEncryptionBackfill` re-encrypts every legacy AES/ECB value of every
+  `AttributeEncryption` column to AES-GCM at startup (idempotent, logged by row id only, unreadable rows skipped and
+  named in a readiness WARN); afterwards the ECB fallback is off unless `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true`, so a
+  legacy value fails closed. A legacy decryption must also be valid UTF-8 (review #10).
+- **L6 — DONE (bd561bd).** The generated bootstrap admin password was already written 0600 to
+  `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`) with only the path logged; a whole-boot test
+  now captures every log line and checks the password is in none of them and the file is 0600. The Helm notes and
+  values no longer say it is logged; the README, chart README and compose file show how to read it.
 
 ## EUDI Wallet: bounded issuer-revocation client (follow-up to Task 7, 2026-10-11)
-**Status: OPEN.** `IssuerTrustValidator` (wallet issuer X.509 trust) lets the JDK `PKIXRevocationChecker` fetch the
+**Status: OPEN (owned by the separate revocation-client / status-list work).** `IssuerTrustValidator` (wallet issuer X.509 trust) lets the JDK `PKIXRevocationChecker` fetch the
 CRL distribution points and OCSP responders named in the presented certificates. Mitigated today:
 - Nothing is fetched until the chain validates to a configured anchor, so only certificates a trusted CA issued can
   name a URL.
@@ -84,44 +95,56 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
 - **Shared-root status-list anchor (§6.5 residual case).** When an mdoc's MSO signer and its status list's signer
   chain to a shared root that issues DS certificates directly (rather than through a dedicated intermediate per
   purpose), the §6.5 signer rule as implemented accepts it — standard for a per-issuer IACA anchor, but worth
-  knowing. Documented here and in `docs/eudi-wallet.md` §7.1 and `SECURITY-REVIEW.md` Appendix B.6 (ledger:
+  knowing. **Not a vulnerability:** an accepted, documented trust-model property of a per-issuer IACA anchor; the only
+  open part is a pinning test. Documented here and in `docs/eudi-wallet.md` §7.1 and `SECURITY-REVIEW.md` Appendix B.6 (ledger:
   "parked for final triage/T26 docs", Task 19, which asked for both the documentation and a pinning test). **The
   documentation is this task's deliverable; the pinning test is not added here** — Task 26 is scoped to
   documentation, the security-review write-up and GDPR, not new wallet test coverage for a pre-existing, already
   openly-accepted trust-model case. Add the test alongside any future change that touches `MdocStatusListSigner`.
-- **Status-list cache worst-case memory (~128 MB).** `TokenStatusListClient`'s verified-token cache has no
+- **Status-list cache worst-case memory (~128 MB).** *(Status-list network item: owned by the status-list work.)* `TokenStatusListClient`'s verified-token cache has no
   overall byte budget, only a per-entry decompressed-size cap (2 MB) and a count/TTL-driven eviction; a verifier
   configured with many distinct, long-`maxCacheSeconds` status lists could accumulate a large working set before
   eviction catches up. Task 10 review finding #5, deferred to final triage.
-- **`OutboundUrlGuard`'s DNS resolution is not itself inside the fetch deadline.** The guard resolves and checks
+- **`OutboundUrlGuard`'s DNS resolution is not itself inside the fetch deadline.** *(Status-list network item: owned by
+  the status-list work.)* The guard resolves and checks
   a status-list host before the HTTP client's own connect timeout starts counting, so a slow-to-resolve (or
   deliberately slow) DNS name can extend a status check beyond the configured 3 s connect / 5 s read bounds.
   Task 10 review finding #6, deferred to final triage.
 - **`StatusListToken`/CWT status-list parsing could be split into its own class.** Today the CWT (mdoc) status
   list form's COSE/CBOR handling is inlined alongside the SD-JWT (JWT) form in the same client rather than
-  factored into a dedicated type. Not a defect — a structure/maintainability item. Task 10 review finding #10.
+  factored into a dedicated type. Not a defect — a structure/maintainability item, not a security issue. Task 10
+  review finding #10.
 - **mdoc/COSE implementation-detail minors carried from the Task 11/12 reviews**, all accepted-risk or
   test-coverage gaps rather than defects, kept for a future pentest pass: an assumption that an `x5chain` is encoded as a single certificate when only one is present (vs. always an
   array), no explicit CBOR/COSE library version pin test, `byte[]` (non-constant-time) equality on a couple of
   internal comparisons that are not on a secret-comparison path, no dedicated negative test for a malformed
   `DeviceSignature`, and reliance on an internal Nimbus ECDSA helper rather than a public API for one signature
-  check. Full detail in `task-11-review.md` (items #2, #4, #5, #7, #8, #9) and `task-12-review.md`.
+  check. Full detail in `task-11-review.md` (items #2, #4, #5, #7, #8, #9) and `task-12-review.md`. **Not
+  vulnerabilities:** a single-certificate `x5chain` is decoded either way and then chain-validated to an anchor; the
+  `byte[]` comparisons compare public values; the version pin and the malformed-`DeviceSignature` test are coverage, and
+  a malformed signature already fails the COSE verification it reaches.
 - **Resolved (final review F1): `isWallet`/`isWalletAlias` caught only `IllegalArgumentException`.**
   `AccountIdentityController.isWallet` and `GdprAdminService.isWalletAlias` now ask
   `IdentityProviderRegistry#named`, which does not throw (it lists every realm's provider of that alias).
-- **The fail-open status audit carries no transaction id.** `WALLET_STATUS_CHECK_FAILED` (decision `accepted`,
+- **DONE (b45e247): the fail-open status audit carries no transaction id.** The response handler now runs a
+  presentation's verification inside its transaction (`WalletStatusAudit`), and the audit names its `transactionId`.
+  Was: `WALLET_STATUS_CHECK_FAILED` (decision `accepted`,
   emitted by `TokenStatusListClient` when an issuer's status list is transiently unavailable under
   `FAIL_OPEN_WITH_AUDIT`) has `{reason, statusListHost, decision}` but not the wallet transaction id, so an operator
   cannot tie a fail-open to the login it let through except by time and realm. Task 10 review #9 / final review m4.
   Fix: thread the transaction id into the status check's audit sink.
-- **A PUT that changes an identity provider's protocol keeps the old protocol's secrets.** `IdentityProviderConfigService
+- **DONE (3b7cc3b): a PUT that changes an identity provider's protocol keeps the old protocol's secrets.**
+  `saveOrUpdate` now drops stored secrets the new protocol does not list. Was: `IdentityProviderConfigService
   .saveOrUpdate` merges the stored `secret_json` with the incoming secrets by key; secret keys that belong only to the
   previous protocol stay stored (encrypted, never returned, and not read by the new protocol's provider). Task 4
   review. Fix: drop secrets that `ProviderSecretKeys` does not list for the new protocol.
-- **`IdentityProviderConfig.toString()` prints the merged secrets.** The record's generated `toString` includes the
+- **DONE (3b7cc3b): `IdentityProviderConfig.toString()` prints the merged secrets.** Both copies now redact every
+  `ProviderSecretKeys` value. Was: The record's generated `toString` includes the
   `config` map, which on the runtime side contains the decrypted secrets. Nothing logs or formats it today (checked);
   a latent leak for a future log line. Task 4 review. Fix: override `toString` to redact `ProviderSecretKeys`.
-- **`FederatedLoginCommit.commit` does not catch `java.lang.Error`.** By Java convention (the project does not
+- **DONE (3b7cc3b): `FederatedLoginCommit.commit` does not catch `java.lang.Error`.** `PendingFederatedLogin.finish`
+  catches `Throwable` around the commit only, refuses the login (clears the context, invalidates the session, reports
+  the failure) and then rethrows the `Error`, so the session is never left signed in. Was: By Java convention (the project does not
   catch `Error` anywhere else either), an `Error` thrown by a committer (the wallet's `WalletPendingLinkCommit`
   is the only implementation) escapes uncaught with the HTTP session already established a few lines earlier in
   `FederatedLoginCompleter.complete`. `RuntimeException` is caught and correctly refuses the login
@@ -160,8 +183,10 @@ is merged into this branch; the wallet-specific consequences were resolved in th
   with `helix.federation.store.enabled=true` (default `false`), only `master` was loaded at startup, and each write
   replaced every realm's store-backed providers with the written realm's. The store refresher is now on by default,
   loads every realm at startup, refreshes only the written realm, and keys stored providers by (realm, alias);
-  see `docs/eudi-wallet.md` §2.2. Remaining: a write refreshes only the replica that handled it, and a realm import
-  does not refresh the registry (both go live at the next restart).
+  see `docs/eudi-wallet.md` §2.2. ~~Remaining: a write refreshes only the replica that handled it, and a realm import
+  does not refresh the registry (both go live at the next restart).~~ **DONE (cb558d0):** every replica polls the
+  store (`HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60) and reloads the realms whose connections changed, so a
+  disabled or deleted provider stops working everywhere within one poll; a realm import refreshes the imported realm.
 
 ## Deep SAML pentest (2026-09-17, issue #1) — outcome
 Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md`](../docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md)). Result: 0 critical / 0 high / 1 medium / 2 low.
@@ -172,4 +197,36 @@ Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-1
   refused, and any envelope is refused when the IdP's metadata gives no signing key. The inner assertion signature is
   still enforced as before. Covered by `OpenSamlEidArtifactResolverTest` (loopback ARS stub: signed accepted;
   unsigned, wrong-key and no-IdP-key refused). The live DigiD mTLS round-trip is still environment-blocked.
-- **Still environment-blocked** (not a defect): the live DigiD `ArtifactResolve`/mTLS SOAP round-trip against a real peer, and the full seeded-broker end-to-end browser round-trip — need a DigiD test environment. Out-of-#1 lower items from the prior report (SP-SLO unsigned, rsa-sha1/unknown-SigAlg, unsigned SP metadata import) remain tracked.
+- **Still environment-blocked** (not a defect): the live DigiD `ArtifactResolve`/mTLS SOAP round-trip against a real peer, and the full seeded-broker end-to-end browser round-trip — need a DigiD test environment. Out-of-#1 lower items from the prior report: **SAML-4 (SP-SLO unsigned) — DONE
+  earlier**: `SamlIdpController.processSlo` refuses SP-initiated SLO unless the SP has a registered signing certificate
+  and the LogoutRequest signature verifies. **SAML-7 (rsa-sha1 / unknown SigAlg) — DONE earlier**:
+  `SamlAuthnRequestParser.jca` accepts only RSA-SHA256/384/512 and rejects SHA-1, unknown and missing algorithms.
+  **S-I1 (unsigned SP metadata import) — not a vulnerability**: the metadata is pasted or fetched by an authenticated
+  realm admin, who is trusted to register the SP and its certificates at all (typing them in by hand has the same
+  trust); metadata signing is optional in SAML deployments, and the import is admin-RBAC-gated and audited.
+
+## Pre-1.0 security review residuals (2026-10-13, branch `fix/security-residuals`)
+- **DONE (47b0ff1) — classic DigiD AuthnRequest.** Per Logius, *Koppelvlakspecificatie DigiD SAML Authenticatie*
+  v3.5, Basis/Midden/Substantieel/Hoog are `PasswordProtectedTransport`/`MobileTwoFactorContract`/`Smartcard`/
+  `SmartcardPKI`, requested with `RequestedAuthnContext Comparison="minimum"`. The DigiD keywords (`loa1`–`loa4`,
+  `basis`/`midden`/`substantieel`/`hoog`) resolve to those classes in the request and the comparison; stored
+  `urn:nl-eid-gdi:1.0:LoA:*` minimums and brokers asserting them keep working. Review #8 closed.
+- **DONE (67dd14b) — `/flow` enrolment rule.** A `/flow` completion in an MFA-required realm for a user who has not
+  enrolled TOTP (an admin-built flow with email OTP, push or QR) now goes to `/mfa/enable` with the sign-in pending,
+  like `FlowLoginSuccessHandler` and the federated completion.
+- **DONE (4974628) — null expected user.** `MfaService.unlockUser(null)` already failed closed after the merge; pinned
+  by `MfaServiceUnlockTest` (a null-safe-equals mutation turns it red).
+- **DONE (333c2bf) — migration window at runtime.** `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` is enforced on every plaintext
+  read: after the date, the read fails closed and an ERROR is logged.
+- **DONE (9d27793) — Host header port.** Outside `dev`, a base-URL host accepts only that URL's port (or a `Host`
+  without a port); `HELIX_ALLOWED_HOSTS` entries may pin `host:port`; an invalid port gets 400; probe exemptions apply
+  only on the connection's own port. Review #6 follow-up.
+- **Review findings left as they are (not in this file before; minor, no exploit path):** #3 (the by-id user lookup of
+  `MfaEnabledCondition` is not realm-scoped, but its id only comes from server-side flow state, which the broker resolved
+  realm-checked), #14 (documentation of right-most-untrusted XFF; the README already says never to list ranges clients
+  connect from). Reviews #9 and #13 are closed below.
+- **DONE (cb68519) — review #13.** `ClientIpResolver` no longer reads `X-Real-IP`, so a
+  trusted hop that neither sets nor strips it can no longer let a client choose its own address.
+- **DONE (dc24def) — review #9.** A realm import refuses an eID
+  connection whose scheme or minimum level of assurance is unknown, with the admin API's field errors, instead of
+  saving it and skipping it at load time.
