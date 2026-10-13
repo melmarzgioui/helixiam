@@ -209,7 +209,7 @@ public class ClientAdminService {
         client.setRefreshTokenLifespan(write.refreshTokenLifespan());
         client.setIdTokenSignatureAlg(blankToNull(write.idTokenSignatureAlg()));
         client.setReuseRefreshTokens(Boolean.TRUE.equals(write.reuseRefreshTokens()));
-        client.setTokenEndpointAuthMethod(blankToNull(write.tokenEndpointAuthMethod()));
+        client.setTokenEndpointAuthMethod(ClientAuthMethods.normalize(write.tokenEndpointAuthMethod()));
         client.setJwksUrl(blankToNull(write.jwksUrl()));
         client.setBackchannelLogoutUri(blankToNull(write.backchannelLogoutUri()));
         client.setFrontchannelLogoutUri(blankToNull(write.frontchannelLogoutUri()));

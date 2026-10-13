@@ -84,7 +84,7 @@ public final class DcrMapper {
                 client.clientId(), client.secret(), registrationAccessToken, registrationClientUri,
                 client.name(), client.redirectUris(), client.grantTypes(), DEFAULT_RESPONSE_TYPES,
                 client.tokenEndpointAuthMethod() == null ? DEFAULT_AUTH_METHOD
-                        : STORED_PRIVATE_KEY_JWT.equals(client.tokenEndpointAuthMethod()) ? "private_key_jwt"
+                        : STORED_PRIVATE_KEY_JWT.equalsIgnoreCase(client.tokenEndpointAuthMethod()) ? "private_key_jwt"
                         : client.tokenEndpointAuthMethod(),
                 joinScopes(client.scopes()), client.postLogoutRedirectUris(), client.jwksUrl());
     }

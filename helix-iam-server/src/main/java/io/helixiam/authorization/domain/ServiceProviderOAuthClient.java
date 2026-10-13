@@ -283,7 +283,8 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
         }
         // Wave 5: a confidential client may instead authenticate with a signed JWT assertion (private_key_jwt),
         // verified against its registered JWKS — no shared secret on the wire (FAPI-grade).
-        if ("PRIVATE_KEY_JWT".equals(tokenEndpointAuthMethod) && StringUtils.isNotBlank(jwksUrl)) {
+        if (io.helixiam.authorization.service.client.ClientAuthMethods.isPrivateKeyJwt(tokenEndpointAuthMethod)
+                && StringUtils.isNotBlank(jwksUrl)) {
             return Collections.singleton(ClientAuthenticationMethod.PRIVATE_KEY_JWT);
         }
         return Collections.singleton(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
@@ -291,7 +292,8 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
 
     private boolean usesPrivateKeyJwt() {
         return !Boolean.TRUE.equals(publicClient)
-                && "PRIVATE_KEY_JWT".equals(tokenEndpointAuthMethod) && StringUtils.isNotBlank(jwksUrl);
+                && io.helixiam.authorization.service.client.ClientAuthMethods.isPrivateKeyJwt(tokenEndpointAuthMethod)
+                && StringUtils.isNotBlank(jwksUrl);
     }
 
     @Override

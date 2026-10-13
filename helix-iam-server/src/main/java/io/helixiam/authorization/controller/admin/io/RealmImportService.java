@@ -690,6 +690,13 @@ public class RealmImportService {
                         Map.of("jwksUrl", jwksUrlProblem));
                 continue;
             }
+            final String authMethodProblem = io.helixiam.authorization.service.client.ClientAuthMethods.problem(
+                    c.tokenEndpointAuthMethod());
+            if (authMethodProblem != null) {
+                fieldErrorsFailed(r, SLICE_CLIENTS, realmId, "The client " + c.clientId() + " is not valid: ",
+                        Map.of("tokenEndpointAuthMethod", authMethodProblem));
+                continue;
+            }
             try {
                 final ClientDto current = existing.get(c.clientId());
                 final String id = current == null ? null : current.id();

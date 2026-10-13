@@ -62,6 +62,12 @@ public class ClientAdminController {
         if (secretOnPublicClient(request)) {
             return publicClientHasNoSecret("clientSecret");
         }
+        final String authMethodProblem = io.helixiam.authorization.service.client.ClientAuthMethods.problem(
+                request.tokenEndpointAuthMethod());
+        if (authMethodProblem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", authMethodProblem, "fieldErrors",
+                    Map.of("tokenEndpointAuthMethod", authMethodProblem)));
+        }
         final String jwksUrlProblem = jwksUrlProblem(request.jwksUrl());
         if (jwksUrlProblem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", jwksUrlProblem, "fieldErrors",
@@ -86,6 +92,12 @@ public class ClientAdminController {
                                     @Valid @RequestBody final ClientRequest request) {
         if (secretOnPublicClient(request)) {
             return publicClientHasNoSecret("clientSecret");
+        }
+        final String authMethodProblem = io.helixiam.authorization.service.client.ClientAuthMethods.problem(
+                request.tokenEndpointAuthMethod());
+        if (authMethodProblem != null) {
+            return ResponseEntity.badRequest().body(Map.of("message", authMethodProblem, "fieldErrors",
+                    Map.of("tokenEndpointAuthMethod", authMethodProblem)));
         }
         final String jwksUrlProblem = jwksUrlProblem(request.jwksUrl());
         if (jwksUrlProblem != null) {

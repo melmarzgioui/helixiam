@@ -630,6 +630,22 @@ class RealmImportServiceTest {
         verify(clients, never()).update(any());
     }
 
+    private static ClientDto withAuthMethod(final String clientId, final String method) {
+        return new ClientDto("source", null, clientId, List.of("client_credentials"), List.of(), List.of(), null, "sub",
+                null, clientId, null, List.of(), List.of(), false, false, false, null, null, null, null, false, null,
+                null, null, false, method, "https://keys.example.com/jwks", null, null, null, null, null, null);
+    }
+
+    @Test
+    void importedAuthMethod_unknownSpellingIsRefused_knownSpellingInAnyCaseIsImported() {
+        final RealmImportResult result = service.importInto("gov", clientsOnly(
+                withAuthMethod("lower", "private_key_jwt"),
+                withAuthMethod("typo", "private-key-jwt")));
+        assertThat(clientStore).extracting(ClientDto::clientId).containsExactly("lower");
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason).singleElement().asString()
+                .startsWith("The client typo is not valid: tokenEndpointAuthMethod: ");
+    }
+
     private static ClientDto clientDto(final String clientId) {
         return new ClientDto("gov", "cid-" + clientId, clientId, List.of(), List.of(), List.of(), null, "sub", null,
                 clientId, null, List.of(), List.of(), false, false, false, null, null, null, null, false, null, null,
