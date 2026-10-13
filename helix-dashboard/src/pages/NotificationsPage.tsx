@@ -11,7 +11,7 @@ import { Tabs } from "../components/Tabs";
 import { FormField, Input, Textarea } from "../components/FormField";
 import { Select } from "../components/Select";
 import { Checkbox } from "../components/Choice";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast, useAvoidBottomToast } from "../components/ToastProvider";
 import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
 import { MessagingApi, MessagingProvider, MessageTemplate } from "../api/messaging";
@@ -22,8 +22,6 @@ export interface NotificationsPageProps {
   api: MessagingApi;
   realmId: string;
 }
-
-interface Note { tone: ToastTone; title: string; message?: string; }
 
 type Target = "config" | "from" | "fromName" | "secret";
 interface Field { key: string; label: string; target: Target; type?: "text" | "password" | "textarea"; placeholder?: string; hint?: string; }
@@ -70,12 +68,16 @@ export function NotificationsPage({ api, realmId }: NotificationsPageProps) {
   const [tab, setTab] = React.useState<Tab>("SMS");
   const [providers, setProviders] = React.useState<MessagingProvider[] | null>(null);
   const [templates, setTemplates] = React.useState<MessageTemplate[]>([]);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
+  // The Email tab (EmailDeliverySettings) has its own sticky bottom save bar — keep the shared toast host out of
+  // its way while that tab is open (S3: the original per-page "hx-toasthost--savebar" workaround, now shared).
+  useAvoidBottomToast(tab === "EMAIL");
 
   const reload = React.useCallback(() => {
     setProviders(null);
-    api.listProviders(realmId).then(setProviders).catch((e) => { setProviders([]); setNote({ tone: "error", title: t("notifications.toast.loadError"), message: String(e.message ?? e) }); });
+    api.listProviders(realmId).then(setProviders).catch((e) => { setProviders([]); toast.show({ tone: "error", title: t("notifications.toast.loadError"), message: String(e.message ?? e) }); });
     api.listTemplates(realmId).then(setTemplates).catch(() => setTemplates([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, realmId]);
   React.useEffect(reload, [reload]);
 
@@ -97,24 +99,18 @@ export function NotificationsPage({ api, realmId }: NotificationsPageProps) {
         {providers === null ? (
           <div className="hx-loadwrap"><Spinner size={28} label={t("common.loading")} /></div>
         ) : tab === "TEMPLATES" ? (
-          <TemplatesEditor api={api} realmId={realmId} templates={templates} onSaved={(tmpl) => { setTemplates(tmpl); setNote({ tone: "success", title: t("notifications.toast.templateSaved") }); }} onError={(m) => setNote({ tone: "error", title: t("notifications.toast.templateSaveError"), message: m })} />
+          <TemplatesEditor api={api} realmId={realmId} templates={templates} onSaved={(tmpl) => { setTemplates(tmpl); toast.show({ tone: "success", title: t("notifications.toast.templateSaved") }); }} onError={(m) => toast.show({ tone: "error", title: t("notifications.toast.templateSaveError"), message: m })} />
         ) : tab === "EMAIL" ? (
           <EmailDeliverySettings key={realmId} api={api} realmId={realmId} providers={providers}
             onChanged={() => api.listProviders(realmId).then((list) => { setProviders(list); return list; })}
-            onSaved={(title) => setNote({ tone: "success", title: title ?? t("notifications.toast.providerSaved") })} />
+            onSaved={(title) => toast.show({ tone: "success", title: title ?? t("notifications.toast.providerSaved") })} />
         ) : (
           <ChannelForm key={tab} api={api} realmId={realmId} channel={tab} providers={providers}
-            onSaved={() => { reload(); setNote({ tone: "success", title: t("notifications.toast.providerSaved") }); }}
-            onError={(m) => setNote({ tone: "error", title: t("notifications.toast.providerSaveError"), message: m })}
-            onTested={(r) => setNote({ tone: r.sent ? "success" : "error", title: r.sent ? t("notifications.toast.testSent") : t("notifications.toast.testNotSent"), message: r.message })} />
+            onSaved={() => { reload(); toast.show({ tone: "success", title: t("notifications.toast.providerSaved") }); }}
+            onError={(m) => toast.show({ tone: "error", title: t("notifications.toast.providerSaveError"), message: m })}
+            onTested={(r) => toast.show({ tone: r.sent ? "success" : "error", title: r.sent ? t("notifications.toast.testSent") : t("notifications.toast.testNotSent"), message: r.message })} />
         )}
       </PageBody>
-
-      {note && (
-        <div className={tab === "EMAIL" ? "hx-toasthost hx-toasthost--savebar" : "hx-toasthost"}>
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

@@ -8,7 +8,7 @@ import { Page, PageHeader, PageBody } from "../components/Page";
 import { Button } from "../components/Button";
 import { RowMenu } from "../components/RowMenu";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -44,12 +44,6 @@ export interface ConnectionsPageProps {
   walletApi?: WalletAdminApi;
 }
 
-interface Note {
-  tone: ToastTone;
-  title: string;
-  message?: string;
-}
-
 /** E8.4/E8.3: the live "Identity providers" screen — premium + responsive. */
 export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, protocols, aboveContent, emptyTitle, emptyMessage, onOpen, walletApi = defaultWalletApi }: ConnectionsPageProps) {
   const { t } = useT();
@@ -60,7 +54,7 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
   const [toEdit, setToEdit] = React.useState<IdentityProviderConfig | null>(null);
   const [toDelete, setToDelete] = React.useState<IdentityProviderConfig | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   // A refused save's fieldErrors, handed to the wizard so it shows them on its fields (it stays mounted while saving).
   const [serverErrors, setServerErrors] = React.useState<Record<string, string> | null>(null);
 
@@ -73,7 +67,7 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
     setRows(null);
     api.list(realmId).then(setRows).catch((e) => {
       setRows([]);
-      setNote({ tone: "error", title: t("connections.errLoad"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("connections.errLoad"), message: String(e.message ?? e) });
     });
   }, [api, realmId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -85,16 +79,16 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
     try {
       if (toEdit) {
         await api.update(realmId, toEdit.alias, toRequest(result));
-        setNote({ tone: "success", title: t("connections.toastUpdated"), message: t("connections.toastUpdatedMsg", { name: result.displayName }) });
+        toast.show({ tone: "success", title: t("connections.toastUpdated"), message: t("connections.toastUpdatedMsg", { name: result.displayName }) });
       } else {
         await api.create(realmId, toRequest(result));
-        setNote({ tone: "success", title: t("connections.toastCreated"), message: t("connections.toastCreatedMsg", { name: result.displayName, realm: realmId }) });
+        toast.show({ tone: "success", title: t("connections.toastCreated"), message: t("connections.toastCreatedMsg", { name: result.displayName, realm: realmId }) });
       }
       closeEditor();
       reload();
     } catch (e: unknown) {
       if (e instanceof AdminApiError && Object.keys(e.fieldErrors).length) setServerErrors({ ...e.fieldErrors });
-      setNote({ tone: "error", title: t("connections.errSave"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("connections.errSave"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -106,10 +100,10 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
     setToDelete(null);
     try {
       await api.remove(realmId, target.alias);
-      setNote({ tone: "info", title: t("connections.toastDeleted"), message: t("connections.toastDeletedMsg", { name: target.displayName || target.alias }) });
+      toast.show({ tone: "info", title: t("connections.toastDeleted"), message: t("connections.toastDeletedMsg", { name: target.displayName || target.alias }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("connections.errDelete"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("connections.errDelete"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -222,11 +216,6 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

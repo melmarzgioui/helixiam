@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { Badge } from "../components/Badge";
@@ -23,22 +23,20 @@ export interface ClaimsPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 /** E8.5: the claim catalogue (preset) — the master list of claim types a realm supports. Scopes map from here. */
 export function ClaimsPage({ api, realmId }: ClaimsPageProps) {
   const { t } = useT();
   const [rows, setRows] = React.useState<Claim[] | null>(null);
   const [editing, setEditing] = React.useState<Claim | null | "new">(null);
   const [toDelete, setToDelete] = React.useState<Claim | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [subject, setSubject] = React.useState<string>("");
   const [loadedSubject, setLoadedSubject] = React.useState<string>("");
   const [savingSubject, setSavingSubject] = React.useState(false);
 
   const reload = React.useCallback(() => {
     setRows(null);
-    api.list(realmId).then(setRows).catch((e) => { setRows([]); setNote({ tone: "error", title: t("claims.loadError"), message: String(e.message ?? e) }); });
+    api.list(realmId).then(setRows).catch((e) => { setRows([]); toast.show({ tone: "error", title: t("claims.loadError"), message: String(e.message ?? e) }); });
   }, [api, realmId, t]);
   React.useEffect(reload, [reload]);
   React.useEffect(() => {
@@ -51,9 +49,9 @@ export function ClaimsPage({ api, realmId }: ClaimsPageProps) {
       const s = await api.setSubject(realmId, subject);
       setLoadedSubject(s.claimKey);
       const fromText = subject === "sub" ? t("claims.internalSubjectId") : `"${subject}"`;
-      setNote({ tone: "success", title: t("claims.subjectUpdated"), message: t("claims.subjectUpdatedMsg", { from: fromText }) });
+      toast.show({ tone: "success", title: t("claims.subjectUpdated"), message: t("claims.subjectUpdatedMsg", { from: fromText }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("claims.saveSubjectError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("claims.saveSubjectError"), message: String((e as Error).message ?? e) });
     } finally {
       setSavingSubject(false);
     }
@@ -63,15 +61,15 @@ export function ClaimsPage({ api, realmId }: ClaimsPageProps) {
     try {
       if (editing && editing !== "new") {
         await api.update(realmId, editing.claimId, body);
-        setNote({ tone: "success", title: t("claims.updateSuccess"), message: t("claims.updateSuccessMsg", { label: body.label }) });
+        toast.show({ tone: "success", title: t("claims.updateSuccess"), message: t("claims.updateSuccessMsg", { label: body.label }) });
       } else {
         await api.create(realmId, body);
-        setNote({ tone: "success", title: t("claims.addSuccess"), message: t("claims.addSuccessMsg", { label: body.label }) });
+        toast.show({ tone: "success", title: t("claims.addSuccess"), message: t("claims.addSuccessMsg", { label: body.label }) });
       }
       setEditing(null);
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("claims.saveError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("claims.saveError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -80,10 +78,10 @@ export function ClaimsPage({ api, realmId }: ClaimsPageProps) {
     const td = toDelete; setToDelete(null);
     try {
       await api.remove(realmId, td.claimId);
-      setNote({ tone: "info", title: t("claims.removeSuccess"), message: t("claims.removeSuccessMsg", { label: td.label }) });
+      toast.show({ tone: "info", title: t("claims.removeSuccess"), message: t("claims.removeSuccessMsg", { label: td.label }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("claims.removeError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("claims.removeError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -192,11 +190,6 @@ export function ClaimsPage({ api, realmId }: ClaimsPageProps) {
         onConfirm={confirmDelete}
         onCancel={() => setToDelete(null)}
       />
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

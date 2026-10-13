@@ -9,7 +9,7 @@ import { Card } from "../components/Card";
 import { Button } from "../components/Button";
 import { RowMenu } from "../components/RowMenu";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -26,8 +26,6 @@ export interface GroupsPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 /** E8.5-S4: the live Groups screen — hierarchical groups, membership and group→role mappings. */
 export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) {
   const { t } = useT();
@@ -36,7 +34,7 @@ export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) 
   const [creating, setCreating] = React.useState<{ parentId: string | null } | null>(null);
   const [renaming, setRenaming] = React.useState<Group | null>(null);
   const [toDelete, setToDelete] = React.useState<Group | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const reload = React.useCallback(() => {
     setGroups(null);
@@ -45,7 +43,7 @@ export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) 
       setSelectedId((cur) => (cur && gs.some((g) => g.groupId === cur) ? cur : gs[0]?.groupId ?? null));
     }).catch((e) => {
       setGroups([]);
-      setNote({ tone: "error", title: t("groups.load.error"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("groups.load.error"), message: String(e.message ?? e) });
     });
   }, [api, realmId, t]);
 
@@ -57,11 +55,11 @@ export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) 
     try {
       const g = await api.create(realmId, name, parentId);
       setCreating(null);
-      setNote({ tone: "success", title: t("groups.created"), message: t("groups.created.msg", { name }) });
+      toast.show({ tone: "success", title: t("groups.created"), message: t("groups.created.msg", { name }) });
       reload();
       setSelectedId(g.groupId);
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("groups.create.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("groups.create.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -71,7 +69,7 @@ export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) 
       setRenaming(null);
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("groups.rename.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("groups.rename.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -81,10 +79,10 @@ export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) 
     setToDelete(null);
     try {
       await api.remove(realmId, target.groupId);
-      setNote({ tone: "info", title: t("groups.deleted"), message: t("groups.deleted.msg", { name: target.name }) });
+      toast.show({ tone: "info", title: t("groups.deleted"), message: t("groups.deleted.msg", { name: target.name }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("groups.delete.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("groups.delete.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -131,7 +129,7 @@ export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) 
                 realmId={realmId}
                 group={selected}
                 onChanged={reload}
-                onError={(m) => setNote({ tone: "error", title: t("groups.actionFailed"), message: m })}
+                onError={(m) => toast.show({ tone: "error", title: t("groups.actionFailed"), message: m })}
               />
             ) : (
               <Card><p className="hx-muted">{t("groups.select.hint")}</p></Card>
@@ -155,11 +153,6 @@ export function GroupsPage({ api, userApi, roleApi, realmId }: GroupsPageProps) 
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

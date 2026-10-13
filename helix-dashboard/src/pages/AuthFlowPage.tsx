@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody } from "../components/Page";
 import { Button } from "../components/Button";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
 import { LoaBadge, LoaLevel } from "../components/LoaBadge";
@@ -34,7 +34,6 @@ export interface AuthFlowPageProps {
 /** A minimal identity-provider option for the idp-redirect step's alias picker. */
 export interface IdpOption { alias: string; displayName: string; }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
 type Mode = "simple" | "advanced";
 const MODE_KEY = "helix.authflow.mode";
 const BROWSER_ALIAS = "browser";
@@ -67,7 +66,7 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
   const [idps, setIdps] = React.useState<IdpOption[]>([]);
   const [builtIn, setBuiltIn] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [mode, setMode] = React.useState<Mode>(() => (localStorage.getItem(MODE_KEY) as Mode) || "simple");
   const [picker, setPicker] = React.useState<{ stageId: string | null; condition: boolean } | null>(null);
   const [alias, setAlias] = React.useState<string>(BROWSER_ALIAS);
@@ -90,7 +89,7 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
         setBuiltIn(flow.builtIn);
         setCatalog(cat);
       })
-      .catch((e) => setNote({ tone: "error", title: t("authFlow.error.loadFlow"), message: String(e.message ?? e) }));
+      .catch((e) => toast.show({ tone: "error", title: t("authFlow.error.loadFlow"), message: String(e.message ?? e) }));
   }, [api, realmId, alias, t]);
   React.useEffect(reload, [reload]);
   React.useEffect(loadFlows, [loadFlows]);
@@ -166,9 +165,9 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
       const saved = await api.saveByAlias(realmId, alias, execs);
       setLoaded(saved.executions);
       setExecs(saved.executions.map((e) => ({ ...e })));
-      setNote({ tone: "success", title: t("authFlow.saved.title"), message: t("authFlow.saved.msg", { alias, realm: realmId }) });
+      toast.show({ tone: "success", title: t("authFlow.saved.title"), message: t("authFlow.saved.msg", { alias, realm: realmId }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("authFlow.error.save"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("authFlow.error.save"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -188,7 +187,7 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
       await api.create(realmId, newAlias, blank ? null : alias);
       loadFlows();
       setAlias(newAlias);
-      setNote({
+      toast.show({
         tone: "success",
         title: t("authFlow.flow.created.title"),
         message: blank
@@ -196,7 +195,7 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
           : t("authFlow.flow.created.msg", { name: newAlias, source: alias }),
       });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("authFlow.error.create"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("authFlow.error.create"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -207,9 +206,9 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
       await api.rename(realmId, from, newAlias);
       loadFlows();
       setAlias(newAlias);
-      setNote({ tone: "success", title: t("authFlow.flow.renamed.title"), message: t("authFlow.flow.renamed.msg", { from, name: newAlias }) });
+      toast.show({ tone: "success", title: t("authFlow.flow.renamed.title"), message: t("authFlow.flow.renamed.msg", { from, name: newAlias }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("authFlow.error.rename"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("authFlow.error.rename"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -220,9 +219,9 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
       await api.remove(realmId, gone);
       setAlias(BROWSER_ALIAS);
       loadFlows();
-      setNote({ tone: "success", title: t("authFlow.flow.deleted.title"), message: t("authFlow.flow.deleted.msg", { alias: gone }) });
+      toast.show({ tone: "success", title: t("authFlow.flow.deleted.title"), message: t("authFlow.flow.deleted.msg", { alias: gone }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("authFlow.error.delete"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("authFlow.error.delete"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -324,11 +323,6 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
         )}
       </Modal>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

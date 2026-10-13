@@ -19,11 +19,30 @@ public final class JwksUrlPolicy {
     public static final String NOT_A_URL = "The JWKS URL is not a valid URL.";
     public static final String NOT_HTTPS = "The JWKS URL must be an https URL.";
 
+    /** Stable machine-readable codes for {@link #code}, so a client can map them to its own translated copy
+     * instead of matching the (English-only) {@link #problem} message text. */
+    public static final String CODE_NOT_A_URL = "notUrl";
+    public static final String CODE_NOT_HTTPS = "notHttps";
+
     private JwksUrlPolicy() {
     }
 
     /** The field error for {@code jwksUrl}, or null when it is acceptable. */
     public static String problem(final String jwksUrl, final boolean dev) {
+        final Problem p = classify(jwksUrl, dev);
+        return p == null ? null : p.message();
+    }
+
+    /** The stable code for {@code jwksUrl}'s problem ({@link #CODE_NOT_A_URL} / {@link #CODE_NOT_HTTPS}), or null. */
+    public static String code(final String jwksUrl, final boolean dev) {
+        final Problem p = classify(jwksUrl, dev);
+        return p == null ? null : p.code();
+    }
+
+    private record Problem(String code, String message) {
+    }
+
+    private static Problem classify(final String jwksUrl, final boolean dev) {
         if (jwksUrl == null || jwksUrl.isBlank()) {
             return null;
         }
@@ -31,7 +50,7 @@ public final class JwksUrlPolicy {
         try {
             uri = new URI(jwksUrl.trim());
         } catch (final URISyntaxException e) {
-            return NOT_A_URL;
+            return new Problem(CODE_NOT_A_URL, NOT_A_URL);
         }
         if ("https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null) {
             return null;
@@ -40,6 +59,6 @@ public final class JwksUrlPolicy {
                 && ("localhost".equalsIgnoreCase(uri.getHost()) || "127.0.0.1".equals(uri.getHost()))) {
             return null;
         }
-        return NOT_HTTPS;
+        return new Problem(CODE_NOT_HTTPS, NOT_HTTPS);
     }
 }

@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody } from "../components/Page";
 import { Button } from "../components/Button";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { FormField, Input } from "../components/FormField";
@@ -24,8 +24,6 @@ export interface RolesPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 /** E8.5-S2 / DR: the live Realm roles screen — roles admin API + per-role admin-permission editor. */
 export function RolesPage({ api, adminApi, realmId }: RolesPageProps) {
   const { t } = useT();
@@ -33,13 +31,13 @@ export function RolesPage({ api, adminApi, realmId }: RolesPageProps) {
   const [creating, setCreating] = React.useState(false);
   const [toDelete, setToDelete] = React.useState<Role | null>(null);
   const [perms, setPerms] = React.useState<Role | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const reload = React.useCallback(() => {
     setRows(null);
     api.list(realmId).then(setRows).catch((e) => {
       setRows([]);
-      setNote({ tone: "error", title: t("roles.error.load"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("roles.error.load"), message: String(e.message ?? e) });
     });
   }, [api, realmId, t]);
 
@@ -49,10 +47,10 @@ export function RolesPage({ api, adminApi, realmId }: RolesPageProps) {
     try {
       await api.create(realmId, name);
       setCreating(false);
-      setNote({ tone: "success", title: t("roles.created.title"), message: t("roles.created.msg", { name, realm: realmId }) });
+      toast.show({ tone: "success", title: t("roles.created.title"), message: t("roles.created.msg", { name, realm: realmId }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("roles.error.create"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("roles.error.create"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -62,20 +60,20 @@ export function RolesPage({ api, adminApi, realmId }: RolesPageProps) {
     setToDelete(null);
     try {
       await api.remove(realmId, target.roleId);
-      setNote({ tone: "info", title: t("roles.deleted.title"), message: t("roles.deleted.msg", { name: target.name }) });
+      toast.show({ tone: "info", title: t("roles.deleted.title"), message: t("roles.deleted.msg", { name: target.name }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("roles.error.delete"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("roles.error.delete"), message: String((e as Error).message ?? e) });
     }
   };
 
   const setDefault = async (role: Role) => {
     try {
       await api.setDefault(realmId, role.roleId);
-      setNote({ tone: "success", title: t("roles.default.title"), message: t("roles.default.msg", { realm: realmId, name: role.name }) });
+      toast.show({ tone: "success", title: t("roles.default.title"), message: t("roles.default.msg", { realm: realmId, name: role.name }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("roles.error.setDefault"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("roles.error.setDefault"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -178,7 +176,7 @@ export function RolesPage({ api, adminApi, realmId }: RolesPageProps) {
           roleId={perms.roleId}
           roleName={perms.name}
           onClose={() => setPerms(null)}
-          onSaved={() => setNote({ tone: "success", title: t("roles.perms.saved.title"), message: t("roles.perms.saved.msg", { name: perms.name }) })}
+          onSaved={() => toast.show({ tone: "success", title: t("roles.perms.saved.title"), message: t("roles.perms.saved.msg", { name: perms.name }) })}
         />
       )}
 
@@ -190,11 +188,6 @@ export function RolesPage({ api, adminApi, realmId }: RolesPageProps) {
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

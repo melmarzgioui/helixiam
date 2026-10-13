@@ -51,4 +51,51 @@ describe("splitClientServerErrors", () => {
     expect(splitClientServerErrors({ name: "x" }).tab).toBeNull();
     expect(splitClientServerErrors({}).fields).toEqual({});
   });
+
+  it("maps a known jwksUrl error onto its i18n key via the server's stable code", () => {
+    const split = splitClientServerErrors(
+      { jwksUrl: "The JWKS URL must be an https URL." },
+      { jwksUrl: "notHttps" },
+    );
+    expect(split.fields.jwksUrl).toBe("clientDetail.jwksUrlHttps");
+
+    const split2 = splitClientServerErrors(
+      { jwksUrl: "The JWKS URL is not a valid URL." },
+      { jwksUrl: "notUrl" },
+    );
+    expect(split2.fields.jwksUrl).toBe("clientDetail.jwksUrlInvalid");
+  });
+
+  it("maps a known tokenEndpointAuthMethod error onto its i18n key via code", () => {
+    const split = splitClientServerErrors(
+      { tokenEndpointAuthMethod: "Unknown token endpoint auth method (use private_key_jwt, client_secret_basic or none)." },
+      { tokenEndpointAuthMethod: "unknown" },
+    );
+    expect(split.fields.tokenEndpointAuthMethod).toBe("clientDetail.authMethodUnknown");
+  });
+
+  it("falls back to matching the server's exact English text when no code is sent", () => {
+    const split = splitClientServerErrors({ jwksUrl: "The JWKS URL must be an https URL." });
+    expect(split.fields.jwksUrl).toBe("clientDetail.jwksUrlHttps");
+
+    const split2 = splitClientServerErrors({
+      tokenEndpointAuthMethod: "Unknown token endpoint auth method (use private_key_jwt, client_secret_basic or none).",
+    });
+    expect(split2.fields.tokenEndpointAuthMethod).toBe("clientDetail.authMethodUnknown");
+  });
+
+  it("passes an unrecognized message (unknown code or unmatched text) through verbatim", () => {
+    const split = splitClientServerErrors({ jwksUrl: "Some future server message." }, { jwksUrl: "somethingNew" });
+    expect(split.fields.jwksUrl).toBe("Some future server message.");
+
+    const split2 = splitClientServerErrors({ redirectUris: "A totally custom message." });
+    expect(split2.fields.redirectUris).toBe("A totally custom message.");
+  });
+
+  it("allMapped is true only when every error landed on a known field", () => {
+    expect(splitClientServerErrors({ jwksUrl: "x" }).allMapped).toBe(true);
+    expect(splitClientServerErrors({ jwksUrl: "x", clientSecret: "y" }).allMapped).toBe(false);
+    expect(splitClientServerErrors({}).allMapped).toBe(false);
+    expect(splitClientServerErrors({ clientSecret: "y" }).allMapped).toBe(false);
+  });
 });

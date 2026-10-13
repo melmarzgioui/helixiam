@@ -8,7 +8,7 @@ import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { FormField, Input, Select } from "../components/FormField";
 import { AuditApi, AuditConfig, AuditRecord } from "../api/audit";
 import { useT } from "../i18n/LocaleContext";
@@ -17,8 +17,6 @@ export interface EventsPageProps {
   api: AuditApi;
   realmId: string;
 }
-
-interface Note { tone: ToastTone; title: string; message?: string; }
 
 /**
  * E8.5 (Events): read-only view of the server's audit / SIEM delivery configuration. Audit events are
@@ -29,7 +27,7 @@ interface Note { tone: ToastTone; title: string; message?: string; }
 export function EventsPage({ api, realmId }: EventsPageProps) {
   const { t } = useT();
   const [cfg, setCfg] = React.useState<AuditConfig | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [rows, setRows] = React.useState<AuditRecord[] | null>(null);
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(0);
@@ -55,13 +53,13 @@ export function EventsPage({ api, realmId }: EventsPageProps) {
     setRows(null);
     api.search(realmId, { type: fType, actor: fActor, outcome: fOutcome, category: fCategory, page: p, size: SIZE })
       .then((res) => { setRows(res.items); setTotal(res.total); setPage(res.page); })
-      .catch((e) => { setRows([]); setNote({ tone: "error", title: t("events.error.load"), message: String(e.message ?? e) }); });
+      .catch((e) => { setRows([]); toast.show({ tone: "error", title: t("events.error.load"), message: String(e.message ?? e) }); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, realmId, fType, fActor, fOutcome, fCategory, t]);
 
   const reload = React.useCallback(() => {
     setCfg(null);
-    api.getConfig().then(setCfg).catch((e) => setNote({ tone: "error", title: t("events.error.loadConfig"), message: String(e.message ?? e) }));
+    api.getConfig().then(setCfg).catch((e) => toast.show({ tone: "error", title: t("events.error.loadConfig"), message: String(e.message ?? e) }));
     loadEvents(0);
   }, [api, loadEvents, t]);
 
@@ -181,11 +179,6 @@ export function EventsPage({ api, realmId }: EventsPageProps) {
         )}
       </PageBody>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

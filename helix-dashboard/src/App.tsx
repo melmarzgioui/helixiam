@@ -49,6 +49,7 @@ import { AgentsPage } from "./pages/AgentsPage";
 import { createAgentsHttpClient } from "./api/agents";
 import { McpPage } from "./pages/McpPage";
 import { LocaleProvider, useT } from "./i18n/LocaleContext";
+import { ToastProvider } from "./components/ToastProvider";
 import { InProgressPage } from "./pages/InProgressPage";
 import { createHttpClient } from "./api/client";
 import { createWalletHttpClient } from "./api/wallet";
@@ -524,11 +525,13 @@ function AppInner() {
   );
 }
 
-/** Root: provides the locale context (en/nl) so the console chrome + language switcher localize. */
+/** Root: provides the locale context (en/nl) and the ONE shared toast host for the whole console. */
 export function App() {
   return (
     <LocaleProvider>
-      <AppInner />
+      <ToastProvider>
+        <AppInner />
+      </ToastProvider>
     </LocaleProvider>
   );
 }

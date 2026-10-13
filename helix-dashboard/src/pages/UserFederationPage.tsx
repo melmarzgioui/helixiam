@@ -8,7 +8,7 @@ import { Page, PageHeader, PageBody } from "../components/Page";
 import { Button } from "../components/Button";
 import { RowMenu } from "../components/RowMenu";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -23,12 +23,6 @@ export interface UserFederationPageProps {
   realmId: string;
   /** When set, rows open the full-page connection editor (LDAP search base/filter, attributes, etc.). */
   onOpen?: (alias: string) => void;
-}
-
-interface Note {
-  tone: ToastTone;
-  title: string;
-  message?: string;
 }
 
 /** Directory-federation protocols surfaced on this screen (LDAP / Active Directory). */
@@ -48,7 +42,7 @@ export function UserFederationPage({ api, realmId, onOpen }: UserFederationPageP
   const [toEdit, setToEdit] = React.useState<IdentityProviderConfig | null>(null);
   const [toDelete, setToDelete] = React.useState<IdentityProviderConfig | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const editorOpen = wizardOpen || toEdit !== null;
   const closeEditor = () => { setWizardOpen(false); setToEdit(null); };
@@ -59,7 +53,7 @@ export function UserFederationPage({ api, realmId, onOpen }: UserFederationPageP
     setRows(null);
     api.list(realmId).then(setRows).catch((e) => {
       setRows([]);
-      setNote({ tone: "error", title: t("userFederation.errLoad"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("userFederation.errLoad"), message: String(e.message ?? e) });
     });
   }, [api, realmId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -70,15 +64,15 @@ export function UserFederationPage({ api, realmId, onOpen }: UserFederationPageP
     try {
       if (toEdit) {
         await api.update(realmId, toEdit.alias, toRequest(result));
-        setNote({ tone: "success", title: t("userFederation.toastUpdated"), message: t("userFederation.toastUpdatedMsg", { name: result.displayName }) });
+        toast.show({ tone: "success", title: t("userFederation.toastUpdated"), message: t("userFederation.toastUpdatedMsg", { name: result.displayName }) });
       } else {
         await api.create(realmId, toRequest(result));
-        setNote({ tone: "success", title: t("userFederation.toastCreated"), message: t("userFederation.toastCreatedMsg", { name: result.displayName, realm: realmId }) });
+        toast.show({ tone: "success", title: t("userFederation.toastCreated"), message: t("userFederation.toastCreatedMsg", { name: result.displayName, realm: realmId }) });
       }
       closeEditor();
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("userFederation.errSave"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("userFederation.errSave"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -90,10 +84,10 @@ export function UserFederationPage({ api, realmId, onOpen }: UserFederationPageP
     setToDelete(null);
     try {
       await api.remove(realmId, target.alias);
-      setNote({ tone: "info", title: t("userFederation.toastDeleted"), message: t("userFederation.toastDeletedMsg", { name: target.displayName || target.alias }) });
+      toast.show({ tone: "info", title: t("userFederation.toastDeleted"), message: t("userFederation.toastDeletedMsg", { name: target.displayName || target.alias }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("userFederation.errDelete"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("userFederation.errDelete"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -203,11 +197,6 @@ export function UserFederationPage({ api, realmId, onOpen }: UserFederationPageP
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }
