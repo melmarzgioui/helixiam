@@ -49,8 +49,9 @@ paths are hardened and tested."
   the wallet branch removed 4), plus hundreds elsewhere in the console (AccountApp, SecurityTab, AppShell, ...);
   move them to classes under the console design-system rule.
 - **Post-1.0 platform upgrades** — each a planned major upgrade with its own test pass, not a weekly
-  bump (Dependabot ignores these majors until then): Spring Boot 4 / Spring Security 7 (incl. SAML2
-  service provider 7), springdoc 3, Flyway 12+, Apache Santuario xmlsec 4, Java 25 LTS runtime; in the
+  bump (Dependabot ignores these majors until then): Jackson 3 for the application code (the server
+  runs on Spring Boot 4.1 / Spring Security 7.1 / springdoc 3 / Flyway 12 since the Boot 4 upgrade, with Jackson 2 kept
+  through the deprecated `spring-boot-jackson2` module), Apache Santuario xmlsec 4, Java 25 LTS runtime; in the
   console React 19, Vite 7+/`@vitejs/plugin-react` 5+, Storybook 9+, TypeScript 6+, Vitest 3+; in the sandbox RP Express 5,
   `openid-client` 6, `otplib` 13; cosign 3 (`cosign-installer` 4) in the release workflow.
 

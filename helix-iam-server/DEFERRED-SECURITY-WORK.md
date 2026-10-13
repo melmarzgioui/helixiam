@@ -4,6 +4,17 @@ These security-review / pentest items are deliberately NOT fixed in the current 
 Everything higher-severity has been remediated (see `SECURITY-REVIEW.md` and the internal test reports under
 [`docs/security/`](../docs/security/)).
 
+## Spring Boot 4: application code still on Jackson 2 (`spring-boot-jackson2`, deprecated)
+**Status: OPEN (low).** The Spring Boot 4.1 upgrade (2026-10-13) closed CVE-2026-47884 / CVE-2026-47890 and moved
+the server to a supported framework line. The application's own JSON code (`com.fasterxml.jackson`: controllers
+returning `JsonNode`, the wallet's `StrictJson` / `StrictCbor`, ~400 files) deliberately stayed on Jackson 2.21.x,
+auto-configured by Boot's `spring-boot-jackson2` module, with `spring.http.converters.preferred-json-mapper=jackson2`
+keeping Spring MVC's wire format. Jackson 2.21 still receives fixes, but Boot ships the module deprecated and will
+remove it in a future 4.x. Move to Jackson 3 (`tools.jackson`) before that, in its own change: Jackson 3's defaults
+differ (e.g. alphabetical property order, `FAIL_ON_NULL_FOR_PRIMITIVES`, unchecked `JacksonException`), and the
+wallet's strict parsers need their own review and tests. Spring Security 7, Flyway 12 and webauthn4j already use
+Jackson 3 (3.2.3) internally.
+
 ## M7 — OpenSAML 4.3.2 is EOL (upgrade to 5.x)
 **Status: DONE — OpenSAML 5.2.3 (latest 5.x).** First moved to 5.1.4 (2026-09-17), then to 5.2.3 (Dependabot),
 and on 2026-10-13 the last OpenSAML 4 reference left the build: `spring-security-saml2-service-provider` was
@@ -20,7 +31,7 @@ still depends on OpenSAML 4.3.2, was only dragging OpenSAML onto the classpath. 
   17.2.3 parent of OpenSAML 5.2.3 is built with.
 - BouncyCastle **1.86** (`bcprov`/`bcpkix`, direct pins, newer than the parent's 1.84), uniform so no split version.
 
-Spring Security 6.5.11 builds its own `OpenSaml5*` support against OpenSAML 5.1.2; HelixIAM uses none of it, so
+Spring Security (6.5.11 then, 7.1.1 since the Boot 4 upgrade) builds its own `OpenSaml5*` support; HelixIAM uses none of it, so
 the 5.2.x line carries no Spring compatibility constraint. Validation logic is unchanged: signature profile +
 `SignatureValidator`, `Decrypter`, conditions/issuer/recipient/status/InResponseTo checks, and the default
 `BasicParserPool` XXE/DTD hardening. The full SAML/eID suites pass unchanged.
