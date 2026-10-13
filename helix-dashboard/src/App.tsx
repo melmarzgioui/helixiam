@@ -283,7 +283,7 @@ const PAGES: Record<string, React.ComponentProps<typeof InProgressPage> & { sect
     blurb: "Live health of the IAM platform — services, queues, keys and login success rates.",
     icon: icon(ICONS.health),
     capabilities: [
-      "Service + dependency health (DB, Redis, AMQP)",
+      "Service + dependency health (DB, Redis)",
       "Login success/failure and latency trends",
       "Key rotation and certificate expiry warnings",
     ],
