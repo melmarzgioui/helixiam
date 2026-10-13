@@ -134,4 +134,20 @@ class LegacyEncryptionMigrationE2eTest extends AbstractE2eTest {
         assertThat(context.getBean(io.micrometer.core.instrument.MeterRegistry.class)
                 .get("helix_db_encryption_legacy_failed_columns").gauge().value()).isZero();
     }
+
+    /** Rows are rewritten in id order, so two replicas booting together lock them in the same order (no deadlock). */
+    @Test
+    void rowsAreReEncryptedInIdOrder() throws Exception {
+        final String later = "zz-" + legacyUser;
+        final String earlier = "aa-" + legacyUser;
+        write("INSERT INTO mfa_hotp (user_id, secret, counter) VALUES (?, ?, 0)", later, legacyEcb(KEY, SECRET));
+        write("INSERT INTO mfa_hotp (user_id, secret, counter) VALUES (?, ?, 0)", earlier, legacyEcb(KEY, SECRET));
+        try (LogCapture log = LogCapture.of(LegacyEncryptionMigrator.class)) {
+            context.getBean(LegacyEncryptionBackfill.class).runOnce();
+            final String text = log.text();
+            assertThat(text.indexOf(earlier)).isNotNegative().isLessThan(text.indexOf(later));
+        } finally {
+            write("DELETE FROM mfa_hotp WHERE user_id IN (?, ?)", later, earlier);
+        }
+    }
 }

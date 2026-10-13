@@ -93,7 +93,7 @@ public class LegacyEncryptionMigrator {
         return new Result(reEncrypted, List.copyOf(unreadable));
     }
 
-    /** One column: its legacy rows rewritten. */
+    /** One column: its legacy rows rewritten, in id order (replicas booting together lock rows in the same order). */
     public Result migrateColumn(final Connection connection, final EncryptedColumn column) throws SQLException {
         int reEncrypted = 0;
         final List<String> unreadable = new ArrayList<>();
@@ -134,7 +134,8 @@ public class LegacyEncryptionMigrator {
         final String sql = "SELECT " + column.idExpression() + ", " + value + " FROM " + column.table()
                 + " WHERE " + value + " IS NOT NULL AND " + value + " ~ '^[A-Za-z0-9+/]+=?=?$'"
                 + " AND length(" + value + ") % 4 = 0"
-                + " AND (length(" + value + ") / 4 * 3 - (length(" + value + ") - length(rtrim(" + value + ", '=')))) % 16 = 0";
+                + " AND (length(" + value + ") / 4 * 3 - (length(" + value + ") - length(rtrim(" + value + ", '=')))) % 16 = 0"
+                + " ORDER BY " + column.idExpression();
         final List<String[]> rows = new ArrayList<>();
         try (PreparedStatement select = connection.prepareStatement(sql);
              ResultSet rs = select.executeQuery()) {

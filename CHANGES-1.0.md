@@ -59,7 +59,8 @@ question. Newest first within each phase.
   production-readiness WARNING and counted in the gauge `helix_db_encryption_legacy_failed_columns`, the other
   columns are still migrated, and the ECB fallback then stays on (legacy TOTP secrets and keys keep reading) until a
   start migrates it. A WARNING, not fatal: the condition comes from a runtime database failure after the startup
-  check, and refusing to serve would also lock out every legacy secret that still reads. **Upgrade:** nothing to do; the
+  check, and refusing to serve would also lock out every legacy secret that still reads. The candidate rows are read in
+  id order, so two replicas booting together lock them in the same order. **Upgrade:** nothing to do; the
   first start rewrites the legacy rows (check its log for the readiness WARN). Only if that WARN names rows, or a
   database restored from an older backup is attached to a running server, set `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true`
   (or restart, which re-runs the job) while you investigate.
