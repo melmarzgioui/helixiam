@@ -5,32 +5,25 @@ Everything higher-severity has been remediated (see `SECURITY-REVIEW.md` and the
 [`docs/security/`](../docs/security/)).
 
 ## M7 — OpenSAML 4.3.2 is EOL (upgrade to 5.x)
-**Status: FIXED (2026-09-17) — the entire OpenSAML stack now runs on the current 5.1.4 line; EOL cleared.**
+**Status: DONE — OpenSAML 5.2.3 (latest 5.x).** First moved to 5.1.4 (2026-09-17), then to 5.2.3 (Dependabot),
+and on 2026-10-13 the last OpenSAML 4 reference left the build: `spring-security-saml2-service-provider` was
+removed. HelixIAM uses OpenSAML directly (SAML2 IdP `idp/saml`, SAML broker `federation/saml`, eID broker
+`federation/eid`) and references no `org.springframework.security.saml2` class, so that module, whose 6.5.x POM
+still depends on OpenSAML 4.3.2, was only dragging OpenSAML onto the classpath. The pom now declares
+`opensaml-saml-api` / `opensaml-saml-impl` and `shib-support` directly.
 
-The upgrade did NOT, in the end, require moving Spring Security or Spring Boot. HelixIAM was found to use
-OpenSAML **directly** (the `idp/saml`, `federation/saml`, `federation/eid` packages) and to reference **no**
-`org.springframework.security.saml2` class at all — `spring-security-saml2-service-provider:6.5.10` was only
-ever on the tree to drag OpenSAML onto the classpath. `spring-security-saml2-service-provider:6.5.10`, though
-compiled against OpenSAML 4, is classpath-compatible with the 5 line, so the whole OpenSAML stack was forced
-to **5.1.4** via `dependencyManagement` (with the old `net.shibboleth.utilities:java-support` excluded from it).
+**Versions on the tree** (no 4.x left; `mvn dependency:tree | grep -i opensaml`):
+- `org.opensaml:*` **5.2.3** (`opensaml-core` is split into `opensaml-core-api` + `opensaml-core-impl` in 5.x).
+- `net.shibboleth:shib-support` / `shib-security` / `shib-networking` / `shib-velocity` **9.2.3**, replacing
+  `net.shibboleth.utilities:java-support:8.x` (`net.shibboleth.utilities.java.support.*` → `net.shibboleth.shared.*`).
+- `org.apache.santuario:xmlsec` **3.0.6** and `org.cryptacular:cryptacular` **1.3.0**, the versions the Shibboleth
+  17.2.3 parent of OpenSAML 5.2.3 is built with.
+- BouncyCastle **1.86** (`bcprov`/`bcpkix`, direct pins, newer than the parent's 1.84), uniform so no split version.
 
-**Versions now on the tree:**
-- `org.opensaml:*` **5.1.4** (was 4.3.2) — note `opensaml-core` split into `opensaml-core-api` + `opensaml-core-impl` in 5.x.
-- `net.shibboleth:shib-support` / `shib-security` / `shib-networking` / `shib-velocity` **9.1.4** — replaces `net.shibboleth.utilities:java-support:8.4.2` (the `net.shibboleth.utilities.java.support.*` → `net.shibboleth.shared.*` repackaging).
-- `org.apache.santuario:xmlsec` **3.0.5** (was 2.3.4).
-- `org.cryptacular:cryptacular` **1.2.6** (was 1.2.5). BouncyCastle stays uniformly at **1.81** (direct pins, nearest-wins) so cryptacular's transitive bcprov:1.76 does not reintroduce the split-version `OperatorHelper` NoClassDefFoundError.
-
-**Validation strength is unchanged.** Only two source imports moved
-(`net.shibboleth.utilities.java.support.xml.{ParserPool,SerializeSupport}` → `net.shibboleth.shared.xml.*`);
-every `org.opensaml.*` API HelixIAM uses is identical between 4.3.2 and 5.1.4, so signature validation
-(`SAMLSignatureProfileValidator` + `SignatureValidator`), decryption (`Decrypter`), and the
-conditions/issuer/recipient/status checks are byte-for-byte the same logic. The XXE/DTD hardening is provided
-by OpenSAML's default `GlobalParserPoolInitializer` `BasicParserPool` (`disallow-doctype-decl` +
-`secure-processing`), which HelixIAM never overrides and which is identical in java-support 8.4.2 and
-shib-support 9.1.4 (verified by decompilation). All **1096** tests pass, including every SAML/eID security
-test (unsigned/wrong-key rejection, replay, audience, SAML-1/S-H1/S-H2/SAML-3 conditions/issuer/recipient/status,
-eID LoA + EncryptedID decryption). Boot-verified: the SAML IdP metadata + SSO endpoints and OIDC discovery all
-come up on OpenSAML 5.
+Spring Security 6.5.11 builds its own `OpenSaml5*` support against OpenSAML 5.1.2; HelixIAM uses none of it, so
+the 5.2.x line carries no Spring compatibility constraint. Validation logic is unchanged: signature profile +
+`SignatureValidator`, `Decrypter`, conditions/issuer/recipient/status/InResponseTo checks, and the default
+`BasicParserPool` XXE/DTD hardening. The full SAML/eID suites pass unchanged.
 
 ## Testing coverage gaps (not code defects — need more pentest depth)
 - **XSW2–XSW8**: only XSW1 was scripted live (and rejected). The deeper signature-wrapping variants should be
@@ -201,5 +194,9 @@ is merged into this branch; the wallet-specific consequences were resolved in th
 Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md`](../docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md)). Result: 0 critical / 0 high / 1 medium / 2 low.
 - **XSW2–XSW8**: ALL rejected on both the generic and eID validators (no signature-wrapping bypass). `InResponseTo` binding held; `EncryptedID` handling sound (no padding oracle / DoS).
 - **DEEP-1 (MEDIUM) — FIXED**: the SAML-3 Response-`StatusCode`=Success check was missing on the eID POST path (`OpenSamlEidAssertionValidator`), so a validly-signed assertion inside an `AuthnFailed` response logged the user in. Ported `verifyStatusSuccess`; regression test `rejectsAValidlySignedAssertionCarriedInAFailedStatusResponse`.
-- **DEEP-3 (LOW) — tracked**: the eID `ArtifactResponse` envelope signature is optional (the inner assertion signature is always enforced, so it is defense-in-depth). Revisit alongside the live DigiD mTLS work.
+- **DEEP-3 (LOW) — DONE (2026-10-13)**: the eID `ArtifactResponse` envelope signature is now REQUIRED and must verify
+  against the IdP metadata signing certificate (`OpenSamlEidArtifactResolver.verifyResponse`); an unsigned envelope is
+  refused, and any envelope is refused when the IdP's metadata gives no signing key. The inner assertion signature is
+  still enforced as before. Covered by `OpenSamlEidArtifactResolverTest` (loopback ARS stub: signed accepted;
+  unsigned, wrong-key and no-IdP-key refused). The live DigiD mTLS round-trip is still environment-blocked.
 - **Still environment-blocked** (not a defect): the live DigiD `ArtifactResolve`/mTLS SOAP round-trip against a real peer, and the full seeded-broker end-to-end browser round-trip — need a DigiD test environment. Out-of-#1 lower items from the prior report (SP-SLO unsigned, rsa-sha1/unknown-SigAlg, unsigned SP metadata import) remain tracked.

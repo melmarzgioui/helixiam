@@ -54,7 +54,7 @@ import java.util.UUID;
  * OpenSAML + the JDK HTTP client. Builds a signed {@code <samlp:ArtifactResolve>}, wraps it in a SOAP 1.1
  * envelope, and POSTs it to the IdP's Artifact Resolution Service (ARS) over TLS — using the SP signing
  * cert/key as the <b>mutual-TLS client identity</b> when present (DigiD requires PKIoverheid client auth on
- * the back-channel). It then verifies the {@code <samlp:ArtifactResponse>} signature against the IdP cert,
+ * the back-channel). It then requires and verifies the {@code <samlp:ArtifactResponse>} signature against the IdP cert,
  * checks the status, and returns the embedded {@code <samlp:Response>} as base64 for the existing
  * {@link EidAssertionValidator} (so the inner assertion's signature / decryption / LoA checks are unchanged).
  */
@@ -202,7 +202,12 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
         return (ArtifactResponse) unmarshaller.unmarshall(artifactResponseEl);
     }
 
-    /** Verify the ArtifactResponse signature (if present) against the IdP cert + require a success status. */
+    /**
+     * Require a success status and a valid ArtifactResponse envelope signature by the IdP's metadata signing key
+     * (DEEP-3). The "Koppelvlak SAML" profile mandates a signed ArtifactResponse on the back-channel, so an unsigned
+     * envelope is refused, and so is any envelope when the IdP's metadata gives no signing key to check it with.
+     * The embedded Response/Assertion signature is additionally enforced downstream by {@link EidAssertionValidator}.
+     */
     private static void verifyResponse(final EidProviderConfig config, final ArtifactResponse artifactResponse)
             throws Exception {
         if (artifactResponse.getStatus() != null && artifactResponse.getStatus().getStatusCode() != null) {
@@ -212,14 +217,18 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
                         + " for provider " + config.alias());
             }
         }
-        final Signature signature = artifactResponse.getSignature();
-        if (signature != null) {
-            final BasicX509Credential idpCredential = new BasicX509Credential(parseCertificate(config.idpSigningCertificate()));
-            new SAMLSignatureProfileValidator().validate(signature);
-            SignatureValidator.validate(signature, idpCredential);
+        final X509Certificate idpCertificate = parseCertificate(config.idpSigningCertificate());
+        if (idpCertificate == null) {
+            throw new IllegalStateException("eID ArtifactResponse refused for provider " + config.alias()
+                    + ": no IdP signing certificate is configured to verify it");
         }
-        // If the ArtifactResponse itself is unsigned, the embedded Response/Assertion signature is still
-        // enforced downstream by EidAssertionValidator, so the resolved assertion is never trusted unsigned.
+        final Signature signature = artifactResponse.getSignature();
+        if (signature == null) {
+            throw new IllegalStateException("eID ArtifactResponse for provider " + config.alias()
+                    + " is not signed; the IdP signs its back-channel responses");
+        }
+        new SAMLSignatureProfileValidator().validate(signature);
+        SignatureValidator.validate(signature, new BasicX509Credential(idpCertificate));
     }
 
     private static Element firstChildElementNS(final Element parent, final String ns, final String local) {

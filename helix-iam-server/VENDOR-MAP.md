@@ -200,8 +200,9 @@ folded in:
 
 `commons-lang3:3.17.0` (used by `LoginService`'s `org.apache.commons.lang3.StringUtils.isEmpty`)
 needed **no vendoring or reimplementation** for Task 2: unlike the Task 1 infra classes, it's
-already on the compile classpath transitively (confirmed via `mvn -o dependency:tree`) — likely
-via `webauthn4j-core` or `spring-security-saml2-service-provider`. Left as a direct
+already on the compile classpath transitively (confirmed via `mvn -o dependency:tree`) — via OpenSAML 5's
+`velocity-engine-core` (`opensaml-saml-impl` → `shib-velocity`; `spring-security-saml2-service-provider` is no
+longer a dependency since the M7 cleanup). Left as a direct
 `org.apache.commons.lang3` import, unchanged from the subscriber source.
 
 ### Refactored (not vendored): `ResponseException`

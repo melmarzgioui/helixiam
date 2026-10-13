@@ -8,9 +8,8 @@ package io.helixiam.authorization.federation.saml;
 
 /**
  * Helix IAM E5.2: fail-closed default {@link SamlAssertionValidator}. SAML Response validation
- * (signature, conditions, audience, replay) must be done by the OpenSAML-backed validator
- * (spring-security-saml2-service-provider) — a follow-up that requires the OpenSAML dependency and
- * a live IdP to validate against. Until that bean is present this default REJECTS every assertion,
+ * (signature, conditions, audience, replay) is done by the OpenSAML-backed
+ * {@link OpenSamlAssertionValidator}. Wherever that bean is not present this default REJECTS every assertion,
  * so the SAML broker fails closed rather than ever trusting an unvalidated response.
  */
 public class UnconfiguredSamlAssertionValidator implements SamlAssertionValidator {
