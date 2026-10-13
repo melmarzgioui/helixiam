@@ -56,6 +56,20 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 `198.18.0.0/15`, `240.0.0.0/4` are blocked; `fd00:ec2::254` and broadcast are blocked even for allowlisted hosts.
 Affected released versions (see `CHANGES-1.0.md`).
 
+## Re-review of the M6 move (2026-10-13) — all DONE
+- **APNs regression (HTTP/2)** — DONE (8b5e8a98): APNs over the JDK client, HTTP/2, Apple's two hosts only; the
+  provider `host` is restricted to them.
+- **One shared fetch cap across features and realms** — DONE (9abf29af): per-group limiters with per-realm shares,
+  `helix.outbound.fetch.*`, virtual-thread delivery for webhooks and SCIM.
+- **private_key_jwt client JWKS fetched unguarded (pre-existing, released versions)** — DONE (5ff5e884): guarded,
+  pinned, cached client-assertion decoder; DCR auth-method and `jwks_uri` validation.
+- **More embedded-IPv4 / reserved IPv6 forms** — DONE (38adb6c6).
+- **JWKS timing and caching** — DONE (12d97ef4).
+- **eID mutual-TLS test on the pinned path** — DONE (dee1a70f).
+- **TAB in header values; clear errors for CTL / non-ASCII** — DONE (f406f457).
+- **Redirect bodies / duplicate Location** — DONE (eaf3cc49). **Error-body cap with truncation** — DONE (258b10a0).
+  **Response-head CTLs** — DONE (b4c56f6b).
+
 ## M6 residual: DNS rebinding between the guard's check and the connection — DONE (2026-10-13)
 Every `OutboundUrlGuard` caller now connects through `PinnedHttpFetcher` (or `PinnedResourceRetriever` for Nimbus
 JWKS fetches): the guard resolves the host once, inside the request's deadline, checks every address, and the socket

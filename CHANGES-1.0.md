@@ -152,6 +152,28 @@ question. Newest first within each phase.
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
   coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
   same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
+- **security (affects released versions)** — private_key_jwt client JWKS fetched unguarded: for a `private_key_jwt`
+  client, the token endpoint's client-assertion decoder (Spring Authorization Server's) fetched the client's
+  `jwk_set_url` with its own RestTemplate: no outbound guard, redirects followed. Anyone who can register a client (an
+  admin, or anyone through open DCR) chooses that URL, so the token endpoint could be made to call internal or
+  metadata addresses. It is now fetched through `OutboundUrlGuard` on the pinned transport, without redirects, with
+  Nimbus caching (refetch on an unknown `kid`). DCR now accepts only `client_secret_basic`, `private_key_jwt` and
+  `none` as `token_endpoint_auth_method`, requires an https `jwks_uri` that the guard allows (checked at registration),
+  and stores `private_key_jwt` so the token endpoint actually enforces it.
+- **fix (regression found before release)** — APNs push (iOS push and push MFA) failed after the M6 move: APNs is
+  HTTP/2 only and the pinned client speaks HTTP/1.1. APNs goes over the JDK client with HTTP/2 again, redirects off,
+  and only to `api.push.apple.com` / `api.sandbox.push.apple.com`; a provider `host` setting naming anything else is
+  a configuration error (it was free text before).
+- **security** — Outbound slots per feature group with a per-realm share: `helix.outbound.fetch.<group>.max-concurrent`
+  and `.per-realm-max` for `wallet` (16; old name `helix.wallet.fetch.max-concurrent` still read), `login`, `otp` and
+  `outbound` (32 / 8 each), so one realm's slow webhook endpoints cannot delay another realm, or any login or OTP.
+- **security** — More IPv6 forms judged by their embedded IPv4 address (RFC 8215 local-use NAT64 `64:ff9b:1::/48`,
+  SIIT `::ffff:0:0:0/96`); Teredo `2001::/32` and discard-only `100::/64` refused outright.
+- **security** — Pinned-client hardening after review: JWKS fetches use 500 ms connect / 500 ms per read / 3 s total
+  and are cached (FAPI request objects, OIDC broker); a redirect's body is never read and duplicate `Location` headers
+  are refused; error bodies are capped at 16 KB and truncated (the status is kept); NUL, bare CR and bare LF in a
+  response head are refused; TAB is allowed in request header values, non-ASCII and control characters give a clear
+  configuration error (Cloudflare driver included).
 - **security (affects released versions)** — DNS rebinding (M6 residual): every server-initiated call to an
   admin- or client-configured URL checked the URL with `OutboundUrlGuard` and then let the JDK `HttpClient` (or Nimbus's
   `HttpURLConnection` for JWKS, which also followed redirects) resolve the host again, so a DNS answer that changed

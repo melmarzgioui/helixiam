@@ -101,6 +101,13 @@
 >   one guarded resolution inside the request deadline, a socket to the validated address, SNI and hostname
 >   verification on the original name, no redirect following (metadata import re-guards each hop), per-caller size
 >   caps and timeouts. Tests: one public→private rebinding test per caller (`RebindingTarget`).
+>   **Re-review follow-ups (2026-10-13):** the token endpoint's `private_key_jwt` client JWKS (fetched by Spring
+>   Authorization Server's own decoder: unguarded, redirects followed; reachable through open DCR) now goes through the
+>   guard on the pinned transport (`GuardedClientAssertionDecoderFactory`), and DCR validates the auth method and an
+>   https, guard-approved `jwks_uri`. APNs is the one deliberate exception to pinning: HTTP/2 to Apple's two fixed hosts
+>   only (`ApnsHttp2Transport`), no admin-chosen host. Outbound slots are per feature group (wallet, login, OTP,
+>   outbound) with a per-realm share, so a tarpit in one realm cannot starve logins, OTP or other realms. The guard
+>   also judges RFC 8215 local-use NAT64 and SIIT addresses by their embedded IPv4 and refuses Teredo and `100::/64`.
 >
 > **STILL OPEN — deliberately deferred** (documented in `DEFERRED-SECURITY-WORK.md`): **L5** (the legacy
 > AES/ECB decrypt path is retained deliberately so existing rows stay readable — now logged), **L6** (the
