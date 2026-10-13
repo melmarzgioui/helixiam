@@ -6,12 +6,10 @@
 package io.helixiam.authorization.messaging.driver;
 
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 
@@ -37,39 +35,56 @@ public interface HttpTransport {
         return new Response(post(url, headers, body), "");
     }
 
+    /**
+     * The live transport. M6: every POST goes through {@link PinnedHttpFetcher}: the guard resolves the realm-configured
+     * URL once, inside the 10 s deadline, and the connection goes to the address it validated (TLS checked against the
+     * host name), without following redirects; a response body is read up to 1 MB. A URL the guard refuses throws
+     * {@link io.helixiam.common.net.SsrfBlockedException} (callers map it to a configuration failure); any other
+     * failure is a {@link RuntimeException} "HTTP send failed".
+     */
     @Component
     class Default implements HttpTransport {
-        private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-        private final OutboundUrlGuard egressGuard;
+        static final PinnedHttpFetcher.Limits LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(5),
+                Duration.ofSeconds(10), 1024 * 1024);
+        private final PinnedHttpFetcher http;
 
         public Default(final OutboundUrlGuard egressGuard) {
-            this.egressGuard = egressGuard;
+            this.http = PinnedHttpFetcher.plain(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.OTP, io.helixiam.authorization.security.realm.RealmContextHolder::get);
         }
 
         @Override
         public int post(final String url, final Map<String, String> headers, final String body) {
-            return send(url, headers, body, HttpResponse.BodyHandlers.discarding()).statusCode();
+            try {
+                return send(url, headers, body, false).status();
+            } catch (final PinnedHttpFetcher.FetchException e) {
+                if (e.kind() == PinnedHttpFetcher.FetchException.Kind.TOO_LARGE && e.status() > 0) {
+                    return e.status(); // only the status is wanted: an oversized body does not matter
+                }
+                throw new RuntimeException("HTTP send failed: " + e.getMessage(), e);
+            }
         }
 
         @Override
         public Response postForResponse(final String url, final Map<String, String> headers, final String body) {
-            final HttpResponse<String> r = send(url, headers, body, HttpResponse.BodyHandlers.ofString());
-            return new Response(r.statusCode(), r.body());
+            try {
+                final PinnedHttpFetcher.Response r = send(url, headers, body, true);
+                return new Response(r.status(), r.bodyAsString());
+            } catch (final PinnedHttpFetcher.FetchException e) {
+                throw new RuntimeException("HTTP send failed: " + e.getMessage(), e);
+            }
         }
 
-        private <T> HttpResponse<T> send(final String url, final Map<String, String> headers, final String body,
-                                         final HttpResponse.BodyHandler<T> handler) {
-            egressGuard.checkAllowed(url); // M6: some notification driver endpoints (HTTP SMS/email) are realm-config'd
+        private PinnedHttpFetcher.Response send(final String url, final Map<String, String> headers,
+                final String body, final boolean readBody) throws PinnedHttpFetcher.FetchException {
+            // M6: some notification driver endpoints (HTTP SMS/email) are realm-config'd: pinned, no redirects
             try {
-                final HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofSeconds(10))
-                        .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body));
-                if (headers != null) {
-                    headers.forEach(b::header);
-                }
-                return httpClient.send(b.build(), handler);
-            } catch (final Exception e) {
-                throw new RuntimeException("HTTP send failed: " + e.getMessage(), e);
+                return http.exchange(new PinnedHttpFetcher.Request("POST", url, headers == null ? Map.of() : headers,
+                        (body == null ? "" : body).getBytes(StandardCharsets.UTF_8), LIMITS, readBody));
+            } catch (final io.helixiam.common.net.SsrfBlockedException e) {
+                throw e; // a refused URL stays an SSRF refusal (a configuration failure for the drivers)
+            } catch (final IllegalArgumentException e) {
+                throw new RuntimeException("HTTP send failed: " + e.getMessage(), e); // as the JDK client's was
             }
         }
     }

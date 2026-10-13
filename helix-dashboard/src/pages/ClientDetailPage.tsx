@@ -15,6 +15,9 @@ import { Badge } from "../components/Badge";
 import { Divider } from "../components/Divider";
 import { Tabs } from "../components/Tabs";
 import { FormField, Input, Textarea } from "../components/FormField";
+import { jwksUrlError } from "./jwksUrl";
+import { splitClientServerErrors } from "./clientServerErrors";
+import { AdminApiError } from "../api/adminError";
 import { Select } from "../components/Select";
 import { Checkbox } from "../components/Choice";
 import { RowMenu } from "../components/RowMenu";
@@ -70,6 +73,8 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
   const [revealed, setRevealed] = React.useState<string | null>(null);
   const [confirmDel, setConfirmDel] = React.useState(false);
   const [tab, setTab] = React.useState<TabId>("settings");
+  // A refused save's field errors (the admin API's names), shown on those fields until the next save.
+  const [serverErrors, setServerErrors] = React.useState<Record<string, string>>({});
 
   // editable state
   const [name, setName] = React.useState("");
@@ -152,7 +157,12 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
   const browserFlow = grants.includes("authorization_code");
   const missing: string[] = [];
   if (browserFlow && !uris.some((u) => u.trim())) missing.push("redirectUris");
-  if (tokenAuthMethod === "PRIVATE_KEY_JWT" && !jwksUrl.trim()) missing.push("jwksUrl");
+  // The console cannot see the server's profile; it treats itself served from localhost as dev (where the server
+  // also allows http://localhost JWKS URLs). The server applies the real rule and answers 400 otherwise.
+  const devConsole = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  // the field is shown for private_key_jwt only, so only then can it block the save
+  const jwksProblem = tokenAuthMethod === "PRIVATE_KEY_JWT" ? jwksUrlError(jwksUrl, tokenAuthMethod, devConsole) : null;
+  if (jwksProblem) missing.push("jwksUrl");
 
   const cleaned = (xs: string[]) => xs.map((u) => u.trim()).filter(Boolean);
   const dirty = loaded !== null && (
@@ -193,6 +203,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
     if (missing.length) { setAttempted(true); setTab(missing.includes("jwksUrl") ? "keys" : "login"); return; }
     if (!loaded) return;
     setBusy(true);
+    setServerErrors({});
     const body: ClientWrite = {
       clientId: loaded.clientId,
       applicationId: loaded.applicationId ?? null, // preserve the Application link on save
@@ -230,7 +241,15 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
       hydrate(saved);
       setNote({ tone: "success", title: t("clientDetail.saveSuccess"), message: t("clientDetail.saveSuccessMsg", { clientId: loaded.clientId }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("clientDetail.saveError"), message: String((e as Error).message ?? e) });
+      if (e instanceof AdminApiError && Object.keys(e.fieldErrors).length) {
+        const split = splitClientServerErrors(e.fieldErrors);
+        setServerErrors(split.fields);
+        if (split.tab) setTab(split.tab);
+        setNote({ tone: "error", title: t("clientDetail.saveError"),
+          message: split.other.length ? split.other.join(" ") : e.message });
+      } else {
+        setNote({ tone: "error", title: t("clientDetail.saveError"), message: String((e as Error).message ?? e) });
+      }
     } finally { setBusy(false); }
   };
 
@@ -417,20 +436,20 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
               <div className="hx-clientgrid">
                 {browserFlow ? (
                   <Section title={t("clientDetail.loginSettingsTitle")} description={t("clientDetail.loginSettingsDesc")}>
-                    <FormField label={t("clientDetail.redirectUris")} required error={attempted && missing.includes("redirectUris") ? t("clientDetail.redirectUrisError") : undefined}>
+                    <FormField label={t("clientDetail.redirectUris")} required error={attempted && missing.includes("redirectUris") ? t("clientDetail.redirectUrisError") : serverErrors.redirectUris}>
                       <UriList uris={uris} setUris={setUris} placeholder="https://app.example/callback" label={t("clientDetail.redirectUriLabel")} />
                     </FormField>
-                    <FormField label={t("clientDetail.postLogoutUris")} hint={t("clientDetail.postLogoutUrisHint")}>
+                    <FormField label={t("clientDetail.postLogoutUris")} hint={t("clientDetail.postLogoutUrisHint")} error={serverErrors.postLogoutRedirectUris}>
                       <UriList uris={logoutUris} setUris={setLogoutUris} placeholder="https://app.example/" label={t("clientDetail.postLogoutUriLabel")} />
                     </FormField>
-                    <FormField label={t("clientDetail.webOrigins")} hint={t("clientDetail.webOriginsHint")}>
+                    <FormField label={t("clientDetail.webOrigins")} hint={t("clientDetail.webOriginsHint")} error={serverErrors.webOrigins}>
                       <UriList uris={webOrigins} setUris={setWebOrigins} placeholder="https://app.example" label={t("clientDetail.webOriginLabel")} />
                     </FormField>
                     <Divider />
-                    <FormField label={t("clientDetail.backchannelLogout")} hint={t("clientDetail.backchannelLogoutHint")}>
+                    <FormField label={t("clientDetail.backchannelLogout")} hint={t("clientDetail.backchannelLogoutHint")} error={serverErrors.backchannelLogoutUri}>
                       <Input value={backchannelLogoutUri} onChange={(e) => setBackchannelLogoutUri(e.target.value)} placeholder="https://app.example/backchannel-logout" />
                     </FormField>
-                    <FormField label={t("clientDetail.frontchannelLogout")} hint={t("clientDetail.frontchannelLogoutHint")}>
+                    <FormField label={t("clientDetail.frontchannelLogout")} hint={t("clientDetail.frontchannelLogoutHint")} error={serverErrors.frontchannelLogoutUri}>
                       <Input value={frontchannelLogoutUri} onChange={(e) => setFrontchannelLogoutUri(e.target.value)} placeholder="https://app.example/frontchannel-logout" />
                     </FormField>
                     <Divider />
@@ -510,7 +529,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
             {tab === "keys" && (
               <div className="hx-clientgrid">
                 <Section title={t("clientDetail.tokenAuthTitle")} description={t("clientDetail.tokenAuthDesc")} layout={tokenAuthMethod === "PRIVATE_KEY_JWT" ? "cols" : "single"}>
-                  <FormField label={t("clientDetail.authenticator")} hint={t("clientDetail.authenticatorHint")}>
+                  <FormField label={t("clientDetail.authenticator")} hint={t("clientDetail.authenticatorHint")} error={serverErrors.tokenEndpointAuthMethod}>
                     <Select aria-label={t("clientDetail.authenticator")} value={tokenAuthMethod} onChange={setTokenAuthMethod}
                       options={[
                         { value: "", label: t("clientDetail.clientSecretDefault") },
@@ -520,7 +539,8 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
                   {tokenAuthMethod === "PRIVATE_KEY_JWT" && (
                     <FormField label={t("clientDetail.jwksUrl")} required={tokenAuthMethod === "PRIVATE_KEY_JWT"}
                       hint={t("clientDetail.jwksUrlHint")}
-                      error={attempted && tokenAuthMethod === "PRIVATE_KEY_JWT" && !jwksUrl.trim() ? t("clientDetail.jwksUrlError") : undefined}>
+                      error={attempted && jwksProblem ? t(jwksProblem === "required" ? "clientDetail.jwksUrlError"
+                        : jwksProblem === "notUrl" ? "clientDetail.jwksUrlInvalid" : "clientDetail.jwksUrlHttps") : serverErrors.jwksUrl}>
                       <Input className="hx-full" value={jwksUrl} onChange={(e) => setJwksUrl(e.target.value)} placeholder="https://app.example/.well-known/jwks.json" />
                     </FormField>
                   )}

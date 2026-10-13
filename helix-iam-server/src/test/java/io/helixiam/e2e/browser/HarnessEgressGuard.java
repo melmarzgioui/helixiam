@@ -52,6 +52,21 @@ public class HarnessEgressGuard extends OutboundUrlGuard {
         super.checkAllowed(url);
     }
 
+    /** The same exception for callers on the pinned transport, which ask for the validated address. */
+    @Override
+    public ResolvedTarget resolveAllowed(final String url) throws SsrfBlockedException {
+        if (isHarnessUrl(url)) {
+            final URI uri = URI.create(url.trim());
+            try {
+                return new ResolvedTarget(uri, uri.getHost(), uri.getPort(),
+                        java.util.List.of(java.net.InetAddress.getByAddress(new byte[] {127, 0, 0, 1})));
+            } catch (final java.net.UnknownHostException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return super.resolveAllowed(url);
+    }
+
     private static boolean isHarnessUrl(final String url) {
         if (url == null) {
             return false;
@@ -59,7 +74,7 @@ public class HarnessEgressGuard extends OutboundUrlGuard {
         try {
             final URI uri = new URI(url.trim());
             return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
-                    && "127.0.0.1".equals(uri.getHost())
+                    && ("127.0.0.1".equals(uri.getHost()) || "localhost".equalsIgnoreCase(uri.getHost()))
                     && HARNESS_PORTS.contains(uri.getPort());
         } catch (final java.net.URISyntaxException e) {
             return false;

@@ -6,11 +6,8 @@
 package io.helixiam.authorization.federation;
 
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
@@ -25,8 +22,10 @@ public interface UpstreamLogoutClient {
 
     /** Default GET with a short timeout; failures are swallowed so logout never blocks. */
     class Http implements UpstreamLogoutClient {
-        private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
-        private final OutboundUrlGuard egressGuard;
+        /** 3 s connect, 5 s in total; the answer's body is not used (read up to 64 KB). */
+        private static final PinnedHttpFetcher.Limits LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(3),
+                Duration.ofSeconds(5), 64 * 1024);
+        private final PinnedHttpFetcher http;
 
         /** Secure default (block-private); reads {@code HELIX_EGRESS_ALLOW_PRIVATE} for the dev escape hatch. */
         public Http() {
@@ -34,17 +33,20 @@ public interface UpstreamLogoutClient {
         }
 
         public Http(final OutboundUrlGuard egressGuard) {
-            this.egressGuard = egressGuard;
+            this.http = PinnedHttpFetcher.plain(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.OUTBOUND, io.helixiam.authorization.security.realm.RealmContextHolder::get);
         }
 
         @Override
         public void get(final String url) {
-            egressGuard.checkAllowed(url); // M6: upstream logout URL comes from admin IdP config
+            // M6: the upstream logout URL comes from admin IdP config: pinned to the validated address, no redirects
             try {
-                final HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofSeconds(5)).GET().build();
-                httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            } catch (final Exception e) {
+                http.get(url, java.util.Map.of(), LIMITS);
+            } catch (final PinnedHttpFetcher.FetchException e) {
+                if (e.kind() != PinnedHttpFetcher.FetchException.Kind.TOO_LARGE) {
+                    throw new RuntimeException("Upstream logout GET failed: " + e.getMessage(), e);
+                }
+            } catch (final IllegalArgumentException e) {
                 throw new RuntimeException("Upstream logout GET failed: " + e.getMessage(), e);
             }
         }

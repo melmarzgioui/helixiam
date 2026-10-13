@@ -9,10 +9,12 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Bounded defaults for the JDK's certificate-revocation fetches (OCSP and CRL distribution points, used by the wallet
- * issuer-trust validator). The JDK defaults are 15 s each, and a synchronous wallet login can make several such
- * fetches. The JDK reads these system properties once, in static initialisers, so {@link #applyDefaults} must run in
- * {@code main} before anything touches PKIX revocation. A value the operator passed with {@code -D} is kept.
+ * Bounded defaults for the JDK's own certificate-revocation fetches (OCSP and CRL distribution points). The wallet
+ * issuer-trust validator no longer lets the JDK fetch (it uses {@code IssuerRevocationClient} over
+ * {@link PinnedHttpFetcher}), so these bound only a JDK fetch that some other PKIX revocation use might still make;
+ * they stay as defence in depth. The JDK defaults are 15 s each. The JDK reads these system properties once, in static
+ * initialisers, so {@link #applyDefaults} must run in {@code main} before anything touches PKIX revocation. A value the
+ * operator passed with {@code -D} is kept.
  */
 public final class RevocationTimeouts {
 
@@ -26,8 +28,14 @@ public final class RevocationTimeouts {
     private RevocationTimeouts() {
     }
 
-    /** Sets each default in {@code props} (normally {@link System#getProperties()}) only when it is absent. */
+    /**
+     * Sets each default in {@code props} (normally {@link System#getProperties()}) only when it is absent, and turns
+     * the JDK's own CRL distribution-point fetching off ({@code com.sun.security.enableCRLDP=false}, overriding any
+     * value): the wallet's issuer revocation hands the JDK the CRLs it fetched itself and must never let the JDK
+     * download one (see {@code IssuerRevocationClient#jdkCrl}).
+     */
     public static void applyDefaults(final Properties props) {
         DEFAULTS.forEach(props::putIfAbsent);
+        props.setProperty("com.sun.security.enableCRLDP", "false");
     }
 }

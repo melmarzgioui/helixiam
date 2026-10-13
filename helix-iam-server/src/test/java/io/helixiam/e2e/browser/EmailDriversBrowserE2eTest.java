@@ -52,6 +52,7 @@ class EmailDriversBrowserE2eTest extends AbstractBrowserE2eTest {
         cloudflare = CloudflareApiMock.https(tls);
         HarnessEgressGuard.allow(cloudflare.port());
         smtps = TestSmtpServer.implicitTls(tls);
+        HarnessEgressGuard.allow(smtps.port());
     }
 
     @AfterAll

@@ -7,13 +7,14 @@ package io.helixiam.authorization.security.fapi;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
-import com.nimbusds.jose.jwk.source.RemoteJWKSet;
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedResourceRetriever;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,6 +47,11 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
 
     private final RegisteredClientRepository clients;
     private final OutboundUrlGuard egressGuard;
+    private final PinnedResourceRetriever jwksRetriever;
+    private static final int MAX_JWK_SOURCES = 1_000;
+    /** One JWK source per URL; the least recently used is dropped past {@value #MAX_JWK_SOURCES}. */
+    private final io.helixiam.common.net.BoundedLruCache<String, JWKSource<SecurityContext>> jwkSources =
+            new io.helixiam.common.net.BoundedLruCache<>(MAX_JWK_SOURCES);
 
     /** Wired from {@code SecurityConfig}; uses the secure-default (block-private) egress guard. */
     public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients) {
@@ -55,6 +61,8 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
     public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients, final OutboundUrlGuard egressGuard) {
         this.clients = clients;
         this.egressGuard = egressGuard;
+        this.jwksRetriever = new PinnedResourceRetriever(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.LOGIN_CLIENT, io.helixiam.authorization.security.realm.RealmContextHolder::get);
     }
 
     @Override
@@ -110,10 +118,20 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
         egressGuard.checkAllowed(jwksUrl); // M6: JWKS URL comes from (self-service) client/DCR registration
         final SignedJWT jwt = SignedJWT.parse(requestObject);
         final DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
-        final JWKSource<SecurityContext> keys = new RemoteJWKSet<>(new URL(jwksUrl));
+        final JWKSource<SecurityContext> keys = jwkSource(jwksUrl);
         processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, keys));
         final JWTClaimsSet claims = processor.process(jwt, null);
         return RequestObject.toParameters(claims);
+    }
+
+    /**
+     * The client's JWKS, fetched through the guard and pinned to the validated address (M6), no redirects; one cached
+     * source per URL with Nimbus's caching (5 minutes; an unknown kid triggers a rate-limited refetch, so a rotation is
+     * picked up).
+     */
+    JWKSource<SecurityContext> jwkSource(final String jwksUrl) throws IOException {
+        final URL url = new URL(jwksUrl);
+        return jwkSources.computeIfAbsent(jwksUrl, u -> JWKSourceBuilder.create(url, jwksRetriever).build());
     }
 
     private static void error(final HttpServletResponse response, final String error, final String description) throws IOException {

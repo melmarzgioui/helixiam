@@ -8,9 +8,11 @@ package io.helixiam.authorization.federation.wallet;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
 import io.helixiam.authorization.federation.wallet.mdoc.MdocPresentationVerifier;
 import io.helixiam.authorization.federation.wallet.sdjwt.SdJwtVcPresentationVerifier;
+import io.helixiam.authorization.federation.wallet.status.StatusListCache;
 import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
 import io.helixiam.authorization.federation.wallet.status.TokenStatusListClient;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
+import io.helixiam.authorization.federation.wallet.trust.IssuerRevocationClient;
 import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
 import io.helixiam.authorization.security.audit.AuditLog;
@@ -19,6 +21,7 @@ import io.helixiam.authorization.service.key.SigningKeyHandle;
 import io.helixiam.authorization.service.key.SoftwareRealmSigningKeys;
 import io.helixiam.common.net.OutboundUrlGuard;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -56,8 +59,12 @@ public class WalletIdentityProviders {
     private final Clock clock;
     /** Task 22: the built provider's own audit log (WALLET_LOGIN_SUCCESS/FAILURE), distinct from {@link #auditSink}. */
     private final AuditLog auditLog;
+    /** Issuer CRL / OCSP fetching and cache, shared by every provider this factory builds. */
+    private final IssuerRevocationClient revocation;
+    /** Verified Token Status Lists, shared by every provider this factory builds (one byte budget). */
+    private final StatusListCache statusCache;
 
-    @Autowired
+    /** Default revocation settings ({@link IssuerRevocationClient.Settings#DEFAULTS}). */
     public WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
                                    final WalletTransactionStore transactions, final OutboundUrlGuard guard,
                                    final AuditLog auditLog) {
@@ -65,10 +72,54 @@ public class WalletIdentityProviders {
                 auditLog);
     }
 
+    /**
+     * Production bean: the issuer-revocation client (one cache and byte budget shared by every wallet provider) from
+     * {@code helix.wallet.revocation.max-crl-bytes} (default 10 MB), {@code .cache-max-entries} (default 256) and
+     * {@code .cache-max-bytes} (default 32 MB); and the Token Status List cache, also shared, from
+     * {@code helix.wallet.status-list.cache-max-entries} (default 64) and {@code .cache-max-bytes} (default 32 MB of
+     * decoded lists). Concurrent wallet fetches are capped by the WALLET group of
+     * {@link io.helixiam.common.net.OutboundFetchLimits}.
+     */
+    @Autowired
+    public WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
+                                   final WalletTransactionStore transactions, final OutboundUrlGuard guard,
+                                   final AuditLog auditLog,
+                                   @Value("${helix.wallet.revocation.max-crl-bytes:"
+                                           + IssuerRevocationClient.Settings.DEFAULT_MAX_CRL_BYTES + "}")
+                                   final long maxCrlBytes,
+                                   @Value("${helix.wallet.revocation.cache-max-entries:"
+                                           + IssuerRevocationClient.Settings.DEFAULT_CACHE_MAX_ENTRIES + "}")
+                                   final int revocationCacheEntries,
+                                   @Value("${helix.wallet.revocation.cache-max-bytes:"
+                                           + IssuerRevocationClient.Settings.DEFAULT_CACHE_MAX_BYTES + "}")
+                                   final long revocationCacheBytes,
+                                   @Value("${helix.wallet.status-list.cache-max-entries:"
+                                           + StatusListCache.DEFAULT_MAX_ENTRIES + "}")
+                                   final int statusCacheEntries,
+                                   @Value("${helix.wallet.status-list.cache-max-bytes:"
+                                           + StatusListCache.DEFAULT_MAX_BYTES + "}")
+                                   final long statusCacheBytes) {
+        this(validator, keys, transactions, guard, TokenStatusListClient.auditLogSink(auditLog), Clock.systemUTC(),
+                auditLog, new IssuerRevocationClient(guard,
+                        new IssuerRevocationClient.Settings(maxCrlBytes, revocationCacheEntries, revocationCacheBytes),
+                        Clock.systemUTC()), new StatusListCache(statusCacheEntries, statusCacheBytes));
+    }
+
     WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
                             final WalletTransactionStore transactions, final OutboundUrlGuard guard,
                             final TokenStatusListClient.AuditSink auditSink, final Clock clock,
                             final AuditLog auditLog) {
+        this(validator, keys, transactions, guard, auditSink, clock, auditLog, new IssuerRevocationClient(guard,
+                IssuerRevocationClient.Settings.DEFAULTS, Clock.systemUTC()), new StatusListCache());
+    }
+
+    WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
+                            final WalletTransactionStore transactions, final OutboundUrlGuard guard,
+                            final TokenStatusListClient.AuditSink auditSink, final Clock clock,
+                            final AuditLog auditLog, final IssuerRevocationClient revocation,
+                            final StatusListCache statusCache) {
+        this.revocation = Objects.requireNonNull(revocation, "revocation");
+        this.statusCache = Objects.requireNonNull(statusCache, "statusCache");
         this.validator = Objects.requireNonNull(validator, "validator");
         this.keys = Objects.requireNonNull(keys, "keys");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
@@ -107,8 +158,9 @@ public class WalletIdentityProviders {
         }
         final TrustAnchors anchors = TrustAnchors.fromPem(config.trustAnchors(), null, config.revocationChecking());
         final StatusPolicy statusPolicy = config.statusList().toStatusPolicy();
-        final IssuerTrustValidator trust = new IssuerTrustValidator(guard);
-        final TokenStatusListClient statusClient = new TokenStatusListClient(statusPolicy, trust, guard, auditSink);
+        final IssuerTrustValidator trust = new IssuerTrustValidator(revocation);
+        final TokenStatusListClient statusClient = new TokenStatusListClient(statusPolicy, trust, guard, auditSink,
+                statusCache);
         final WalletProviderConfig.Limits limits = config.limits();
         final Map<String, PresentationVerifier> verifiers = new LinkedHashMap<>();
         for (final String format : config.credentialFormats()) {

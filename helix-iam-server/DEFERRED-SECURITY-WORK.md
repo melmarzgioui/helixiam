@@ -74,27 +74,94 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
   now captures every log line and checks the password is in none of them and the file is 0600. The Helm notes and
   values no longer say it is logged; the README, chart README and compose file show how to read it.
 
-## EUDI Wallet: bounded issuer-revocation client (follow-up to Task 7, 2026-10-11)
-**Status: OPEN (owned by the separate revocation-client / status-list work).** `IssuerTrustValidator` (wallet issuer X.509 trust) lets the JDK `PKIXRevocationChecker` fetch the
-CRL distribution points and OCSP responders named in the presented certificates. Mitigated today:
-- Nothing is fetched until the chain validates to a configured anchor, so only certificates a trusted CA issued can
-  name a URL.
-- Every CRL/OCSP URL passes `OutboundUrlGuard` first. Non-http(s) schemes (incl. `ldap:`), non-URI names, and
-  loopback, private and link-local hosts are never fetched.
-- The JDK timeouts are bounded in `Application.main` (`RevocationTimeouts`: 3 s connect, 5 s read; an operator's
-  `-D` value wins).
+## SSRF: IPv6 addresses embedding a blocked IPv4 address (found 2026-10-13, all `OutboundUrlGuard` callers)
+**Status: DONE (550d78d, 17d6c80).** `::ffff:127.0.0.1`, `::ffff:169.254.169.254`, IPv4-compatible `::/96`, NAT64
+`64:ff9b::/96` and 6to4 `2002::/16` addresses are judged by their embedded IPv4 address; `192.0.0.0/24`,
+`198.18.0.0/15`, `240.0.0.0/4` are blocked; `fd00:ec2::254` and broadcast are blocked even for allowlisted hosts.
+Affected released versions (see `CHANGES-1.0.md`).
 
-Residual limits of the JDK fetch, to be closed by a HelixIAM revocation client (guarded, time-bounded,
-size-capped, CRL/OCSP response cache, plugged into PKIX via a custom `PKIXCertPathChecker` or pre-fetched CRLs in a
-`CertStore`):
-- **DNS rebinding / TOCTOU:** the guard resolves the host, then the JDK resolves it again before connecting.
-- **Redirects:** the JDK's `HttpURLConnection` follows same-protocol redirects, which can lead to an address the
-  guard never saw.
-- **CRL size:** the JDK sets no download cap, so a large CRL is a memory and latency DoS.
-- **No result cache under our control:** each wallet login may re-fetch, depending only on the JDK's internal
-  caching.
-- **SOFT_FAIL with two or more intermediates:** an undeterminable upper CA stops the JDK before it checks a lower
-  CA. The leaf is always checked separately.
+## Final review of the outbound work (2026-10-13) — all DONE
+- **SMTPS (implicit TLS) not pinned (MEDIUM)** — DONE (9a70d67a): Angus gets the validated IP literal; TLS layered with
+  the configured name (SNI, HTTPS-style endpoint identification, CA bundle); Angus's `checkserveridentity` off on this
+  path only.
+- **LDAP deadline and limits** — DONE (c569c688): 15 s per bind sequence including DNS, two addresses, `ldap` group.
+- **`login-client` limits ignored** — DONE (173f1b5b).
+- **Legacy http `jwksUrl` rows** — DONE (a269fcdd): refused at fetch time outside dev, flagged at startup.
+- **Case-insensitive `private_key_jwt`** — DONE (ecd1d125).
+- **Global ceiling on pending deliveries** — DONE (604dd213).
+- **`3fff::/20` mask** — DONE (70803e91).
+- **Console shows server field errors for clients** — DONE (35cb5c60).
+- **Global SMTP relay guarded** — documented in the upgrade checklist (`CHANGES-1.0.md`).
+
+## Third review of the outbound work (2026-10-13) — all DONE
+- **Virtual-thread carrier pinning (HIGH)** — DONE (46259d54): `FetchLimiter` and `SocketSlot` on
+  `ReentrantLock`/`Condition`; webhook/SCIM deliveries bounded at 1,000 pending per realm, overflow dropped.
+- **Local-use NAT64 `64:ff9b:1::/48`** — DONE (cd71beef): refused outright.
+- **Realm passed explicitly; bounded no-realm partition** — DONE (9d228c0b).
+- **Bounded LRU decoder/JWKS caches** — DONE (5170827a).
+- **`login` split into `login-admin` / `login-client`** — DONE (7a12421f).
+- **DCR lowercase `private_key_jwt`; clients without `jwks_uri`; https `jwksUrl` on the admin API** — DONE (eb32da1c).
+- **Assertion `typ` JWT / absent / `client-authentication+jwt`** — DONE (ddb5986e).
+- **SMTP egress (pre-existing, released versions)** — DONE (6eaedfdf): guarded, pinned, TLS on the configured name,
+  ports 25/465/587/2525 unless `helix.messaging.smtp.allowed-ports`, generic errors.
+- **LDAP egress (pre-existing, released versions)** — DONE (344aedd9): guarded, pinned, LDAPS on the configured name,
+  referrals ignored; internal directories only via `helix.federation.ldap.allowed-hosts`.
+- **Audit webhook timeout** — DONE (b76047b8).
+- **Imported / console `jwksUrl` checks** — DONE (6521ceb8, 27a81470): realm import applies the admin API's
+  `jwksUrl` rule (`JwksUrlPolicy`) and refuses an invalid client with its field error; the console client form
+  validates it before save with an inline error.
+
+## Re-review of the M6 move (2026-10-13) — all DONE
+- **APNs regression (HTTP/2)** — DONE (8b5e8a98): APNs over the JDK client, HTTP/2, Apple's two hosts only; the
+  provider `host` is restricted to them.
+- **One shared fetch cap across features and realms** — DONE (9abf29af): per-group limiters with per-realm shares,
+  `helix.outbound.fetch.*`, virtual-thread delivery for webhooks and SCIM.
+- **private_key_jwt client JWKS fetched unguarded (pre-existing, released versions)** — DONE (5ff5e884): guarded,
+  pinned, cached client-assertion decoder; DCR auth-method and `jwks_uri` validation.
+- **More embedded-IPv4 / reserved IPv6 forms** — DONE (38adb6c6).
+- **JWKS timing and caching** — DONE (12d97ef4).
+- **eID mutual-TLS test on the pinned path** — DONE (dee1a70f).
+- **TAB in header values; clear errors for CTL / non-ASCII** — DONE (f406f457).
+- **Redirect bodies / duplicate Location** — DONE (eaf3cc49). **Error-body cap with truncation** — DONE (258b10a0).
+  **Response-head CTLs** — DONE (b4c56f6b).
+
+## M6 residual: DNS rebinding between the guard's check and the connection — DONE (2026-10-13)
+Every `OutboundUrlGuard` caller now connects through `PinnedHttpFetcher` (or `PinnedResourceRetriever` for Nimbus
+JWKS fetches): the guard resolves the host once, inside the request's deadline, checks every address, and the socket
+connects to one of those addresses with SNI and certificate checks on the original host name; redirects are not
+followed (the admin document fetch re-guards each hop). Callers moved: webhooks (5281eda), SCIM provisioning
+(e19a598), the HTTP notification transport (HTTP email/SMS, Twilio, FCM, APNs) and the Cloudflare email API (5ddd626),
+back-channel and upstream logout (b63aca0), the OIDC broker's token endpoint and JWKS (35ad86d), WIF JWKS and issuer
+discovery and FAPI request-object JWKS (ce6a9ec), the eID ArtifactResolve (7e67f6d), and the SAML metadata import
+fetch (de113fba); transport support in 77b049f. Every moved caller has a rebinding test (first answer validated,
+every later answer `169.254.169.254`). Outside scope, because the guard does not apply to them (operator-configured
+deployment properties or fixed URLs, not realm or client configuration): `HttpCaptchaVerifier`, `HttpAuditForwarder`,
+`BreachedPasswordChecker`.
+
+## EUDI Wallet: bounded issuer-revocation client (follow-up to Task 7, 2026-10-11)
+**Status: DONE (363fb26, branch `fix/wallet-network-hardening`).** `IssuerTrustValidator` no longer lets the JDK
+`PKIXRevocationChecker` fetch anything. `IssuerRevocationClient` fetches OCSP and CRLs over `PinnedHttpFetcher` and
+hands them to the JDK checker (OCSP via `setOcspResponses`, OCSP only; CRLs via a `CertStore` after a pre-check that
+mirrors the JDK's CRL approval, so its hard-wired distribution-point fallback is never reached). Each residual limit
+listed here before is closed:
+- **DNS rebinding / TOCTOU — DONE.** `OutboundUrlGuard.resolveAllowed` resolves once and returns the checked
+  addresses; the socket connects to one of them, with the original host as `Host` header and TLS name.
+- **Redirects — DONE.** Never followed.
+- **CRL size — DONE.** `helix.wallet.revocation.max-crl-bytes` (10 MB); OCSP responses at most 64 KB.
+- **Result cache under our control — DONE.** Until `nextUpdate` (24 h cap), bounded by entries and bytes, shared by
+  every provider.
+- **SOFT_FAIL with two or more intermediates — DONE.** Every certificate is checked on its own against its own
+  issuer; a revoked certificate anywhere refuses.
+- Timeouts: connect 3 s, 5 s per fetch including DNS (inside the deadline), 10 s per chain. **Default mode:**
+  `HARD_FAIL` (was `SOFT_FAIL`); configurable per provider, console field added. Rationale in
+  `docs/eudi-wallet.md` §7.2.
+- **Review follow-ups (2026-10-13) — DONE.** The first version relied on a pre-check to keep
+  `PKIXRevocationChecker`'s hard-wired distribution-point fallback from running; a review proved it reachable.
+  CRLs now go to the JDK's legacy checker with `com.sun.security.enableCRLDP=false` forced at startup and the
+  relevant JVM settings checked before each use (b79b50b). Also: CRL clock skew equal to the JDK's 15 min (cc681c7),
+  single-flight and a global fetch cap, 60 s negative cache for unparseable CRLs (8739d51), CRL cache sized by
+  parsed heap (a7b28f9), `max-crl-bytes` capped at 100 MB (74b4fcf), strict HTTP framing (c198f98, 5664038),
+  non-ASCII paths (258c6a6), headers validated before connecting (c433541), abort races (fc49b16, 66c4eae).
 
 ## EUDI Wallet: deferred/parked items (Task 26, 2026-10-12)
 
@@ -114,19 +181,19 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
   documentation is this task's deliverable; the pinning test is not added here** — Task 26 is scoped to
   documentation, the security-review write-up and GDPR, not new wallet test coverage for a pre-existing, already
   openly-accepted trust-model case. Add the test alongside any future change that touches `MdocStatusListSigner`.
-- **Status-list cache worst-case memory (~128 MB).** *(Status-list network item: owned by the status-list work.)* `TokenStatusListClient`'s verified-token cache has no
-  overall byte budget, only a per-entry decompressed-size cap (2 MB) and a count/TTL-driven eviction; a verifier
-  configured with many distinct, long-`maxCacheSeconds` status lists could accumulate a large working set before
-  eviction catches up. Task 10 review finding #5, deferred to final triage.
-- **`OutboundUrlGuard`'s DNS resolution is not itself inside the fetch deadline.** *(Status-list network item: owned by
-  the status-list work.)* The guard resolves and checks
-  a status-list host before the HTTP client's own connect timeout starts counting, so a slow-to-resolve (or
-  deliberately slow) DNS name can extend a status check beyond the configured 3 s connect / 5 s read bounds.
-  Task 10 review finding #6, deferred to final triage.
-- **`StatusListToken`/CWT status-list parsing could be split into its own class.** Today the CWT (mdoc) status
-  list form's COSE/CBOR handling is inlined alongside the SD-JWT (JWT) form in the same client rather than
-  factored into a dedicated type. Not a defect — a structure/maintainability item, not a security issue. Task 10
-  review finding #10.
+- **DONE (537289a) — Status-list cache worst-case memory (~128 MB).** `TokenStatusListClient`'s verified-token cache
+  had no overall byte budget. `StatusListCache` now bounds entries and total decoded list bytes (LRU), shared by every
+  provider: `helix.wallet.status-list.cache-max-entries` (64), `helix.wallet.status-list.cache-max-bytes` (32 MB).
+  Task 10 review finding #5.
+- **DONE (4b95470) — shared status-list cache consulted before the provider's own policy.** `vet()` (https,
+  `allowedHosts`) now runs before the cache lookup. **DONE (7798cf9)** — a status-list TLS failure or malformed HTTP
+  answer was transient and so could fail open; it fails closed now.
+- **DONE (a7e55e4) — `OutboundUrlGuard`'s DNS resolution is not itself inside the fetch deadline.** Status-list
+  fetches now go through `PinnedHttpFetcher`: the guard resolves inside the 5 s deadline and the connection goes to
+  the validated address (also closing the rebinding window for status lists). Task 10 review finding #6.
+- **DONE (9d42741) — `StatusListToken`/CWT status-list parsing split into its own class.** `StatusListCwt` holds the
+  CWT (mdoc) form; `StatusListToken` keeps the JWT form and the common checks. No behaviour change, no test edited.
+  Task 10 review finding #10.
 - **mdoc/COSE implementation-detail minors carried from the Task 11/12 reviews**, all accepted-risk or
   test-coverage gaps rather than defects, kept for a future pentest pass: an assumption that an `x5chain` is encoded as a single certificate when only one is present (vs. always an
   array), no explicit CBOR/COSE library version pin test, `byte[]` (non-constant-time) equality on a couple of

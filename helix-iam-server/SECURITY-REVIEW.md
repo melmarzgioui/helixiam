@@ -89,6 +89,38 @@
 >   DCR JWKS, WIF `jwksUri`, eID artifact resolver, upstream + backchannel logout, realm HTTP SMS/email).
 >   Secure default; `helix.egress.allow-private=true` only in dev. Residual: DNS-rebinding TOCTOU mitigated
 >   (resolve-and-check, reject if any resolved IP is internal) but not eliminated by connection pinning.
+>   **Fixed 2026-10-13 (branch `fix/wallet-network-hardening`, also affected released versions):** an IPv6
+>   address that embeds a blocked IPv4 address (IPv4-mapped `::ffff:127.0.0.1` / `::ffff:169.254.169.254`,
+>   IPv4-compatible `::/96`, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) passed the check, so an AAAA answer could reach
+>   loopback or cloud metadata. Such addresses are now judged by their embedded IPv4 address; `192.0.0.0/24`,
+>   `198.18.0.0/15` and `240.0.0.0/4` (incl. broadcast) are blocked; the AWS IPv6 metadata address `fd00:ec2::254`
+>   stays blocked even for an allowlisted host.
+>   **Residual closed 2026-10-13:** the DNS-rebinding TOCTOU is eliminated by connection pinning. Every guard caller
+>   (webhooks, SCIM, HTTP email/SMS/push and Cloudflare email drivers, back-channel and upstream logout, OIDC broker
+>   token + JWKS, WIF JWKS + issuer discovery, FAPI request-object JWKS, eID ArtifactResolve, SAML metadata import,
+>   wallet status lists and issuer CRL/OCSP) connects through `PinnedHttpFetcher` / `PinnedResourceRetriever`:
+>   one guarded resolution inside the request deadline, a socket to the validated address, SNI and hostname
+>   verification on the original name, no redirect following (metadata import re-guards each hop), per-caller size
+>   caps and timeouts. Tests: one public→private rebinding test per caller (`RebindingTarget`).
+>   **Re-review follow-ups (2026-10-13):** the token endpoint's `private_key_jwt` client JWKS (fetched by Spring
+>   Authorization Server's own decoder: unguarded, redirects followed; reachable through open DCR) now goes through the
+>   guard on the pinned transport (`GuardedClientAssertionDecoderFactory`), and DCR validates the auth method and an
+>   https, guard-approved `jwks_uri`. APNs is the one deliberate exception to pinning: HTTP/2 to Apple's two fixed hosts
+>   only (`ApnsHttp2Transport`), no admin-chosen host. Outbound slots are per feature group (wallet, login, OTP,
+>   outbound) with a per-realm share, so a tarpit in one realm cannot starve logins, OTP or other realms. The guard
+>   also judges SIIT addresses by their embedded IPv4 and refuses Teredo and `100::/64`.
+>   **Third review (2026-10-13):** the fetch limiter no longer pins virtual-thread carriers (`ReentrantLock`), and
+>   webhook/SCIM deliveries are bounded per realm; local-use NAT64 `64:ff9b:1::/48` is refused outright; `login`
+>   slots are split into `login-admin` and `login-client`; decoder/JWKS caches are bounded LRU. Two pre-existing
+>   egress gaps outside HTTP are closed: the **SMTP** driver (guarded, pinned, TLS on the configured name, standard
+>   ports unless `helix.messaging.smtp.allowed-ports`) and **LDAP federation** (guarded, pinned, LDAPS on the configured
+>   name, referrals off, internal directories only via the operator setting `helix.federation.ldap.allowed-hosts`).
+>   The SIEM audit webhook has explicit timeouts and a bounded backlog.
+>   **Final review (2026-10-13):** SMTPS is pinned too (Angus is given the validated IP; TLS is checked against the
+>   configured name by our own endpoint identification); LDAP bind sequences have one 15 s deadline, at most two
+>   addresses and per-realm `ldap` slots; non-https client JWKS URLs left from before the https rule are refused at
+>   fetch time; the token endpoint auth method is case-insensitive with unknown values refused; pending deliveries have
+>   a global ceiling; `3fff::/20` is matched exactly.
 >
 > **STILL OPEN — deliberately deferred** (documented in `DEFERRED-SECURITY-WORK.md`): **L5** (the legacy
 > AES/ECB decrypt path is retained deliberately so existing rows stay readable — now logged), **L6** (the
@@ -551,16 +583,21 @@ review before merge (`task-18-review.md`), not something later Task 26 found.
 
 Every Token Status List fetch (`TokenStatusListClient`) goes through the same `OutboundUrlGuard` every other
 admin-configurable outbound HTTP call in HelixIAM uses (webhooks, SCIM, OIDC/eID discovery and JWKS, HIBP, audit
-forwarding): `https` only, no loopback/private/link-local/cloud-metadata destination, DNS-rebinding mitigated by
-resolve-then-check (not eliminated — the same residual TOCTOU noted for every other `OutboundUrlGuard` caller in
-the main review's M6 finding). A `status_list.uri` that fails this check, or that is not in the operator's
-`statusList.allowedHosts` when that allow-list is configured, is refused **by policy, before any fetch** and is
-always treated as "cannot be fetched" rather than "unavailable" — it is never given the fail-open path even under
-`FAIL_OPEN_WITH_AUDIT` (ledger Task 10 ruling), because the URI is issuer-signed content, not something an
-attacker can toggle per-request the way they could an HTTP response code. See also §4/§5 of
-`docs/eudi-wallet.md` — this branch has no `trustedProxies` setting, so `OutboundUrlGuard`'s own egress decisions
-are the only guard in front of these fetches; there is nothing *additional* scoping which proxy the server itself
-may sit behind.
+forwarding): `https` only, no loopback/private/link-local/cloud-metadata destination. Unlike those callers, the
+status-list fetch (and every redirect hop, each re-vetted) runs over `PinnedHttpFetcher`: the guard resolves the host
+once (`OutboundUrlGuard.resolveAllowed`) and the socket connects to one of the addresses it checked, never to the
+name, so a resolver that answers differently the second time (DNS rebinding) cannot move the connection; TLS is still
+verified against the host name. That resolution runs inside the 5 s deadline, so a slow resolver cannot hold a login
+past it. A `status_list.uri` that fails these checks, or that is not in the operator's `statusList.allowedHosts`
+when that allow-list is configured, is refused **by policy, before any connection** and is always treated as
+"cannot be fetched" rather than "unavailable" — it is never given the fail-open path even under
+`FAIL_OPEN_WITH_AUDIT` (ledger Task 10 ruling), because the URI is issuer-signed content, not something an attacker
+can toggle per-request the way they could an HTTP response code. Verified lists are cached in one `StatusListCache`
+shared by every provider, bounded by entry count (`helix.wallet.status-list.cache-max-entries`, 64) and by total
+decoded list bytes (`helix.wallet.status-list.cache-max-bytes`, 32 MB; before, about 128 MB in the worst case). See
+also §4/§5 of `docs/eudi-wallet.md` — this branch has no `trustedProxies` setting, so `OutboundUrlGuard`'s own egress
+decisions are the only guard in front of these fetches; there is nothing *additional* scoping which proxy the
+server itself may sit behind.
 
 ### B.6 The §6.5 mdoc status-list-signer rule, and the appended-anchor bypass that was fixed
 
@@ -613,3 +650,48 @@ either changes observable behaviour for callers this document has not re-verifie
   session already established by the caller a few lines earlier (`FederatedLoginCompleter.complete`,
   `:158-161`). This is accepted as a JVM-level edge case (the project does not catch `Error` anywhere else
   either) and tracked in `DEFERRED-SECURITY-WORK.md` rather than papered over with a `catch (Throwable)`.
+
+### B.10 Issuer certificate revocation (CRL / OCSP)
+
+The CRL distribution point and OCSP responder URLs come from the presented, attacker-supplied issuer certificates,
+so the fetch is an SSRF and DoS surface. The JDK no longer fetches anything for wallet issuer certificates (its
+`PKIXRevocationChecker` followed redirects, re-resolved names, had no CRL size cap and no cache under our control).
+`IssuerRevocationClient` fetches instead, over `PinnedHttpFetcher`:
+- nothing is fetched until the chain has validated to a configured anchor, so only a trusted CA's certificates can
+  name a URL;
+- every URL passes `OutboundUrlGuard` (http and https only — CRLs and OCSP responses are signed, so plain http is
+  normal and their signature is the integrity; `ldap:` and non-URI names are never used), the connection goes to the
+  validated address (no DNS rebinding), no redirect is followed, connect 3 s and 5 s in total per fetch including
+  DNS, 10 s per chain, OCSP response at most 64 KB, CRL at most `helix.wallet.revocation.max-crl-bytes` (10 MB,
+  100 MB at most); strict HTTP/1.1 framing (conflicting `Content-Length`, `Content-Length` with
+  `Transfer-Encoding`, signed numbers, obs-fold, a protocol switch are refused);
+- concurrent logins share one download per URL (single-flight); at most `helix.outbound.fetch.wallet.max-concurrent` (16; old name `helix.wallet.fetch.max-concurrent`)
+  fetches run at once, permits held until the worker ends so DNS lookups that hang cannot pile up threads; a URL
+  that served something that is not a CRL (or too large a one) is not downloaded again for 60 s;
+- the JDK validates and never fetches. An OCSP response goes in through `setOcspResponses` (OCSP only, no fallback;
+  with a response supplied it never contacts a responder). A CRL is pre-checked (issuer name and key identifier,
+  cRLSign, signature algorithm and signature, thisUpdate/nextUpdate within the JDK's own 15-minute skew, no delta /
+  indirect / partial CRL, no unknown critical extension) and then handed to the JDK's **legacy** CRL checker in a
+  `CertStore`. Not `PKIXRevocationChecker`: its fallback to fetching every distribution point of the certificate
+  (unpinned, uncapped) is hard-wired on whenever it cannot approve a CRL — the first version of this change relied on
+  the pre-check alone and a review proved that fallback reachable. The legacy checker fetches nothing while
+  `com.sun.security.enableCRLDP` is off (forced off at startup); if an operator re-enables it (or `ocsp.enable`,
+  `com.sun.security.enableAIAcaIssuers`, `com.sun.security.onlyCheckRevocationOfEECert`), CRLs are not evaluated
+  at all and an error is logged (`JdkRevocationNoFetchTest`);
+- answers are cached until `nextUpdate` (a CRL until `nextUpdate` + 15 min; 24 h at most; without `nextUpdate`, not
+  at all), bounded by `helix.wallet.revocation.cache-max-entries` (256) and `.cache-max-bytes` (32 MB; a CRL counts
+  an estimate of its parsed heap: 3 × its encoding + 256 bytes per revoked entry), shared by every provider.
+
+Each certificate below the anchor is checked on its own, against its own issuer, so an undeterminable upper CA no
+longer stops the check before a lower CA (the former SOFT_FAIL gap with two or more intermediates). A `REVOKED`
+answer anywhere refuses. `revocationChecking` defaults to `HARD_FAIL`: a certificate whose status cannot be
+determined is refused; `SOFT_FAIL` accepts it with a warning (serial and subject DN only); `OFF` checks nothing.
+
+Status lists (B.5) use the same transport. A TLS failure (untrusted certificate, host name mismatch) or an answer
+that is not valid HTTP is an integrity failure and always fails closed, also under `FAIL_OPEN_WITH_AUDIT`; only
+connect / read errors, timeouts (DNS included), 5xx and unresolvable hosts are transient. A provider's own
+`allowedHosts` and https rule are applied before the shared status-list cache is consulted.
+
+**Latency.** Worst case per credential, all endpoints slow: about 25 s — 10 s for the issuer chain's revocation
+budget, 5 s for the status-list fetch, and 10 s for the revocation budget of the status-list signer's chain. Cached
+answers make the common case a few milliseconds.

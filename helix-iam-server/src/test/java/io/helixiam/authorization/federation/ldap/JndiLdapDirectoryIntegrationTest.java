@@ -27,7 +27,7 @@ class JndiLdapDirectoryIntegrationTest {
     private static InMemoryDirectoryServer ldap;
     private static LdapProviderConfig config;
 
-    private final JndiLdapDirectory directory = new JndiLdapDirectory();
+    private final JndiLdapDirectory directory = new JndiLdapDirectory(new io.helixiam.common.net.LdapEgressGuard("localhost"));
 
     @BeforeAll
     static void startDirectory() throws Exception {

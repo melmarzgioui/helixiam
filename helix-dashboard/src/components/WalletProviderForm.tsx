@@ -385,6 +385,22 @@ export function WalletCredentialsSection(props: WalletSectionProps) {
             </ul>
           </div>
         )}
+        <FormField label={t("wallet.revocation.field")} group="radiogroup" error={fe("revocationChecking")}>
+          <div className="hx-choicegrid">
+            <RadioCard roving selected={form.revocationChecking === "HARD_FAIL"} onSelect={() => onChange({ revocationChecking: "HARD_FAIL" })}
+              title={t("wallet.revocation.hardFail")} description={t("wallet.revocation.hardFailDesc")} />
+            <RadioCard roving selected={form.revocationChecking === "SOFT_FAIL"} onSelect={() => onChange({ revocationChecking: "SOFT_FAIL" })}
+              title={t("wallet.revocation.softFail")} description={t("wallet.revocation.softFailDesc")} />
+            <RadioCard roving selected={form.revocationChecking === "OFF"} onSelect={() => onChange({ revocationChecking: "OFF" })}
+              title={t("wallet.revocation.off")} description={t("wallet.revocation.offDesc")} />
+          </div>
+        </FormField>
+        {form.revocationChecking === "SOFT_FAIL" && (
+          <Alert tone="warning" title={t("wallet.warn.revocationSoftFail.title")}>{t("wallet.warn.revocationSoftFail")}</Alert>
+        )}
+        {form.revocationChecking === "OFF" && (
+          <Alert tone="warning" title={t("wallet.warn.revocationOff.title")}>{t("wallet.warn.revocationOff")}</Alert>
+        )}
       </Section>
     </>
   );
@@ -499,6 +515,10 @@ export function WalletReview({ form, keys }: { form: WalletForm; keys: VerifierK
       </Detail>
       <Detail label={t("wallet.review.claims")}>{form.requestedClaims.map((c) => t(`wallet.claim.${c}`)).join(", ") || "—"}</Detail>
       <Detail label={t("wallet.review.anchors")}>{t("wallet.review.anchorsCount", { n: anchors })}</Detail>
+      <Detail label={t("wallet.review.revocation")}>
+        {t(form.revocationChecking === "HARD_FAIL" ? "wallet.revocation.hardFail"
+          : form.revocationChecking === "SOFT_FAIL" ? "wallet.revocation.softFail" : "wallet.revocation.off")}
+      </Detail>
       <Detail label={t("wallet.review.subject")}>
         {form.subjectStrategy === "ADMINISTRATIVE_NUMBER" ? t("wallet.subject.adminNumber") : t("wallet.subject.tuple")}
       </Detail>

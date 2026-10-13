@@ -17,24 +17,20 @@ import io.helixiam.authorization.messaging.email.EmailMessage;
 import io.helixiam.authorization.messaging.email.EmailTransport;
 import io.helixiam.authorization.messaging.email.TlsTrust;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.net.SsrfBlockedException;
 import io.helixiam.common.startup.DeploymentProfile;
 import org.springframework.stereotype.Component;
 
-import javax.net.ssl.SSLException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -76,7 +72,8 @@ public class CloudflareEmailDriver implements EmailTransport {
 
     private final OutboundUrlGuard egressGuard;
     private final DeploymentProfile profile;
-    private final Map<String, HttpClient> clients = new ConcurrentHashMap<>();
+    /** One pinned fetcher per CA bundle (M6: no JDK HttpClient re-resolving the API host). */
+    private final Map<String, PinnedHttpFetcher> fetchers = new ConcurrentHashMap<>();
 
     public CloudflareEmailDriver(final OutboundUrlGuard egressGuard, final DeploymentProfile profile) {
         this.egressGuard = egressGuard;
@@ -105,45 +102,54 @@ public class CloudflareEmailDriver implements EmailTransport {
             return DeliveryResult.permanent(Reason.CONFIGURATION, "The email provider has no from address");
         }
         final String url = settings.sendUrl();
-        try {
-            egressGuard.checkAllowed(url);
-        } catch (final SsrfBlockedException e) {
-            return DeliveryResult.permanent(Reason.CONFIGURATION, "The Cloudflare API URL is not allowed by the egress policy");
-        }
         final String body;
         try {
             body = JSON.writeValueAsString(requestBody(message));
         } catch (final IOException e) {
             return DeliveryResult.permanent(Reason.MESSAGE_REJECTED, "The email could not be encoded");
         }
-        final HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofMillis(settings.readTimeoutMs()))
-                .header("Authorization", "Bearer " + token)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
-        final int status;
-        final byte[] response;
-        final boolean truncated;
+        final Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Authorization", "Bearer " + token);
+        headers.put("Content-Type", "application/json");
+        headers.put("Accept", "application/json");
+        // M6: the guard resolves the API host once, inside the deadline (readTimeoutMs bounds the whole request, as
+        // the JDK request timeout did), and the connection goes to the address it validated; no redirects
+        final PinnedHttpFetcher.Limits limits = new PinnedHttpFetcher.Limits(
+                Duration.ofMillis(Math.min(settings.connectTimeoutMs(), settings.readTimeoutMs())),
+                Duration.ofMillis(settings.readTimeoutMs()), MAX_RESPONSE_BYTES);
+        int status;
+        byte[] response;
+        boolean truncated;
         try {
-            final HttpResponse<InputStream> res = client(settings).send(request, HttpResponse.BodyHandlers.ofInputStream());
-            status = res.statusCode();
-            try (InputStream in = res.body()) {
-                final byte[] read = in.readNBytes(MAX_RESPONSE_BYTES + 1);
-                truncated = read.length > MAX_RESPONSE_BYTES;
-                response = truncated ? new byte[0] : read;
+            final PinnedHttpFetcher.Response res = fetcher(settings).exchange(new PinnedHttpFetcher.Request("POST", url,
+                    headers, body.getBytes(StandardCharsets.UTF_8), limits, true));
+            status = res.status();
+            truncated = res.truncated(); // an error body over 16 KB: the status counts, the body is not used
+            response = truncated ? new byte[0] : res.body();
+        } catch (final SsrfBlockedException e) {
+            return DeliveryResult.permanent(Reason.CONFIGURATION, "The Cloudflare API URL is not allowed by the egress policy");
+        } catch (final IllegalArgumentException e) {
+            // a request header the client refuses (a token or name with a non-ASCII or control character)
+            return DeliveryResult.permanent(Reason.CONFIGURATION,
+                    "The Cloudflare API token or settings contain a character that cannot be sent in an HTTP header");
+        } catch (final PinnedHttpFetcher.FetchException e) {
+            switch (e.kind()) {
+                case TOO_LARGE -> {
+                    status = e.status();
+                    response = new byte[0];
+                    truncated = true;
+                }
+                case TIMEOUT -> {
+                    return DeliveryResult.transientFailure(Reason.NETWORK, "The Cloudflare API timed out");
+                }
+                case TLS -> {
+                    return DeliveryResult.transientFailure(Reason.NETWORK,
+                            "TLS handshake with the Cloudflare API failed (certificate or protocol)");
+                }
+                default -> {
+                    return DeliveryResult.transientFailure(Reason.NETWORK, "Could not reach the Cloudflare API");
+                }
             }
-        } catch (final HttpTimeoutException e) {
-            return DeliveryResult.transientFailure(Reason.NETWORK, "The Cloudflare API timed out");
-        } catch (final SSLException e) {
-            return DeliveryResult.transientFailure(Reason.NETWORK,
-                    "TLS handshake with the Cloudflare API failed (certificate or protocol)");
-        } catch (final IOException e) {
-            return DeliveryResult.transientFailure(Reason.NETWORK, "Could not reach the Cloudflare API");
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return DeliveryResult.transientFailure(Reason.NETWORK, "Interrupted while calling the Cloudflare API");
         }
         return scrub(classify(status, response, truncated, message), token);
     }
@@ -277,16 +283,15 @@ public class CloudflareEmailDriver implements EmailTransport {
                 r.bouncedRecipients());
     }
 
-    private HttpClient client(final Settings settings) {
-        final String key = settings.connectTimeoutMs() + "|" + (settings.caBundle() == null ? "" : settings.caBundle());
-        if (clients.size() >= MAX_CLIENTS && !clients.containsKey(key)) {
-            clients.clear();
+    private PinnedHttpFetcher fetcher(final Settings settings) {
+        final String key = settings.caBundle() == null ? "" : settings.caBundle();
+        if (fetchers.size() >= MAX_CLIENTS && !fetchers.containsKey(key)) {
+            fetchers.clear();
         }
-        return clients.computeIfAbsent(key, k -> HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(settings.connectTimeoutMs()))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .sslContext(TlsTrust.context(settings.caBundle()))
-                .build());
+        return fetchers.computeIfAbsent(key, k -> new PinnedHttpFetcher(egressGuard,
+                TlsTrust.context(settings.caBundle()),
+                io.helixiam.common.net.FetchLimiter.forGroup(io.helixiam.common.net.FetchLimiter.Group.OTP),
+                io.helixiam.authorization.security.realm.RealmContextHolder::get));
     }
 
     /** The parsed, validated settings of a Cloudflare provider. */

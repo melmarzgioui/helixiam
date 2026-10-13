@@ -49,6 +49,7 @@ class EmailProviderAdminE2eTest extends AbstractE2eTest {
                 : CloudflareApiMock.delivered(r.to()));
         HarnessEgressGuard.allow(cloudflare.port());
         smtps = TestSmtpServer.implicitTls(tls);
+        HarnessEgressGuard.allow(smtps.port());
     }
 
     @AfterAll

@@ -38,6 +38,7 @@ class EmailProviderTestEndpointE2eTest extends AbstractE2eTest {
         cloudflare = CloudflareApiMock.https(tls).respond(r -> CloudflareApiMock.delivered(r.to()));
         HarnessEgressGuard.allow(cloudflare.port());
         smtps = TestSmtpServer.implicitTls(tls);
+        HarnessEgressGuard.allow(smtps.port());
     }
 
     @AfterAll

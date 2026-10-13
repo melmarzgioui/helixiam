@@ -192,6 +192,7 @@ user (which forced operators to set `MFA_ENABLED=false` globally): use the boots
 | `HELIX_SQL_INIT_MODE` | `never` | legacy idempotent `schema.sql` init; set `always` together with `HELIX_MIGRATIONS_ENABLED=false` |
 | `HELIX_MIGRATIONS_ENABLED` | `true` | Flyway (`db/migration/V*`) manages the schema (default everywhere: app, image, Helm) |
 | `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS` | *(empty)* | private hosts outbound calls (email/SMS HTTP drivers, webhooks, SCIM, federation) may reach, e.g. `mailer.mail.svc.cluster.local,sms-gateway.internal:8080`: exact host names or IP literals, optionally with a port. Matched by the configured name, never by the address it resolves to; link-local/cloud-metadata, multicast and wildcard addresses stay blocked. Global, not per realm, because realm admins configure the outbound URLs. |
+| `HELIX_FEDERATION_LDAP_ALLOWED_HOSTS` | *(empty)* | internal LDAP directories realm LDAP providers may reach: host names (`ldap.corp`, `ldap.corp:636`) or ranges (`10.20.0.0/16`). Empty means public directories only. Only `ldap://` and `ldaps://` URLs; the connection is pinned to the checked address, LDAPS is verified against the configured name, referrals are ignored. |
 | `HELIX_EGRESS_ALLOW_PRIVATE` | `false` | **deprecated**: lets *every* outbound URL reach private and loopback addresses (still honoured; logged as insecure). Use `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`. |
 
 ### Theming

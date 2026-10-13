@@ -8,7 +8,10 @@ package io.helixiam.authorization.security.webhook;
 import io.helixiam.authorization.amqp.webhook.WebhookConfigPublisher;
 import io.helixiam.authorization.amqp.webhook.WebhookSubscriptionDto;
 import io.helixiam.authorization.security.audit.AuditEvent;
+import io.helixiam.common.net.FetchLimiter;
+import io.helixiam.common.net.RealmBoundedExecutor;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -18,19 +21,15 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.LongSupplier;
 
 /**
@@ -45,11 +44,15 @@ public class WebhookDispatcher {
 
     private static final Logger LOG = LogManager.getLogger(WebhookDispatcher.class);
     private static final long TTL_MS = 30_000L;
+    /** 5 s for the whole delivery (DNS, connect, TLS, response); a 200 body is read up to 64 KB and ignored. */
+    private static final PinnedHttpFetcher.Limits LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(5),
+            Duration.ofSeconds(5), 64 * 1024);
 
     private final ObjectProvider<WebhookConfigPublisher> publisher;
     private final OutboundUrlGuard egressGuard;
-    private final HttpClient httpClient;
-    private final ExecutorService executor;
+    /** M6: pinned to the address the guard validated (no second DNS answer), no redirects, 5 s in total. */
+    private final PinnedHttpFetcher http;
+    private final RealmBoundedExecutor queue;
     private final LongSupplier nowMillis;
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
 
@@ -63,12 +66,19 @@ public class WebhookDispatcher {
         this.publisher = publisher;
         this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
-        this.httpClient = HttpClient.newHttpClient();
-        this.executor = Executors.newFixedThreadPool(2, r -> {
-            final Thread t = new Thread(r, "webhook-dispatcher");
-            t.setDaemon(true);
-            return t;
-        });
+        this.http = PinnedHttpFetcher.plain(egressGuard, FetchLimiter.Group.OUTBOUND, () -> null);
+        // a virtual thread per delivery, at most 1,000 pending per realm (overflow dropped, never blocking the
+        // producer); a slow endpoint holds its own thread, bounded in time by the request deadline and in number by
+        // the realm's share of the OUTBOUND slots and of this queue
+        this.queue = new RealmBoundedExecutor("webhook-dispatcher", RealmBoundedExecutor.DEFAULT_MAX_PENDING_PER_REALM);
+    }
+
+    /** The ceiling on pending deliveries across all realms ({@code helix.outbound.deliveries.max-pending}). */
+    @Autowired(required = false)
+    void setMaxPendingTotal(
+            @org.springframework.beans.factory.annotation.Value("${helix.outbound.deliveries.max-pending:20000}")
+            final int maxPendingTotal) {
+        queue.setMaxPendingTotal(maxPendingTotal);
     }
 
     /** Deliver one event (already serialized to {@code json}) to every matching, enabled webhook. */
@@ -79,7 +89,7 @@ public class WebhookDispatcher {
         final List<WebhookSubscriptionDto> hooks = activeFor(event.realm());
         for (final WebhookSubscriptionDto hook : hooks) {
             if (matches(hook.eventTypes(), event.type(), event.category())) {
-                executor.submit(() -> post(hook, json));
+                queue.submit(event.realm(), () -> post(hook, json, event.realm()));
             }
         }
     }
@@ -132,26 +142,31 @@ public class WebhookDispatcher {
         }
     }
 
-    private void post(final WebhookSubscriptionDto hook, final String json) {
+    private void post(final WebhookSubscriptionDto hook, final String json, final String realm) {
         try {
-            egressGuard.checkAllowed(hook.url()); // M6: block SSRF to internal/metadata hosts via realm webhook URL
-            final HttpRequest.Builder req = HttpRequest.newBuilder()
-                    .uri(URI.create(hook.url()))
-                    .timeout(Duration.ofSeconds(5))
-                    .header("Content-Type", "application/json")
-                    .header("X-Helix-Event", "audit")
-                    .POST(HttpRequest.BodyPublishers.ofString(json));
+            // M6: the guard resolves the realm's webhook URL once, inside the deadline, and the POST goes to the
+            // address it validated (internal / metadata hosts refused), without following redirects
+            final Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Content-Type", "application/json");
+            headers.put("X-Helix-Event", "audit");
             final String sig = sign(hook.secret(), json);
             if (!sig.isEmpty()) {
-                req.header("X-Helix-Signature", "sha256=" + sig);
+                headers.put("X-Helix-Signature", "sha256=" + sig);
             }
-            final HttpResponse<Void> res = httpClient.send(req.build(), HttpResponse.BodyHandlers.discarding());
-            if (res.statusCode() >= 300) {
-                LOG.debug("Webhook {} returned {}", hook.id(), res.statusCode());
+            // the realm's own share of the OUTBOUND slots: a slow endpoint cannot hold other realms' deliveries
+            final PinnedHttpFetcher.Response res = http.exchange(new PinnedHttpFetcher.Request("POST", hook.url(),
+                    headers, json.getBytes(StandardCharsets.UTF_8), LIMITS, false).inPartition(realm));
+            if (res.status() >= 300) {
+                LOG.debug("Webhook {} returned {}", hook.id(), res.status());
             }
         } catch (final Exception e) {
             LOG.debug("Webhook {} delivery failed (non-fatal): {}", hook.id(), e.getMessage());
         }
+    }
+
+    /** The per-realm bounded delivery queue (pending and dropped counts per realm). */
+    public RealmBoundedExecutor queue() {
+        return queue;
     }
 
     private record Cached(List<WebhookSubscriptionDto> value, long loadedAt) {

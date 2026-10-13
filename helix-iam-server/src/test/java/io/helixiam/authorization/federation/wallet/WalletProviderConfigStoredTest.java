@@ -46,7 +46,7 @@ class WalletProviderConfigStoredTest {
         assertThat(c.pid().requestedClaims()).containsExactly("given_name", "family_name", "birthdate")
                 .doesNotContain("age_over_18");
         assertThat(c.customCredentialQueries()).isEmpty();
-        assertThat(c.revocationChecking()).isEqualTo(TrustAnchors.RevocationMode.SOFT_FAIL);
+        assertThat(c.revocationChecking()).isEqualTo(TrustAnchors.RevocationMode.HARD_FAIL);
         assertThat(c.statusList().required()).isFalse();
         assertThat(c.statusList().onUnavailable()).isEqualTo(StatusPolicy.OnUnavailable.FAIL_CLOSED);
         assertThat(c.statusList().maxCacheSeconds()).isEqualTo(900);

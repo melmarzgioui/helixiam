@@ -20,17 +20,24 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Helix IAM M6 (SSRF): the single gate every server-initiated call to an <b>attacker-configurable</b> URL
- * (webhook / SCIM target / OIDC-broker token &amp; JWKS URIs / DCR client JWKS / WIF {@code jwksUri} /
- * eID artifact-resolution service / upstream &amp; back-channel logout / realm-config'd notification HTTP
- * endpoints) passes through before opening a connection. It rejects a URL whose:
+ * Helix IAM M6 (SSRF): the single gate every server-initiated call to an <b>attacker-configurable</b> URL passes
+ * through before opening a connection: webhooks, SCIM targets, the OIDC broker's token endpoint and JWKS, a client's
+ * registered JWKS (FAPI request objects, and the token endpoint's {@code private_key_jwt} assertions through
+ * {@code GuardedClientAssertionDecoderFactory}; SAS's own decoder fetched it unguarded and followed redirects), WIF
+ * JWKS and issuer discovery, the eID artifact-resolution service, upstream and back-channel logout, realm-configured
+ * notification HTTP endpoints, the SAML metadata import, and the wallet's status lists and issuer CRL / OCSP. Every one
+ * of them connects through {@link PinnedHttpFetcher} on the address this guard validated. (APNs is the exception by
+ * design: Apple's two fixed hosts over HTTP/2, see {@code ApnsHttp2Transport}.) It rejects a URL whose:
  * <ul>
  *   <li>scheme is not {@code http} or {@code https} (blocks {@code file:}, {@code gopher:}, {@code ftp:}, …);</li>
  *   <li>host cannot be resolved; or</li>
  *   <li>any resolved {@link InetAddress} is loopback, wildcard ({@code 0.0.0.0} / {@code ::}), link-local
  *       ({@code 169.254.0.0/16}, {@code fe80::/10} — this covers the {@code 169.254.169.254} cloud-metadata
- *       endpoint), site-local / private ({@code 10/8}, {@code 172.16/12}, {@code 192.168/16}, {@code fc00::/7}),
- *       or multicast.</li>
+ *       endpoint), site-local / private ({@code 10/8}, {@code 172.16/12}, {@code 192.168/16}, {@code fc00::/7},
+ *       which covers the AWS IPv6 metadata address {@code fd00:ec2::254}), multicast, or reserved
+ *       ({@code 0/8}, {@code 100.64/10}, {@code 192.0.0/24}, {@code 198.18/15}, {@code 240/4} including broadcast);
+ *       an IPv6 address that embeds an IPv4 address (IPv4-mapped, IPv4-compatible, NAT64 {@code 64:ff9b::/96},
+ *       6to4 {@code 2002::/16}) is judged by that IPv4 address as well.</li>
  * </ul>
  *
  * <p><b>Private-host allowlist (C6):</b> {@code helix.egress.allowed-private-hosts} (env
@@ -52,18 +59,19 @@ import java.util.Locale;
  * check is always enforced.
  *
  * <p><b>DNS-rebinding / TOCTOU:</b> the guard resolves the host and validates <em>every</em> returned address
- * immediately before the caller connects; the JDK {@code HttpClient} then re-resolves, so a hostile resolver
- * could in theory answer differently the second time. Full elimination would require pinning the connection to
- * the validated {@code InetAddress}, which is too invasive for the shared JDK clients here — the residual window
- * is documented in the M6 report. Resolving-and-checking right before each request is the accepted mitigation.
+ * immediately before the caller connects. Callers that use the JDK {@code HttpClient} after {@link #checkAllowed}
+ * let it re-resolve, so a hostile resolver could in theory answer differently the second time (the residual window
+ * documented in the M6 report). Callers that must close that window use {@link #resolveAllowed}, which returns the
+ * validated addresses, and connect to one of them: {@link PinnedHttpFetcher} does (wallet issuer CRL / OCSP fetches
+ * and Token Status List fetches).
  */
 @Component
 public class OutboundUrlGuard {
 
     private static final Logger LOG = LogManager.getLogger(OutboundUrlGuard.class);
 
-    /** Seam over name resolution so unit tests can drive rebinding / resolution scenarios deterministically. */
-    interface HostResolver {
+    /** Seam over name resolution so tests can drive rebinding / resolution scenarios deterministically. */
+    public interface HostResolver {
         InetAddress[] resolve(String host) throws UnknownHostException;
     }
 
@@ -109,7 +117,9 @@ public class OutboundUrlGuard {
         this(allowPrivate, List.of(), resolver);
     }
 
-    OutboundUrlGuard(final boolean allowPrivate, final List<String> allowedPrivateHosts, final HostResolver resolver) {
+    /** Explicit policy and resolver (tests, and wiring that needs a custom resolver). */
+    public OutboundUrlGuard(final boolean allowPrivate, final List<String> allowedPrivateHosts,
+                            final HostResolver resolver) {
         this.allowPrivate = allowPrivate;
         this.allowedPrivateHosts = allowedPrivateHosts.stream().map(AllowedHost::parse)
                 .filter(java.util.Objects::nonNull).toList();
@@ -224,6 +234,54 @@ public class OutboundUrlGuard {
      *                              (unless {@code allow-private} is enabled, which skips only the address checks).
      */
     public void checkAllowed(final String url) throws SsrfBlockedException {
+        check(url, false);
+    }
+
+    /**
+     * A URL the guard accepted, with the addresses it validated. A caller that connects must connect to one of
+     * {@link #addresses()} (never resolve {@link #host()} again), sending {@link #host()} as the HTTP {@code Host} and
+     * TLS server name.
+     *
+     * @param uri       the parsed URL
+     * @param host      the host as written in the URL (IPv6 without brackets)
+     * @param port      the explicit port, or 80 / 443 by scheme
+     * @param addresses every address the host resolved to, each one checked
+     */
+    public record ResolvedTarget(URI uri, String host, int port, List<InetAddress> addresses) {
+        public ResolvedTarget {
+            addresses = List.copyOf(addresses);
+        }
+
+        /** True for {@code https}. */
+        public boolean https() {
+            return "https".equalsIgnoreCase(uri.getScheme());
+        }
+    }
+
+    /**
+     * As {@link #checkAllowed}, resolving the host exactly once and returning the addresses that were checked, so the
+     * caller can connect to a validated address instead of resolving again (DNS rebinding). Under the deprecated
+     * {@code allow-private} switch the host is still resolved (an unresolvable host throws
+     * {@link UnresolvableHostException}); only the address checks are skipped.
+     */
+    public ResolvedTarget resolveAllowed(final String url) throws SsrfBlockedException {
+        return check(url, true);
+    }
+
+    /**
+     * As {@link #resolveAllowed} for a non-HTTP service ({@code host} and {@code port}, e.g. SMTP or LDAP): the same
+     * address checks and private-host allowlist (by name and port), one resolution, the validated addresses returned.
+     */
+    public ResolvedTarget resolveAllowedHost(final String host, final int port) throws SsrfBlockedException {
+        if (host == null || host.isBlank() || port < 1 || port > 65535) {
+            throw new SsrfBlockedException("Outbound host or port is missing");
+        }
+        final String h = host.trim();
+        final String literal = h.indexOf(':') >= 0 && !h.startsWith("[") ? "[" + h + "]" : h;
+        return resolveAllowed("https://" + literal + ":" + port + "/");
+    }
+
+    private ResolvedTarget check(final String url, final boolean needAddresses) throws SsrfBlockedException {
         if (url == null || url.isBlank()) {
             throw new SsrfBlockedException("Outbound URL is missing");
         }
@@ -245,11 +303,11 @@ public class OutboundUrlGuard {
         if (host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
         }
-        if (allowPrivate) {
-            return; // deprecated escape hatch: scheme still enforced above, address checks skipped
+        final int port = uri.getPort() >= 0 ? uri.getPort() : scheme.equalsIgnoreCase("https") ? 443 : 80;
+        if (allowPrivate && !needAddresses) {
+            return null; // deprecated escape hatch: scheme still enforced above, address checks skipped
         }
         final String matchHost = host.toLowerCase(Locale.ROOT);
-        final int port = uri.getPort() >= 0 ? uri.getPort() : scheme.equalsIgnoreCase("https") ? 443 : 80;
         // C6: an allowlisted NAME (never the address it resolves to) may reach private addresses.
         final boolean allowlisted = allowedPrivateHosts.stream().anyMatch(a -> a.matches(matchHost, port));
         final InetAddress[] addresses;
@@ -261,34 +319,143 @@ public class OutboundUrlGuard {
         if (addresses == null || addresses.length == 0) {
             throw new UnresolvableHostException("Outbound host resolved to no address: " + host);
         }
-        for (final InetAddress address : addresses) {
-            if (allowlisted ? isAlwaysBlocked(address) : isBlocked(address)) {
-                LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)",
-                        LogSafe.sanitize(safe(url)),
-                        LogSafe.sanitize(address.getHostAddress()));
-                throw new SsrfBlockedException("Outbound host " + host + " resolves to a blocked ("
-                        + "internal/reserved) address: " + address.getHostAddress());
+        if (!allowPrivate) {
+            for (final InetAddress address : addresses) {
+                if (allowlisted ? isAlwaysBlocked(address) : isBlocked(address)) {
+                    LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)",
+                            LogSafe.sanitize(safe(url)),
+                            LogSafe.sanitize(address.getHostAddress()));
+                    throw new SsrfBlockedException("Outbound host " + host + " resolves to a blocked ("
+                            + "internal/reserved) address: " + address.getHostAddress());
+                }
             }
         }
+        return new ResolvedTarget(uri, host, port, List.of(addresses));
     }
 
-    /** True for any address that must never be reachable via a user-configurable URL. */
-    private static boolean isBlocked(final InetAddress address) {
+    /**
+     * True for any address that must never be reachable via a user-configurable URL. An IPv6 address that embeds an
+     * IPv4 address (IPv4-mapped {@code ::ffff:0:0/96}, IPv4-compatible {@code ::/96}, NAT64 {@code 64:ff9b::/96},
+     * 6to4 {@code 2002::/16}) is blocked when the embedded IPv4 address is: the OS or a translator delivers it there.
+     */
+    static boolean isBlocked(final InetAddress address) {
+        return isBlockedDirect(address) || embeddedIpv4s(address).stream().anyMatch(OutboundUrlGuard::isBlockedDirect);
+    }
+
+    private static boolean isBlockedDirect(final InetAddress address) {
         return address.isLoopbackAddress()      // 127.0.0.0/8, ::1
                 || address.isAnyLocalAddress()   // 0.0.0.0, ::
                 || address.isLinkLocalAddress()  // 169.254.0.0/16 (incl. metadata 169.254.169.254), fe80::/10
                 || address.isSiteLocalAddress()  // 10/8, 172.16/12, 192.168/16
                 || address.isMulticastAddress()  // 224/4, ff00::/8
                 || isUniqueLocalIpv6(address)    // fc00::/7 (IPv6 ULA — not covered by isSiteLocalAddress)
-                || isReservedIpv4(address);      // 0.0.0.0/8, 100.64.0.0/10 (carrier-grade NAT)
+                || isReservedIpv4(address)       // 0/8, 100.64/10, 192.0.0/24, 198.18/15, 240/4, broadcast
+                || isNonGlobalIpv6(address.getAddress())
+                || isAlwaysBlockedDirect(address);
     }
 
-    /** Blocked even for an allowlisted host: cloud metadata / link-local, multicast, wildcard and 0.0.0.0/8. */
-    private static boolean isAlwaysBlocked(final InetAddress address) {
+    /**
+     * Blocked even for an allowlisted host: cloud metadata / link-local (IPv4 and the AWS IPv6 endpoint
+     * {@code fd00:ec2::254}), multicast, wildcard, {@code 0.0.0.0/8} and broadcast, also when embedded in IPv6.
+     */
+    static boolean isAlwaysBlocked(final InetAddress address) {
+        return isAlwaysBlockedDirect(address)
+                || embeddedIpv4s(address).stream().anyMatch(OutboundUrlGuard::isAlwaysBlockedDirect);
+    }
+
+    private static boolean isAlwaysBlockedDirect(final InetAddress address) {
+        final byte[] b = address.getAddress();
         return address.isAnyLocalAddress()
                 || address.isLinkLocalAddress()
                 || address.isMulticastAddress()
-                || address instanceof java.net.Inet4Address && (address.getAddress()[0] & 0xff) == 0;
+                || b.length == 4 && ((b[0] & 0xff) == 0 || isBroadcast(b))
+                || java.util.Arrays.equals(b, AWS_IPV6_METADATA)
+                || isTeredo(b)        // 2001::/32: the client IPv4 is obfuscated, so the tunnel is refused outright
+                || isDiscardOnly(b)   // 100::/64 (RFC 6666)
+                || isLocalUseNat64(b) // 64:ff9b:1::/48 (RFC 8215): local use only, nothing public to reach through it
+                || isOddWellKnownNat64(b); // 64:ff9b::/32 that is not the RFC 6052 /96 form
+    }
+
+    private static boolean isLocalUseNat64(final byte[] b) {
+        return b.length == 16 && b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
+                && b[4] == 0 && b[5] == 0x01;
+    }
+
+    /** Inside 64:ff9b::/32 but not 64:ff9b::/96 (the well-known prefix is a /96; anything else is not a translation). */
+    private static boolean isOddWellKnownNat64(final byte[] b) {
+        return b.length == 16 && b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
+                && !isLocalUseNat64(b) && !zero(b, 4, 12);
+    }
+
+    /** Documentation (2001:db8::/32, 3fff::/20, RFC 9637) and SRv6 SIDs (5f00::/16): never a public destination. */
+    private static boolean isNonGlobalIpv6(final byte[] b) {
+        return b.length == 16 && (b[0] == 0x20 && b[1] == 0x01 && (b[2] & 0xff) == 0x0d && (b[3] & 0xff) == 0xb8
+                || b[0] == 0x3f && (b[1] & 0xff) == 0xff && (b[2] & 0xf0) == 0x00 // 3fff::/20 exactly
+                || b[0] == 0x5f && b[1] == 0x00);
+    }
+
+    private static boolean isTeredo(final byte[] b) {
+        return b.length == 16 && b[0] == 0x20 && b[1] == 0x01 && b[2] == 0 && b[3] == 0;
+    }
+
+    private static boolean isDiscardOnly(final byte[] b) {
+        return b.length == 16 && b[0] == 0x01 && zero(b, 1, 8);
+    }
+
+    /** {@code fd00:ec2::254}, the AWS Instance Metadata Service over IPv6. */
+    private static final byte[] AWS_IPV6_METADATA = {(byte) 0xfd, 0, 0x0e, (byte) 0xc2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0x02, 0x54};
+
+    private static boolean isBroadcast(final byte[] b) {
+        return (b[0] & 0xff) == 255 && (b[1] & 0xff) == 255 && (b[2] & 0xff) == 255 && (b[3] & 0xff) == 255;
+    }
+
+    /**
+     * The IPv4 addresses an IPv6 address may carry (empty for none): IPv4-mapped {@code ::ffff:a.b.c.d}, SIIT
+     * {@code ::ffff:0:a.b.c.d}, IPv4-compatible {@code ::a.b.c.d}, NAT64 {@code 64:ff9b::a.b.c.d} (RFC 6052) and
+     * 6to4
+     * {@code 2002:aabb:ccdd::/48}.
+     */
+    static java.util.List<InetAddress> embeddedIpv4s(final InetAddress address) {
+        final byte[] b = address.getAddress();
+        if (b.length != 16) {
+            return java.util.List.of();
+        }
+        final java.util.List<byte[]> v4 = new java.util.ArrayList<>(2);
+        if (zero(b, 0, 10) && (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff) {
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // ::ffff:0:0/96
+        } else if (zero(b, 0, 8) && (b[8] & 0xff) == 0xff && (b[9] & 0xff) == 0xff && b[10] == 0 && b[11] == 0) {
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // SIIT ::ffff:0:0:0/96
+        } else if (zero(b, 0, 12) && !isUnspecifiedOrLoopbackV6(b)) {
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // ::/96, except :: and ::1 (judged as themselves)
+        } else if (b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b && zero(b, 4, 12)) {
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // 64:ff9b::/96
+        } else if (b[0] == 0x20 && b[1] == 0x02) {
+            v4.add(java.util.Arrays.copyOfRange(b, 2, 6)); // 2002::/16
+        }
+        final java.util.List<InetAddress> out = new java.util.ArrayList<>(v4.size());
+        for (final byte[] a : v4) {
+            try {
+                out.add(InetAddress.getByAddress(a));
+            } catch (final java.net.UnknownHostException e) {
+                // cannot happen for 4 bytes
+            }
+        }
+        return out;
+    }
+
+    /** {@code ::} or {@code ::1}: IPv6 addresses in their own right, not IPv4-compatible {@code 0.0.0.0/0.0.0.1}. */
+    private static boolean isUnspecifiedOrLoopbackV6(final byte[] b) {
+        return zero(b, 0, 15) && (b[15] == 0 || b[15] == 1);
+    }
+
+    private static boolean zero(final byte[] b, final int from, final int to) {
+        for (int i = from; i < to; i++) {
+            if (b[i] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isReservedIpv4(final InetAddress address) {
@@ -298,7 +465,19 @@ public class OutboundUrlGuard {
         final byte[] b = address.getAddress();
         final int first = b[0] & 0xff;
         final int second = b[1] & 0xff;
-        return first == 0 || (first == 100 && second >= 64 && second <= 127);
+        final int third = b[2] & 0xff;
+        return first == 0                                          // 0.0.0.0/8
+                || first == 100 && second >= 64 && second <= 127   // 100.64.0.0/10 carrier-grade NAT
+                || first == 192 && second == 0 && third == 0      // 192.0.0.0/24 IETF protocol assignments
+                || first == 198 && (second == 18 || second == 19)  // 198.18.0.0/15 benchmarking
+                || first >= 240;                                   // 240.0.0.0/4 reserved, 255.255.255.255
+    }
+
+    /** TLS context of {@link #fetch}: null for the JDK default (tests trust their own CA). */
+    private volatile javax.net.ssl.SSLContext fetchTls;
+
+    void setFetchTls(final javax.net.ssl.SSLContext context) {
+        this.fetchTls = context;
     }
 
     /** Largest document {@link #fetch} reads. */
@@ -306,52 +485,64 @@ public class OutboundUrlGuard {
 
     /**
      * GETs {@code url} and returns its body as text, for an admin-triggered fetch whose response is shown back
-     * (e.g. SAML metadata import). Every hop — including each redirect, at most 3 — passes {@link #checkAllowed};
+     * (e.g. SAML metadata import). Every hop — including each redirect, at most 3 — is fetched by
+     * {@link PinnedHttpFetcher} on the address this guard validated for it;
      * {@code httpsOnly} also requires https on every hop; the body is capped at {@link #MAX_FETCH_BYTES}. Failures
      * are {@link SsrfBlockedException}s whose message is safe to show (no network error details).
      */
     public String fetch(final String url, final String accept, final boolean httpsOnly) throws SsrfBlockedException {
-        final java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
-                .connectTimeout(java.time.Duration.ofSeconds(8))
-                .followRedirects(java.net.http.HttpClient.Redirect.NEVER).build();
+        return fetch(url, accept, httpsOnly, null);
+    }
+
+    /** As {@link #fetch(String, String, boolean)}, counted against {@code realm}'s share of the OUTBOUND slots. */
+    public String fetch(final String url, final String accept, final boolean httpsOnly, final String realm)
+            throws SsrfBlockedException {
+        // M6: every hop through PinnedHttpFetcher: this guard resolves the hop's host once, inside its deadline, and
+        // the connection goes to the address it validated (no second DNS answer); redirects re-run all of it
+        final PinnedHttpFetcher http;
+        try {
+            http = new PinnedHttpFetcher(this, fetchTls != null ? fetchTls : javax.net.ssl.SSLContext.getDefault(),
+                    FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND), () -> realm);
+        } catch (final java.security.GeneralSecurityException e) {
+            throw new SsrfBlockedException("Could not fetch that URL.");
+        }
+        final PinnedHttpFetcher.Limits limits = new PinnedHttpFetcher.Limits(java.time.Duration.ofSeconds(8),
+                java.time.Duration.ofSeconds(10), MAX_FETCH_BYTES);
         String current = url == null ? "" : url.trim();
         for (int hop = 0; hop <= 3; hop++) {
             if (httpsOnly && !current.regionMatches(true, 0, "https://", 0, 8)) {
                 throw new SsrfBlockedException("The URL must start with https://");
             }
-            checkAllowed(current);
-            final java.net.http.HttpResponse<java.io.InputStream> res;
+            final PinnedHttpFetcher.Response res;
             try {
-                res = client.send(java.net.http.HttpRequest.newBuilder(URI.create(current))
-                        .timeout(java.time.Duration.ofSeconds(10)).header("Accept", accept).GET().build(),
-                        java.net.http.HttpResponse.BodyHandlers.ofInputStream());
-            } catch (final java.io.IOException | IllegalArgumentException e) {
+                res = http.exchange(new PinnedHttpFetcher.Request("GET", current, java.util.Map.of("Accept", accept),
+                        null, limits, true));
+            } catch (final PinnedHttpFetcher.FetchException e) {
+                if (e.kind() == PinnedHttpFetcher.FetchException.Kind.TOO_LARGE) {
+                    throw new SsrfBlockedException(e.status() / 100 == 2 || e.status() < 0
+                            ? "The document is larger than 1 MB." : "The URL returned HTTP " + e.status() + ".");
+                }
                 throw new SsrfBlockedException("Could not fetch that URL.");
-            } catch (final InterruptedException e) {
-                Thread.currentThread().interrupt();
+            } catch (final IllegalArgumentException e) {
                 throw new SsrfBlockedException("Could not fetch that URL.");
             }
-            try (java.io.InputStream in = res.body()) {
-                final int status = res.statusCode();
-                if (status / 100 == 3) {
-                    final String location = res.headers().firstValue("Location").orElse(null);
-                    if (location == null) {
-                        throw new SsrfBlockedException("The URL redirected without a location.");
-                    }
+            final int status = res.status();
+            if (status / 100 == 3) {
+                final String location = res.location();
+                if (location == null) {
+                    throw new SsrfBlockedException("The URL redirected without a location.");
+                }
+                try {
                     current = URI.create(current).resolve(location).toString();
-                    continue;
+                } catch (final IllegalArgumentException e) {
+                    throw new SsrfBlockedException("Could not fetch that URL.");
                 }
-                if (status / 100 != 2) {
-                    throw new SsrfBlockedException("The URL returned HTTP " + status + ".");
-                }
-                final byte[] body = in.readNBytes(MAX_FETCH_BYTES + 1);
-                if (body.length > MAX_FETCH_BYTES) {
-                    throw new SsrfBlockedException("The document is larger than 1 MB.");
-                }
-                return new String(body, java.nio.charset.StandardCharsets.UTF_8);
-            } catch (final java.io.IOException e) {
-                throw new SsrfBlockedException("Could not fetch that URL.");
+                continue;
             }
+            if (status / 100 != 2) {
+                throw new SsrfBlockedException("The URL returned HTTP " + status + ".");
+            }
+            return new String(res.body(), java.nio.charset.StandardCharsets.UTF_8);
         }
         throw new SsrfBlockedException("Too many redirects.");
     }

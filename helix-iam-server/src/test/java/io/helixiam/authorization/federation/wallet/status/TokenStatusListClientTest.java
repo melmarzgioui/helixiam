@@ -621,6 +621,137 @@ class TokenStatusListClientTest {
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void slowDnsCountsAgainstTheFetchDeadline() {
+        // The guard's own resolution runs inside the 5 s deadline: a resolver that never answers in time cannot hold a
+        // wallet login for longer than the read timeout.
+        final OutboundUrlGuard slow = new OutboundUrlGuard(false, List.of("slow-dns.test:" + stub.port()), host -> {
+            try {
+                Thread.sleep(15_000);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new java.net.UnknownHostException(host);
+        });
+        final long start = System.nanoTime();
+        assertCode(() -> client(failClosed(), slow).evaluate(
+                new StatusReference(0, "https://slow-dns.test:" + stub.port() + "/lists/1"), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(5_900));
+        assertThat(stub.requests()).isEmpty();
+    }
+
+    @Test
+    void theFetchConnectsToTheAddressTheGuardValidated() throws Exception {
+        // DNS rebinding: the first answer is the (allowlisted) stub address, every later one the metadata address. The
+        // list is fetched (TLS verified against the original name, not the address), and the name is resolved once.
+        final TestTls named = TestTls.createFor("status-rebind", "status.rebind.test");
+        try (StatusStub rebind = StatusStub.https(named)) {
+            final String u = "https://status.rebind.test:" + rebind.port() + "/lists/1";
+            rebind.serveJwt(jwt(u, 1, new int[] {0}));
+            final java.util.concurrent.atomic.AtomicInteger lookups = new java.util.concurrent.atomic.AtomicInteger();
+            final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("status.rebind.test:" + rebind.port()),
+                    host -> {
+                        final byte[] ip = lookups.getAndIncrement() == 0 ? new byte[] {127, 0, 0, 1}
+                                : new byte[] {(byte) 169, (byte) 254, (byte) 169, (byte) 254};
+                        return new InetAddress[] {InetAddress.getByAddress(host, ip)};
+                    });
+            final TokenStatusListClient client = new TokenStatusListClient(failClosed(), new IssuerTrustValidator(guard),
+                    guard, TlsTrust.context(named.caPem()), clock, (host, code, detail) -> audits.add(host));
+
+            assertThat(client.evaluate(new StatusReference(0, u), anchors)).isEqualTo(StatusEvaluator.VALID);
+            assertThat(lookups).hasValue(1);
+            assertThat(rebind.requests()).hasSize(1);
+        }
+    }
+
+    @Test
+    void theTlsCertificateMustMatchTheOriginalHostName() {
+        // pinned to 127.0.0.1, but the certificate (localhost / 127.0.0.1) does not name "other.test"
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("other.test:" + stub.port()),
+                host -> new InetAddress[] {InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1})});
+        final String u = "https://other.test:" + stub.port() + "/lists/1";
+        stub.serveJwt(jwt(u, 1, new int[] {0}));
+        assertCode(() -> client(failClosed(), guard).evaluate(new StatusReference(0, u), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(stub.requests()).isEmpty();
+    }
+
+    @Test
+    void aTlsHostNameFailureFailsClosedEvenWhenFailOpen() {
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("other.test:" + stub.port()),
+                host -> new InetAddress[] {InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1})});
+        final String u = "https://other.test:" + stub.port() + "/lists/1";
+        stub.serveJwt(jwt(u, 1, new int[] {0}));
+        assertCode(() -> client(failOpen(), guard).evaluate(new StatusReference(0, u), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(audits).isEmpty();
+    }
+
+    @Test
+    void anUntrustedTlsCertificateFailsClosedEvenWhenFailOpen() {
+        final TestTls stranger = TestTls.create("status-stranger");
+        try (StatusStub other = StatusStub.https(stranger)) {
+            final String u = "https://localhost:" + other.port() + "/lists/1";
+            other.serveJwt(jwt(u, 1, new int[] {0}));
+            assertCode(() -> client(failOpen(), guardFor(u)).evaluate(new StatusReference(0, u), anchors),
+                    WalletErrorCode.STATUS_UNAVAILABLE);
+            assertThat(audits).isEmpty();
+        }
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void aMalformedHttpAnswerFailsClosedEvenWhenFailOpen() throws Exception {
+        try (javax.net.ssl.SSLServerSocket raw = (javax.net.ssl.SSLServerSocket) tls.serverContext()
+                .getServerSocketFactory().createServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))) {
+            final Thread t = new Thread(() -> {
+                while (!raw.isClosed()) {
+                    try (java.net.Socket s = raw.accept()) {
+                        final InputStream in = s.getInputStream();
+                        int st = 0;
+                        int c;
+                        while (st < 4 && (c = in.read()) >= 0) {
+                            st = (c == '\r' && (st == 0 || st == 2)) || (c == '\n' && (st == 1 || st == 3)) ? st + 1
+                                    : c == '\r' ? 1 : 0;
+                        }
+                        s.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 9\r\n\r\nhi"
+                                .getBytes(StandardCharsets.US_ASCII));
+                        s.getOutputStream().flush();
+                    } catch (final IOException e) {
+                        // next
+                    }
+                }
+            }, "malformed-status");
+            t.setDaemon(true);
+            t.start();
+            final String u = "https://localhost:" + raw.getLocalPort() + "/lists/1";
+            assertCode(() -> client(failOpen(), guardFor(u)).evaluate(new StatusReference(0, u), anchors),
+                    WalletErrorCode.STATUS_UNAVAILABLE);
+            assertThat(audits).isEmpty();
+        }
+    }
+
+    @Test
+    void aConnectFailureIsStillTransient() {
+        final String u = "https://localhost:" + freePort() + "/lists/1";
+        assertThat(client(failOpen(), guardFor(u)).evaluate(new StatusReference(0, u), anchors))
+                .isEqualTo(StatusEvaluator.VALID);
+        assertThat(audits).containsExactly("localhost|STATUS_UNAVAILABLE");
+    }
+
+    @Test
+    void anUnresolvableHostIsStillTransient() {
+        final OutboundUrlGuard nx = new OutboundUrlGuard(false, List.of(), host -> {
+            throw new java.net.UnknownHostException(host);
+        });
+        final String u = "https://nx.status.test/lists/1";
+        assertThat(client(failOpen(), nx).evaluate(new StatusReference(0, u), anchors))
+                .isEqualTo(StatusEvaluator.VALID);
+        assertThat(audits).containsExactly("nx.status.test|STATUS_UNAVAILABLE");
+    }
+
+    @Test
     void maxCacheAbove900SecondsIsClampedTo900() {
         stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 86_400)));
         final TokenStatusListClient client = client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED,
@@ -735,6 +866,124 @@ class TokenStatusListClientTest {
         final TrustAnchors other = TestPki.create("Other").trustAnchors(TrustAnchors.RevocationMode.OFF);
         assertCode(() -> client.evaluate(new StatusReference(0, uri("/lists/1")), other),
                 WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(stub.requests()).hasSize(2);
+    }
+
+    @Test
+    void cacheIsBoundedByDecodedBytesAndEvictsTheLeastRecentlyUsed() {
+        // three lists of 4 KB decoded each; a 10 000 byte budget holds two of them
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, signJwt(signer, header(signer), baseClaims(uri(r.path()))
+                .claim("status_list", Map.of("bits", 1, "lst", b64url(zlib(new byte[4096])))).build())
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache(64, 10_000);
+        final TokenStatusListClient client = client(failClosed(), cache);
+        for (final String list : List.of("/lists/a", "/lists/b", "/lists/c")) {
+            client.evaluate(new StatusReference(0, uri(list)), anchors);
+        }
+        assertThat(cache.entries()).isEqualTo(2);
+        assertThat(cache.bytes()).isEqualTo(8192);
+
+        client.evaluate(new StatusReference(0, uri("/lists/b")), anchors);
+        client.evaluate(new StatusReference(0, uri("/lists/c")), anchors);
+        client.evaluate(new StatusReference(0, uri("/lists/a")), anchors);
+        assertThat(stub.requests().stream().map(Request::path))
+                .containsExactly("/lists/a", "/lists/b", "/lists/c", "/lists/a");
+    }
+
+    @Test
+    void cacheIsBoundedByEntryCount() {
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, jwt(uri(r.path()), 1, new int[] {0})
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache(2, StatusListCache.DEFAULT_MAX_BYTES);
+        final TokenStatusListClient client = client(failClosed(), cache);
+        for (final String list : List.of("/lists/a", "/lists/b", "/lists/c")) {
+            client.evaluate(new StatusReference(0, uri(list)), anchors);
+        }
+        assertThat(cache.entries()).isEqualTo(2);
+    }
+
+    @Test
+    void theDefaultBudgetHoldsAtMost32MegabytesOfDecodedLists() {
+        // 20 lists of the largest accepted size (2 MB decoded): 40 MB without a byte budget
+        final byte[] compressed = zlib(new byte[StatusListToken.MAX_INFLATED_BYTES]);
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, signJwt(signer, header(signer), baseClaims(uri(r.path()))
+                .claim("status_list", Map.of("bits", 1, "lst", b64url(compressed))).build())
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache();
+        final TokenStatusListClient client = client(failClosed(), cache);
+        for (int i = 0; i < 20; i++) {
+            client.evaluate(new StatusReference(0, uri("/lists/" + i)), anchors);
+        }
+        assertThat(StatusListCache.DEFAULT_MAX_BYTES).isEqualTo(32L * 1024 * 1024);
+        assertThat(cache.bytes()).isLessThanOrEqualTo(StatusListCache.DEFAULT_MAX_BYTES);
+        assertThat(cache.entries()).isEqualTo(16);
+    }
+
+    @Test
+    void aListLargerThanTheBudgetIsNotCached() {
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, signJwt(signer, header(signer), baseClaims(uri(r.path()))
+                .claim("status_list", Map.of("bits", 1, "lst", b64url(zlib(new byte[4096])))).build())
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache(64, 1_000);
+        final TokenStatusListClient client = client(failClosed(), cache);
+        client.evaluate(new StatusReference(0, uri("/lists/a")), anchors);
+        client.evaluate(new StatusReference(0, uri("/lists/a")), anchors);
+        assertThat(cache.entries()).isZero();
+        assertThat(stub.requests()).hasSize(2);
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void concurrentEvaluationsShareOneFetch() throws Exception {
+        final byte[] token = jwt(uri("/lists/1"), 1, new int[] {0}).getBytes(StandardCharsets.US_ASCII);
+        stub.respond(r -> new StubResponse(200, JWT_TYPE, token, 400, null));
+        final TokenStatusListClient client = client(failClosed());
+        final java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            final List<java.util.concurrent.Future<String>> results = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                results.add(pool.submit(() -> {
+                    go.await();
+                    return client.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+                }));
+            }
+            go.countDown();
+            for (final var r : results) {
+                assertThat(r.get(20, TimeUnit.SECONDS)).isEqualTo(StatusEvaluator.VALID);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(stub.requests()).hasSize(1);
+    }
+
+    @Test
+    void aStricterProviderNeverGetsAListAnotherProviderCached() {
+        stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}));
+        final StatusListCache cache = new StatusListCache();
+        final TokenStatusListClient open = client(failClosed(), cache);
+        open.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        final TokenStatusListClient strict = client(policy(OnUnavailable.FAIL_OPEN_WITH_AUDIT,
+                List.of("status.other.example")), cache);
+        assertCode(() -> strict.evaluate(new StatusReference(0, uri("/lists/1")), anchors),
+                WalletErrorCode.STATUS_UNAVAILABLE);
+        assertThat(audits).isEmpty(); // a policy refusal, never the fail-open path
+        assertThat(stub.requests()).hasSize(1);
+    }
+
+    @Test
+    void oneCacheServesClientsWithDifferentMaxCache() {
+        stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 600)));
+        final StatusListCache cache = new StatusListCache();
+        final TokenStatusListClient longer = client(failClosed(), cache);
+        final TokenStatusListClient shorter = client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED,
+                Duration.ofSeconds(60), List.of()), cache);
+        longer.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        clock.advance(Duration.ofSeconds(61));
+        shorter.evaluate(new StatusReference(0, uri("/lists/1")), anchors); // past ITS maxCache: refetched
+        assertThat(stub.requests()).hasSize(2);
+        longer.evaluate(new StatusReference(0, uri("/lists/1")), anchors); // within its 600 s ttl: cached
         assertThat(stub.requests()).hasSize(2);
     }
 
@@ -1066,6 +1315,12 @@ class TokenStatusListClientTest {
     private TokenStatusListClient client(final StatusPolicy policy, final OutboundUrlGuard guard) {
         return new TokenStatusListClient(policy, new IssuerTrustValidator(guard), guard, clientTls, clock,
                 (host, code, detail) -> audits.add(host + "|" + code));
+    }
+
+    private TokenStatusListClient client(final StatusPolicy policy, final StatusListCache cache) {
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, "localhost:" + stub.port());
+        return new TokenStatusListClient(policy, new IssuerTrustValidator(guard), guard, clientTls, clock,
+                (host, code, detail) -> audits.add(host + "|" + code), cache);
     }
 
     private static OutboundUrlGuard guardFor(final String url) {

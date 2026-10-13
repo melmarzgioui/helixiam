@@ -10,7 +10,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.scim.ScimTargetConfigPublisher;
 import io.helixiam.authorization.amqp.scim.ScimTargetDto;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
+import io.helixiam.common.net.FetchLimiter;
+import io.helixiam.common.net.RealmBoundedExecutor;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -18,15 +21,12 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.LongSupplier;
 
 /**
@@ -45,12 +45,16 @@ public class ScimProvisioningDispatcher {
 
     private static final Logger LOG = LogManager.getLogger(ScimProvisioningDispatcher.class);
     private static final long TTL_MS = 30_000L;
+    /** 5 s per request in total (DNS, connect, TLS, response); a response body is read up to 1 MB. */
+    private static final PinnedHttpFetcher.Limits LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(5),
+            Duration.ofSeconds(5), 1024 * 1024);
 
     private final ObjectProvider<ScimTargetConfigPublisher> publisher;
     private final ObjectMapper mapper;
     private final OutboundUrlGuard egressGuard;
-    private final HttpClient httpClient;
-    private final ExecutorService executor;
+    /** M6: pinned to the address the guard validated (no second DNS answer), no redirects, 5 s in total. */
+    private final PinnedHttpFetcher http;
+    private final RealmBoundedExecutor queue;
     private final LongSupplier nowMillis;
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
 
@@ -66,12 +70,19 @@ public class ScimProvisioningDispatcher {
         this.mapper = mapper;
         this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
-        this.httpClient = HttpClient.newHttpClient();
-        this.executor = Executors.newFixedThreadPool(2, r -> {
-            final Thread t = new Thread(r, "scim-provisioner");
-            t.setDaemon(true);
-            return t;
-        });
+        this.http = PinnedHttpFetcher.plain(egressGuard, FetchLimiter.Group.OUTBOUND, () -> null);
+        // a virtual thread per delivery, at most 1,000 pending per realm (overflow dropped, never blocking the
+        // producer); a slow endpoint holds its own thread, bounded in time by the request deadline and in number by
+        // the realm's share of the OUTBOUND slots and of this queue
+        this.queue = new RealmBoundedExecutor("scim-provisioner", RealmBoundedExecutor.DEFAULT_MAX_PENDING_PER_REALM);
+    }
+
+    /** The ceiling on pending deliveries across all realms ({@code helix.outbound.deliveries.max-pending}). */
+    @Autowired(required = false)
+    void setMaxPendingTotal(
+            @org.springframework.beans.factory.annotation.Value("${helix.outbound.deliveries.max-pending:20000}")
+            final int maxPendingTotal) {
+        queue.setMaxPendingTotal(maxPendingTotal);
     }
 
     /** Fan a user lifecycle change out to every matching, enabled SCIM target for the realm (best-effort). */
@@ -83,7 +94,7 @@ public class ScimProvisioningDispatcher {
         for (final ScimTargetDto target : activeFor(realm)) {
             if (target.baseUrl() != null && !target.baseUrl().isBlank()
                     && WebhookDispatcher.matches(target.eventTypes(), eventType, "USER")) {
-                executor.submit(() -> push(target, operation, user));
+                queue.submit(realm, () -> push(target, operation, user));
             }
         }
     }
@@ -122,17 +133,17 @@ public class ScimProvisioningDispatcher {
     /** Resolve the downstream resource id for our externalId; null if absent or the lookup fails. */
     private String findRemoteId(final ScimTargetDto target, final String userId) {
         try {
-            egressGuard.checkAllowed(target.baseUrl()); // M6: block SSRF via realm-configured SCIM target base URL
-            final HttpRequest req = authed(target, HttpRequest.newBuilder()
-                    .uri(URI.create(ScimProvisioningClient.externalIdFilterUrl(target.baseUrl(), userId)))
-                    .timeout(Duration.ofSeconds(5))
-                    .header("Accept", "application/scim+json")
-                    .GET()).build();
-            final HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            if (res.statusCode() >= 300) {
+            // M6: the guard resolves the realm's SCIM URL once, inside the deadline; the GET goes to that address
+            final Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Accept", "application/scim+json");
+            authed(target, headers);
+            final PinnedHttpFetcher.Response res = http.exchange(new PinnedHttpFetcher.Request("GET",
+                    ScimProvisioningClient.externalIdFilterUrl(target.baseUrl(), userId), headers, null, LIMITS,
+                    false).inPartition(target.realmId()));
+            if (res.status() >= 300) {
                 return null;
             }
-            final JsonNode root = mapper.readTree(res.body());
+            final JsonNode root = mapper.readTree(res.bodyAsString());
             final JsonNode resources = root.get("Resources");
             if (resources != null && resources.isArray() && !resources.isEmpty()) {
                 final JsonNode id = resources.get(0).get("id");
@@ -151,27 +162,23 @@ public class ScimProvisioningDispatcher {
 
     private void send(final ScimTargetDto target, final String method, final String url, final String body)
             throws Exception {
-        egressGuard.checkAllowed(url); // M6: block SSRF via realm-configured SCIM target base URL
-        final HttpRequest.Builder req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(5))
-                .header("Content-Type", "application/scim+json")
-                .header("Accept", "application/scim+json");
-        final HttpRequest.BodyPublisher pub = body == null
-                ? HttpRequest.BodyPublishers.noBody()
-                : HttpRequest.BodyPublishers.ofString(body);
-        req.method(method, pub);
-        final HttpResponse<Void> res = httpClient.send(authed(target, req).build(), HttpResponse.BodyHandlers.discarding());
-        if (res.statusCode() >= 300) {
-            LOG.debug("SCIM {} {} returned {}", method, url, res.statusCode());
+        // M6: one resolution inside the deadline, the request goes to the validated address, no redirects
+        final Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "application/scim+json");
+        headers.put("Accept", "application/scim+json");
+        authed(target, headers);
+        final PinnedHttpFetcher.Response res = http.exchange(new PinnedHttpFetcher.Request(method, url, headers,
+                body == null ? null : body.getBytes(StandardCharsets.UTF_8), LIMITS, false)
+                .inPartition(target.realmId())); // the realm's own share of the OUTBOUND slots
+        if (res.status() >= 300) {
+            LOG.debug("SCIM {} {} returned {}", method, url, res.status());
         }
     }
 
-    private static HttpRequest.Builder authed(final ScimTargetDto target, final HttpRequest.Builder req) {
+    private static void authed(final ScimTargetDto target, final Map<String, String> headers) {
         if (target.token() != null && !target.token().isBlank()) {
-            req.header("Authorization", "Bearer " + target.token());
+            headers.put("Authorization", "Bearer " + target.token());
         }
-        return req;
     }
 
     private List<ScimTargetDto> activeFor(final String realm) {
@@ -189,6 +196,11 @@ public class ScimProvisioningDispatcher {
                     LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             return List.of();
         }
+    }
+
+    /** The per-realm bounded delivery queue (pending and dropped counts per realm). */
+    public RealmBoundedExecutor queue() {
+        return queue;
     }
 
     private record Cached(List<ScimTargetDto> value, long loadedAt) {

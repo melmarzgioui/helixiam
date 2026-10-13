@@ -33,9 +33,9 @@ public record TrustAnchors(Set<TrustAnchor> anchors, List<X509Certificate> pinne
     /** Index of {@code keyCertSign} in {@link X509Certificate#getKeyUsage()}. */
     private static final int KEY_CERT_SIGN = 5;
 
-    /** A null {@code revocation} means {@link RevocationMode#SOFT_FAIL} (the spec §7.5 default). */
+    /** A null {@code revocation} means {@link RevocationMode#HARD_FAIL} (the default; see docs/eudi-wallet.md). */
     public TrustAnchors {
-        revocation = revocation == null ? RevocationMode.SOFT_FAIL : revocation;
+        revocation = revocation == null ? RevocationMode.HARD_FAIL : revocation;
         anchors = anchors == null ? Set.of() : Set.copyOf(anchors);
         pinnedIntermediates = pinnedIntermediates == null ? List.of() : List.copyOf(pinnedIntermediates);
     }

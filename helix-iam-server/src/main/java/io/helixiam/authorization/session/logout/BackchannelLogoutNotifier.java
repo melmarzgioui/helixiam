@@ -6,14 +6,11 @@
 package io.helixiam.authorization.session.logout;
 
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -35,6 +32,11 @@ public class BackchannelLogoutNotifier {
     /** Seam over the HTTP POST so the fan-out logic is unit-testable without a server. */
     public interface Poster {
         void post(String uri, String logoutToken);
+    }
+
+    /** A poster that takes the session's realm, so the fetch counts against that realm's share of the slots. */
+    public interface RealmAwarePoster extends Poster {
+        void post(String realm, String uri, String logoutToken);
     }
 
     private final LogoutTokenIssuer issuer;
@@ -70,7 +72,11 @@ public class BackchannelLogoutNotifier {
             }
             try {
                 final String logoutToken = issuer.issue(realm, issuerUrl, target.clientId(), subject, sid);
-                poster.post(target.backchannelLogoutUri(), logoutToken);
+                if (poster instanceof RealmAwarePoster realmAware) {
+                    realmAware.post(realm, target.backchannelLogoutUri(), logoutToken);
+                } else {
+                    poster.post(target.backchannelLogoutUri(), logoutToken);
+                }
                 LOG.info("Back-channel logout sent to {} ({})", target.clientId(), target.backchannelLogoutUri());
             } catch (final RuntimeException e) {
                 LOG.warn("Back-channel logout to {} failed (continuing): {}", target.clientId(), e.getMessage());
@@ -79,26 +85,36 @@ public class BackchannelLogoutNotifier {
     }
 
     /** Default form-POST {@code logout_token=<jwt>} with a short timeout. */
-    static final class HttpPoster implements Poster {
-        private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
-        private final OutboundUrlGuard egressGuard;
+    static final class HttpPoster implements RealmAwarePoster {
+        /** 3 s connect, 5 s in total; the answer's body is not used (read up to 64 KB). */
+        private static final PinnedHttpFetcher.Limits LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(3),
+                Duration.ofSeconds(5), 64 * 1024);
+        private final PinnedHttpFetcher http;
 
         HttpPoster(final OutboundUrlGuard egressGuard) {
-            this.egressGuard = egressGuard;
+            this.http = PinnedHttpFetcher.plain(egressGuard,
+                io.helixiam.common.net.FetchLimiter.Group.OUTBOUND, io.helixiam.authorization.security.realm.RealmContextHolder::get);
         }
 
         @Override
         public void post(final String uri, final String logoutToken) {
-            egressGuard.checkAllowed(uri); // M6: back-channel logout URI comes from (self-service) client registration
+            post(null, uri, logoutToken);
+        }
+
+        @Override
+        public void post(final String realm, final String uri, final String logoutToken) {
+            // M6: the back-channel logout URI comes from (self-service) client registration: pinned to the validated
+            // address, no redirects
             final String body = "logout_token=" + java.net.URLEncoder.encode(logoutToken, StandardCharsets.UTF_8);
-            final HttpRequest request = HttpRequest.newBuilder(URI.create(uri))
-                    .timeout(Duration.ofSeconds(5))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
             try {
-                httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            } catch (final Exception e) {
+                http.exchange(new PinnedHttpFetcher.Request("POST", uri,
+                        java.util.Map.of("Content-Type", "application/x-www-form-urlencoded"),
+                        body.getBytes(StandardCharsets.UTF_8), LIMITS, false).inPartition(realm));
+            } catch (final PinnedHttpFetcher.FetchException e) {
+                if (e.kind() != PinnedHttpFetcher.FetchException.Kind.TOO_LARGE) {
+                    throw new RuntimeException(e.getMessage(), e);
+                }
+            } catch (final IllegalArgumentException e) {
                 throw new RuntimeException(e.getMessage(), e);
             }
         }

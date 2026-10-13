@@ -44,6 +44,30 @@ question. Newest first within each phase.
 >    application's JSON mapper is configured by `spring.jackson2.*` (was `spring.jackson.*`, which now configures
 >    Boot's Jackson 3 mapper only); `spring.dao.exceptiontranslation.enabled` is now
 >    `spring.persistence.exceptiontranslation.enabled`.
+> 6. EUDI wallet providers without an explicit `revocationChecking` now check issuer certificates with `HARD_FAIL`
+>    (was `SOFT_FAIL`): an issuer certificate whose CRL / OCSP status cannot be determined, including one that names
+>    no CRL or OCSP endpoint, is refused. Set `revocationChecking` to `SOFT_FAIL` (console: Credentials → Issuer
+>    certificate revocation) for an issuer that publishes neither (see below).
+> 7. An SMTP relay on a private or loopback address (in-cluster mailer, `localhost` relay) must be listed in
+>    `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS` (Helm: `config.egressAllowedPrivateHosts`), and a relay on a port other than
+>    25, 465, 587 or 2525 in `helix.messaging.smtp.allowed-ports` (`HELIX_MESSAGING_SMTP_ALLOWED_PORTS`, ports or ranges
+>    such as `1025,8025-8030`). Until then sends fail with `CONFIGURATION` ("not allowed by the egress policy"). This
+>    covers the operator's **global relay** too (`helix.notification.smtp.*`, the fallback when a realm has no email
+>    provider), not only realm providers. List entries as `host:port` (e.g. `mailer.mail.svc.cluster.local:587`) so
+>    only that port of the host is opened.
+> 8. An LDAP federation provider pointing at a private or loopback directory (the usual Active Directory setup) must
+>    be listed in `HELIX_FEDERATION_LDAP_ALLOWED_HOSTS` (Helm: `config.ldapAllowedHosts`) by host name or CIDR range.
+>    Until then LDAP logins for that provider fail (logged as refused by the egress policy). Only `ldap://` and
+>    `ldaps://` URLs are accepted.
+> 9. `helix.outbound.fetch.login.*` is split into `login-admin` (OIDC broker, eID, workload identity) and
+>    `login-client` (client-assertion JWKS, FAPI request-object JWKS). The old `login` names are still read as
+>    `login-admin`.
+> 10. Admin, console and realm-import client writes need an `https` `jwksUrl` (`http://localhost` / `http://127.0.0.1` in `dev`
+>    only). Flyway `V80` rewrites DCR-stored lowercase `private_key_jwt` to `PRIVATE_KEY_JWT`, and the server logs a
+>    WARN at startup for every `private_key_jwt` client without a JWKS URL (it cannot authenticate).
+> 11. A `private_key_jwt` client stored earlier with an `http` JWKS URL can no longer authenticate outside `dev`: the
+>     token endpoint refuses to fetch it (`invalid_client`). The startup log lists such clients (WARN from
+>     `ClientAuthMethodAudit`); change their JWKS URL to https before upgrading.
 
 - **security** — Token exchange on `/oauth2/token` refuses `actor_token` and `actor_token_type` with
   `invalid_request` (maintainer ruling; HelixIAM's supported delegation is `/agent/delegation/token`). 1.0 could not
@@ -334,6 +358,135 @@ question. Newest first within each phase.
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
   coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
   same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
+- **security** — SMTPS (implicit TLS) was not pinned: Angus Mail connects its own socket to the configured name for an
+  SSL socket factory, so the host was resolved again after the egress check. The SMTP driver now hands Angus the
+  validated IP and layers TLS itself with the configured name (SNI, certificate checked against that name, the
+  realm's CA bundle); STARTTLS works the same way.
+- **security** — LDAP federation: one bind sequence (DNS, service bind, search, user bind) has one 15 s deadline, tries
+  at most two resolved addresses, and takes a slot in the new `ldap` outbound group with a per-realm share
+  (`helix.outbound.fetch.ldap.max-concurrent` 32, `.per-realm-max` 8).
+- **security** — A `private_key_jwt` client whose stored JWKS URL is not https (a row from before the https rule) can no
+  longer authenticate outside `dev`: the token endpoint refuses to fetch it, and the startup audit lists such clients.
+- **security** — The token endpoint auth method is matched case-insensitively (`Private_Key_Jwt` used to fall back
+  silently to a client secret) and stored in one spelling; the admin API and realm import refuse unknown values.
+- **security** — Pending webhook and SCIM deliveries are capped across all realms as well (default 20,000 per queue,
+  `helix.outbound.deliveries.max-pending`), on top of the 1,000 per realm.
+- **fix** — `helix.outbound.fetch.login-client.*` was read but never applied; it is now.
+- **fix** — The documentation-prefix check matched `3ff0::/12` instead of `3fff::/20` (RFC 9637), blocking public
+  addresses such as `3fff:1000::1`; it now matches `3fff::/20` exactly.
+- **fix** — Console: a refused client save shows the server's field errors on the form fields (it showed
+  "400 Bad Request").
+- **security (affects released versions)** — SMTP relays were not egress-checked: the SMTP driver connected to any
+  host and port a realm admin typed, including loopback, cluster-internal and metadata addresses, and resolved the
+  name itself. It now goes through `OutboundUrlGuard` (private hosts only via `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`),
+  connects to the validated address while TLS still verifies the configured host name, accepts only ports 25, 465,
+  587 and 2525 unless `helix.messaging.smtp.allowed-ports` lists more, and reports generic errors (no internal
+  address or banner in the result). **BREAKING** for internal relays, see the checklist.
+- **security (affects released versions)** — LDAP federation was not egress-checked: `JndiLdapDirectory` let JNDI
+  resolve and connect to any URL a realm admin typed (any scheme JNDI accepts, referrals per JNDI default). Now only
+  one `ldap://` or `ldaps://` URL; the host is resolved once and both binds connect to the validated address through a
+  pinned socket factory; LDAPS verifies the certificate against the configured name; referrals are ignored and reads
+  time out. Private and loopback directories need `helix.federation.ldap.allowed-hosts` (host names or CIDR ranges,
+  set by the deployment; a realm admin cannot widen it); metadata and link-local addresses stay refused even inside a
+  listed range. **BREAKING** for internal directories, see the checklist.
+- **security** — APNs: the provider `host` was free text, so push requests carrying the realm's APNs bearer token
+  could be sent to any public host. It is now restricted to `api.push.apple.com` / `api.sandbox.push.apple.com`
+  (HTTP/2, no redirects); anything else is a configuration error.
+- **security** — Virtual-thread pinning: the outbound fetch limiter and socket slots waited inside `synchronized`
+  blocks, which on JDK 21 pins the carrier thread, so 1,000 webhook or SCIM deliveries stuck on one realm's tarpit
+  could stall every virtual thread, logins included. They now use `ReentrantLock` / `Condition`. Webhook and SCIM
+  deliveries are bounded per realm (1,000 pending; overflow dropped and logged once a minute, never blocking the
+  caller).
+- **security** — Outbound slots: the `login` group is split into `login-admin` (OIDC broker, eID, workload identity)
+  and `login-client` (client-assertion and FAPI request-object JWKS, whose URLs any registered client chooses), each
+  with its own `helix.outbound.fetch.<group>.max-concurrent` (32) and `.per-realm-max` (8). Back-channel logout and
+  SAML metadata import pass their realm explicitly; calls without a realm share one bounded "no realm" partition.
+- **security** — The decoder / JWKS caches of the client-assertion decoder, the FAPI request-object filter and the
+  OIDC broker token client are bounded LRU caches (1,000 entries) instead of unbounded maps cleared on overflow.
+- **security** — Local-use NAT64 `64:ff9b:1::/48` is refused outright (it has no public meaning), also for an
+  allowlisted host.
+- **security** — Realm import (API, realm-config folder, Keycloak import) wrote a client's `jwksUrl` unchecked; it now
+  applies the admin API's rule (https with a host; http to `localhost` / `127.0.0.1` only in `dev`). A client that
+  breaks it is not created or updated and is reported as a failed `clients` entry with its field error
+  (`jwksUrl: The JWKS URL must be an https URL.`). The console client form checks the same rule before save and shows
+  the error inline.
+- **fix** — `private_key_jwt` client assertions are accepted with `typ` `JWT`, absent, or `client-authentication+jwt`.
+- **fix** — The SIEM audit webhook (`helix.audit.http.*`) has an explicit connect timeout, a request timeout within
+  (0, 30 s] (2 s when unset, zero or negative; zero used to make every forward fail), no redirects, and a bounded
+  backlog of 1,000 lines (overflow dropped and logged; stdout keeps every line).
+- **security (affects released versions)** — private_key_jwt client JWKS fetched unguarded: for a `private_key_jwt`
+  client, the token endpoint's client-assertion decoder (Spring Authorization Server's) fetched the client's
+  `jwk_set_url` with its own RestTemplate: no outbound guard, redirects followed. Anyone who can register a client (an
+  admin, or anyone through open DCR) chooses that URL, so the token endpoint could be made to call internal or
+  metadata addresses. It is now fetched through `OutboundUrlGuard` on the pinned transport, without redirects, with
+  Nimbus caching (refetch on an unknown `kid`). DCR now accepts only `client_secret_basic`, `private_key_jwt` and
+  `none` as `token_endpoint_auth_method`, requires an https `jwks_uri` that the guard allows (checked at registration),
+  and stores `private_key_jwt` so the token endpoint actually enforces it.
+- **fix (regression found before release)** — APNs push (iOS push and push MFA) failed after the M6 move: APNs is
+  HTTP/2 only and the pinned client speaks HTTP/1.1. APNs goes over the JDK client with HTTP/2 again, redirects off,
+  and only to `api.push.apple.com` / `api.sandbox.push.apple.com`; a provider `host` setting naming anything else is
+  a configuration error (it was free text before).
+- **security** — Outbound slots per feature group with a per-realm share: `helix.outbound.fetch.<group>.max-concurrent`
+  and `.per-realm-max` for `wallet` (16; old name `helix.wallet.fetch.max-concurrent` still read), `login`, `otp` and
+  `outbound` (32 / 8 each), so one realm's slow webhook endpoints cannot delay another realm, or any login or OTP.
+- **security** — More IPv6 forms judged by their embedded IPv4 address (RFC 8215 local-use NAT64 `64:ff9b:1::/48`,
+  SIIT `::ffff:0:0:0/96`); Teredo `2001::/32` and discard-only `100::/64` refused outright.
+- **security** — Pinned-client hardening after review: JWKS fetches use 500 ms connect / 500 ms per read / 3 s total
+  and are cached (FAPI request objects, OIDC broker); a redirect's body is never read and duplicate `Location` headers
+  are refused; error bodies are capped at 16 KB and truncated (the status is kept); NUL, bare CR and bare LF in a
+  response head are refused; TAB is allowed in request header values, non-ASCII and control characters give a clear
+  configuration error (Cloudflare driver included).
+- **security (affects released versions)** — DNS rebinding (M6 residual): every server-initiated call to an
+  admin- or client-configured URL checked the URL with `OutboundUrlGuard` and then let the JDK `HttpClient` (or Nimbus's
+  `HttpURLConnection` for JWKS, which also followed redirects) resolve the host again, so a DNS answer that changed
+  between the check and the connection could reach internal or metadata addresses. All of them now connect through the
+  pinned transport (`PinnedHttpFetcher`): one guarded resolution inside the deadline, a connection to the validated
+  address, TLS verified against the host name, no redirects. Moved: webhooks, SCIM provisioning, HTTP email/SMS/push
+  drivers, the Cloudflare email API, back-channel and upstream logout, the OIDC broker's token endpoint and JWKS, WIF
+  JWKS and issuer discovery, FAPI request-object JWKS, the eID ArtifactResolve, the SAML metadata import. Behaviour is
+  otherwise unchanged (methods, bodies, headers, auth, error mapping); new bounds where there were none: the OIDC token
+  request 10 s, response bodies 64 KB-1 MB depending on the caller. JWKS fetches keep Nimbus's 500 ms / 500 ms / 50 KB.
+- **security (affects released versions)** — SSRF guard bypass: `OutboundUrlGuard` judged an IPv6 address by its
+  IPv6 properties only, so a host whose AAAA record was an IPv4-mapped (`::ffff:127.0.0.1`,
+  `::ffff:169.254.169.254`) or IPv4-compatible (`::127.0.0.1`) address passed the block-private check and reached
+  loopback or cloud metadata. Every guarded outbound call was affected: webhooks, SCIM, OIDC/eID discovery and JWKS,
+  DCR and WIF JWKS, logout endpoints, realm HTTP email/SMS, wallet status lists and issuer CRL/OCSP. IPv6 addresses
+  embedding an IPv4 address (mapped, compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) are now judged by that
+  address; `192.0.0.0/24`, `198.18.0.0/15` and `240.0.0.0/4` (incl. `255.255.255.255`) are blocked; the AWS IPv6
+  metadata address `fd00:ec2::254` and broadcast stay blocked even for a host in `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS`.
+  Upgrade; until then, egress filtering in front of the server is the mitigation.
+- **security (EUDI wallet)** — **BREAKING default.** Issuer-certificate revocation (CRL / OCSP) no longer uses the
+  JDK's own fetching, which followed redirects, resolved names a second time after the outbound guard, had no CRL size
+  cap and no cache of ours. `IssuerRevocationClient` fetches over a new pinned transport (`PinnedHttpFetcher`): every
+  URL through `OutboundUrlGuard` (http/https only), one DNS resolution and a connection to the validated address (no
+  DNS rebinding), no redirects, connect 3 s and 5 s in total per fetch including DNS, 10 s per chain, OCSP at most
+  64 KB, CRL at most `helix.wallet.revocation.max-crl-bytes` (10 MB). The JDK PKIX checker still validates what was
+  fetched (OCSP through `setOcspResponses`, CRLs through a `CertStore` after a pre-check that keeps its own fallback
+  fetch from ever running). Answers are cached until `nextUpdate` (24 h at most), bounded by
+  `helix.wallet.revocation.cache-max-entries` (256) and `.cache-max-bytes` (32 MB), shared by every provider. Every
+  certificate in the path is now checked on its own, so under `SOFT_FAIL` an undeterminable upper CA no longer hides a
+  revoked lower CA. `revocationChecking` defaults to `HARD_FAIL` (was `SOFT_FAIL`) and is now a console field with
+  warnings for `SOFT_FAIL` and `OFF`. Docs: `docs/eudi-wallet.md` §7.2.
+- **security (EUDI wallet)** — Token Status List fetches use the same pinned transport: the outbound guard's DNS
+  resolution now runs inside the 5 s deadline (a slow resolver could hold a login past it) and the connection goes to
+  the address the guard validated, with TLS still checked against the host name.
+- **security (EUDI wallet)** — The status-list cache is bounded by total decoded list bytes as well as by entry count,
+  and one cache is shared by every wallet provider: `helix.wallet.status-list.cache-max-entries` (64) and
+  `helix.wallet.status-list.cache-max-bytes` (32 MB; the worst case was about 128 MB per provider).
+- **security (EUDI wallet)** — Hardening of the above after review: the JDK's own CRL distribution-point fetching is
+  now impossible (CRLs go to the JDK's legacy CRL checker, `com.sun.security.enableCRLDP=false` is forced at startup,
+  and JVM settings that would re-enable JDK fetching make CRL evaluation refuse); a CRL is accepted within the JDK's
+  15-minute clock skew; a status-list TLS failure or malformed HTTP answer fails closed even under
+  `FAIL_OPEN_WITH_AUDIT`; a provider's `allowedHosts` applies before the shared status-list cache; concurrent
+  logins share one download per URL and at most `helix.outbound.fetch.wallet.max-concurrent` (16, old name
+  `helix.wallet.fetch.max-concurrent`) wallet fetches run at once;
+  unparseable or oversized CRLs are not downloaded again for 60 s; cached CRLs count their parsed heap;
+  `max-crl-bytes` is capped at 100 MB; stricter HTTP framing in the pinned client (conflicting `Content-Length`,
+  `Content-Length` with `Transfer-Encoding`, signed numbers, obs-fold, protocol switch refused; non-ASCII paths
+  percent-encoded; request headers validated before connecting); a stalled TLS fetch is abandoned at its deadline.
+  Worst-case verification time per credential is about 25 s (`docs/eudi-wallet.md` §7.2).
+- **refactor (EUDI wallet)** — The CWT (mdoc) form of a Status List Token is parsed by its own class, `StatusListCwt`;
+  no behaviour change.
 - **security (dependencies)** — Sandbox RP: `proxy-addr` pinned to 2.0.8 via an `overrides` entry (CVE-2026-90711,
   CRITICAL; express pulls it transitively at `~2.0.7`); `npm audit` is otherwise clean.
 - **security (dependencies)** — Terraform provider: `golang.org/x/net` v0.58.0 → v0.60.0 (CVE-2026-78669 HIGH,

@@ -90,8 +90,11 @@ public class FederationConfig {
 
     @Bean
     @ConditionalOnMissingBean(LdapDirectory.class)
-    public LdapDirectory ldapDirectory() {
-        return new JndiLdapDirectory();
+    public LdapDirectory ldapDirectory(
+            @org.springframework.beans.factory.annotation.Value("${helix.federation.ldap.allowed-hosts:}")
+            final String allowedHosts) {
+        // LDAP to an internal directory needs the deployment to list it; a realm admin's URL alone cannot reach it
+        return new JndiLdapDirectory(new io.helixiam.common.net.LdapEgressGuard(allowedHosts));
     }
 
     /** A3: the LDAP/AD bind broker — consulted by the password login when a realm has an LDAP provider. */

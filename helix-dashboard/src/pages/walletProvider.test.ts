@@ -70,6 +70,13 @@ describe("walletFormFromConfig", () => {
     expect(f.minimumLoa).toBe("http://eidas.europa.eu/LoA/high");
     expect(f.transactionTtlSeconds).toBe("");
     expect(f.statusMaxCacheSeconds).toBe("");
+    expect(f.revocationChecking).toBe("HARD_FAIL");
+  });
+
+  it("reads revocationChecking by name, case-insensitively; an unknown value shows the HARD_FAIL default", () => {
+    expect(walletFormFromConfig({ revocationChecking: "SOFT_FAIL" }).revocationChecking).toBe("SOFT_FAIL");
+    expect(walletFormFromConfig({ revocationChecking: "off" }).revocationChecking).toBe("OFF");
+    expect(walletFormFromConfig({ revocationChecking: "maybe" }).revocationChecking).toBe("HARD_FAIL");
   });
 
   it("reads the stored flat map: JSON lists, enums by name or wire value, booleans", () => {
@@ -107,7 +114,7 @@ describe("walletConfigFromForm", () => {
     expect(out).toEqual({
       "pid.sdJwtVcts": '["urn:eudi:pid:1"]', logoUrl: "https://x/logo.svg",
       accessKeyRef: "software:acme/access-2026", clientIdScheme: "x509_san_dns", clientIdHost: "verifier.example",
-      trustAnchors: ANCHOR, credentialFormats: '["dc+sd-jwt","mso_mdoc"]',
+      trustAnchors: ANCHOR, revocationChecking: "HARD_FAIL", credentialFormats: '["dc+sd-jwt","mso_mdoc"]',
       "pid.requestedClaims": '["given_name","family_name","birthdate"]',
       "subject.strategy": "ATTRIBUTE_TUPLE", "subject.acknowledgeWeakSubject": "true",
       minimumLoa: "http://eidas.europa.eu/LoA/high", "statusList.required": "false",
@@ -229,6 +236,32 @@ describe("validateWallet (mirrors WalletConfigValidator)", () => {
       expect(validateWallet(valid({ accessKeyRef: "" }), dev(true, false)).accessCertificateChain).toBe("wallet.err.chainRequired");
       expect(validateWallet(valid({ accessCertificateChain: ANCHOR }), dev(true, false)).accessCertificatePrivateKey).toBe("wallet.err.keyRefAndDevKey");
     });
+  });
+});
+
+describe("issuer certificate revocation (revocationChecking)", () => {
+  it("is written to the stored map and survives a round trip", () => {
+    for (const mode of ["OFF", "SOFT_FAIL", "HARD_FAIL"] as const) {
+      const stored = walletConfigFromForm(valid({ revocationChecking: mode }));
+      expect(stored.revocationChecking).toBe(mode);
+      expect(walletFormFromConfig(stored).revocationChecking).toBe(mode);
+    }
+  });
+
+  it("is a form key, so a stale stored value is replaced, not carried over", () => {
+    const stored = walletConfigFromForm(valid({ revocationChecking: "HARD_FAIL" }), { revocationChecking: "OFF" });
+    expect(stored.revocationChecking).toBe("HARD_FAIL");
+  });
+
+  it("warns when revocation is relaxed (SOFT_FAIL) or off, never for HARD_FAIL", () => {
+    expect(walletWarnings(valid({ revocationChecking: "HARD_FAIL" }))).not.toContain("revocationSoftFail");
+    expect(walletWarnings(valid({ revocationChecking: "HARD_FAIL" }))).not.toContain("revocationOff");
+    expect(walletWarnings(valid({ revocationChecking: "SOFT_FAIL" }))).toContain("revocationSoftFail");
+    expect(walletWarnings(valid({ revocationChecking: "OFF" }))).toContain("revocationOff");
+  });
+
+  it("server errors on revocationChecking land on the credentials section", () => {
+    expect(firstErrorSection({ revocationChecking: "x" })).toBe("credentials");
   });
 });
 

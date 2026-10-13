@@ -93,7 +93,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService, final io.helixiam.authorization.service.org.OrganizationMembershipPolicy organizationMembershipPolicy, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.session.SessionRevocation sessionRevocation, final io.helixiam.authorization.session.BrowserSessionRegistry browserSessionRegistry) throws Exception {
+    public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService, final io.helixiam.authorization.service.org.OrganizationMembershipPolicy organizationMembershipPolicy, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.session.SessionRevocation sessionRevocation, final io.helixiam.authorization.session.BrowserSessionRegistry browserSessionRegistry, final io.helixiam.common.net.OutboundUrlGuard outboundUrlGuard, final io.helixiam.common.startup.DeploymentProfile deploymentProfile) throws Exception {
         // Helix IAM SSO P4: share OUR SessionRegistry bean with the authorization server BEFORE
         // the authorization server configurer is applied (it would otherwise create its own). SAS reads it at token-issuance to
         // stamp the OIDC `sid` (session id hash) into id_tokens — the key that unifies a login's client
@@ -206,7 +206,17 @@ public class SecurityConfig {
                                 // Also let a public (PKCE) client authenticate at the PAR endpoint (RFC 9126 / FAPI2).
                                 authorizationServerSettings.getPushedAuthorizationRequestEndpoint()))
                         .authenticationProvider(new io.helixiam.authorization.security.device.DeviceClientAuthenticationProvider(
-                                registeredClientRepository)));
+                                registeredClientRepository))
+                        // private_key_jwt: SAS fetches a client's jwk_set_url with an unguarded RestTemplate that
+                        // follows redirects; any client registrant chooses that URL. Fetch it through the outbound
+                        // guard on the pinned transport instead.
+                        .authenticationProviders(providers -> providers.forEach(provider -> {
+                            if (provider instanceof org.springframework.security.oauth2.server.authorization
+                                    .authentication.JwtClientAssertionAuthenticationProvider assertions) {
+                                assertions.setJwtDecoderFactory(new io.helixiam.authorization.security.clientauth
+                                        .GuardedClientAssertionDecoderFactory(outboundUrlGuard, deploymentProfile));
+                            }
+                        })));
 
         // Helix IAM E7.3 (RFC 9126 — Pushed Authorization Requests): enable the /oauth2/par endpoint. SAS
         // ships PAR DISABLED by default; without this the endpoint is never registered, so /oauth2/par falls

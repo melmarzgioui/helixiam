@@ -39,9 +39,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -81,7 +78,6 @@ public class WorkloadIdentityTokenController {
     private final AuditLog auditLog;
     private final long lifetimeSeconds;
 
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private final ObjectMapper mapper = new ObjectMapper();
     private final WorkloadExchangeRateLimiter rateLimiter = new WorkloadExchangeRateLimiter();
 
@@ -190,19 +186,9 @@ public class WorkloadIdentityTokenController {
             return credential.jwksUri().trim();
         }
         final String discovery = credential.issuer() + "/.well-known/openid-configuration";
-        verifier.checkEgress(discovery); // M6: the issuer is admin-configured; the exchange is unauthenticated
-        final HttpResponse<String> resp = http.send(
-                HttpRequest.newBuilder(URI.create(discovery)).header("Accept", "application/json")
-                        .timeout(Duration.ofSeconds(5)).GET().build(),
-                HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
-            throw new IllegalStateException("issuer discovery returned " + resp.statusCode());
-        }
-        final JsonNode jwks = mapper.readTree(resp.body()).path("jwks_uri");
-        if (jwks.isMissingNode() || jwks.asText().isBlank()) {
-            throw new IllegalStateException("issuer discovery has no jwks_uri");
-        }
-        return jwks.asText();
+        // M6: the issuer is admin-configured and the exchange unauthenticated: the discovery GET goes through the
+        // guard and is pinned to the address it validated
+        return verifier.discoverJwksUri(discovery);
     }
 
     /** A realm-signed access token whose subject is the credential's mapped client identity. */

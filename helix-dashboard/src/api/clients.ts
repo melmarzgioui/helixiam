@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { adminJson } from "./adminError";
+
 /**
  * True when a string is (or embeds) a UUID — e.g. a bare UUID or a Dynamic-Client-Registration id like
  * `dcr-5bcd8361-…`. Used to keep machine-generated identifiers from ever surfacing as a UI name.
@@ -142,10 +144,9 @@ export function createClientHttpClient(baseUrl = ""): ClientApi {
   const url = (realmId: string, id?: string) =>
     `${base}/admin/realms/${encodeURIComponent(realmId)}/clients${id ? `/${encodeURIComponent(id)}` : ""}`;
 
-  const json = async (res: Response) => {
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.status === 204 ? null : res.json();
-  };
+  // A failure rejects with an AdminApiError carrying the server's {message, fieldErrors} (shown on the form).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- callers type the result, as res.json() did
+  const json = (res: Response) => adminJson<any>(res);
 
   return {
     list: (realmId) => fetch(url(realmId)).then(json),

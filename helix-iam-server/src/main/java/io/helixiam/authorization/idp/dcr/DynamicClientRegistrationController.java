@@ -48,11 +48,21 @@ public class DynamicClientRegistrationController {
 
     private final ClientAdminPublisher clients;
     private final ProvisioningAdminPublisher provisioning;
+    /** Registration-time check of a client's jwks_uri (the token endpoint fetches it for private_key_jwt). */
+    private final io.helixiam.common.net.OutboundUrlGuard egressGuard;
 
     public DynamicClientRegistrationController(final ClientAdminPublisher clients,
                                                final ProvisioningAdminPublisher provisioning) {
+        this(clients, provisioning, new io.helixiam.common.net.OutboundUrlGuard());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DynamicClientRegistrationController(final ClientAdminPublisher clients,
+                                               final ProvisioningAdminPublisher provisioning,
+                                               final io.helixiam.common.net.OutboundUrlGuard egressGuard) {
         this.clients = clients;
         this.provisioning = provisioning;
+        this.egressGuard = egressGuard;
     }
 
     @PostMapping(value = "/connect/register", consumes = MediaType.ALL_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -83,6 +93,10 @@ public class DynamicClientRegistrationController {
         if (needsRedirect && (body.redirectUris() == null || body.redirectUris().isEmpty())) {
             return error(HttpStatus.BAD_REQUEST, "invalid_redirect_uri",
                     "At least one redirect_uri is required for the requested grant types.");
+        }
+        final String invalid = DcrMapper.invalidClientAuthentication(body, egressGuard);
+        if (invalid != null) {
+            return error(HttpStatus.BAD_REQUEST, "invalid_client_metadata", invalid);
         }
         final ClientWriteDto write = DcrMapper.toWrite(realm, body);
         final ClientDto created = clients.create(write);
@@ -125,6 +139,10 @@ public class DynamicClientRegistrationController {
         final ClientDto existing = clients.get(new ClientRef(realm, clientInternalId));
         if (existing == null) {
             return error(HttpStatus.NOT_FOUND, "invalid_request", "Registration not found.");
+        }
+        final String invalid = DcrMapper.invalidClientAuthentication(body, egressGuard);
+        if (invalid != null) {
+            return error(HttpStatus.BAD_REQUEST, "invalid_client_metadata", invalid);
         }
         // Preserve the surrogate id + client_id; apply the updated metadata (RFC 7592 §2.2 full replace).
         final ClientWriteDto base = DcrMapper.toWrite(realm, body);
