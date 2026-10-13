@@ -16,6 +16,7 @@ import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.common.log.LogSafe;
 import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.PinnedHttpFetcher;
+import io.helixiam.common.net.SingleFlight;
 import io.helixiam.common.net.SsrfBlockedException;
 import io.helixiam.common.net.UnresolvableHostException;
 import org.apache.logging.log4j.LogManager;
@@ -134,6 +135,7 @@ public final class TokenStatusListClient implements StatusEvaluator {
     private final Duration maxCache;
     private final Set<String> allowedHosts;
     private final StatusListCache cache;
+    private final SingleFlight<StatusListCache.Key, StatusListToken> flights = new SingleFlight<>();
 
     /** The JDK default trust store, the system clock and a cache of its own (default bounds). */
     public TokenStatusListClient(final StatusPolicy policy, final IssuerTrustValidator trust,
@@ -290,6 +292,22 @@ public final class TokenStatusListClient implements StatusEvaluator {
             return cached.token();
         }
 
+        // concurrent evaluations of the same list share one fetch; the fetching caller caches the verified token
+        // before the shared fetch ends, so a caller arriving just after it finds the cache
+        try {
+            return flights.run(key, Duration.ofSeconds(READ_TIMEOUT_SECONDS), () -> fetchAndVerify(uri, vetted, anchors,
+                    form, key, now));
+        } catch (final SingleFlight.WaitTimeoutException e) {
+            throw new TransientFailure("status list request timed out");
+        } catch (final RuntimeException e) {
+            throw e;
+        } catch (final Exception e) {
+            throw nonTransient("status list could not be evaluated");
+        }
+    }
+
+    private StatusListToken fetchAndVerify(final String uri, final URI vetted, final TrustAnchors anchors,
+            final Form form, final StatusListCache.Key key, final Instant now) {
         final byte[] body = fetch(vetted, form);
         final StatusListToken token = form == Form.JWT
                 ? StatusListToken.fromJwt(new String(body, StandardCharsets.UTF_8), anchors, now, trust)

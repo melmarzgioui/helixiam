@@ -859,6 +859,32 @@ class TokenStatusListClientTest {
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void concurrentEvaluationsShareOneFetch() throws Exception {
+        final byte[] token = jwt(uri("/lists/1"), 1, new int[] {0}).getBytes(StandardCharsets.US_ASCII);
+        stub.respond(r -> new StubResponse(200, JWT_TYPE, token, 400, null));
+        final TokenStatusListClient client = client(failClosed());
+        final java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            final List<java.util.concurrent.Future<String>> results = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                results.add(pool.submit(() -> {
+                    go.await();
+                    return client.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+                }));
+            }
+            go.countDown();
+            for (final var r : results) {
+                assertThat(r.get(20, TimeUnit.SECONDS)).isEqualTo(StatusEvaluator.VALID);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(stub.requests()).hasSize(1);
+    }
+
+    @Test
     void aStricterProviderNeverGetsAListAnotherProviderCached() {
         stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}));
         final StatusListCache cache = new StatusListCache();

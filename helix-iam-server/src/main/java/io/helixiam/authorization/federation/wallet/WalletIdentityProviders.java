@@ -19,6 +19,7 @@ import io.helixiam.authorization.security.audit.AuditLog;
 import io.helixiam.authorization.service.key.RealmSigningKeys;
 import io.helixiam.authorization.service.key.SigningKeyHandle;
 import io.helixiam.authorization.service.key.SoftwareRealmSigningKeys;
+import io.helixiam.common.net.FetchLimiter;
 import io.helixiam.common.net.OutboundUrlGuard;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -77,7 +78,8 @@ public class WalletIdentityProviders {
      * {@code helix.wallet.revocation.max-crl-bytes} (default 10 MB), {@code .cache-max-entries} (default 256) and
      * {@code .cache-max-bytes} (default 32 MB); and the Token Status List cache, also shared, from
      * {@code helix.wallet.status-list.cache-max-entries} (default 64) and {@code .cache-max-bytes} (default 32 MB of
-     * decoded lists).
+     * decoded lists); and the cap on concurrent issuer-revocation and status-list fetches,
+     * {@code helix.wallet.fetch.max-concurrent} (default 16, {@link FetchLimiter#global()}).
      */
     @Autowired
     public WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
@@ -97,11 +99,14 @@ public class WalletIdentityProviders {
                                    final int statusCacheEntries,
                                    @Value("${helix.wallet.status-list.cache-max-bytes:"
                                            + StatusListCache.DEFAULT_MAX_BYTES + "}")
-                                   final long statusCacheBytes) {
+                                   final long statusCacheBytes,
+                                   @Value("${helix.wallet.fetch.max-concurrent:" + FetchLimiter.DEFAULT_MAX + "}")
+                                   final int maxConcurrentFetches) {
         this(validator, keys, transactions, guard, TokenStatusListClient.auditLogSink(auditLog), Clock.systemUTC(),
                 auditLog, new IssuerRevocationClient(guard,
                         new IssuerRevocationClient.Settings(maxCrlBytes, revocationCacheEntries, revocationCacheBytes),
                         Clock.systemUTC()), new StatusListCache(statusCacheEntries, statusCacheBytes));
+        FetchLimiter.global().setMax(maxConcurrentFetches);
     }
 
     WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,

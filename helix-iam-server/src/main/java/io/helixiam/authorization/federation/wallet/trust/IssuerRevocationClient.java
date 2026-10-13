@@ -9,6 +9,7 @@ import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.net.PinnedHttpFetcher.FetchException;
 import io.helixiam.common.net.PinnedHttpFetcher.Limits;
+import io.helixiam.common.net.SingleFlight;
 import io.helixiam.common.net.SsrfBlockedException;
 import io.helixiam.common.net.UnresolvableHostException;
 import org.bouncycastle.asn1.ASN1OctetString;
@@ -85,6 +86,10 @@ import java.util.concurrent.TimeUnit;
  * needs to fetch. Each check runs on a one-certificate path whose trust anchor is that certificate's issuer (the path
  * was already validated end to end), so every certificate gets its own answer.
  *
+ * <p><b>Concurrency.</b> Concurrent logins needing the same CRL or OCSP answer share one download ({@link SingleFlight});
+ * all fetches together are capped by the transport's {@link io.helixiam.common.net.FetchLimiter}. A URL that served
+ * something that is not a CRL, or a CRL over the size cap, is not downloaded again for {@link #JUNK_TTL}.
+ *
  * <p><b>Cache.</b> OCSP responses and CRLs that gave a definite answer (good or revoked) are cached until their
  * {@code nextUpdate} (a CRL until {@code nextUpdate} plus the {@link #CRL_CLOCK_SKEW} it is still accepted for; never
  * longer than {@link #MAX_CACHE_TTL}; without {@code nextUpdate}: not cached), bounded by
@@ -101,6 +106,9 @@ public final class IssuerRevocationClient {
     /** Longest a cached OCSP response or CRL is used, whatever its {@code nextUpdate}. */
     public static final Duration MAX_CACHE_TTL = Duration.ofHours(24);
     static final int MAX_URLS_PER_KIND = 2;
+    /** How long a URL that served something that is not a usable-size CRL is not downloaded again. */
+    static final Duration JUNK_TTL = Duration.ofSeconds(60);
+    private static final int MAX_JUNK_ENTRIES = 256;
     /** Below this much remaining budget, no new fetch is started. */
     private static final long MIN_FETCH_NANOS = TimeUnit.MILLISECONDS.toNanos(200);
     private static final Set<String> CRL_SIGNATURE_ALGORITHMS = Set.of("SHA256withECDSA", "SHA384withECDSA",
@@ -163,6 +171,24 @@ public final class IssuerRevocationClient {
     private final Clock clock;
     private final Map<String, Cached> cache = new LinkedHashMap<>(16, 0.75f, true);
     private long cachedBytes;
+    /** URLs that recently served something that is not a CRL (or too large a one), and until when to skip them. */
+    private final Map<String, Instant> junk = new LinkedHashMap<>(16, 0.75f, true);
+    /** One download per CRL URL / OCSP request at a time, whatever the number of concurrent logins. */
+    private final SingleFlight<String, Download> downloads = new SingleFlight<>();
+
+    /**
+     * A download's outcome: the body and what the downloading caller made of it ({@code parsed}, null when it is not
+     * usable), or why there is none.
+     */
+    private record Download(byte[] body, Object parsed, Answer failure, boolean junk) {
+        static Download failed(final Answer failure) {
+            return new Download(null, null, failure, false);
+        }
+
+        static Download notUsable() {
+            return new Download(null, null, Answer.UNDETERMINED, true);
+        }
+    }
 
     public IssuerRevocationClient(final OutboundUrlGuard guard, final Settings settings, final Clock clock) {
         this(PinnedHttpFetcher.plain(Objects.requireNonNull(guard, "guard")), settings, clock);
@@ -259,26 +285,20 @@ public final class IssuerRevocationClient {
         if (limits == null) {
             return Answer.UNDETERMINED;
         }
-        final byte[] response;
-        try {
-            final PinnedHttpFetcher.Response r = fetcher.post(url, Map.of("Content-Type", "application/ocsp-request",
-                    "Accept", "application/ocsp-response"), request, limits);
-            if (r.status() != 200) {
-                return Answer.UNDETERMINED;
-            }
-            response = r.body();
-        } catch (final UnresolvableHostException e) {
-            return Answer.UNDETERMINED;
-        } catch (final SsrfBlockedException e) {
-            return Answer.BLOCKED;
-        } catch (final FetchException e) {
-            return Answer.UNDETERMINED;
+        // the downloading caller caches a definite answer before the shared download ends, so a caller arriving just
+        // after it finds the cache instead of downloading again
+        final Download d = download(key, limits, () -> fetcher.post(url, Map.of("Content-Type",
+                "application/ocsp-request", "Accept", "application/ocsp-response"), request, limits), body -> {
+                    final Answer a = jdkOcsp(cert, issuer, body, at);
+                    if (a == Answer.GOOD || a == Answer.REVOKED) {
+                        remember(key, body, body.length, ocspNextUpdate(body, id));
+                    }
+                    return body;
+                });
+        if (d.body() == null) {
+            return d.failure();
         }
-        final Answer a = jdkOcsp(cert, issuer, response, at);
-        if (a == Answer.GOOD || a == Answer.REVOKED) {
-            remember(key, response, response.length, ocspNextUpdate(response, id));
-        }
-        return a;
+        return jdkOcsp(cert, issuer, d.body(), at);
     }
 
     /** The JDK's verdict on {@code response} for {@code cert} (signature, responder, CertID, validity window). */
@@ -326,32 +346,45 @@ public final class IssuerRevocationClient {
         if (limits == null) {
             return Answer.UNDETERMINED;
         }
-        final X509CRL crl;
-        final int size;
+        if (isJunk(url)) {
+            return Answer.UNDETERMINED;
+        }
+        final Download d = download(key, limits, () -> fetcher.get(url, Map.of("Accept", "application/pkix-crl"),
+                limits), body -> {
+                    final X509CRL parsed = parseCrl(body);
+                    if (parsed == null) {
+                        return null; // not a CRL
+                    }
+                    // as for OCSP: cached before the shared download ends
+                    if (crlUsable(parsed, cert, issuer, url, at)) {
+                        final Answer a = jdkCrl(cert, issuer, parsed, at);
+                        if (a == Answer.GOOD || a == Answer.REVOKED) {
+                            remember(key, parsed, body.length, parsed.getNextUpdate().toInstant()
+                                    .plus(CRL_CLOCK_SKEW)); // usable until then (see crlUsable)
+                        }
+                    }
+                    return parsed;
+                });
+        if (d.junk() || d.body() != null && d.parsed() == null) {
+            markJunk(url); // not a CRL, or too large: do not download it again on every login
+            return Answer.UNDETERMINED;
+        }
+        if (d.body() == null) {
+            return d.failure();
+        }
+        final X509CRL crl = (X509CRL) d.parsed();
+        if (!crlUsable(crl, cert, issuer, url, at)) {
+            return Answer.UNDETERMINED;
+        }
+        return jdkCrl(cert, issuer, crl, at);
+    }
+
+    private static X509CRL parseCrl(final byte[] body) {
         try {
-            final PinnedHttpFetcher.Response r = fetcher.get(url, Map.of("Accept", "application/pkix-crl"), limits);
-            if (r.status() != 200) {
-                return Answer.UNDETERMINED;
-            }
-            size = r.body().length;
-            crl = (X509CRL) CertificateFactory.getInstance("X.509")
-                    .generateCRL(new ByteArrayInputStream(r.body()));
-        } catch (final UnresolvableHostException e) {
-            return Answer.UNDETERMINED;
-        } catch (final SsrfBlockedException e) {
-            return Answer.BLOCKED;
-        } catch (final FetchException | GeneralSecurityException | RuntimeException e) {
-            return Answer.UNDETERMINED;
+            return (X509CRL) CertificateFactory.getInstance("X.509").generateCRL(new ByteArrayInputStream(body));
+        } catch (final GeneralSecurityException | RuntimeException e) {
+            return null;
         }
-        if (crl == null || !crlUsable(crl, cert, issuer, url, at)) {
-            return Answer.UNDETERMINED;
-        }
-        final Answer a = jdkCrl(cert, issuer, crl, at);
-        if (a == Answer.GOOD || a == Answer.REVOKED) {
-            remember(key, crl, size, crl.getNextUpdate() == null ? null
-                    : crl.getNextUpdate().toInstant().plus(CRL_CLOCK_SKEW)); // usable until then (see crlUsable)
-        }
-        return a;
     }
 
     private static Answer jdkCrl(final X509Certificate cert, final TrustAnchor issuer, final X509CRL crl,
@@ -499,6 +532,64 @@ public final class IssuerRevocationClient {
                     : Answer.UNDETERMINED;
         } catch (final GeneralSecurityException | RuntimeException e) {
             return Answer.UNDETERMINED;
+        }
+    }
+
+    @FunctionalInterface
+    private interface Fetch {
+        PinnedHttpFetcher.Response call() throws FetchException;
+    }
+
+    /**
+     * One download, shared with every concurrent caller asking for the same {@code key} ({@link SingleFlight}); a
+     * caller waits for a shared download at most as long as its own limits allow.
+     */
+    private Download download(final String key, final Limits limits, final Fetch fetch,
+            final java.util.function.Function<byte[], Object> prepare) {
+        try {
+            return downloads.run(key, limits.totalTimeout(), () -> {
+                try {
+                    final PinnedHttpFetcher.Response r = fetch.call();
+                    if (r.status() != 200) {
+                        return Download.failed(Answer.UNDETERMINED);
+                    }
+                    return new Download(r.body(), prepare.apply(r.body()), null, false);
+                } catch (final UnresolvableHostException e) {
+                    return Download.failed(Answer.UNDETERMINED);
+                } catch (final SsrfBlockedException e) {
+                    return Download.failed(Answer.BLOCKED);
+                } catch (final FetchException e) {
+                    return e.kind() == FetchException.Kind.TOO_LARGE ? Download.notUsable()
+                            : Download.failed(Answer.UNDETERMINED);
+                }
+            });
+        } catch (final Exception e) {
+            return Download.failed(Answer.UNDETERMINED); // our wait for the shared download timed out
+        }
+    }
+
+    private boolean isJunk(final String url) {
+        synchronized (junk) {
+            final Instant until = junk.get(url);
+            if (until == null) {
+                return false;
+            }
+            if (!clock.instant().isBefore(until)) {
+                junk.remove(url);
+                return false;
+            }
+            return true;
+        }
+    }
+
+    private void markJunk(final String url) {
+        synchronized (junk) {
+            junk.put(url, clock.instant().plus(JUNK_TTL));
+            final var it = junk.keySet().iterator();
+            while (junk.size() > MAX_JUNK_ENTRIES && it.hasNext()) {
+                it.next();
+                it.remove();
+            }
         }
     }
 

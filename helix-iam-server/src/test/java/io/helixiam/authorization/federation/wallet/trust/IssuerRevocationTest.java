@@ -392,6 +392,63 @@ class IssuerRevocationTest {
         assertThat(small.cachedBytes()).isLessThanOrEqualTo(oneCrl * 2L + oneCrl / 2);
     }
 
+    // ------------------------------------------------------------------------------------------- concurrency
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void concurrentLoginsShareOneCrlFetch() throws Exception {
+        final TwoLevel pki = twoLevel(stub.url("/issuing.crl"), null);
+        final byte[] crl = pki.issuing().crl(TOMORROW);
+        stub.route("/issuing.crl", r -> new Answer(200, crl, 400, null));
+        final IssuerTrustValidator v = validator();
+        final java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            final List<java.util.concurrent.Future<X509Certificate>> results = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                results.add(pool.submit(() -> {
+                    go.await();
+                    return v.validate(pki.chain(), pki.root().anchors(RevocationMode.HARD_FAIL), Instant.now());
+                }));
+            }
+            go.countDown();
+            for (final var r : results) {
+                assertThat(r.get(20, TimeUnit.SECONDS)).isEqualTo(pki.leaf());
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(stub.count("/issuing.crl")).isEqualTo(1);
+        assertThat(stub.count("/root.crl")).isEqualTo(1);
+    }
+
+    @Test
+    void aCrlThatDoesNotParseIsNotDownloadedAgainForAMinute() {
+        final TwoLevel pki = twoLevel(stub.url("/issuing.crl"), null);
+        stub.serve("/issuing.crl", "<html>not a CRL</html>".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        final IssuerTrustValidator v = validator();
+        final TrustAnchors anchors = pki.root().anchors(RevocationMode.SOFT_FAIL);
+        v.validate(pki.chain(), anchors, Instant.now());
+        clock.advance(Duration.ofSeconds(59));
+        v.validate(pki.chain(), anchors, Instant.now());
+        assertThat(stub.count("/issuing.crl")).isEqualTo(1);
+        clock.advance(Duration.ofSeconds(2));
+        v.validate(pki.chain(), anchors, Instant.now());
+        assertThat(stub.count("/issuing.crl")).isEqualTo(2);
+    }
+
+    @Test
+    void anOversizedCrlIsNotDownloadedAgainForAMinute() {
+        final TwoLevel pki = twoLevel(stub.url("/issuing.crl"), null);
+        stub.serve("/issuing.crl", new byte[8192]);
+        final IssuerTrustValidator capped = validator(OutboundUrlGuard.permissive(),
+                IssuerRevocationClient.Settings.DEFAULTS.withMaxCrlBytes(4096));
+        final TrustAnchors anchors = pki.root().anchors(RevocationMode.SOFT_FAIL);
+        capped.validate(pki.chain(), anchors, Instant.now());
+        capped.validate(pki.chain(), anchors, Instant.now());
+        assertThat(stub.count("/issuing.crl")).isEqualTo(1);
+    }
+
     // ------------------------------------------------------------------------------------------- path
 
     /** root (anchor) → upper CA (status: root's CRL, unreachable) → lower CA → leaf. */

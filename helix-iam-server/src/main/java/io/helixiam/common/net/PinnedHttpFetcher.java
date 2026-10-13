@@ -50,6 +50,9 @@ import java.util.concurrent.atomic.AtomicReference;
  *       connects. Each connect attempt is also bounded by {@link Limits#connectTimeout()}.</li>
  *   <li><b>No redirects.</b> A 3xx answer is returned as is (with its {@code Location}); a caller that follows it
  *       must vet the target and fetch it again, which re-runs the guard.</li>
+ *   <li><b>Concurrency cap.</b> At most {@link FetchLimiter#max()} fetches run at once (worker threads included,
+ *       so a DNS lookup that hangs past the deadline still counts); a caller that gets no slot before its deadline
+ *       times out.</li>
  *   <li><b>Size cap.</b> A declared {@code Content-Length} over {@link Limits#maxBodyBytes()} is refused before
  *       reading; a chunked or unframed body is refused as soon as it passes the cap. Headers are capped at
  *       {@value #MAX_HEADER_BYTES} bytes.</li>
@@ -122,10 +125,17 @@ public final class PinnedHttpFetcher {
 
     private final OutboundUrlGuard guard;
     private final SSLContext sslContext;
+    private final FetchLimiter limiter;
 
+    /** A fetcher under the {@linkplain FetchLimiter#global() global} concurrency cap. */
     public PinnedHttpFetcher(final OutboundUrlGuard guard, final SSLContext sslContext) {
+        this(guard, sslContext, FetchLimiter.global());
+    }
+
+    public PinnedHttpFetcher(final OutboundUrlGuard guard, final SSLContext sslContext, final FetchLimiter limiter) {
         this.guard = Objects.requireNonNull(guard, "guard");
         this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
+        this.limiter = Objects.requireNonNull(limiter, "limiter");
     }
 
     /** A fetcher using the JDK default TLS context. */
@@ -161,7 +171,28 @@ public final class PinnedHttpFetcher {
         final long deadline = System.nanoTime() + limits.totalTimeout().toNanos();
         final Exchange exchange = new Exchange(method, url, headers == null ? Map.of() : headers, body, limits,
                 deadline);
-        final Future<Response> future = WORKERS.submit(exchange::run);
+        try {
+            if (!limiter.acquire(deadline)) {
+                throw new FetchException(FetchException.Kind.TIMEOUT, "fetch timed out waiting for a free slot");
+            }
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new FetchException(FetchException.Kind.IO, "fetch was interrupted");
+        }
+        final Future<Response> future;
+        try {
+            // the permit goes back when the worker ends, not when this caller stops waiting (see FetchLimiter)
+            future = WORKERS.submit(() -> {
+                try {
+                    return exchange.run();
+                } finally {
+                    limiter.release();
+                }
+            });
+        } catch (final RuntimeException e) {
+            limiter.release();
+            throw new FetchException(FetchException.Kind.IO, "fetch could not start");
+        }
         try {
             return future.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
         } catch (final TimeoutException e) {

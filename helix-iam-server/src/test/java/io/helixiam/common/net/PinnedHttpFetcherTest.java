@@ -251,4 +251,104 @@ class PinnedHttpFetcherTest {
                 .isInstanceOfSatisfying(FetchException.class,
                         e -> assertThat(e.kind()).isEqualTo(FetchException.Kind.IO));
     }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void theConcurrencyCapBoundsInFlightFetchesEvenWhenDnsHangs() throws Exception {
+        final AtomicInteger inResolver = new AtomicInteger();
+        final AtomicInteger maxInResolver = new AtomicInteger();
+        final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        final OutboundUrlGuard hanging = guard("hang.test", host -> {
+            maxInResolver.accumulateAndGet(inResolver.incrementAndGet(), Math::max);
+            // like a native getaddrinfo: deaf to interrupts
+            final long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            while (release.getCount() > 0 && System.nanoTime() < until) {
+                try {
+                    release.await(50, TimeUnit.MILLISECONDS);
+                } catch (final InterruptedException e) {
+                    // ignored on purpose
+                }
+            }
+            inResolver.decrementAndGet();
+            throw new UnknownHostException(host);
+        });
+        final FetchLimiter limiter = new FetchLimiter(2);
+        final PinnedHttpFetcher fetcher = new PinnedHttpFetcher(hanging, javax.net.ssl.SSLContext.getDefault(),
+                limiter);
+        final Limits shortLimits = new Limits(Duration.ofSeconds(1), Duration.ofMillis(500), 1024);
+        final java.util.concurrent.ExecutorService callers = java.util.concurrent.Executors.newFixedThreadPool(6);
+        try {
+            final List<java.util.concurrent.Future<?>> calls = new java.util.ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                calls.add(callers.submit(() -> {
+                    try {
+                        fetcher.get("http://hang.test:" + port() + "/x", Map.of(), shortLimits);
+                    } catch (final FetchException e) {
+                        assertThat(e.kind()).isEqualTo(FetchException.Kind.TIMEOUT);
+                    }
+                    return null;
+                }));
+            }
+            for (final var c : calls) {
+                c.get(10, TimeUnit.SECONDS);
+            }
+            // every caller gave up at its deadline, but no more than two lookups ever ran, and they still hold the
+            // two permits: a new fetch cannot start another thread
+            assertThat(maxInResolver).hasValue(2);
+            assertThat(limiter.inFlight()).isEqualTo(2);
+            assertThatThrownBy(() -> fetcher.get("http://hang.test:" + port() + "/x", Map.of(), shortLimits))
+                    .isInstanceOfSatisfying(FetchException.class,
+                            e -> assertThat(e.kind()).isEqualTo(FetchException.Kind.TIMEOUT));
+            assertThat(maxInResolver).hasValue(2);
+        } finally {
+            release.countDown();
+            callers.shutdownNow();
+        }
+        // once the hung lookups return, the permits come back
+        final long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (limiter.inFlight() > 0 && System.nanoTime() < until) {
+            Thread.sleep(20);
+        }
+        assertThat(limiter.inFlight()).isZero();
+    }
+
+    @Test
+    void theLimiterCanBeResized() {
+        final FetchLimiter limiter = new FetchLimiter(16);
+        limiter.setMax(4);
+        assertThat(limiter.max()).isEqualTo(4);
+        assertThatThrownBy(() -> limiter.setMax(0)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(FetchLimiter.global().max()).isEqualTo(FetchLimiter.DEFAULT_MAX);
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void singleFlightSharesOneCallBetweenConcurrentCallers() throws Exception {
+        final SingleFlight<String, Integer> flight = new SingleFlight<>();
+        final AtomicInteger calls = new AtomicInteger();
+        final java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            final List<java.util.concurrent.Future<Integer>> results = new java.util.ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                results.add(pool.submit(() -> {
+                    go.await();
+                    return flight.run("k", Duration.ofSeconds(5), () -> {
+                        calls.incrementAndGet();
+                        Thread.sleep(300);
+                        return 42;
+                    });
+                }));
+            }
+            go.countDown();
+            for (final var r : results) {
+                assertThat(r.get(10, TimeUnit.SECONDS)).isEqualTo(42);
+            }
+            assertThat(calls).hasValue(1);
+            // after completion the next call runs again
+            assertThat(flight.run("k", Duration.ofSeconds(5), () -> calls.incrementAndGet())).isEqualTo(2);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 }
