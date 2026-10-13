@@ -45,8 +45,9 @@ public class HttpOidcTokenClient implements OidcTokenClient {
     private final PinnedHttpFetcher http;
     private final PinnedResourceRetriever jwksRetriever;
     private static final int MAX_JWK_SOURCES = 1_000;
-    private final java.util.Map<String, JWKSource<SecurityContext>> jwkSources =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    /** One JWK source per URL; the least recently used is dropped past {@value #MAX_JWK_SOURCES}. */
+    private final io.helixiam.common.net.BoundedLruCache<String, JWKSource<SecurityContext>> jwkSources =
+            new io.helixiam.common.net.BoundedLruCache<>(MAX_JWK_SOURCES);
 
     /** Secure default (block-private) — used by the non-Spring test/harness path. */
     public HttpOidcTokenClient() {
@@ -96,9 +97,6 @@ public class HttpOidcTokenClient implements OidcTokenClient {
         }
         // M6: jwksUri comes from admin IdP config: fetched through the guard, pinned, without redirects
         // one cached source per jwks_uri (Nimbus caching: 5 minutes, refetch on an unknown kid, rate-limited)
-        if (jwkSources.size() >= MAX_JWK_SOURCES && !jwkSources.containsKey(config.jwksUri())) {
-            jwkSources.clear();
-        }
         final java.net.URL jwksUrl = URI.create(config.jwksUri()).toURL();
         final JWKSource<SecurityContext> jwkSource = jwkSources.computeIfAbsent(config.jwksUri(),
                 u -> JWKSourceBuilder.create(jwksUrl, jwksRetriever).build());

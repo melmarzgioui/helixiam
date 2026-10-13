@@ -49,8 +49,9 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
     private final OutboundUrlGuard egressGuard;
     private final PinnedResourceRetriever jwksRetriever;
     private static final int MAX_JWK_SOURCES = 1_000;
-    private final java.util.Map<String, JWKSource<SecurityContext>> jwkSources =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    /** One JWK source per URL; the least recently used is dropped past {@value #MAX_JWK_SOURCES}. */
+    private final io.helixiam.common.net.BoundedLruCache<String, JWKSource<SecurityContext>> jwkSources =
+            new io.helixiam.common.net.BoundedLruCache<>(MAX_JWK_SOURCES);
 
     /** Wired from {@code SecurityConfig}; uses the secure-default (block-private) egress guard. */
     public RequestObjectAuthorizeFilter(final RegisteredClientRepository clients) {
@@ -130,9 +131,6 @@ public class RequestObjectAuthorizeFilter extends OncePerRequestFilter {
      */
     JWKSource<SecurityContext> jwkSource(final String jwksUrl) throws IOException {
         final URL url = new URL(jwksUrl);
-        if (jwkSources.size() >= MAX_JWK_SOURCES && !jwkSources.containsKey(jwksUrl)) {
-            jwkSources.clear();
-        }
         return jwkSources.computeIfAbsent(jwksUrl, u -> JWKSourceBuilder.create(url, jwksRetriever).build());
     }
 

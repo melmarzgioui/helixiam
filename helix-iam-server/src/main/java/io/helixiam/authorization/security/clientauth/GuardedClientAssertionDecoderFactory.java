@@ -25,9 +25,7 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 
 import java.net.MalformedURLException;
 import java.net.URI;
-import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The token endpoint's client-assertion decoder ({@code private_key_jwt}, {@code client_secret_jwt}). SAS's own
@@ -45,7 +43,9 @@ public final class GuardedClientAssertionDecoderFactory implements JwtDecoderFac
 
     private final PinnedResourceRetriever retriever;
     private final JwtClientAssertionDecoderFactory macDecoders = new JwtClientAssertionDecoderFactory();
-    private final Map<String, JwtDecoder> decoders = new ConcurrentHashMap<>();
+    /** Per client, URL and algorithm; the least recently used is dropped past {@value #MAX_DECODERS}. */
+    private final io.helixiam.common.net.BoundedLruCache<String, JwtDecoder> decoders =
+            new io.helixiam.common.net.BoundedLruCache<>(MAX_DECODERS);
 
     public GuardedClientAssertionDecoderFactory(final OutboundUrlGuard guard) {
         this.retriever = new PinnedResourceRetriever(Objects.requireNonNull(guard, "guard"), FetchLimiter.Group.LOGIN,
@@ -63,9 +63,6 @@ public final class GuardedClientAssertionDecoderFactory implements JwtDecoderFac
             throw new BadJwtException("The client has no registered JWK Set URL");
         }
         final String key = client.getId() + "|" + jwkSetUrl + "|" + alg.getName();
-        if (decoders.size() >= MAX_DECODERS && !decoders.containsKey(key)) {
-            decoders.clear();
-        }
         return decoders.computeIfAbsent(key, k -> build(client, jwkSetUrl, alg));
     }
 
