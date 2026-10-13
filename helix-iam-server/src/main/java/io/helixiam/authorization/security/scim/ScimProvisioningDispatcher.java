@@ -11,6 +11,7 @@ import io.helixiam.authorization.amqp.scim.ScimTargetConfigPublisher;
 import io.helixiam.authorization.amqp.scim.ScimTargetDto;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
 import io.helixiam.common.net.FetchLimiter;
+import io.helixiam.common.net.RealmBoundedExecutor;
 import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.log.LogSafe;
@@ -26,8 +27,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.LongSupplier;
 
 /**
@@ -55,7 +54,7 @@ public class ScimProvisioningDispatcher {
     private final OutboundUrlGuard egressGuard;
     /** M6: pinned to the address the guard validated (no second DNS answer), no redirects, 5 s in total. */
     private final PinnedHttpFetcher http;
-    private final ExecutorService executor;
+    private final RealmBoundedExecutor queue;
     private final LongSupplier nowMillis;
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
 
@@ -72,9 +71,10 @@ public class ScimProvisioningDispatcher {
         this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
         this.http = PinnedHttpFetcher.plain(egressGuard, FetchLimiter.Group.OUTBOUND, () -> null);
-        // a virtual thread per delivery: a slow endpoint holds its own thread (bounded in time by the request
-        // deadline and in number by the realm's share of the OUTBOUND slots), never another realm's queue position
-        this.executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("scim-provisioner-", 0).factory());
+        // a virtual thread per delivery, at most 1,000 pending per realm (overflow dropped, never blocking the
+        // producer); a slow endpoint holds its own thread, bounded in time by the request deadline and in number by
+        // the realm's share of the OUTBOUND slots and of this queue
+        this.queue = new RealmBoundedExecutor("scim-provisioner", RealmBoundedExecutor.DEFAULT_MAX_PENDING_PER_REALM);
     }
 
     /** Fan a user lifecycle change out to every matching, enabled SCIM target for the realm (best-effort). */
@@ -86,7 +86,7 @@ public class ScimProvisioningDispatcher {
         for (final ScimTargetDto target : activeFor(realm)) {
             if (target.baseUrl() != null && !target.baseUrl().isBlank()
                     && WebhookDispatcher.matches(target.eventTypes(), eventType, "USER")) {
-                executor.submit(() -> push(target, operation, user));
+                queue.submit(realm, () -> push(target, operation, user));
             }
         }
     }
@@ -188,6 +188,11 @@ public class ScimProvisioningDispatcher {
                     LogSafe.sanitize(realm), LogSafe.sanitize(e.getMessage()));
             return List.of();
         }
+    }
+
+    /** The per-realm bounded delivery queue (pending and dropped counts per realm). */
+    public RealmBoundedExecutor queue() {
+        return queue;
     }
 
     private record Cached(List<ScimTargetDto> value, long loadedAt) {

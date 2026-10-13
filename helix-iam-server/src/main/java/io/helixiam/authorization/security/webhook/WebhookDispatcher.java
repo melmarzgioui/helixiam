@@ -9,6 +9,7 @@ import io.helixiam.authorization.amqp.webhook.WebhookConfigPublisher;
 import io.helixiam.authorization.amqp.webhook.WebhookSubscriptionDto;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.common.net.FetchLimiter;
+import io.helixiam.common.net.RealmBoundedExecutor;
 import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.log.LogSafe;
@@ -29,8 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.LongSupplier;
 
 /**
@@ -53,7 +52,7 @@ public class WebhookDispatcher {
     private final OutboundUrlGuard egressGuard;
     /** M6: pinned to the address the guard validated (no second DNS answer), no redirects, 5 s in total. */
     private final PinnedHttpFetcher http;
-    private final ExecutorService executor;
+    private final RealmBoundedExecutor queue;
     private final LongSupplier nowMillis;
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
 
@@ -68,9 +67,10 @@ public class WebhookDispatcher {
         this.egressGuard = egressGuard;
         this.nowMillis = nowMillis;
         this.http = PinnedHttpFetcher.plain(egressGuard, FetchLimiter.Group.OUTBOUND, () -> null);
-        // a virtual thread per delivery: a slow endpoint holds its own thread (bounded in time by the request
-        // deadline and in number by the realm's share of the OUTBOUND slots), never another realm's queue position
-        this.executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("webhook-dispatcher-", 0).factory());
+        // a virtual thread per delivery, at most 1,000 pending per realm (overflow dropped, never blocking the
+        // producer); a slow endpoint holds its own thread, bounded in time by the request deadline and in number by
+        // the realm's share of the OUTBOUND slots and of this queue
+        this.queue = new RealmBoundedExecutor("webhook-dispatcher", RealmBoundedExecutor.DEFAULT_MAX_PENDING_PER_REALM);
     }
 
     /** Deliver one event (already serialized to {@code json}) to every matching, enabled webhook. */
@@ -81,7 +81,7 @@ public class WebhookDispatcher {
         final List<WebhookSubscriptionDto> hooks = activeFor(event.realm());
         for (final WebhookSubscriptionDto hook : hooks) {
             if (matches(hook.eventTypes(), event.type(), event.category())) {
-                executor.submit(() -> post(hook, json, event.realm()));
+                queue.submit(event.realm(), () -> post(hook, json, event.realm()));
             }
         }
     }
@@ -154,6 +154,11 @@ public class WebhookDispatcher {
         } catch (final Exception e) {
             LOG.debug("Webhook {} delivery failed (non-fatal): {}", hook.id(), e.getMessage());
         }
+    }
+
+    /** The per-realm bounded delivery queue (pending and dropped counts per realm). */
+    public RealmBoundedExecutor queue() {
+        return queue;
     }
 
     private record Cached(List<WebhookSubscriptionDto> value, long loadedAt) {

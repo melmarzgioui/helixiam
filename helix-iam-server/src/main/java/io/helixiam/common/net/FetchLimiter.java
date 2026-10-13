@@ -8,7 +8,8 @@ package io.helixiam.common.net;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A cap on concurrent {@link PinnedHttpFetcher} fetches, with an optional sub-cap per partition (a realm). A permit is
@@ -61,6 +62,14 @@ public final class FetchLimiter {
         }
     }
 
+    /**
+     * A {@link ReentrantLock} and {@link Condition}, never a monitor: a virtual thread that waits in
+     * {@code Object.wait} (or blocks entering a {@code synchronized} block) pins its carrier on JDK 21, so enough
+     * waiters of one realm would take every carrier and stall every other fetch. Waiting on a {@code Condition}
+     * unmounts the virtual thread.
+     */
+    private final ReentrantLock lock = new ReentrantLock();
+    private final Condition changed = lock.newCondition();
     private int max;
     private int perPartitionMax;
     private int inFlight;
@@ -85,70 +94,110 @@ public final class FetchLimiter {
     }
 
     /** Changes the cap; fetches already running keep their permits. */
-    public synchronized void setMax(final int value) {
-        configure(value, Math.min(perPartitionMax == 0 ? value : perPartitionMax, value));
+    public void setMax(final int value) {
+        lock.lock();
+        try {
+            configure(value, Math.min(perPartitionMax == 0 ? value : perPartitionMax, value));
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Changes both caps; {@code perPartition} is clamped to {@code max}. */
-    public synchronized void configure(final int newMax, final int perPartition) {
+    public void configure(final int newMax, final int perPartition) {
         if (newMax < 1 || perPartition < 1) {
             throw new IllegalArgumentException("outbound fetch concurrency caps must be at least 1");
         }
-        max = newMax;
-        perPartitionMax = Math.min(perPartition, newMax);
-        notifyAll();
+        lock.lock();
+        try {
+            max = newMax;
+            perPartitionMax = Math.min(perPartition, newMax);
+            changed.signalAll();
+        } finally {
+            lock.unlock();
+        }
     }
 
-    public synchronized int max() {
-        return max;
+    public int max() {
+        lock.lock();
+        try {
+            return max;
+        } finally {
+            lock.unlock();
+        }
     }
 
-    public synchronized int perPartitionMax() {
-        return perPartitionMax;
+    public int perPartitionMax() {
+        lock.lock();
+        try {
+            return perPartitionMax;
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Fetches holding a permit now. */
-    public synchronized int inFlight() {
-        return inFlight;
+    public int inFlight() {
+        lock.lock();
+        try {
+            return inFlight;
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Fetches of {@code partition} holding a permit now. */
-    public synchronized int inFlight(final String partition) {
-        return byPartition.getOrDefault(partition, 0);
+    public int inFlight(final String partition) {
+        lock.lock();
+        try {
+            return byPartition.getOrDefault(partition, 0);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
      * Takes a permit for {@code partition} (null: no sub-cap applies), waiting at most until {@code deadlineNanos}
      * ({@link System#nanoTime()}); false on timeout.
      */
-    synchronized boolean acquire(final long deadlineNanos, final String partition) throws InterruptedException {
-        while (inFlight >= max || partition != null && byPartition.getOrDefault(partition, 0) >= perPartitionMax) {
-            final long remaining = deadlineNanos - System.nanoTime();
-            if (remaining <= 0) {
-                return false;
+    boolean acquire(final long deadlineNanos, final String partition) throws InterruptedException {
+        lock.lockInterruptibly();
+        try {
+            while (inFlight >= max || partition != null && byPartition.getOrDefault(partition, 0) >= perPartitionMax) {
+                final long remaining = deadlineNanos - System.nanoTime();
+                if (remaining <= 0) {
+                    return false;
+                }
+                changed.awaitNanos(remaining);
             }
-            TimeUnit.NANOSECONDS.timedWait(this, remaining);
+            inFlight++;
+            if (partition != null) {
+                byPartition.merge(partition, 1, Integer::sum);
+            }
+            return true;
+        } finally {
+            lock.unlock();
         }
-        inFlight++;
-        if (partition != null) {
-            byPartition.merge(partition, 1, Integer::sum);
-        }
-        return true;
     }
 
-    synchronized boolean acquire(final long deadlineNanos) throws InterruptedException {
+    boolean acquire(final long deadlineNanos) throws InterruptedException {
         return acquire(deadlineNanos, null);
     }
 
-    synchronized void release(final String partition) {
-        inFlight--;
-        if (partition != null) {
-            byPartition.computeIfPresent(partition, (k, v) -> v <= 1 ? null : v - 1);
+    void release(final String partition) {
+        lock.lock();
+        try {
+            inFlight--;
+            if (partition != null) {
+                byPartition.computeIfPresent(partition, (k, v) -> v <= 1 ? null : v - 1);
+            }
+            changed.signalAll();
+        } finally {
+            lock.unlock();
         }
-        notifyAll();
     }
 
-    synchronized void release() {
+    void release() {
         release(null);
     }
 }

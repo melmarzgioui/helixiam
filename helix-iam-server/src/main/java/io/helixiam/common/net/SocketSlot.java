@@ -15,16 +15,21 @@ import java.net.Socket;
  */
 final class SocketSlot {
 
+    /** A lock, not a monitor: workers are virtual threads, and a contended monitor pins the carrier on JDK 21. */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
     private final java.util.List<Socket> sockets = new java.util.ArrayList<>(2);
     private boolean aborted;
 
     /** Makes {@code s} the socket an abort closes; refuses (closing {@code s}) once aborted. */
     void register(final Socket s) throws PinnedHttpFetcher.FetchException {
-        synchronized (this) {
+        lock.lock();
+        try {
             if (!aborted) {
                 sockets.add(s);
                 return;
             }
+        } finally {
+            lock.unlock();
         }
         close(s);
         throw new PinnedHttpFetcher.FetchException(PinnedHttpFetcher.FetchException.Kind.TIMEOUT, "fetch timed out");
@@ -36,21 +41,34 @@ final class SocketSlot {
      */
     void abort() {
         final java.util.List<Socket> toClose;
-        synchronized (this) {
+        lock.lock();
+        try {
             aborted = true;
             toClose = new java.util.ArrayList<>(sockets);
+        } finally {
+            lock.unlock();
         }
         toClose.stream().filter(s -> !(s instanceof javax.net.ssl.SSLSocket)).forEach(SocketSlot::close);
         toClose.stream().filter(s -> s instanceof javax.net.ssl.SSLSocket).forEach(SocketSlot::close);
     }
 
-    synchronized boolean aborted() {
-        return aborted;
+    boolean aborted() {
+        lock.lock();
+        try {
+            return aborted;
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** The socket registered last (the one in use), or null. */
-    synchronized Socket current() {
-        return sockets.isEmpty() ? null : sockets.get(sockets.size() - 1);
+    Socket current() {
+        lock.lock();
+        try {
+            return sockets.isEmpty() ? null : sockets.get(sockets.size() - 1);
+        } finally {
+            lock.unlock();
+        }
     }
 
     static void close(final Socket s) {
