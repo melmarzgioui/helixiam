@@ -351,7 +351,7 @@ function ConnectionForm({
                   value={config.minimumLoa ?? ""}
                   onChange={(e) => set("minimumLoa", e.target.value)}
                   aria-label="Custom level of assurance"
-                  placeholder="urn:nl-eid-gdi:1.0:LoA:…"
+                  placeholder="urn:oasis:names:tc:SAML:2.0:ac:classes:…"
                 />
               )}
             </FormField>

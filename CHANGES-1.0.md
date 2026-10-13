@@ -18,6 +18,13 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **eID** — Classic DigiD: the AuthnRequest asked for the `urn:nl-eid-gdi:1.0:LoA:*` URN, which a DigiD endpoint
+  does not know. Logius' Koppelvlakspecificatie DigiD SAML Authenticatie v3.5 maps the levels to SAML 2.0 context
+  classes (Basis = `PasswordProtectedTransport`, Midden = `MobileTwoFactorContract`, Substantieel = `Smartcard`, Hoog
+  = `SmartcardPKI`), requested with `RequestedAuthnContext Comparison="minimum"`. The DigiD keywords `loa1`–`loa4`
+  (and `basis`/`midden`/`substantieel`/`hoog`) now resolve to those classes, both in the request and in the
+  comparison. A stored `urn:nl-eid-gdi:1.0:LoA:*` minimum, and brokers that assert those URNs, keep working. The
+  earlier "Other (custom)" workaround (storing the oasis class by hand) is no longer needed.
 - **security** — SAML runs on OpenSAML **5.2.3** only (M7 done). The unused `spring-security-saml2-service-provider`,
   whose POM still pulled OpenSAML 4.3.2, is removed; the pom declares OpenSAML 5 (`opensaml-saml-api`/`-impl`,
   `shib-support` 9.2.3, xmlsec 3.0.6, cryptacular 1.3.0, BouncyCastle 1.86) directly. No 4.x is left on the tree.
@@ -70,8 +77,8 @@ question. Newest first within each phase.
 - **eID** — Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes, not the `urn:nl-eid-gdi` levels, so
   with the fail-closed minimum above every classic DigiD sign-in against a set minimum (such as the console's `loa3`)
   would have been refused. The DigiD ladder now also ranks `PasswordProtectedTransport` (Basis),
-  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog). The mapping follows Logius'
-  DigiD koppelvlak documentation and is still to be verified against it; eHerkenning and eIDAS are unchanged.
+  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog), the mapping of Logius'
+  Koppelvlakspecificatie DigiD SAML Authenticatie v3.5; eHerkenning and eIDAS are unchanged.
 - **security** — `Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` were honoured from any client
   (`server.forward-headers-strategy=framework`). The OIDC issuer is derived from the request, so a single request with
   `X-Forwarded-Host: evil.example` got a discovery document with issuer `https://evil.example/...`; the same headers
@@ -100,11 +107,8 @@ question. Newest first within each phase.
   magic-link and legacy password paths. A federated sign-in also gets a new session id (`changeSessionId`) and drops
   any second-factor pass from an earlier sign-in in that session.
 - **docs** — eID minimum levels of assurance are documented in `docs/FEATURES.md` ("eID minimum level of
-  assurance"): the keywords and URNs each scheme accepts, and the classic DigiD workaround: store the
-  `urn:oasis:names:tc:SAML:2.0:ac:classes:*` class itself as the minimum through the console's "Other (custom)"
-  minimum-level field, since a keyword such as `loa3` is requested as an `urn:nl-eid-gdi` URN that a Koppelvlak
-  endpoint is unlikely to accept. The DigiD mapping (both the oasis classes and the `urn:nl-eid-gdi:1.0:LoA:*` URNs)
-  still has to be confirmed against the current Logius documentation.
+  assurance"): the keywords and URNs each scheme accepts, and the DigiD levels per Logius' Koppelvlakspecificatie
+  DigiD SAML Authenticatie v3.5.
 - **security (checked, no change)** — Re-spelling the sign-in path does not bypass the login rate limit.
   `RateLimitFilter` matches the still-encoded servlet path that `RealmRoutingFilter` passes on, so
   `/realms/{r}/l%6Fgin` is not counted. But Spring Security's `StrictHttpFirewall` then refuses any `%` or `;` in the

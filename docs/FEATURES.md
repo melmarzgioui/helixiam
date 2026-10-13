@@ -64,20 +64,18 @@ knows for the scheme; an unknown value is refused when the connection is saved (
 
 | Scheme | Console keywords | Also accepted (the URN itself) |
 |---|---|---|
-| DigiD | `loa1` Basis, `loa2` Midden, `loa3` Substantieel, `loa4` Hoog | `urn:nl-eid-gdi:1.0:LoA:Low/Midden/Substantial/High`; `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport` (Basis), `…:MobileTwoFactorContract` (Midden), `…:Smartcard` (Substantieel), `…:SmartcardPKI` (Hoog) |
+| DigiD | `loa1`/`basis`, `loa2`/`midden`, `loa3`/`substantieel`, `loa4`/`hoog`; each is requested as the SAML 2.0 context class: `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport` (Basis), `…:MobileTwoFactorContract` (Midden), `…:Smartcard` (Substantieel), `…:SmartcardPKI` (Hoog) | those four classes; `urn:nl-eid-gdi:1.0:LoA:Low/Midden/Substantial/High` (same rungs, for brokers that assert them) |
 | eHerkenning | `loa2`, `loa2plus`, `loa3`, `loa4` (EH2+ ranks above EH2, below EH3) | `urn:etoegang:core:assurance-class:loa2/loa2plus/loa3/loa4` |
 | eIDAS | `low`, `substantial`, `high` | `http://eidas.europa.eu/LoA/low/substantial/high` |
 
-**Classic DigiD (Koppelvlak SAML).** A console keyword such as `loa3` is sent to the IdP as the
-`urn:nl-eid-gdi:1.0:LoA:*` URN, which a classic DigiD endpoint asserting SAML context classes is unlikely to accept.
-For such a connection, choose **Other (custom)** in the console's minimum-level field and enter the context class
-itself, for example `urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard` for Substantieel. That class is then both
-requested and compared.
-
-**To be confirmed.** The DigiD level mapping — the oasis context classes and the `urn:nl-eid-gdi:1.0:LoA:*` URNs alike
-— follows Logius' DigiD koppelvlak documentation as understood today and must be confirmed against the current Logius
-documentation before production use. Routing services and CombiConnect may assert other URIs (for example eIDAS
-`…/LoA/NotNotified/*`), which the server does not rank and therefore never accepts against a set minimum.
+**DigiD levels.** The DigiD mapping is the one in Logius, *Koppelvlakspecificatie DigiD SAML Authenticatie* v3.5:
+Basis = `PasswordProtectedTransport`, Midden = `MobileTwoFactorContract`, Substantieel = `Smartcard`, Hoog =
+`SmartcardPKI` (all `urn:oasis:names:tc:SAML:2.0:ac:classes:*`). A DigiD keyword is sent in the AuthnRequest as
+`RequestedAuthnContext Comparison="minimum"` with that class, and the asserted class is ranked on the same ladder.
+A broker that asserts the `urn:nl-eid-gdi:1.0:LoA:*` URNs is still accepted at the same rungs, and such a URN may
+still be stored as the minimum, in which case it is what the request carries. Routing services and CombiConnect may
+assert other URIs (for example eIDAS `…/LoA/NotNotified/*`), which the server does not rank and therefore never
+accepts against a set minimum.
 
 ## Developer & admin
 | Feature | Status | Code | Tests |

@@ -15,6 +15,8 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.opensaml.core.config.InitializationService;
 import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;
 import org.opensaml.core.xml.io.Unmarshaller;
@@ -410,6 +412,42 @@ class EidSamlIdentityProviderTest {
                 .filter(o -> o instanceof org.opensaml.core.xml.schema.XSAny)
                 .filter(o -> localName.equals(o.getElementQName().getLocalPart()))
                 .findFirst().orElse(null);
+    }
+
+    /**
+     * Classic DigiD: Logius, Koppelvlakspecificatie DigiD SAML Authenticatie v3.5, maps each level to a SAML 2.0
+     * context class, and the SP asks for it with {@code RequestedAuthnContext Comparison="minimum"}. The console
+     * keyword must reach the IdP as that class, never as an {@code urn:nl-eid-gdi} URN or the raw keyword.
+     */
+    @ParameterizedTest(name = "DigiD {0} requests {1}")
+    @CsvSource({
+            "loa1, urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport",
+            "basis, urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport",
+            "loa2, urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract",
+            "midden, urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract",
+            "loa3, urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard",
+            "substantieel, urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard",
+            "loa4, urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI",
+            "hoog, urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI"})
+    void digidAuthnRequestAsksForTheLogiusContextClassAtComparisonMinimum(final String keyword, final String oasisClass)
+            throws Exception {
+        final EidProviderConfig digid = new EidProviderConfig(EidScheme.DIGID, "digid", "DigiD", SSO,
+                "https://digid.example/entity", SP_ENTITY, "https://helix.test/acs",
+                "idp-cert", "sp-decrypt-key", spKeyPem(), spCertPem(), keyword, null);
+        final EidSamlIdentityProvider provider = new EidSamlIdentityProvider(digid, validator);
+
+        final IdentityProvider.RedirectResponse redirect =
+                provider.start(new IdentityProvider.AuthnRequestContext("master", "state-1", "https://helix.test/acs"));
+
+        final String xml = new String(Base64.getDecoder().decode(redirect.formFields().get("SAMLRequest")),
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(xml).contains("Comparison=\"minimum\"").contains(oasisClass).doesNotContain("nl-eid-gdi");
+        final AuthnRequest authnRequest = parseAuthnRequest(redirect.formFields().get("SAMLRequest"));
+        assertThat(authnRequest.getRequestedAuthnContext().getComparison())
+                .isEqualTo(org.opensaml.saml.saml2.core.AuthnContextComparisonTypeEnumeration.MINIMUM);
+        assertThat(authnRequest.getRequestedAuthnContext().getAuthnContextClassRefs())
+                .singleElement().extracting(org.opensaml.saml.saml2.core.AuthnContextClassRef::getURI)
+                .isEqualTo(oasisClass);
     }
 
     private static AuthnRequest parseAuthnRequest(final String samlRequestBase64) throws Exception {

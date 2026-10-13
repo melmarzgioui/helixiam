@@ -290,7 +290,7 @@ class FederationProviderFactoryTest {
         final EidProviderConfig config = FederationProviderFactory.eidFromStored(storedEid("digid", "loa3"), "digid",
                 storedEid("digid", "loa3").config());
 
-        assertThat(config.minimumLoa()).isEqualTo("urn:nl-eid-gdi:1.0:LoA:Substantial");
+        assertThat(config.minimumLoa()).isEqualTo("urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard");
     }
 
     @Test

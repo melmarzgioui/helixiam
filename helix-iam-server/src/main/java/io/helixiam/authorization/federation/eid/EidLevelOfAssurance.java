@@ -14,11 +14,11 @@ import java.util.Map;
  *
  * <ul>
  *   <li><b>eIDAS</b> — low / substantial / high via {@code http://eidas.europa.eu/LoA/*}.</li>
- *   <li><b>DigiD</b> — the NL eID-stelsel ladder {@code urn:nl-eid-gdi:1.0:LoA:Low|Substantial|High}
- *       (the exact AuthnContextClassRef values are operator/service-catalog driven; DigiD "Midden"
- *       sits between Low and Substantial and is mapped here when present), plus the SAML 2.0 context classes
- *       classic DigiD asserts: PasswordProtectedTransport (Basis), MobileTwoFactorContract (Midden),
- *       Smartcard (Substantieel), SmartcardPKI (Hoog).</li>
+ *   <li><b>DigiD</b> — the SAML 2.0 context classes of Logius, <i>Koppelvlakspecificatie DigiD SAML
+ *       Authenticatie</i> v3.5: PasswordProtectedTransport (Basis), MobileTwoFactorContract (Midden), Smartcard
+ *       (Substantieel), SmartcardPKI (Hoog). Every DigiD console keyword resolves to one of these, so it is what the
+ *       AuthnRequest asks for. The NL eID-stelsel URNs {@code urn:nl-eid-gdi:1.0:LoA:Low|Midden|Substantial|High}
+ *       stay on the ladder at the same rungs, for brokers that assert them.</li>
  *   <li><b>eHerkenning</b> — LoA2 / LoA2+ / LoA3 / LoA4 via the {@code urn:etoegang} classes.</li>
  * </ul>
  *
@@ -26,11 +26,16 @@ import java.util.Map;
  * Comparison is by rung, so it is independent of the exact URN strings. An unknown/blank asserted
  * level is rung 0 and meets no minimum; a blank minimum means "any successful level is acceptable".
  * A configured minimum may also be the short keyword the admin console stores ({@code loa1}..{@code loa4}
- * for DigiD, {@code loa2}/{@code loa2plus}/{@code loa3}/{@code loa4} for eHerkenning, {@code low}/{@code
+ * or {@code basis}/{@code midden}/{@code substantieel}/{@code hoog} for DigiD, {@code loa2}/{@code loa2plus}/{@code loa3}/{@code loa4} for eHerkenning, {@code low}/{@code
  * substantial}/{@code high} for eIDAS). An unrecognised non-blank minimum is never met (fail closed) and is
  * refused when a connection is saved or built.
  */
 public final class EidLevelOfAssurance {
+
+    private static final String DIGID_BASIS = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
+    private static final String DIGID_MIDDEN = "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract";
+    private static final String DIGID_SUBSTANTIEEL = "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard";
+    private static final String DIGID_HOOG = "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI";
 
     private static final Map<EidScheme, Map<String, Integer>> LADDERS = Map.of(
             EidScheme.EIDAS, Map.of(
@@ -42,12 +47,11 @@ public final class EidLevelOfAssurance {
                     "urn:nl-eid-gdi:1.0:LoA:Midden", 20,         // Midden
                     "urn:nl-eid-gdi:1.0:LoA:Substantial", 30,    // Substantieel
                     "urn:nl-eid-gdi:1.0:LoA:High", 40,           // Hoog
-                    // Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes instead. Per Logius DigiD
-                    // koppelvlak documentation — verify: no source in this repository confirms this mapping.
-                    "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport", 10, // Basis
-                    "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract", 20,    // Midden
-                    "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard", 30,                  // Substantieel
-                    "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI", 40),              // Hoog
+                    // Logius, Koppelvlakspecificatie DigiD SAML Authenticatie v3.5: the SAML 2.0 context classes.
+                    DIGID_BASIS, 10,
+                    DIGID_MIDDEN, 20,
+                    DIGID_SUBSTANTIEEL, 30,
+                    DIGID_HOOG, 40),
             EidScheme.EHERKENNING, Map.of(
                     "urn:etoegang:core:assurance-class:loa2", 20,
                     "urn:etoegang:core:assurance-class:loa2plus", 25, // EH2+: above EH2, below EH3
@@ -60,11 +64,17 @@ public final class EidLevelOfAssurance {
                     "low", "http://eidas.europa.eu/LoA/low",
                     "substantial", "http://eidas.europa.eu/LoA/substantial",
                     "high", "http://eidas.europa.eu/LoA/high"),
+            // DigiD keywords resolve to the context classes of the Logius Koppelvlakspecificatie DigiD SAML
+            // Authenticatie v3.5, which the AuthnRequest then asks for with Comparison="minimum".
             EidScheme.DIGID, Map.of(
-                    "loa1", "urn:nl-eid-gdi:1.0:LoA:Low",
-                    "loa2", "urn:nl-eid-gdi:1.0:LoA:Midden",
-                    "loa3", "urn:nl-eid-gdi:1.0:LoA:Substantial",
-                    "loa4", "urn:nl-eid-gdi:1.0:LoA:High"),
+                    "loa1", DIGID_BASIS,
+                    "basis", DIGID_BASIS,
+                    "loa2", DIGID_MIDDEN,
+                    "midden", DIGID_MIDDEN,
+                    "loa3", DIGID_SUBSTANTIEEL,
+                    "substantieel", DIGID_SUBSTANTIEEL,
+                    "loa4", DIGID_HOOG,
+                    "hoog", DIGID_HOOG),
             EidScheme.EHERKENNING, Map.of(
                     "loa2", "urn:etoegang:core:assurance-class:loa2",
                     "loa2plus", "urn:etoegang:core:assurance-class:loa2plus",
