@@ -224,7 +224,7 @@ Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-1
   read: after the date, the read fails closed and an ERROR is logged.
 - **DONE (9d27793) — Host header port.** Outside `dev`, a base-URL host accepts only that URL's port (or a `Host`
   without a port); `HELIX_ALLOWED_HOSTS` entries may pin `host:port`; an invalid port gets 400; probe exemptions apply
-  only on the connection's own port. Review #6 follow-up.
+  only on the connection's own port or the scheme's default port. Review #6 follow-up.
 - **Review findings left as they are (not in this file before; minor, no exploit path):** #3 (the by-id user lookup of
   `MfaEnabledCondition` is not realm-scoped, but its id only comes from server-side flow state, which the broker resolved
   realm-checked), #14 (documentation of right-most-untrusted XFF; the README already says never to list ranges clients

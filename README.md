@@ -249,7 +249,7 @@ Any other `Host` (after trusted forwarded-header processing) gets `400`, so the 
 request cannot be steered. The port counts too: a host from `IDP_BASE_URL`/`SP_BASE_URL` accepts that URL's port (its
 explicit one, or 443/80 for https/http), a `HELIX_ALLOWED_HOSTS` entry accepts any port unless written `host:port`
 (`[v6]:port` for IPv6), a `Host` without a port is accepted, and a port outside 1–65535 gets `400`. Probes keep
-working: the connection's own address and `localhost` from a loopback peer on the port the connection arrived on,
+working: the connection's own address and `localhost` from a loopback peer on the port the connection arrived on (or the scheme's default port),
 and `/actuator/health/**` on any host and port. When `IDP_BASE_URL` is https but requests arrive as plain http, the server
 logs an ERROR (at most once a minute) pointing at `HELIX_TRUSTED_PROXIES`.
 

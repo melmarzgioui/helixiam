@@ -69,8 +69,8 @@ question. Newest first within each phase.
   `SP_BASE_URL` now accepts only that URL's port (its explicit one, or the scheme's default), plus a `Host` without a
   port, which no built URL shows. `HELIX_ALLOWED_HOSTS` entries accept any port unless written `host:port` (or
   `[v6]:port`). A port outside 1–65535 gets `400`. The probe exemptions (the connection's own address, `localhost`
-  from a loopback peer) apply only on the port the connection arrived on; `/actuator/health/**` still answers any host
-  and port. **Operators:** a client that reaches the server by its base URL's host on another port (for example
+  from a loopback peer) apply only on the port the connection arrived on or the scheme's default port (which no URL
+  shows); `/actuator/health/**` still answers any host and port. **Operators:** a client that reaches the server by its base URL's host on another port (for example
   through a port mapping) needs that `host:port` in `HELIX_ALLOWED_HOSTS`.
 - **security** — `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` was checked only at startup, so a server started inside the
   plaintext-read window kept reading plaintext secret columns after it ended, until its next restart. The end date
