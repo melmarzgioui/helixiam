@@ -326,8 +326,7 @@ public class OutboundUrlGuard {
      * 6to4 {@code 2002::/16}) is blocked when the embedded IPv4 address is: the OS or a translator delivers it there.
      */
     static boolean isBlocked(final InetAddress address) {
-        final InetAddress embedded = embeddedIpv4(address);
-        return isBlockedDirect(address) || embedded != null && isBlockedDirect(embedded);
+        return isBlockedDirect(address) || embeddedIpv4s(address).stream().anyMatch(OutboundUrlGuard::isBlockedDirect);
     }
 
     private static boolean isBlockedDirect(final InetAddress address) {
@@ -346,8 +345,8 @@ public class OutboundUrlGuard {
      * {@code fd00:ec2::254}), multicast, wildcard, {@code 0.0.0.0/8} and broadcast, also when embedded in IPv6.
      */
     static boolean isAlwaysBlocked(final InetAddress address) {
-        final InetAddress embedded = embeddedIpv4(address);
-        return isAlwaysBlockedDirect(address) || embedded != null && isAlwaysBlockedDirect(embedded);
+        return isAlwaysBlockedDirect(address)
+                || embeddedIpv4s(address).stream().anyMatch(OutboundUrlGuard::isAlwaysBlockedDirect);
     }
 
     private static boolean isAlwaysBlockedDirect(final InetAddress address) {
@@ -356,7 +355,17 @@ public class OutboundUrlGuard {
                 || address.isLinkLocalAddress()
                 || address.isMulticastAddress()
                 || b.length == 4 && ((b[0] & 0xff) == 0 || isBroadcast(b))
-                || java.util.Arrays.equals(b, AWS_IPV6_METADATA);
+                || java.util.Arrays.equals(b, AWS_IPV6_METADATA)
+                || isTeredo(b)        // 2001::/32: the client IPv4 is obfuscated, so the tunnel is refused outright
+                || isDiscardOnly(b);  // 100::/64 (RFC 6666)
+    }
+
+    private static boolean isTeredo(final byte[] b) {
+        return b.length == 16 && b[0] == 0x20 && b[1] == 0x01 && b[2] == 0 && b[3] == 0;
+    }
+
+    private static boolean isDiscardOnly(final byte[] b) {
+        return b.length == 16 && b[0] == 0x01 && zero(b, 1, 8);
     }
 
     /** {@code fd00:ec2::254}, the AWS Instance Metadata Service over IPv6. */
@@ -368,34 +377,59 @@ public class OutboundUrlGuard {
     }
 
     /**
-     * The IPv4 address an IPv6 address carries, or null: IPv4-mapped {@code ::ffff:a.b.c.d}, IPv4-compatible
-     * {@code ::a.b.c.d}, NAT64 {@code 64:ff9b::a.b.c.d} (RFC 6052 well-known prefix) and 6to4
+     * The IPv4 addresses an IPv6 address may carry (empty for none): IPv4-mapped {@code ::ffff:a.b.c.d}, SIIT
+     * {@code ::ffff:0:a.b.c.d}, IPv4-compatible {@code ::a.b.c.d}, NAT64 {@code 64:ff9b::a.b.c.d} (RFC 6052), local-use
+     * NAT64 {@code 64:ff9b:1::/48} (RFC 8215; every RFC 6052 layout that fits, /48, /56, /64 and /96, is read, and
+     * any one being blocked blocks the address) and 6to4
      * {@code 2002:aabb:ccdd::/48}.
      */
-    static InetAddress embeddedIpv4(final InetAddress address) {
+    static java.util.List<InetAddress> embeddedIpv4s(final InetAddress address) {
         final byte[] b = address.getAddress();
         if (b.length != 16) {
-            return null;
+            return java.util.List.of();
         }
-        byte[] v4 = null;
+        final java.util.List<byte[]> v4 = new java.util.ArrayList<>(2);
         if (zero(b, 0, 10) && (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff) {
-            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // ::ffff:0:0/96
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // ::ffff:0:0/96
+        } else if (zero(b, 0, 8) && (b[8] & 0xff) == 0xff && (b[9] & 0xff) == 0xff && b[10] == 0 && b[11] == 0) {
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // SIIT ::ffff:0:0:0/96
         } else if (zero(b, 0, 12) && !isUnspecifiedOrLoopbackV6(b)) {
-            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // ::/96, except :: and ::1 (judged as themselves)
-        } else if ((b[0] & 0xff) == 0x00 && (b[1] & 0xff) == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
-                && zero(b, 4, 12)) {
-            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // 64:ff9b::/96
-        } else if ((b[0] & 0xff) == 0x20 && (b[1] & 0xff) == 0x02) {
-            v4 = java.util.Arrays.copyOfRange(b, 2, 6); // 2002::/16
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // ::/96, except :: and ::1 (judged as themselves)
+        } else if (b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b && zero(b, 4, 12)) {
+            v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // 64:ff9b::/96
+        } else if (b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b && b[4] == 0
+                && b[5] == 0x01) {
+            // 64:ff9b:1::/48 (RFC 8215): the operator picks the RFC 6052 layout, so every layout that fits is read;
+            // a reading of 0.0.0.0 is the padding of another layout, not a destination
+            final List<byte[]> layouts = new java.util.ArrayList<>();
+            layouts.add(java.util.Arrays.copyOfRange(b, 12, 16));                // /96
+            if (b[8] == 0) { // RFC 6052: the u octet is zero, and the bytes after the IPv4 address are the suffix (zero)
+                if (zero(b, 13, 16)) {
+                    layouts.add(new byte[] {b[9], b[10], b[11], b[12]});        // /64
+                }
+                if (zero(b, 12, 16)) {
+                    layouts.add(new byte[] {b[7], b[9], b[10], b[11]});         // /56
+                }
+                if (zero(b, 11, 16)) {
+                    layouts.add(new byte[] {b[6], b[7], b[9], b[10]});          // /48
+                }
+            }
+            layouts.stream().filter(a -> !zero(a, 0, 4)).forEach(v4::add);
+            if (v4.isEmpty()) {
+                v4.add(new byte[4]); // 64:ff9b:1:: itself: no destination, judged as 0.0.0.0 (blocked)
+            }
+        } else if (b[0] == 0x20 && b[1] == 0x02) {
+            v4.add(java.util.Arrays.copyOfRange(b, 2, 6)); // 2002::/16
         }
-        if (v4 == null) {
-            return null;
+        final java.util.List<InetAddress> out = new java.util.ArrayList<>(v4.size());
+        for (final byte[] a : v4) {
+            try {
+                out.add(InetAddress.getByAddress(a));
+            } catch (final java.net.UnknownHostException e) {
+                // cannot happen for 4 bytes
+            }
         }
-        try {
-            return InetAddress.getByAddress(v4);
-        } catch (final java.net.UnknownHostException e) {
-            return null; // cannot happen for 4 bytes
-        }
+        return out;
     }
 
     /** {@code ::} or {@code ::1}: IPv6 addresses in their own right, not IPv4-compatible {@code 0.0.0.0/0.0.0.1}. */

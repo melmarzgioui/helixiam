@@ -122,4 +122,30 @@ class OutboundUrlGuardEmbeddedIpv4Test {
             assertThatThrownBy(listener::accept).isInstanceOf(java.net.SocketTimeoutException.class);
         }
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "64:ff9b:1::7f00:1", "64:ff9b:1::a9fe:a9fe",                 // RFC 8215 local-use NAT64, /96 layout
+        "64:ff9b:1:7f00:0:100::", "64:ff9b:1:a9fe:a9:fe00::",        // RFC 6052 /48 layout
+        "::ffff:0:7f00:1", "::ffff:0:a9fe:a9fe",                     // SIIT ::ffff:0:0:0/96
+        "2001:0:4136:e378:8000:63bf:3fff:fdd2", "2001::1",           // Teredo 2001::/32, blocked outright
+        "100::", "100::1", "100::ffff:ffff:ffff:ffff"})              // discard-only 100::/64
+    void moreEmbeddedAndReservedIpv6FormsAreRefused(final String literal) {
+        assertThat(answering(v6(literal)).isAllowed("https://evil.example/x")).as(literal).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"64:ff9b:1::7f00:1", "2001::1", "100::1"})
+    void andStayRefusedForAnAllowlistedNameWhenTheyEmbedMetadataOrAreTeredoOrDiscard(final String literal) {
+        final boolean metadataOrAlways = !literal.startsWith("64:ff9b:1::7f");
+        assertThat(answering(v6(literal), "evil.example").isAllowed("https://evil.example/x")).as(literal)
+                .isEqualTo(!metadataOrAlways);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"64:ff9b:1::5db8:d822", "64:ff9b:1:5db8:d8:2200::", "2001:4860:4860::8888",
+        "101::1"})
+    void theirPublicCounterpartsStillPass(final String literal) {
+        assertThat(answering(v6(literal)).isAllowed("https://evil.example/x")).as(literal).isTrue();
+    }
 }
