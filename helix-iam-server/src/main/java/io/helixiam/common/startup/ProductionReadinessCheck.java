@@ -70,6 +70,7 @@ public class ProductionReadinessCheck {
     private final boolean migratePlaintext;
     private final String migrateUntil;
     private final Clock clock;
+    private final List<String> lateWarnings = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     /** The longest a plaintext-read migration window may run (from today). */
     static final int MAX_MIGRATION_DAYS = 30;
@@ -232,6 +233,22 @@ public class ProductionReadinessCheck {
             LOG.warn("Production readiness — {} insecure setting(s) in effect:\n  - {}",
                     insecure.size(), String.join("\n  - ", insecure));
         }
+    }
+
+    /**
+     * An insecure condition found after startup (e.g. a failed legacy re-encryption, which runs once the application is
+     * up): logged in the same "Production readiness" form as the startup WARN list and kept for
+     * {@link #lateWarnings()}. Always a WARNING, never fatal: the startup check has already passed, and such a condition
+     * comes from a runtime failure (a database error), not from a setting the operator can fix before starting.
+     */
+    public void warnAfterStartup(final String condition) {
+        lateWarnings.add(condition);
+        LOG.warn("Production readiness — insecure condition in effect:\n  - {}", condition);
+    }
+
+    /** The conditions reported through {@link #warnAfterStartup} since startup. */
+    public List<String> lateWarnings() {
+        return List.copyOf(lateWarnings);
     }
 
     /** Why the migration end date is not acceptable, or null when it is today .. today + 30 days. */

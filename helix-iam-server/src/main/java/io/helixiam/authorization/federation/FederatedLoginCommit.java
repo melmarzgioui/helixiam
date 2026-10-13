@@ -34,9 +34,11 @@ public interface FederatedLoginCommit {
     boolean commit(Serializable pending, String userId);
 
     /**
-     * Commits {@code pending} for {@code userId} with the first of {@code commits} that supports it. Never throws: a
-     * committer that fails (e.g. its database or RPC) refuses the login exactly like a {@code false}, because the
-     * callers have already established the session and must undo it (only the exception type is logged).
+     * Commits {@code pending} for {@code userId} with the first of {@code commits} that supports it. A committer that
+     * fails with a {@code RuntimeException} (e.g. its database or RPC) refuses the login exactly like a {@code false},
+     * because the callers have already established the session and must undo it (only the exception type is logged).
+     * An {@link Error} is not caught here; {@link PendingFederatedLogin#finish} catches it around this call, undoes the
+     * session and rethrows it.
      *
      * @return whether the login may complete; {@code false} when none supports the value or the commit failed
      */

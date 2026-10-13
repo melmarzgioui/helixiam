@@ -66,19 +66,39 @@ public final class PendingFederatedLogin {
     public static boolean finish(final HttpServletRequest request, final FlowExecutionState state,
                                  final List<FederatedLoginCommit> commits, final List<FederatedLoginOutcome> outcomes,
                                  final AuthTimeStamper stamper) {
-        if (state != null && state.pendingCommit() != null
-                && !FederatedLoginCommit.commit(commits, state.pendingCommit(), state.userId())) {
-            // Task 18: committed only once the session is fully signed in; refused → drop that session (context and
-            // session) so the login does not stay signed in.
-            SecurityContextHolder.clearContext();
-            final HttpSession session = request.getSession(false);
-            if (session != null) {
-                session.invalidate();
+        if (state != null && state.pendingCommit() != null) {
+            boolean committed = false;
+            Throwable fatal = null;
+            try {
+                committed = FederatedLoginCommit.commit(commits, state.pendingCommit(), state.userId());
+            } catch (final Throwable t) { // NOPMD - see below
+                // FederatedLoginCommit.commit already turns a RuntimeException into a refusal. Anything else that
+                // escapes (an Error such as OutOfMemoryError or StackOverflowError, or a sneaky checked exception) would
+                // leave the session that the callers established just before signed in. So it is caught around the
+                // commit only, the login is refused and undone like a false, and only then rethrown.
+                fatal = t;
             }
-            report(state, outcomes, false);
-            LOG.warn("Login for user {} refused: its pending commit was not accepted",
-                    LogSafe.sanitize(state.userId()));
-            return false;
+            if (!committed) {
+                // Task 18: committed only once the session is fully signed in; refused → drop that session (context
+                // and session) so the login does not stay signed in.
+                try {
+                    SecurityContextHolder.clearContext();
+                    final HttpSession session = request.getSession(false);
+                    if (session != null) {
+                        try {
+                            session.invalidate();
+                        } catch (final IllegalStateException alreadyInvalid) {
+                            // already invalidated: nothing left signed in
+                        }
+                    }
+                    report(state, outcomes, false);
+                    LOG.warn("Login for user {} refused: its pending commit was not accepted{}",
+                            LogSafe.sanitize(state.userId()), fatal == null ? "" : " (" + fatal.getClass().getSimpleName() + ")");
+                } finally {
+                    rethrowIfFatal(fatal);
+                }
+                return false;
+            }
         }
         stamper.stamp(request); // SSO P2 — also clears any stale acr from an earlier login
         final HttpSession session = request.getSession();
@@ -92,6 +112,19 @@ public final class PendingFederatedLogin {
         }
         clear(session);
         return true;
+    }
+
+    /** Rethrows what escaped the commit, after the clean-up: an {@code Error} as is, anything else unchecked. */
+    private static void rethrowIfFatal(final Throwable fatal) {
+        if (fatal instanceof Error error) {
+            throw error;
+        }
+        if (fatal instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (fatal != null) {
+            throw new IllegalStateException("A federated login's pending commit failed", fatal);
+        }
     }
 
     /** Final review F2: the connector's outcome, once (the marker is cleared). */

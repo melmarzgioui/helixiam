@@ -36,6 +36,11 @@ helm install helixiam deploy/helm/helixiam \
   --set secrets.existingSecret=helixiam-secrets
 ```
 
+Without the `admin-password` key, the first boot generates a strong random bootstrap admin password. It is never
+logged: it is written (0600) to `/tmp/helixiam-admin-password` in the pod that created the admin (an `emptyDir`, so
+read it before that pod restarts) — `kubectl exec deploy/helixiam -- cat /tmp/helixiam-admin-password` — then sign in
+and change it.
+
 ## Behind an ingress: trusted proxies
 HelixIAM honours forwarded headers only when the TCP peer is a trusted proxy: `X-Forwarded-For` for the client IP
 (rate limits, audit log, risk signals, CAPTCHA) and `X-Forwarded-Proto/-Host/-Port/-Prefix` / `Forwarded` for the
@@ -47,7 +52,8 @@ from directly. The same applies to an external load balancer or Gateway in front
 
 The server also answers only for the hosts of `config.idpBaseUrl` and `config.spBaseUrl` and those in
 `config.allowedHosts`; any other `Host` gets `400` (the probes are unaffected). List in-cluster names that relying
-parties use, e.g. `--set 'config.allowedHosts={helixiam.identity.svc}'`.
+parties use, e.g. `--set 'config.allowedHosts={helixiam.identity.svc}'` (any port; `name:port` pins one). A host of
+`idpBaseUrl`/`spBaseUrl` is accepted only on that URL's port.
 
 ## Running without Redis
 Redis is used by exactly two things, both selectable:

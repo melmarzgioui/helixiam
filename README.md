@@ -101,7 +101,10 @@ self-generated RSA signing keypair (no external key mount required to start). Th
 docker-compose stack and the command above set it to `admin` for convenience); **when it is left
 unset, a strong random password is generated once and written (0600) to
 `HELIX_ADMIN_PASSWORD_FILE`, default `$TMPDIR/helixiam-admin-password`; only the path is logged** — sign in, change it,
-and set `HELIX_ADMIN_PASSWORD` for any non-local use (see [Bootstrap admin](#configuration)).
+and set `HELIX_ADMIN_PASSWORD` for any non-local use (see [Bootstrap admin](#configuration)). To read it:
+`cat /tmp/helixiam-admin-password` (a local run), `docker compose exec server cat /tmp/helixiam-admin-password`
+(after removing `HELIX_ADMIN_PASSWORD` from the compose file), or
+`kubectl exec deploy/helixiam -- cat /tmp/helixiam-admin-password` (Helm, see the chart README).
 
 To run only the console separately, see [`helix-dashboard`](helix-dashboard/).
 
@@ -119,7 +122,8 @@ Everything is environment-driven. The essentials (sourced from
 | `DB_RO_HOST` | optional read-replica host (defaults to `DB_HOST`) |
 | `DB_ENCRYPTION` | hex key encrypting secrets at rest (TOTP seeds, signing keys, IdP secrets); keep stable for the life of the install. A stored secret that cannot be decrypted with it (a changed key, an altered value, a row written before the key was set) fails the read |
 | `HELIX_ALLOW_PLAINTEXT_SECRETS` | `false` by default. Accepts running **without** `DB_ENCRYPTION` (an empty value is no key) outside the `dev` profile: secrets are then stored in plaintext. It has no effect when a key is set |
-| `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` | `false` / empty. Migration mode after setting `DB_ENCRYPTION` on an install that ran without it: secret columns that still hold plaintext are read as stored, logged by entity and column, and encrypted on their next write. It also hides a changed key, so it is loud (an ERROR banner at startup and every hour) and time-boxed: outside `dev` the server refuses to start unless `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` is a date (`yyyy-MM-dd`) at most 30 days ahead. Unset both once the rows are rewritten |
+| `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` | `false` / empty. Migration mode after setting `DB_ENCRYPTION` on an install that ran without it: secret columns that still hold plaintext are read as stored, logged by entity and column, and encrypted on their next write. It also hides a changed key, so it is loud (an ERROR banner at startup and every hour) and time-boxed: outside `dev` the server refuses to start unless `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` is a date (`yyyy-MM-dd`) at most 30 days ahead, and after that day (UTC) a running server refuses plaintext reads (fail closed, ERROR logged). Unset both once the rows are rewritten |
+| `HELIX_DB_ENCRYPTION_ALLOW_LEGACY` | `false`. Secret columns written by old releases in the legacy AES/ECB format are re-encrypted to AES-GCM at every startup (logged by row id only; rows that cannot be read are skipped and named in a readiness WARN). After that run the legacy format is no longer read, unless this is `true` |
 
 **Session store (Redis)**
 
@@ -226,10 +230,11 @@ the limiter off (only behind another rate-limiting layer). The limit is not per 
 ### Client IP behind a reverse proxy
 
 Rate limits, audit events, risk signals and the CAPTCHA check use the client's IP address, and the OIDC issuer, the
-Secure cookie decision and every absolute URL use the request's scheme and host. `X-Forwarded-For`, `X-Real-IP`,
+Secure cookie decision and every absolute URL use the request's scheme and host. `X-Forwarded-For`,
 `Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` are written by whoever sends the request, so HelixIAM reads
 them **only when the TCP peer is a trusted proxy** (from anyone else they are removed): `HELIX_TRUSTED_PROXIES` (`helix.security.trusted-proxies`) lists those proxies as comma-separated IP
-addresses or CIDR ranges, IPv4 or IPv6, and is empty by default. From a trusted proxy, `X-Forwarded-For` is read from
+addresses or CIDR ranges, IPv4 or IPv6, and is empty by default. `X-Real-IP` is never read: the proxy must append to
+`X-Forwarded-For` (nginx `$proxy_add_x_forwarded_for`, ingress-nginx and cloud load balancers do). From a trusted proxy, `X-Forwarded-For` is read from
 the right, and the first address that is not a trusted proxy is the client.
 
 Behind an ingress controller, a load balancer or the console's nginx, set it to the addresses those proxies connect
@@ -241,8 +246,11 @@ and redirects become `http://`. Do not list addresses that clients can connect f
 Outside the `dev` profile the server also answers only for its own host names: the hosts of `IDP_BASE_URL` and
 `SP_BASE_URL` plus `HELIX_ALLOWED_HOSTS` (comma-separated, e.g. an in-cluster service name relying parties call).
 Any other `Host` (after trusted forwarded-header processing) gets `400`, so the issuer and URLs derived from the
-request cannot be steered. Probes keep working: the connection's own address, `localhost` from a loopback peer and
-`/actuator/health/**` are always accepted. When `IDP_BASE_URL` is https but requests arrive as plain http, the server
+request cannot be steered. The port counts too: a host from `IDP_BASE_URL`/`SP_BASE_URL` accepts that URL's port (its
+explicit one, or 443/80 for https/http), a `HELIX_ALLOWED_HOSTS` entry accepts any port unless written `host:port`
+(`[v6]:port` for IPv6), a `Host` without a port is accepted, and a port outside 1–65535 gets `400`. Probes keep
+working: the connection's own address and `localhost` from a loopback peer on the port the connection arrived on (or the scheme's default port),
+and `/actuator/health/**` on any host and port. When `IDP_BASE_URL` is https but requests arrive as plain http, the server
 logs an ERROR (at most once a minute) pointing at `HELIX_TRUSTED_PROXIES`.
 
 Only `server.forward-headers-strategy=framework` (the default) is supported.

@@ -13,11 +13,82 @@ question. Newest first within each phase.
 >    rate-limit bucket. The server logs an ERROR once a minute when an https `IDP_BASE_URL` is reached over http.
 > 2. List every other host name clients use to reach the server in `HELIX_ALLOWED_HOSTS` (Helm:
 >    `config.allowedHosts`), e.g. the in-cluster service name relying parties call for tokens or JWKS. The hosts of
->    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already; any other `Host` gets `400`. Probes are unaffected.
+>    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already, on that URL's port; any other `Host`, or one of those hosts
+>    with another explicit port, gets `400` (write `host:port` in `HELIX_ALLOWED_HOSTS` to allow it). Probes are
+>    unaffected.
 > 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — Replica convergence: see the version-based poller (`feat/wallet-production`). An identity provider
+  disabled, deleted or re-keyed through one replica, or imported with a realm, reaches the other replicas through that
+  branch's `idp_config_version` poll.
+- **security** — A realm import now checks an eID connection's scheme and minimum level of assurance like an admin
+  write (review #9): an unknown one is reported as a failed import with the field error instead of being saved and
+  only skipped, with a WARN, when the registry loads it.
+- **security** — `X-Real-IP` is no longer read, not even from a trusted proxy (review #13). A trusted hop that neither
+  set nor stripped it (an L4 load balancer, an ingress with forwarded headers off) let a client that sent no
+  `X-Forwarded-For` choose its own address for rate limits and the audit log. **Operators:** a trusted proxy must
+  append to `X-Forwarded-For`; one that sets only `X-Real-IP` now makes every client appear as the proxy.
+- **security** — The wallet's fail-open status audit (`WALLET_STATUS_CHECK_FAILED`, written when
+  `FAIL_OPEN_WITH_AUDIT` lets a login through without a revocation check) now carries the wallet `transactionId`, so an
+  operator can tie the fail-open to the login it let through (final review m4).
+- **security** — Wallet review minors: `IdentityProviderConfig.toString()` (both copies) now redacts every secret
+  value, so a future log line of the runtime config cannot leak a client secret, private key, bind password or
+  pepper. An identity-provider update that changes the protocol drops the stored secrets the new protocol does not use
+  (they stayed encrypted and unread). A federated login whose pending commit throws an `Error` no longer stays signed
+  in: `PendingFederatedLogin.finish` catches it around the commit only, clears the context, invalidates the session,
+  reports the failure, and then rethrows it.
+- **security** — L6 done: the generated bootstrap admin password is never logged. It is written (0600) to
+  `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`, `/tmp/helixiam-admin-password` in the image)
+  and only the path is logged; a whole-boot test captures every log line and checks it. `HELIX_ADMIN_USERNAME`,
+  `HELIX_ADMIN_PASSWORD` and `HELIX_ADMIN_PASSWORD_FILE` are now declared in `application.properties`, so they also
+  work as `--HELIX_ADMIN_PASSWORD=…` command-line arguments, as the README shows. The Helm install notes and
+  `values.yaml` no longer say the password is in the logs; the chart README, NOTES, the README and the compose file
+  show how to read it (`kubectl exec deploy/helixiam -- cat /tmp/helixiam-admin-password`,
+  `docker compose exec server cat /tmp/helixiam-admin-password`).
+- **security** — L5 done: the legacy AES/ECB format of secret columns is migrated away. At every startup (Flyway and
+  `schema.sql` paths) `LegacyEncryptionBackfill` re-encrypts every value of every `AttributeEncryption` column (realm
+  keys, TOTP and HOTP secrets, client secrets, SCIM tokens, webhook secrets, identity-provider and messaging secrets,
+  SAML relying-party certificates, verifier keys, wallet peppers) that is still in the legacy format to AES-GCM. It is
+  idempotent, logs table, column and row id only, and skips and names rows it cannot read in a production-readiness
+  WARN. After the run the converter no longer falls back to ECB, so a legacy value fails closed, unless
+  `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true` (default `false`). A legacy decryption must also be valid UTF-8, so a value
+  under another key no longer "decrypts" to garbage about 1 time in 256 (review #10). Each column is migrated in its own
+  transaction: a column that fails (a database error) is logged at ERROR by table and column, reported as a
+  production-readiness WARNING and counted in the gauge `helix_db_encryption_legacy_failed_columns`, the other
+  columns are still migrated, and the ECB fallback then stays on (legacy TOTP secrets and keys keep reading) until a
+  start migrates it. A WARNING, not fatal: the condition comes from a runtime database failure after the startup
+  check, and refusing to serve would also lock out every legacy secret that still reads. The candidate rows are read in
+  id order, so two replicas booting together lock them in the same order. **Upgrade:** nothing to do; the
+  first start rewrites the legacy rows (check its log for the readiness WARN). Only if that WARN names rows, or a
+  database restored from an older backup is attached to a running server, set `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true`
+  (or restart, which re-runs the job) while you investigate.
+- **security** — The Host allow-list ignored the port, so `Host: localhost:6666` on a server whose `IDP_BASE_URL` is
+  `http://localhost:8080` put `:6666` into the request-derived issuer. Outside `dev`, a host of `IDP_BASE_URL` or
+  `SP_BASE_URL` now accepts only that URL's port (its explicit one, or the scheme's default), plus a `Host` without a
+  port, which no built URL shows. `HELIX_ALLOWED_HOSTS` entries accept any port unless written `host:port` (or
+  `[v6]:port`). A port outside 1–65535 gets `400`. The probe exemptions (the connection's own address, `localhost`
+  from a loopback peer) apply only on the port the connection arrived on or the scheme's default port (which no URL
+  shows); `/actuator/health/**` still answers any host and port. **Operators:** a client that reaches the server by its base URL's host on another port (for example
+  through a port mapping) needs that `host:port` in `HELIX_ALLOWED_HOSTS`.
+- **security** — `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` was checked only at startup, so a server started inside the
+  plaintext-read window kept reading plaintext secret columns after it ended, until its next restart. The end date
+  (its last day included, UTC) is now enforced on every read: after it, a plaintext read fails closed and logs an
+  ERROR naming the date.
+- **security** — `/flow` completion now applies the MFA enrolment rule too. In a realm that requires MFA, a user who
+  had not enrolled TOTP and completed an admin-built flow whose challenge was not TOTP (email OTP, push, QR) got a
+  full session at `/flow`. Like the password and federated completions, the user now goes to `/mfa/enable` with the
+  sign-in still pending (and a federated login's pending commit kept until the enrolment ends), on a new session id.
+- **eID** — Classic DigiD: the AuthnRequest asked for the `urn:nl-eid-gdi:1.0:LoA:*` URN, which a DigiD endpoint
+  does not know. Logius' Koppelvlakspecificatie DigiD SAML Authenticatie v3.5 maps the levels to SAML 2.0 context
+  classes (Basis = `PasswordProtectedTransport`, Midden = `MobileTwoFactorContract`, Substantieel = `Smartcard`, Hoog
+  = `SmartcardPKI`), requested with `RequestedAuthnContext Comparison="minimum"`. The DigiD keywords `loa1`–`loa4`
+  (and `basis`/`midden`/`substantieel`/`hoog`) now resolve to those classes, both in the request and in the
+  comparison. A minimum stored as an `urn:nl-eid-gdi:1.0:LoA:*` URN is compared as before but requested as the oasis
+  class of the same level, and brokers that assert those URNs keep working. No scheme sends an nl-eid-gdi URN in the
+  request any more (see `docs/FEATURES.md`). The
+  earlier "Other (custom)" workaround (storing the oasis class by hand) is no longer needed.
 - **security** — SAML runs on OpenSAML **5.2.3** only (M7 done). The unused `spring-security-saml2-service-provider`,
   whose POM still pulled OpenSAML 4.3.2, is removed; the pom declares OpenSAML 5 (`opensaml-saml-api`/`-impl`,
   `shib-support` 9.2.3, xmlsec 3.0.6, cryptacular 1.3.0, BouncyCastle 1.86) directly. No 4.x is left on the tree.
@@ -70,8 +141,8 @@ question. Newest first within each phase.
 - **eID** — Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes, not the `urn:nl-eid-gdi` levels, so
   with the fail-closed minimum above every classic DigiD sign-in against a set minimum (such as the console's `loa3`)
   would have been refused. The DigiD ladder now also ranks `PasswordProtectedTransport` (Basis),
-  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog). The mapping follows Logius'
-  DigiD koppelvlak documentation and is still to be verified against it; eHerkenning and eIDAS are unchanged.
+  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog), the mapping of Logius'
+  Koppelvlakspecificatie DigiD SAML Authenticatie v3.5; eHerkenning and eIDAS are unchanged.
 - **security** — `Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` were honoured from any client
   (`server.forward-headers-strategy=framework`). The OIDC issuer is derived from the request, so a single request with
   `X-Forwarded-Host: evil.example` got a discovery document with issuer `https://evil.example/...`; the same headers
@@ -100,11 +171,8 @@ question. Newest first within each phase.
   magic-link and legacy password paths. A federated sign-in also gets a new session id (`changeSessionId`) and drops
   any second-factor pass from an earlier sign-in in that session.
 - **docs** — eID minimum levels of assurance are documented in `docs/FEATURES.md` ("eID minimum level of
-  assurance"): the keywords and URNs each scheme accepts, and the classic DigiD workaround: store the
-  `urn:oasis:names:tc:SAML:2.0:ac:classes:*` class itself as the minimum through the console's "Other (custom)"
-  minimum-level field, since a keyword such as `loa3` is requested as an `urn:nl-eid-gdi` URN that a Koppelvlak
-  endpoint is unlikely to accept. The DigiD mapping (both the oasis classes and the `urn:nl-eid-gdi:1.0:LoA:*` URNs)
-  still has to be confirmed against the current Logius documentation.
+  assurance"): the keywords and URNs each scheme accepts, and the DigiD levels per Logius' Koppelvlakspecificatie
+  DigiD SAML Authenticatie v3.5.
 - **security (checked, no change)** — Re-spelling the sign-in path does not bypass the login rate limit.
   `RateLimitFilter` matches the still-encoded servlet path that `RealmRoutingFilter` passes on, so
   `/realms/{r}/l%6Fgin` is not counted. But Spring Security's `StrictHttpFirewall` then refuses any `%` or `;` in the

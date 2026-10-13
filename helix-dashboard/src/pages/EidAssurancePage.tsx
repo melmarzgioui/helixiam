@@ -24,10 +24,11 @@ const LOA_SCHEMES: { scheme: string; tone: string; levels: { label: string; urn:
   },
   {
     scheme: "DigiD", tone: "#cf3e00", levels: [
-      { label: "Basis (Low)", urn: "urn:nl-eid-gdi:1.0:LoA:Low", rung: 1 },
-      { label: "Midden", urn: "urn:nl-eid-gdi:1.0:LoA:Midden", rung: 2 },
-      { label: "Substantieel", urn: "urn:nl-eid-gdi:1.0:LoA:Substantial", rung: 3 },
-      { label: "Hoog", urn: "urn:nl-eid-gdi:1.0:LoA:High", rung: 4 },
+      // Requested context classes per Logius, Koppelvlakspecificatie DigiD SAML Authenticatie v3.5.
+      { label: "Basis", urn: "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport", rung: 1 },
+      { label: "Midden", urn: "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract", rung: 2 },
+      { label: "Substantieel", urn: "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard", rung: 3 },
+      { label: "Hoog", urn: "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI", rung: 4 },
     ],
   },
   {

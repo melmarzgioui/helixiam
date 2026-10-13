@@ -61,7 +61,7 @@ public class WalletIdentityProviders {
     public WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
                                    final WalletTransactionStore transactions, final OutboundUrlGuard guard,
                                    final AuditLog auditLog) {
-        this(validator, keys, transactions, guard, TokenStatusListClient.auditLogSink(auditLog), Clock.systemUTC(),
+        this(validator, keys, transactions, guard, WalletStatusAudit.sink(auditLog), Clock.systemUTC(),
                 auditLog);
     }
 

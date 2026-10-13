@@ -291,7 +291,7 @@ Token Status List (IETF `draft-ietf-oauth-status-list-21`) semantics are **asymm
 - **May fail OPEN, only when `statusList.onUnavailable=FAIL_OPEN_WITH_AUDIT`**, and only for genuinely transient
   availability problems: a connection/read timeout, a 5xx, a DNS resolution failure, or a thread interruption
   during the fetch. Even then, the verifier emits an audit entry (`WALLET_STATUS_CHECK_FAILED` /
-  `UNAVAILABLE_ACCEPTED`) so the operator can see that a login proceeded without a revocation check.
+  `UNAVAILABLE_ACCEPTED`, naming the wallet `transactionId` of the login it let through) so the operator can see that a login proceeded without a revocation check.
 - The **default** is `onUnavailable=FAIL_CLOSED` (so an unreachable status list blocks sign-in by default);
   `statusList.required=false` (so a PID that carries no `status` claim at all is still accepted — most short-lived
   PIDs do not bother with one).

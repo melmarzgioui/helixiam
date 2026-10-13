@@ -15,10 +15,14 @@ Port-forward and hit discovery:
 The bootstrap admin username is "{{ .Values.secrets.adminUsername }}".
 {{- if .Values.secrets.adminPasswordKey }}
 Its password comes from Secret "{{ .Values.secrets.existingSecret }}" key "{{ .Values.secrets.adminPasswordKey }}".
+If that key is missing, the first boot generates a strong random password instead (see below).
 {{- else }}
-No admin password key configured: a strong random password was generated once and written to the
-server logs — read it with `kubectl logs` and change it after first sign-in.
+No admin password key configured: the first boot generates a strong random password once.
 {{- end }}
+A generated password is never logged. It is written (0600) to /tmp/helixiam-admin-password in the pod that created
+the admin (its log names the path); /tmp is an emptyDir, so read it before that pod restarts:
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "helixiam.fullname" . }} -- cat /tmp/helixiam-admin-password
+(with several replicas, exec into the pod whose log says it generated the password), then sign in and change it.
 {{- if not .Values.config.trustedProxies }}
 
 WARNING: config.trustedProxies is empty, so HelixIAM ignores every forwarded header. If anything terminates TLS or
