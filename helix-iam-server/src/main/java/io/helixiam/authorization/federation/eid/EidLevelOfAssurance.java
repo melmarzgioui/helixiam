@@ -114,6 +114,25 @@ public final class EidLevelOfAssurance {
         return KEYWORDS.getOrDefault(ladderScheme, Map.of()).get(value.toLowerCase(java.util.Locale.ROOT));
     }
 
+    /** DigiD: the Logius v3.5 context class of each rung, for the AuthnRequest. */
+    private static final Map<Integer, String> DIGID_REQUEST_CLASS = Map.of(
+            10, DIGID_BASIS, 20, DIGID_MIDDEN, 30, DIGID_SUBSTANTIEEL, 40, DIGID_HOOG);
+
+    /**
+     * The {@code AuthnContextClassRef} to put in the AuthnRequest for a configured minimum, or {@code null} when it is
+     * blank or unknown. For DigiD it is always the Logius v3.5 context class of the minimum's rung: a minimum stored as an
+     * {@code urn:nl-eid-gdi:1.0:LoA:*} URN is requested as the oasis class of the same level, since DigiD does not
+     * know those URNs in a request. For the other schemes it is {@link #canonicalMinimum}. The comparison of the
+     * asserted level ({@link #meetsMinimum}) is not affected.
+     */
+    public static String requestedClass(final EidScheme scheme, final String minimum) {
+        final String canonical = canonicalMinimum(scheme, minimum);
+        if (canonical == null || scheme != EidScheme.DIGID) {
+            return canonical;
+        }
+        return DIGID_REQUEST_CLASS.getOrDefault(rung(scheme, canonical), canonical);
+    }
+
     /** Whether {@code minimum} may be configured for this scheme: blank (no minimum) or a recognised level. */
     public static boolean isValidMinimum(final EidScheme scheme, final String minimum) {
         return minimum == null || minimum.isBlank() || canonicalMinimum(scheme, minimum) != null;

@@ -85,7 +85,9 @@ question. Newest first within each phase.
   classes (Basis = `PasswordProtectedTransport`, Midden = `MobileTwoFactorContract`, Substantieel = `Smartcard`, Hoog
   = `SmartcardPKI`), requested with `RequestedAuthnContext Comparison="minimum"`. The DigiD keywords `loa1`–`loa4`
   (and `basis`/`midden`/`substantieel`/`hoog`) now resolve to those classes, both in the request and in the
-  comparison. A stored `urn:nl-eid-gdi:1.0:LoA:*` minimum, and brokers that assert those URNs, keep working. The
+  comparison. A minimum stored as an `urn:nl-eid-gdi:1.0:LoA:*` URN is compared as before but requested as the oasis
+  class of the same level, and brokers that assert those URNs keep working. No scheme sends an nl-eid-gdi URN in the
+  request any more (see `docs/FEATURES.md`). The
   earlier "Other (custom)" workaround (storing the oasis class by hand) is no longer needed.
 - **security** — SAML runs on OpenSAML **5.2.3** only (M7 done). The unused `spring-security-saml2-service-provider`,
   whose POM still pulled OpenSAML 4.3.2, is removed; the pom declares OpenSAML 5 (`opensaml-saml-api`/`-impl`,

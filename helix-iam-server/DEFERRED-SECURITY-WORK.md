@@ -213,7 +213,8 @@ Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-1
   v3.5, Basis/Midden/Substantieel/Hoog are `PasswordProtectedTransport`/`MobileTwoFactorContract`/`Smartcard`/
   `SmartcardPKI`, requested with `RequestedAuthnContext Comparison="minimum"`. The DigiD keywords (`loa1`–`loa4`,
   `basis`/`midden`/`substantieel`/`hoog`) resolve to those classes in the request and the comparison; stored
-  `urn:nl-eid-gdi:1.0:LoA:*` minimums and brokers asserting them keep working. Review #8 closed.
+  `urn:nl-eid-gdi:1.0:LoA:*` minimums keep their comparison and are requested as the oasis class of the same level
+  (follow-up commit); brokers asserting them keep working. Review #8 closed.
 - **DONE (67dd14b) — `/flow` enrolment rule.** A `/flow` completion in an MFA-required realm for a user who has not
   enrolled TOTP (an admin-built flow with email OTP, push or QR) now goes to `/mfa/enable` with the sign-in pending,
   like `FlowLoginSuccessHandler` and the federated completion.

@@ -224,6 +224,22 @@ class EidLevelOfAssuranceTest {
     }
 
     @Test
+    void theRequestedClass_isTheOasisClassForDigid_andTheCanonicalMinimumOtherwise() {
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High"))
+                .isEqualTo("urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.DIGID, "midden"))
+                .isEqualTo("urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.EIDAS, "substantial"))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.EHERKENNING, "loa2plus"))
+                .isEqualTo("urn:etoegang:core:assurance-class:loa2plus");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.DIGID, "loa9")).isNull();
+        // the comparison is unchanged: a stored nl-eid-gdi minimum still ranks either form of the level
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Substantial",
+                "urn:nl-eid-gdi:1.0:LoA:Substantial")).isTrue();
+    }
+
+    @Test
     void theDutchLevelNamesAreDigidOnly() {
         assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EHERKENNING, "substantieel")).isNull();
         assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "hoog")).isNull();

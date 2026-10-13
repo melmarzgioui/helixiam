@@ -73,7 +73,11 @@ Basis = `PasswordProtectedTransport`, Midden = `MobileTwoFactorContract`, Substa
 `SmartcardPKI` (all `urn:oasis:names:tc:SAML:2.0:ac:classes:*`). A DigiD keyword is sent in the AuthnRequest as
 `RequestedAuthnContext Comparison="minimum"` with that class, and the asserted class is ranked on the same ladder.
 A broker that asserts the `urn:nl-eid-gdi:1.0:LoA:*` URNs is still accepted at the same rungs, and such a URN may
-still be stored as the minimum, in which case it is what the request carries. Routing services and CombiConnect may
+still be stored as the minimum; it is compared as stored, but the DigiD AuthnRequest asks for the oasis class of the
+same level (DigiD does not know the nl-eid-gdi URNs in a request). No eID scheme puts an nl-eid-gdi URN in the
+request: the eIDAS and eHerkenning schemes request their own ladders, and a custom minimum must be on the scheme's
+ladder. A broker that requires the nl-eid-gdi URN in the AuthnRequest is therefore not supported as such; the generic
+SAML connection sends no `RequestedAuthnContext` at all (and does not enforce an eID minimum). Routing services and CombiConnect may
 assert other URIs (for example eIDAS `…/LoA/NotNotified/*`), which the server does not rank and therefore never
 accepts against a set minimum.
 
