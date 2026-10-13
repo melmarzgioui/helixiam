@@ -83,6 +83,10 @@ question. Newest first within each phase.
     errors, stack trace or exception class in error bodies) is now set under `spring.web.error.include-*`, where
     Boot reads it (`spring-boot-properties-migrator` found the four keys; Boot's defaults happened to match, so
     production answered the same, but the dev profile's `always` was lost). `ErrorDetailPropertiesTest` guards it.
+  - Discovery: the OIDC discovery document and the RFC 8414 metadata carry exactly the same keys and values as in 1.0;
+    only the order differs (key order, and `grant_types_supported` lists token exchange before the device code).
+    Harmless: JSON object keys and these value sets are unordered. `DiscoveryDocumentsE2eTest` pins both documents in
+    full, ignoring order, and passes on 1.0 and on this release.
   - Flyway's auto-configuration needs `spring-boot-starter-flyway` now; the environment post-processor is
     registered under Boot 4's `org.springframework.boot.EnvironmentPostProcessor` key; Logback is excluded from the
     new web starter (Log4j2 only, as before).
