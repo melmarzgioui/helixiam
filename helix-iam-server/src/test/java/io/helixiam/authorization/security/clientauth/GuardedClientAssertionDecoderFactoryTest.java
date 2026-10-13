@@ -181,4 +181,35 @@ class GuardedClientAssertionDecoderFactoryTest {
             assertThat(target.requests()).hasSize(2); // refetched for the unknown kid
         }
     }
+
+    private static String assertionWithTyp(final RSAKey signer, final String typ) throws Exception {
+        final JWSHeader.Builder header = new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(signer.getKeyID());
+        if (typ != null) {
+            header.type(new com.nimbusds.jose.JOSEObjectType(typ));
+        }
+        final SignedJWT jwt = new SignedJWT(header.build(), new JWTClaimsSet.Builder().issuer("c1").subject("c1")
+                .audience(TOKEN_ENDPOINT).jwtID(UUID.randomUUID().toString()).issueTime(new Date())
+                .expirationTime(new Date(System.currentTimeMillis() + 60_000)).build());
+        jwt.sign(new RSASSASigner(signer));
+        return jwt.serialize();
+    }
+
+    @Test
+    void theAssertionTypMayBeJwtAbsentOrClientAuthenticationJwt() throws Exception {
+        try (RebindingTarget target = RebindingTarget.http("jwks.client.test")) {
+            target.respond(s -> new RebindingTarget.Answer(200, "application/json",
+                    new JWKSet(key.toPublicJWK()).toString()));
+            final OutboundUrlGuard guard = new OutboundUrlGuard(false, List.of("jwks.client.test:" + target.port()),
+                    host -> new java.net.InetAddress[] {java.net.InetAddress.getByAddress(host,
+                            new byte[] {127, 0, 0, 1})});
+            final var decoder = new GuardedClientAssertionDecoderFactory(guard).createDecoder(
+                    client(target.url("http", "/jwks")));
+            for (final String typ : new String[] {null, "JWT", "client-authentication+jwt"}) {
+                assertThat(decoder.decode(assertionWithTyp(key, typ)).getSubject()).as(String.valueOf(typ))
+                        .isEqualTo("c1");
+            }
+            assertThatThrownBy(() -> decoder.decode(assertionWithTyp(key, "at+jwt")))
+                    .isInstanceOf(JwtException.class);
+        }
+    }
 }

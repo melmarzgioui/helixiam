@@ -75,6 +75,10 @@ public final class GuardedClientAssertionDecoderFactory implements JwtDecoderFac
         }
         final DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
         processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.parse(alg.getName()), keys));
+        // typ: JWT, absent, or client-authentication+jwt (draft-ietf-oauth-rfc7523bis); anything else is refused
+        processor.setJWSTypeVerifier(new com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier<>(
+                com.nimbusds.jose.JOSEObjectType.JWT, null,
+                new com.nimbusds.jose.JOSEObjectType("client-authentication+jwt")));
         processor.setJWTClaimsSetVerifier((claims, context) -> {
             // validated by SAS's validators below (aud, iss, sub, exp, nbf, jti)
         });
