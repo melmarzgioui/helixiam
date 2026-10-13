@@ -21,6 +21,9 @@ FROM eclipse-temurin:21-jre AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/* \
+ # The Ubuntu base ships Canonical's pebble service manager, which this image never runs; drop it so its
+ # Go runtime CVEs don't ship with the server.
+ && rm -f /usr/bin/pebble \
  && groupadd -r helix && useradd -r -g helix -u 10001 -d /app helix
 WORKDIR /app
 COPY --from=build /build/app.jar /app/app.jar

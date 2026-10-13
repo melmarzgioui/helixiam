@@ -43,7 +43,8 @@ fi
 helm --kube-context "k3d-$CLUSTER" -n helix install helixiam deploy/helm/helixiam \
   --set image.repository="${IMAGE%:*}" --set image.tag="${IMAGE##*:}" \
   --set config.idpBaseUrl=https://idp.example.test --set config.spBaseUrl=https://console.example.test \
-  --set database.host=postgres --set secrets.existingSecret=helix-secrets "${STORE_ARGS[@]}"
+  --set database.host=postgres --set secrets.existingSecret=helix-secrets "${STORE_ARGS[@]}" \
+  --set "config.allowedHosts={localhost:$PORT}"   # the checks reach the server via kubectl port-forward
 kc rollout status deploy/helixiam --timeout=420s
 kc exec deploy/helixiam -- curl -fsS http://127.0.0.1:8080/actuator/health/readiness; echo
 if [ -n "${NO_REDIS:-}" ]; then

@@ -131,10 +131,10 @@ cd helix-iam-server
 mvn -q clean package -DskipTests
 # HELIX_ADMIN_DEV_OPEN=true: local-dev-only, opens the admin API with no auth so the seed script
 # below can provision the demo realm with a single curl pipeline — same shortcut
-# helix-sandbox-rp's own OIDC provisioning uses (see above). HELIX_FEDERATION_STORE_ENABLED=true:
-# admin-API-managed identity providers (this wallet connection) are off by default — turn the
-# refresher on so a console/admin-API write takes effect in the running server.
-SPRING_PROFILES_ACTIVE=dev HELIX_ADMIN_DEV_OPEN=true HELIX_FEDERATION_STORE_ENABLED=true \
+# helix-sandbox-rp's own OIDC provisioning uses (see above). Admin-API-managed identity
+# providers (this wallet connection) go live without a restart: the store refresher is on by
+# default (HELIX_FEDERATION_STORE_ENABLED=true) and every replica polls for changes.
+SPRING_PROFILES_ACTIVE=dev HELIX_ADMIN_DEV_OPEN=true \
   java -jar target/helix-iam-server-1.0.0-SNAPSHOT.jar &
 
 cd ../helix-sandbox-rp
