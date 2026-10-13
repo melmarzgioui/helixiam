@@ -12,7 +12,7 @@ import java.net.URISyntaxException;
  * The one rule for a client's {@code jwksUrl} (the key set a {@code private_key_jwt} client signs its assertions
  * with), shared by the admin API and realm import: blank is fine; otherwise an https URL with a host. Plain http is
  * accepted only for {@code localhost} / {@code 127.0.0.1} under the {@code dev} profile. The console form applies the
- * same rule ({@code helix-dashboard/src/pages/clients/jwksUrl.ts}).
+ * same rule ({@code helix-dashboard/src/pages/jwksUrl.ts}).
  */
 public final class JwksUrlPolicy {
 

@@ -15,6 +15,7 @@ import { Badge } from "../components/Badge";
 import { Divider } from "../components/Divider";
 import { Tabs } from "../components/Tabs";
 import { FormField, Input, Textarea } from "../components/FormField";
+import { jwksUrlError } from "./jwksUrl";
 import { Select } from "../components/Select";
 import { Checkbox } from "../components/Choice";
 import { RowMenu } from "../components/RowMenu";
@@ -152,7 +153,12 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
   const browserFlow = grants.includes("authorization_code");
   const missing: string[] = [];
   if (browserFlow && !uris.some((u) => u.trim())) missing.push("redirectUris");
-  if (tokenAuthMethod === "PRIVATE_KEY_JWT" && !jwksUrl.trim()) missing.push("jwksUrl");
+  // The console cannot see the server's profile; it treats itself served from localhost as dev (where the server
+  // also allows http://localhost JWKS URLs). The server applies the real rule and answers 400 otherwise.
+  const devConsole = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  // the field is shown for private_key_jwt only, so only then can it block the save
+  const jwksProblem = tokenAuthMethod === "PRIVATE_KEY_JWT" ? jwksUrlError(jwksUrl, tokenAuthMethod, devConsole) : null;
+  if (jwksProblem) missing.push("jwksUrl");
 
   const cleaned = (xs: string[]) => xs.map((u) => u.trim()).filter(Boolean);
   const dirty = loaded !== null && (
@@ -520,7 +526,8 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
                   {tokenAuthMethod === "PRIVATE_KEY_JWT" && (
                     <FormField label={t("clientDetail.jwksUrl")} required={tokenAuthMethod === "PRIVATE_KEY_JWT"}
                       hint={t("clientDetail.jwksUrlHint")}
-                      error={attempted && tokenAuthMethod === "PRIVATE_KEY_JWT" && !jwksUrl.trim() ? t("clientDetail.jwksUrlError") : undefined}>
+                      error={attempted && jwksProblem ? t(jwksProblem === "required" ? "clientDetail.jwksUrlError"
+                        : jwksProblem === "notUrl" ? "clientDetail.jwksUrlInvalid" : "clientDetail.jwksUrlHttps") : undefined}>
                       <Input className="hx-full" value={jwksUrl} onChange={(e) => setJwksUrl(e.target.value)} placeholder="https://app.example/.well-known/jwks.json" />
                     </FormField>
                   )}
