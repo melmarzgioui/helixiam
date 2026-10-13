@@ -136,16 +136,35 @@ class OutboundUrlGuardEmbeddedIpv4Test {
 
     @ParameterizedTest
     @ValueSource(strings = {"64:ff9b:1::7f00:1", "2001::1", "100::1"})
-    void andStayRefusedForAnAllowlistedNameWhenTheyEmbedMetadataOrAreTeredoOrDiscard(final String literal) {
-        final boolean metadataOrAlways = !literal.startsWith("64:ff9b:1::7f");
-        assertThat(answering(v6(literal), "evil.example").isAllowed("https://evil.example/x")).as(literal)
-                .isEqualTo(!metadataOrAlways);
+    void andStayRefusedForAnAllowlistedName(final String literal) {
+        assertThat(answering(v6(literal), "evil.example").isAllowed("https://evil.example/x")).as(literal).isFalse();
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"64:ff9b:1::5db8:d822", "64:ff9b:1:5db8:d8:2200::", "2001:4860:4860::8888",
-        "101::1"})
+    @ValueSource(strings = {"2001:4860:4860::8888", "101::1"})
     void theirPublicCounterpartsStillPass(final String literal) {
         assertThat(answering(v6(literal)).isAllowed("https://evil.example/x")).as(literal).isTrue();
+    }
+
+    /** The review's GuardProbe3 cases: literal, expected blocked (for a name that is not allowlisted). */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "64:ff9b:1:a9fe:a9:fe00::, true", "64:ff9b:1:12a9:fe:a9fe::, true", "64:ff9b:1:1234:a9:fea9:fe00:0, true",
+        "64:ff9b:1::a9fe:a9fe, true", "64:ff9b:1:0:a:0:801:0, true", "64:ff9b:1:0:ff0a:0:8:0, true",
+        "64:ff9b:1:7f00:1:0:808:808, true", "64:ff9b:1::, true", "64:ff9b:1:808:8:800::, true",
+        "::ffff:0:a9fe:a9fe, true", "::ffff:0:808:808, false",
+        "2001:0:4136:e378:8000:63bf:80f5:5ef6, true", "2001:1::1, false",
+        "100::, true", "100::ffff:ffff:ffff:ffff, true", "100:0:0:1::1, false",
+        "64:ff9b::7f00:1, true", "64:ff9b:0:0:0:1:7f00:1, true", "2002:a00:1::, true", "fc00::1, true",
+        "3fff::1, true", "2001:db8::1, true", "5f00::1, true"})
+    void theReviewsGuardProbe3Cases(final String literal, final boolean blocked) {
+        assertThat(OutboundUrlGuard.isBlocked(v6(literal))).as(literal).isEqualTo(blocked);
+    }
+
+    @Test
+    void localUseNat64IsBlockedEvenForAnAllowlistedName() {
+        for (final String literal : List.of("64:ff9b:1:808:8:800::", "64:ff9b:1::5db8:d822")) {
+            assertThat(OutboundUrlGuard.isAlwaysBlocked(v6(literal))).as(literal).isTrue();
+        }
     }
 }

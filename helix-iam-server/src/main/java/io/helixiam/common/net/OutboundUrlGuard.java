@@ -337,6 +337,7 @@ public class OutboundUrlGuard {
                 || address.isMulticastAddress()  // 224/4, ff00::/8
                 || isUniqueLocalIpv6(address)    // fc00::/7 (IPv6 ULA — not covered by isSiteLocalAddress)
                 || isReservedIpv4(address)       // 0/8, 100.64/10, 192.0.0/24, 198.18/15, 240/4, broadcast
+                || isNonGlobalIpv6(address.getAddress())
                 || isAlwaysBlockedDirect(address);
     }
 
@@ -357,7 +358,27 @@ public class OutboundUrlGuard {
                 || b.length == 4 && ((b[0] & 0xff) == 0 || isBroadcast(b))
                 || java.util.Arrays.equals(b, AWS_IPV6_METADATA)
                 || isTeredo(b)        // 2001::/32: the client IPv4 is obfuscated, so the tunnel is refused outright
-                || isDiscardOnly(b);  // 100::/64 (RFC 6666)
+                || isDiscardOnly(b)   // 100::/64 (RFC 6666)
+                || isLocalUseNat64(b) // 64:ff9b:1::/48 (RFC 8215): local use only, nothing public to reach through it
+                || isOddWellKnownNat64(b); // 64:ff9b::/32 that is not the RFC 6052 /96 form
+    }
+
+    private static boolean isLocalUseNat64(final byte[] b) {
+        return b.length == 16 && b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
+                && b[4] == 0 && b[5] == 0x01;
+    }
+
+    /** Inside 64:ff9b::/32 but not 64:ff9b::/96 (the well-known prefix is a /96; anything else is not a translation). */
+    private static boolean isOddWellKnownNat64(final byte[] b) {
+        return b.length == 16 && b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
+                && !isLocalUseNat64(b) && !zero(b, 4, 12);
+    }
+
+    /** Documentation (2001:db8::/32, 3fff::/20, RFC 9637) and SRv6 SIDs (5f00::/16): never a public destination. */
+    private static boolean isNonGlobalIpv6(final byte[] b) {
+        return b.length == 16 && (b[0] == 0x20 && b[1] == 0x01 && (b[2] & 0xff) == 0x0d && (b[3] & 0xff) == 0xb8
+                || b[0] == 0x3f && (b[1] & 0xf0) == 0xf0
+                || b[0] == 0x5f && b[1] == 0x00);
     }
 
     private static boolean isTeredo(final byte[] b) {
@@ -378,9 +399,8 @@ public class OutboundUrlGuard {
 
     /**
      * The IPv4 addresses an IPv6 address may carry (empty for none): IPv4-mapped {@code ::ffff:a.b.c.d}, SIIT
-     * {@code ::ffff:0:a.b.c.d}, IPv4-compatible {@code ::a.b.c.d}, NAT64 {@code 64:ff9b::a.b.c.d} (RFC 6052), local-use
-     * NAT64 {@code 64:ff9b:1::/48} (RFC 8215; every RFC 6052 layout that fits, /48, /56, /64 and /96, is read, and
-     * any one being blocked blocks the address) and 6to4
+     * {@code ::ffff:0:a.b.c.d}, IPv4-compatible {@code ::a.b.c.d}, NAT64 {@code 64:ff9b::a.b.c.d} (RFC 6052) and
+     * 6to4
      * {@code 2002:aabb:ccdd::/48}.
      */
     static java.util.List<InetAddress> embeddedIpv4s(final InetAddress address) {
@@ -397,27 +417,6 @@ public class OutboundUrlGuard {
             v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // ::/96, except :: and ::1 (judged as themselves)
         } else if (b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b && zero(b, 4, 12)) {
             v4.add(java.util.Arrays.copyOfRange(b, 12, 16)); // 64:ff9b::/96
-        } else if (b[0] == 0x00 && b[1] == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b && b[4] == 0
-                && b[5] == 0x01) {
-            // 64:ff9b:1::/48 (RFC 8215): the operator picks the RFC 6052 layout, so every layout that fits is read;
-            // a reading of 0.0.0.0 is the padding of another layout, not a destination
-            final List<byte[]> layouts = new java.util.ArrayList<>();
-            layouts.add(java.util.Arrays.copyOfRange(b, 12, 16));                // /96
-            if (b[8] == 0) { // RFC 6052: the u octet is zero, and the bytes after the IPv4 address are the suffix (zero)
-                if (zero(b, 13, 16)) {
-                    layouts.add(new byte[] {b[9], b[10], b[11], b[12]});        // /64
-                }
-                if (zero(b, 12, 16)) {
-                    layouts.add(new byte[] {b[7], b[9], b[10], b[11]});         // /56
-                }
-                if (zero(b, 11, 16)) {
-                    layouts.add(new byte[] {b[6], b[7], b[9], b[10]});          // /48
-                }
-            }
-            layouts.stream().filter(a -> !zero(a, 0, 4)).forEach(v4::add);
-            if (v4.isEmpty()) {
-                v4.add(new byte[4]); // 64:ff9b:1:: itself: no destination, judged as 0.0.0.0 (blocked)
-            }
         } else if (b[0] == 0x20 && b[1] == 0x02) {
             v4.add(java.util.Arrays.copyOfRange(b, 2, 6)); // 2002::/16
         }
