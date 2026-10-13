@@ -35,6 +35,9 @@ data:
   {{- with .Values.config.egressAllowedPrivateHosts }}
   HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS: {{ join "," . | quote }}
   {{- end }}
+  {{- with .Values.config.ldapAllowedHosts }}
+  HELIX_FEDERATION_LDAP_ALLOWED_HOSTS: {{ join "," . | quote }}
+  {{- end }}
   {{- if .Values.secrets.bootstrapClientId }}
   HELIX_BOOTSTRAP_CLIENT_ID: {{ .Values.secrets.bootstrapClientId | quote }}
   HELIX_BOOTSTRAP_CLIENT_SECRET_FILE: "/etc/helixiam/bootstrap/client-secret"
