@@ -351,4 +351,63 @@ class PinnedHttpFetcherTest {
             pool.shutdownNow();
         }
     }
+
+    // ------------------------------------------------------------------------------------------- strict parsing
+
+    /** A one-shot raw server: answers every connection with {@code response} and closes. */
+    private static int raw(final String response) throws Exception {
+        final java.net.ServerSocket ss = new java.net.ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"));
+        final Thread t = new Thread(() -> {
+            while (!ss.isClosed()) {
+                try (java.net.Socket s = ss.accept()) {
+                    final java.io.InputStream in = s.getInputStream();
+                    int st = 0;
+                    int c;
+                    while (st < 4 && (c = in.read()) >= 0) {
+                        st = (c == '\r' && (st == 0 || st == 2)) || (c == '\n' && (st == 1 || st == 3)) ? st + 1
+                                : c == '\r' ? 1 : 0;
+                    }
+                    s.getOutputStream().write(response.getBytes(StandardCharsets.ISO_8859_1));
+                    s.getOutputStream().flush();
+                } catch (final java.io.IOException e) {
+                    return;
+                }
+            }
+        }, "raw-http");
+        t.setDaemon(true);
+        t.start();
+        return ss.getLocalPort();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 5\r\n\r\nhello",
+        "HTTP/1.1 200 OK\r\nContent-Length: 5, 2\r\n\r\nhello",
+        "HTTP/1.1 200 OK\r\nContent-Length: +5\r\n\r\nhello",
+        "HTTP/1.1 200 OK\r\nContent-Length: 0x5\r\n\r\nhello",
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n+5\r\nhello\r\n0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n 5\r\nhello\r\n0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nFFFFFFFFFFFFFFFFFFFF\r\n",
+        "HTTP/1.1 +200 OK\r\nContent-Length: 2\r\n\r\nhi",
+        "HTTP/1.1 20 OK\r\nContent-Length: 2\r\n\r\nhi",
+        "HTTP/1.1 200 OK\r\nContent-Length : 2\r\n\r\nhi",
+        "HTTP/1.1 200 OK\r\nContent-Length\t: 2\r\n\r\nhi",
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n  folded\r\n\r\nhi",
+        "HTTP/1.1 200 OK\r\nbad\r\n\r\nhi"})
+    void aMalformedResponseIsAProtocolFailure(final String response) throws Exception {
+        final int p = raw(response.replace("\\r", "\r").replace("\\n", "\n").replace("\\t", "\t"));
+        final PinnedHttpFetcher fetcher = PinnedHttpFetcher.plain(OutboundUrlGuard.permissive());
+        assertThatThrownBy(() -> fetcher.get("http://127.0.0.1:" + p + "/x", Map.of(), LIMITS)).as(response)
+                .isInstanceOfSatisfying(FetchException.class,
+                        e -> assertThat(e.kind()).isEqualTo(FetchException.Kind.PROTOCOL));
+    }
+
+    @Test
+    void identicalDuplicateContentLengthsAreAccepted() throws Exception {
+        final int p = raw("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nhello");
+        assertThat(PinnedHttpFetcher.plain(OutboundUrlGuard.permissive())
+                .get("http://127.0.0.1:" + p + "/x", Map.of(), LIMITS).body())
+                .isEqualTo("hello".getBytes(StandardCharsets.US_ASCII));
+    }
 }

@@ -65,6 +65,12 @@ public final class PinnedHttpFetcher {
     /** Largest response head (status line and headers) read. */
     static final int MAX_HEADER_BYTES = 32 * 1024;
     private static final int MAX_INTERIM_RESPONSES = 5;
+    private static final java.util.regex.Pattern HEADER_NAME =
+            java.util.regex.Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
+    private static final java.util.regex.Pattern DIGITS = java.util.regex.Pattern.compile("[0-9]+");
+    private static final java.util.regex.Pattern HEX = java.util.regex.Pattern.compile("[0-9A-Fa-f]{1,15}");
+    private static final java.util.regex.Pattern STATUS = java.util.regex.Pattern.compile("[0-9]{3}");
+    private static final java.util.regex.Pattern HTTP_VERSION = java.util.regex.Pattern.compile("HTTP/1\\.[01]");
     private static final ExecutorService WORKERS = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("pinned-fetch-", 0).factory());
 
@@ -108,7 +114,9 @@ public final class PinnedHttpFetcher {
             /** Connect, TLS or read error, or a malformed response. */
             IO,
             /** The body is larger than the limit. */
-            TOO_LARGE
+            TOO_LARGE,
+            /** The answer is not well-formed HTTP/1.1 (ambiguous framing, bad status line or header). */
+            PROTOCOL
         }
 
         private final Kind kind;
@@ -348,48 +356,58 @@ public final class PinnedHttpFetcher {
         private Response readResponse(final InputStream in) throws IOException {
             for (int interim = 0; interim <= MAX_INTERIM_RESPONSES; interim++) {
                 final String head = readHead(in);
-                final String[] lines = head.split("\r\n");
+                final String[] lines = head.split("\r\n", -1);
                 final int status = statusCode(lines[0]);
-                final Map<String, String> fields = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                final Map<String, java.util.List<String>> fields = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
                 for (int i = 1; i < lines.length; i++) {
-                    final int colon = lines[i].indexOf(':');
-                    if (colon <= 0) {
-                        throw new FetchException(FetchException.Kind.IO, "malformed response header");
+                    final String line = lines[i];
+                    final int colon = line.indexOf(':');
+                    // no obs-fold continuation lines, no whitespace before the colon (RFC 9112 5.1, 5.2)
+                    if (colon <= 0 || !HEADER_NAME.matcher(line.substring(0, colon)).matches()) {
+                        throw malformed("malformed response header");
                     }
-                    fields.putIfAbsent(lines[i].substring(0, colon).trim(), lines[i].substring(colon + 1).trim());
+                    fields.computeIfAbsent(line.substring(0, colon), k -> new java.util.ArrayList<>())
+                            .add(line.substring(colon + 1).trim());
                 }
                 if (status >= 100 && status < 200) {
                     continue; // interim answer (100 Continue): the real one follows
                 }
-                final String location = fields.get("Location");
-                final String contentType = fields.get("Content-Type");
+                final String location = first(fields, "Location");
+                final String contentType = first(fields, "Content-Type");
                 if (status != 200) {
                     return new Response(status, location, contentType, new byte[0]);
                 }
                 return new Response(status, location, contentType, readBody(in, fields));
             }
-            throw new FetchException(FetchException.Kind.IO, "too many interim responses");
+            throw malformed("too many interim responses");
         }
 
-        private byte[] readBody(final InputStream in, final Map<String, String> fields) throws IOException {
+        private byte[] readBody(final InputStream in, final Map<String, java.util.List<String>> fields)
+                throws IOException {
             final long max = limits.maxBodyBytes();
-            final String te = fields.get("Transfer-Encoding");
+            final java.util.List<String> te = fields.get("Transfer-Encoding");
+            final java.util.List<String> cl = fields.get("Content-Length");
+            if (te != null && cl != null) {
+                throw malformed("both Content-Length and Transfer-Encoding"); // ambiguous framing
+            }
             if (te != null) {
-                if (!"chunked".equalsIgnoreCase(te.trim())) {
-                    throw new FetchException(FetchException.Kind.IO, "unsupported transfer encoding");
+                if (te.size() != 1 || !"chunked".equalsIgnoreCase(te.get(0))) {
+                    throw malformed("unsupported transfer encoding");
                 }
                 return readChunked(in, max);
             }
-            final String length = fields.get("Content-Length");
-            if (length != null) {
-                final long declared;
-                try {
-                    declared = Long.parseLong(length.trim());
-                } catch (final NumberFormatException e) {
-                    throw new FetchException(FetchException.Kind.IO, "malformed content length");
-                }
-                if (declared < 0) {
-                    throw new FetchException(FetchException.Kind.IO, "malformed content length");
+            if (cl != null) {
+                long declared = -1;
+                for (final String v : cl) {
+                    // digits only (no sign, no list), and every repetition the same value
+                    if (!DIGITS.matcher(v).matches() || v.length() > 18) {
+                        throw malformed("malformed content length");
+                    }
+                    final long value = Long.parseLong(v);
+                    if (declared >= 0 && value != declared) {
+                        throw malformed("conflicting content lengths");
+                    }
+                    declared = value;
                 }
                 if (declared > max) {
                     throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large");
@@ -412,21 +430,18 @@ public final class PinnedHttpFetcher {
             while (true) {
                 final String sizeLine = readLine(in);
                 final int semi = sizeLine.indexOf(';');
-                final long size;
-                try {
-                    size = Long.parseLong((semi >= 0 ? sizeLine.substring(0, semi) : sizeLine).trim(), 16);
-                } catch (final NumberFormatException e) {
-                    throw new FetchException(FetchException.Kind.IO, "malformed chunk");
+                final String hex = semi >= 0 ? sizeLine.substring(0, semi) : sizeLine;
+                // hex digits only: no sign, no whitespace, at most 15 digits (fits a long)
+                if (!HEX.matcher(hex).matches()) {
+                    throw malformed("malformed chunk size");
                 }
-                if (size < 0) {
-                    throw new FetchException(FetchException.Kind.IO, "malformed chunk");
-                }
+                final long size = Long.parseLong(hex, 16);
                 if (size == 0) {
                     // trailers, up to the empty line
                     int trailers = 0;
                     while (!readLine(in).isEmpty()) {
                         if (++trailers > 64) {
-                            throw new FetchException(FetchException.Kind.IO, "too many trailers");
+                            throw malformed("too many trailers");
                         }
                     }
                     return out.toByteArray();
@@ -440,7 +455,7 @@ public final class PinnedHttpFetcher {
                 }
                 out.write(chunk);
                 if (!readLine(in).isEmpty()) {
-                    throw new FetchException(FetchException.Kind.IO, "malformed chunk");
+                    throw malformed("malformed chunk");
                 }
             }
         }
@@ -488,7 +503,7 @@ public final class PinnedHttpFetcher {
             }
             head.write(b);
             if (head.size() > MAX_HEADER_BYTES) {
-                throw new FetchException(FetchException.Kind.IO, "response headers too large");
+                throw malformed("response headers too large");
             }
             state = (b == '\r' && (state == 0 || state == 2)) || (b == '\n' && (state == 1 || state == 3))
                     ? state + 1 : b == '\r' ? 1 : 0;
@@ -511,25 +526,27 @@ public final class PinnedHttpFetcher {
             }
             line.append((char) b);
             if (line.length() > 4096) {
-                throw new FetchException(FetchException.Kind.IO, "malformed chunk");
+                throw malformed("malformed chunk");
             }
         }
     }
 
     private static int statusCode(final String statusLine) throws FetchException {
         final String[] parts = statusLine.split(" ", 3);
-        if (parts.length < 2 || !parts[0].startsWith("HTTP/1.")) {
-            throw new FetchException(FetchException.Kind.IO, "malformed status line");
+        // HTTP/1.x, then exactly three digits (RFC 9112 4)
+        if (parts.length < 2 || !HTTP_VERSION.matcher(parts[0]).matches() || !STATUS.matcher(parts[1]).matches()) {
+            throw malformed("malformed status line");
         }
-        try {
-            final int status = Integer.parseInt(parts[1]);
-            if (status < 100 || status > 999) {
-                throw new FetchException(FetchException.Kind.IO, "malformed status line");
-            }
-            return status;
-        } catch (final NumberFormatException e) {
-            throw new FetchException(FetchException.Kind.IO, "malformed status line");
-        }
+        return Integer.parseInt(parts[1]);
+    }
+
+    private static String first(final Map<String, java.util.List<String>> fields, final String name) {
+        final java.util.List<String> values = fields.get(name);
+        return values == null ? null : values.get(0);
+    }
+
+    private static FetchException malformed(final String message) {
+        return new FetchException(FetchException.Kind.PROTOCOL, message);
     }
 
     private static String hostHeader(final OutboundUrlGuard.ResolvedTarget target) {
