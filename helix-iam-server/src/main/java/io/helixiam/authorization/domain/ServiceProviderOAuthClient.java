@@ -337,7 +337,8 @@ public class ServiceProviderOAuthClient extends RegisteredClient {
 
     @Override
     public ClientSettings getClientSettings() {
-        // Public clients must use PKCE (no secret to protect the code exchange); consent is per-client.
+        // Public clients must use PKCE (no secret to protect the code exchange); consent is per-client. Both pinned
+        // explicitly: Spring Security 7's ClientSettings default is requireProofKey(true) (1.x: false).
         final ClientSettings.Builder builder = ClientSettings.builder()
                 .requireAuthorizationConsent(Boolean.TRUE.equals(consentRequired))
                 .requireProofKey(Boolean.TRUE.equals(publicClient));

@@ -315,7 +315,10 @@ public class UserService {
         final UserCredentials userCredentials = userCredentialsRepository.findByUserId(userId).orElse(null);
         if (userCredentials != null) {
             final Set<String> roles = new HashSet<>();
-            userCredentials.getUserRoles().forEach(role -> roles.add(role.getTenantRoleName()));
+            // A (legacy) role in the reserved FACTOR_ namespace (Spring Security 7's sign-in factors) is never a role.
+            userCredentials.getUserRoles().stream()
+                    .filter(role -> !io.helixiam.authorization.security.SignInAuthorities.isFactorName(role.getName()))
+                    .forEach(role -> roles.add(role.getTenantRoleName()));
             return roles;
         }
 

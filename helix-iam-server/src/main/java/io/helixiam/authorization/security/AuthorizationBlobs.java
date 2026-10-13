@@ -7,7 +7,6 @@ package io.helixiam.authorization.security;
 
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
@@ -37,6 +36,11 @@ public final class AuthorizationBlobs {
     private AuthorizationBlobs() {
     }
 
+    /** The allowlist, also applied to the Redis token store ({@link FilteredJdkRedisSerializer}). */
+    public static ObjectInputFilter filter() {
+        return FILTER;
+    }
+
     /** Serialize an authorization to a base64 blob. */
     public static String serialize(final OAuth2Authorization authorization) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -54,8 +58,9 @@ public final class AuthorizationBlobs {
         if (blob == null || blob.isBlank()) {
             return null;
         }
-        try (ObjectInputStream ois = new ObjectInputStream(
-                new ByteArrayInputStream(Base64.getDecoder().decode(blob)))) {
+        // Boot 4 upgrade: also reads authorization-server objects written by 1.0 (Spring Authorization Server 1.5).
+        try (ObjectInputStream ois = LegacyAuthorizationServerSerialization.objectInputStream(
+                Base64.getDecoder().decode(blob))) {
             ois.setObjectInputFilter(FILTER);
             return (OAuth2Authorization) ois.readObject();
         } catch (final Exception e) {

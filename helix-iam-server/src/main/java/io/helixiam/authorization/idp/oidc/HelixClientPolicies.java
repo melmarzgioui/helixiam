@@ -55,6 +55,9 @@ public final class HelixClientPolicies {
                 .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
                 .authorizationGrantType(AuthorizationGrantType.TOKEN_EXCHANGE)
                 .scope("api.read")
+                // Pinned: Spring Security 7's ClientSettings default is requireProofKey(true) (1.x: false). A machine
+                // client never runs the code flow; every client built here states its PKCE setting explicitly.
+                .clientSettings(ClientSettings.builder().requireProofKey(false).build())
                 .build();
     }
 

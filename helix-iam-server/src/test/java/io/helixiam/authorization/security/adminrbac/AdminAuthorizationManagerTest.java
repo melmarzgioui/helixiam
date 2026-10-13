@@ -54,7 +54,7 @@ class AdminAuthorizationManagerTest {
     @Test
     void devOpen_alwaysGrants_neverCallsPublisher() {
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, true);
-        assertThat(mgr.check(principal("anything"), ctx("DELETE", "/admin/realms/gov/users/u-9")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("anything"), ctx("DELETE", "/admin/realms/gov/users/u-9")).isGranted()).isTrue();
         verify(publisher, times(0)).effective(any());
     }
 
@@ -64,8 +64,8 @@ class AdminAuthorizationManagerTest {
         // authenticated principal — privilege escalation. It now requires realm-admin for that realm.
         when(publisher.effective(any())).thenReturn(new AdminEffectivePermissionsDto("gov", false, List.of()));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("auditor"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
-        assertThat(mgr.check(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("auditor"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
     }
 
     @Test
@@ -73,7 +73,7 @@ class AdminAuthorizationManagerTest {
         when(publisher.effective(any())).thenReturn(
                 new AdminEffectivePermissionsDto("gov", true, List.of("manage-users")));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("user-admin"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("user-admin"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
     }
 
     @Test
@@ -82,7 +82,7 @@ class AdminAuthorizationManagerTest {
                 new AdminEffectivePermissionsDto("gov", true, List.of("view-users")));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
         // POST (write) needs manage-users; principal only has view-users.
-        assertThat(mgr.check(principal("auditor"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("auditor"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
     }
 
     @Test
@@ -90,8 +90,8 @@ class AdminAuthorizationManagerTest {
         when(publisher.effective(any())).thenReturn(
                 new AdminEffectivePermissionsDto("gov", true, List.of("view-users")));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("auditor"), ctx("GET", "/admin/realms/gov/users")).isGranted()).isTrue();
-        assertThat(mgr.check(principal("auditor"), ctx("DELETE", "/admin/realms/gov/users/u-9")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("auditor"), ctx("GET", "/admin/realms/gov/users")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("auditor"), ctx("DELETE", "/admin/realms/gov/users/u-9")).isGranted()).isFalse();
     }
 
     @Test
@@ -99,7 +99,7 @@ class AdminAuthorizationManagerTest {
         when(publisher.effective(any())).thenReturn(
                 new AdminEffectivePermissionsDto("gov", true, List.of("realm-admin")));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("superadmin"), ctx("DELETE", "/admin/realms/gov/clients/c-1")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("superadmin"), ctx("DELETE", "/admin/realms/gov/clients/c-1")).isGranted()).isTrue();
     }
 
     @Test
@@ -109,8 +109,8 @@ class AdminAuthorizationManagerTest {
         // but an ordinary user cannot ride the failure into the admin API.
         when(publisher.effective(any())).thenThrow(new RuntimeException("RBAC backend down"));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("user-admin"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
-        assertThat(mgr.check(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("user-admin"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
     }
 
     @Test
@@ -120,13 +120,13 @@ class AdminAuthorizationManagerTest {
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
         final Authentication anon = new AnonymousAuthenticationToken(
                 "key", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
-        assertThat(mgr.check(() -> anon, ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.authorize(() -> anon, ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
     }
 
     @Test
     void unauthenticatedPrincipal_onAdminPath_isDenied() {
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(() -> null, ctx("GET", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.authorize(() -> null, ctx("GET", "/admin/realms/gov/users")).isGranted()).isFalse();
     }
 
     @Test
@@ -136,14 +136,14 @@ class AdminAuthorizationManagerTest {
         // callers), so honouring it would widen a security-critical check for no live caller.
         when(publisher.effective(any())).thenReturn(new AdminEffectivePermissionsDto("gov", false, List.of()));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal("ROLE_ADMIN_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
-        assertThat(mgr.check(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("ROLE_ADMIN_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("admin_gov"), ctx("POST", "/admin/realms/gov/users")).isGranted()).isTrue();
     }
 
     @Test
     void nonAdminPath_isNotEnforced() {
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        assertThat(mgr.check(principal(), ctx("GET", "/login")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal(), ctx("GET", "/login")).isGranted()).isTrue();
     }
 
     @Test
@@ -151,7 +151,7 @@ class AdminAuthorizationManagerTest {
         when(publisher.effective(any())).thenReturn(
                 new AdminEffectivePermissionsDto("gov", true, List.of("manage-clients")));
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
-        mgr.check(principal("client-manager", "auditor"), ctx("POST", "/admin/realms/gov/clients"));
+        mgr.authorize(principal("client-manager", "auditor"), ctx("POST", "/admin/realms/gov/clients"));
         final var captor = org.mockito.ArgumentCaptor.forClass(AdminEffectivePermissionsRef.class);
         verify(publisher).effective(captor.capture());
         assertThat(captor.getValue().realmId()).isEqualTo("gov");
@@ -162,5 +162,34 @@ class AdminAuthorizationManagerTest {
     void realmFromPath_parsesRealmScopedPaths() {
         assertThat(AdminAuthorizationManager.realmFromPath("/admin/realms/gov/users")).isEqualTo("gov");
         assertThat(AdminAuthorizationManager.realmFromPath("/admin/audit/config")).isNull();
+    }
+
+    @Test
+    void aPasswordLoginsFactorAuthority_isNeverPassedAsARoleName_norPartOfTheCacheKey() {
+        when(publisher.effective(any())).thenReturn(new AdminEffectivePermissionsDto("gov", true, List.of()));
+        final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
+        final Authentication password = UsernamePasswordAuthenticationToken.authenticated("u-1", null, List.of(
+                new org.springframework.security.core.authority.SimpleGrantedAuthority("auditor_gov"),
+                org.springframework.security.core.authority.FactorGrantedAuthority.fromAuthority(
+                        org.springframework.security.core.authority.FactorGrantedAuthority.PASSWORD_AUTHORITY)));
+        final Authentication magicLink = UsernamePasswordAuthenticationToken.authenticated("u-1", null, List.of(
+                new org.springframework.security.core.authority.SimpleGrantedAuthority("auditor_gov")));
+
+        mgr.authorize(() -> password, ctx("POST", "/admin/realms/gov/users"));
+        mgr.authorize(() -> magicLink, ctx("POST", "/admin/realms/gov/users"));
+
+        final var captor = org.mockito.ArgumentCaptor.forClass(AdminEffectivePermissionsRef.class);
+        // One resolution: both sign-ins have the same roles, so they share the cache entry.
+        verify(publisher, times(1)).effective(captor.capture());
+        assertThat(captor.getValue().roleNames()).containsExactly("auditor_gov");
+    }
+
+    @Test
+    void aFactorAuthority_neverMakesAnAdmin() {
+        final Authentication auth = UsernamePasswordAuthenticationToken.authenticated("u-1", null, List.of(
+                org.springframework.security.core.authority.FactorGrantedAuthority.fromFactor("admin_master")));
+        assertThat(RealmAdminAuthorities.isMasterAdmin(auth)).isFalse();
+        assertThat(RealmAdminAuthorities.isAdminOfAny(auth)).isFalse();
+        assertThat(RealmAdminAuthorities.isAdminOf(auth, "master")).isFalse();
     }
 }

@@ -8,10 +8,10 @@ package io.helixiam;
 import io.helixiam.common.net.RevocationTimeouts;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration;
-import org.springframework.boot.autoconfigure.domain.EntityScan;
-import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
-import org.springframework.boot.web.servlet.ServletComponentScan;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration;
+import org.springframework.boot.persistence.autoconfigure.EntityScan;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.web.server.servlet.context.ServletComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -35,14 +35,14 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * {@code MODE_INHERITABLETHREADLOCAL} security-context strategy (so the security context propagates to
  * child threads).
  *
- * <p>Task 5: {@code RedisRepositoriesAutoConfiguration} is excluded — Redis is kept for HTTP session
+ * <p>Task 5: {@code DataRedisRepositoriesAutoConfiguration} is excluded — Redis is kept for HTTP session
  * and the optional token store, but the app declares no Spring Data Redis ({@code @RedisHash})
  * repositories, so its scanning would only churn over the JPA repositories in a pointless multi-store
  * assignment. Excluding it removes that noise; the {@code RedisConnectionFactory}/{@code RedisTemplate}
  * beans (used by session and the opt-in Redis stores) are unaffected.
  */
 @SpringBootApplication(scanBasePackages = "io.helixiam",
-        exclude = {UserDetailsServiceAutoConfiguration.class, RedisRepositoriesAutoConfiguration.class})
+        exclude = {UserDetailsServiceAutoConfiguration.class, DataRedisRepositoriesAutoConfiguration.class})
 @ServletComponentScan
 @EntityScan(basePackages = "io.helixiam")
 @EnableJpaRepositories(basePackages = "io.helixiam")

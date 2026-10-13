@@ -17,7 +17,7 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 public class MfaAuthorizationManager implements AuthorizationManager<RequestAuthorizationContext> {
 
     @Override
-    public AuthorizationDecision check(final Supplier<Authentication> authentication, final RequestAuthorizationContext object) {
+    public AuthorizationDecision authorize(final Supplier<? extends Authentication> authentication, final RequestAuthorizationContext object) {
         return new AuthorizationDecision(authentication.get() instanceof MfaAuthentication || authentication.get() instanceof UsernamePasswordAuthenticationToken);
     }
 }

@@ -20,6 +20,28 @@ metadata:
   labels: {{- include "helixiam.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- /*
+    spec.strategy is always rendered in full, so this chart owns every strategy field. Under Helm 4's server-side apply a
+    field Kubernetes defaulted (rollingUpdate) belongs to nobody and survives a switch to Recreate, which the API server
+    then rejects ("rollingUpdate: Forbidden"); a field the chart rendered is removed when the chart stops rendering it.
+    The default is Kubernetes' own (RollingUpdate, 25% / 25%). See docs/UPGRADING.md for a release installed by a chart
+    that did not render it.
+  */}}
+  {{- $strategy := .Values.strategy | default dict }}
+  {{- $type := $strategy.type | default "RollingUpdate" }}
+  {{- if not (has $type (list "RollingUpdate" "Recreate")) }}
+  {{- fail "strategy.type must be RollingUpdate or Recreate" }}
+  {{- end }}
+  {{- if and $strategy.rollingUpdate (eq $type "Recreate") }}
+  {{- fail "strategy.rollingUpdate is only valid with RollingUpdate" }}
+  {{- end }}
+  strategy:
+    type: {{ $type }}
+    {{- if eq $type "RollingUpdate" }}
+    rollingUpdate:
+      maxSurge: {{ dig "rollingUpdate" "maxSurge" "25%" $strategy | toJson }}
+      maxUnavailable: {{ dig "rollingUpdate" "maxUnavailable" "25%" $strategy | toJson }}
+    {{- end }}
   selector:
     matchLabels: {{- include "helixiam.selectorLabels" . | nindent 6 }}
   template:
@@ -33,6 +55,7 @@ spec:
     spec:
       serviceAccountName: {{ include "helixiam.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}

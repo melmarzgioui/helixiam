@@ -19,6 +19,124 @@ question. Newest first within each phase.
 > 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
+> 5. **Spring Boot 4 (see below): upgrade without mixing versions; rollback signs users out.** The new version reads
+>    every session and token 1.0 stored, but 1.0 cannot read what the new version writes or rewrites. Follow
+>    `docs/UPGRADING.md`:
+>    1. list roles named `FACTOR_…` (`deploy/scripts/factor-roles-check.sql`): the prefix is now reserved and such a
+>       role is ignored; rename them first;
+>    2. back up PostgreSQL, token store included (`helix_authorization`, `helix_authorization_token`,
+>       `helix_http_session`), and Redis if used;
+>    3. upgrade so that no 1.0 pod runs while a new one serves: `helm upgrade --server-side=false --set
+>       strategy.type=Recreate` (Helm 4 needs the client-side apply once, because the 1.0 chart never rendered
+>       `spec.strategy`), or scale to **0** first and then upgrade. A rolling update, or one replica, still mixes them;
+>    4. a rollback signs out every session the new version wrote and drops every authorization it wrote or rewrote (a
+>       sign-in, code exchange, refresh, revocation, consent). The 1.0 chart has no `strategy` value, so: scale to 0,
+>       delete `spring:session:*` (and `helix:authz:*` with `HELIX_TOKEN_STORE=redis`) with
+>       `deploy/scripts/redis-delete-keys.sh` (on Redis, 1.0 answers HTTP 500 for them), `helm rollback`, scale back
+>       up if needed;
+>    5. sessions: every new sign-in carries Spring Security 7's sign-in factor (`FactorGrantedAuthority`), a class 1.0
+>       does not have, which is why 1.0 cannot read them.
+>
+>    Only if you set Spring properties directly (environment variables `SPRING_*` / `MANAGEMENT_*` or a mounted
+>    `application.properties`; the Helm chart and the `HELIX_*` settings are unchanged): `server.error.*` is now
+>    `spring.web.error.*` (e.g. `SERVER_ERROR_INCLUDE_MESSAGE` → `SPRING_WEB_ERROR_INCLUDE_MESSAGE`; the shipped
+>    configuration is renamed, see below); `spring.session.redis.*` is now `spring.session.data.redis.*`; the
+>    application's JSON mapper is configured by `spring.jackson2.*` (was `spring.jackson.*`, which now configures
+>    Boot's Jackson 3 mapper only); `spring.dao.exceptiontranslation.enabled` is now
+>    `spring.persistence.exceptiontranslation.enabled`.
+
+- **security** — Token exchange on `/oauth2/token` refuses `actor_token` and `actor_token_type` with
+  `invalid_request` (maintainer ruling; HelixIAM's supported delegation is `/agent/delegation/token`). 1.0 could not
+  complete such an exchange (Spring Authorization Server 1.5 could not store the actor); Spring Security 7 can, and
+  HelixIAM's `act` claim would have named the requesting client rather than the actor, with no `may_act` policy. The
+  refusal happens before any provider runs, so nothing is issued or stored. Exchanges without an actor
+  (impersonation, `audience`/`resource`) are unchanged. Until RFC 8693 actor semantics are implemented there.
+  `ActorTokenRefusingConverter`; `TokenExchangeActorRefusedE2eTest` (queue store) and
+  `TokenExchangeActorRefusedRedisE2eTest` (Redis store).
+- **security** — A sign-in factor is never a role. Spring Security 7 marks every password login with the authority
+  `FACTOR_PASSWORD`, and admin RBAC matched authorities to realm role names, so a realm role named `FACTOR_PASSWORD`
+  with a grant would have been granted to every password login. Roles are now derived without factors everywhere
+  (admin RBAC and its cache, realm-admin checks, `realm_access`/`resource_access` in tokens), every sign-in path
+  carries exactly one factor (password, magic link, federated, impersonation) so the derived roles are identical,
+  and **the `FACTOR_` prefix is reserved** (any case) like `admin_`: the admin API refuses it for realm roles, client
+  roles, service-account roles and agent roles (400), realm import refuses it, and an existing role with that prefix
+  (realm role, client role, agent role) is ignored everywhere a role reaches a token: `realm_access`,
+  `resource_access`, the `USER_ROLE` protocol mapper, and an agent's own roles.
+- **oidc** — `requireProofKey` is pinned on every client HelixIAM builds: Spring Security 7's `ClientSettings` default
+  became `true` (1.x: `false`), which had silently made PKCE mandatory for `HelixClientPolicies.tokenExchangeClient`.
+  Database clients already pinned it (public: required; confidential: optional), unchanged.
+- **security** — The Redis stores now apply the same JEP-290 deserialization allowlists as the queue (PostgreSQL)
+  stores (pre-existing gap, found in the Spring Boot 4 review): the Redis token store and SSO-session reader
+  (`HELIX_TOKEN_STORE=redis`) use the token allowlist, Spring Session's Redis HTTP sessions (the default session
+  store) the session allowlist. A refused or unreadable value is no longer an error: a token entry is absent, and a
+  session with any such attribute is dropped and deleted (the user signs in again; with
+  `spring.session.data.redis.repository-type=indexed` too, where Spring Session would only skip it), each logged once
+  at WARN by class name only. Bytes written are unchanged. `FilteredJdkRedisSerializer`, `RedisSessionSerializationConfig`;
+  `FilteredJdkRedisSerializerTest`, `RedisSessionAllowlistE2eTest` (a gadget planted in a real Redis session).
+- **helm / config** — Kubernetes service links no longer collide with `REDIS_PORT`. In a namespace with a Service
+  named `redis`, Kubernetes injects `REDIS_PORT=tcp://<ip>:<port>`, the variable the server reads as the Redis port
+  (binding failed at start-up, also without Redis in use). The server now takes the port from that form
+  (`RedisServiceLinkEnvironmentPostProcessor`), and the chart sets `enableServiceLinks: false` (new value, default
+  `false`; the server needs none of the injected variables).
+- **helm** — New value `strategy` (the Deployment's `spec.strategy`), always rendered in full: by default Kubernetes'
+  own default (RollingUpdate, 25% / 25%; existing releases see no change), `strategy.type=Recreate` for the Spring Boot 4
+  upgrade. Rendering it in full lets Helm 4's server-side apply switch between the two (a Kubernetes-defaulted
+  `rollingUpdate` belongs to no field manager and would otherwise survive a switch to Recreate, which the API server
+  rejects). An unknown type, or `rollingUpdate` with `Recreate`, is refused at render time. `e2e/helm-template-check.sh`
+  covers the rendering; the new `e2e/monthfold/k3d-helm-upgrade.sh` gate installs v1.0.0-rc.8, upgrades with Recreate,
+  switches the strategy both ways and rolls back, on k3d with Helm 4. New `deploy/scripts/redis-delete-keys.sh`
+  (rollback; checked by `e2e/redis-delete-keys-check.sh` against requirepass, ACL, TLS and a cluster) and
+  `deploy/scripts/factor-roles-check.sql` (pre-upgrade check).
+- **security (platform)** — **Spring Boot 4.1.1** (from 3.5.16): Spring Framework **7.0.9**, Spring Security **7.1.1**
+  with its OAuth2 authorization server (formerly Spring Authorization Server 1.5.8), Spring Session 4.1, Hibernate
+  7.4, Tomcat **11.0.27** (Jakarta EE 11, Servlet 6.1; pinned above Boot's 11.0.24 for CVE-2026-65182 CRITICAL,
+  CVE-2026-65905, CVE-2026-68525), Flyway 12.4, springdoc-openapi 3.1.1, Testcontainers 2.0. Spring Framework 6.2
+  left open-source support on 2026-06-30; this closes **CVE-2026-47884 and CVE-2026-47890** (spring-webmvc,
+  CRITICAL), fixed publicly only in 7.0.9, and puts the server back on a supported line. `trivy fs --scanners vuln
+  --severity HIGH,CRITICAL helix-iam-server` reports 0. Behaviour is unchanged; the full suite passes unmodified
+  except where an API moved:
+  - The authorization server chain applies what `OAuth2AuthorizationServerConfiguration.applyDefaultSecurity` did
+    (removed in Spring Security 7) itself: scoped to the authorization server endpoints, authenticated, those
+    endpoints exempt from CSRF. `AntPathRequestMatcher` (removed) is replaced by `PathPatternRequestMatcher` for the
+    CSP path groups, the admin 401 entry point and the device/PAR public-client converter; the realm routing filter's
+    virtual context path is honoured by both. Filter order, CSRF exemptions, session-fixation rotation, the MFA gates,
+    rate limits, CSP and the `StrictHttpFirewall` (`%`, `;`, `//` refused) are unchanged and covered by the existing
+    tests (`LoginRateLimitPathEncodingE2eTest`, `WalletLimitPathEncodingE2eTest`, `LoginSecurityHeadersTest`, …).
+  - **Stored tokens survive the upgrade.** Spring Authorization Server 1.x gave its serializable classes one shared
+    `serialVersionUID`; Spring Security 7 gives each its own, so every `OAuth2Authorization` 1.0 stored (queue/
+    PostgreSQL and Redis token stores) failed to deserialize and would have been dropped, invalidating every refresh
+    token at the upgrade. `LegacyAuthorizationServerSerialization` accepts the 1.x descriptor only for classes in
+    the authorization server package whose serialized fields are unchanged (all persisted ones); the stores'
+    JEP-290 allowlists still apply. `PersistedStateUpgradeCompatibilityTest` reads an authorization and a sign-in
+    session written by 1.0 (Boot 3.5.16) and checks every token, claim and attribute; sessions needed no change.
+  - **Jackson:** the application stays on Jackson 2 (`com.fasterxml.jackson`, 2.21.7) through Boot's deprecated
+    `spring-boot-jackson2` module, and `spring.http.converters.preferred-json-mapper=jackson2` keeps Spring MVC's
+    JSON exactly as before (controllers return Jackson 2 `JsonNode` trees; Boot 4's Jackson 3 defaults differ).
+    Jackson 3 (3.2.3) is on the classpath for webauthn4j, Flyway 12 and Spring Security's internals, as webauthn4j
+    already brought it in 1.0; `jackson-annotations` 2.22 serves both. Moving the application to Jackson 3 is on
+    the roadmap.
+  - Spring Security 7's `JwtGenerator` copies `auth_time` from the previous ID token on a refresh and reads it as a
+    `java.util.Date`; HelixIAM's ID tokens (and every one 1.0 stored) carry it as epoch seconds, so each ID-token
+    refresh failed with HTTP 500 (`IdTokenSessionClaimsE2eTest`, `BackchannelLogoutE2eTest`, … caught it). The
+    token store's binding layer hands a loaded authorization out with the same instant as a `Date` (in memory; the
+    stored row and the emitted `auth_time`, still epoch seconds, are unchanged).
+  - Log4j 2.25 (with Boot 4): the console appenders now `follow` `System.out`, as Boot's own configuration does.
+    Output and format are unchanged.
+  - Spring Boot 4 ignores `server.error.include-*`; the security review H3 pin (no exception message, binding
+    errors, stack trace or exception class in error bodies) is now set under `spring.web.error.include-*`, where
+    Boot reads it (`spring-boot-properties-migrator` found the four keys; Boot's defaults happened to match, so
+    production answered the same, but the dev profile's `always` was lost). `ErrorDetailPropertiesTest` guards it.
+  - `Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers` is again on every response that
+    passes HelixIAM's CORS filter (discovery, JWKS, token endpoint, pages, …), CORS request or not, as with Spring
+    Framework 6. Spring Framework 7 adds it only when a CORS configuration applies, so a shared cache could have served
+    one origin's response to another. `VaryingCorsProcessor`; `CorsVaryHeaderE2eTest`.
+  - Discovery: the OIDC discovery document and the RFC 8414 metadata carry exactly the same keys and values as in 1.0;
+    only the order differs (key order, and `grant_types_supported` lists token exchange before the device code).
+    Harmless: JSON object keys and these value sets are unordered. `DiscoveryDocumentsE2eTest` pins both documents in
+    full, ignoring order, and passes on 1.0 and on this release.
+  - Flyway's auto-configuration needs `spring-boot-starter-flyway` now; the environment post-processor is
+    registered under Boot 4's `org.springframework.boot.EnvironmentPostProcessor` key; Logback is excluded from the
+    new web starter (Log4j2 only, as before).
 
 - **security** — Replica convergence: see the version-based poller (`feat/wallet-production`). An identity provider
   disabled, deleted or re-keyed through one replica, or imported with a realm, reaches the other replicas through that
@@ -226,10 +344,8 @@ question. Newest first within each phase.
   webauthn4j 0.31.11 (Dependabot's Maven minor/patch group); Jackson 2.21.4 → 2.21.7 (CVE-2026-89407,
   CVE-2026-89425, CVE-2026-68497, CVE-2026-91776, CVE-2026-91777), Netty 4.1.135 → 4.1.139.Final (CVE-2026-59901,
   CVE-2026-75595 CRITICAL), httpcore5/httpcore5-h2 5.3.6 → 5.4.4 (CVE-2026-54399, CVE-2026-54428), Tomcat
-  10.1.55 → 10.1.61 (CVE-2026-65182 CRITICAL, CVE-2026-65905, CVE-2026-68525). **Not fixed:** CVE-2026-47884 /
-  CVE-2026-47890 (spring-webmvc) — the only fixed version the scanner lists is 7.0.9 (Spring Framework 7, ships
-  only with Spring Boot 4); 6.2.19 is the newest 6.2.x release. Neither `XsltView` nor SSE emitters are used in
-  this codebase. Tracked as a post-1.0 framework-major upgrade, not patched here.
+  10.1.55 → 10.1.61 (CVE-2026-65182 CRITICAL, CVE-2026-65905, CVE-2026-68525). CVE-2026-47884 / CVE-2026-47890
+  (spring-webmvc) are closed by the Spring Boot 4 upgrade above.
 - **images and manifests (dependencies)** — console image base bumped nginx 1.29-alpine → 1.31-alpine
   (Dependabot #33); `anchore/sbom-action` 0.24.2 → 0.24.3 in the release workflow (Dependabot #35).
 - **security (dependencies)** — helix-dashboard: `npm audit fix` plus an explicit `vite`/`vitest` bump
@@ -238,7 +354,7 @@ question. Newest first within each phase.
   (347 tests) and `build-storybook` all still pass. One moderate `uuid` finding remains (would need downgrading
   `@storybook/addon-essentials` to 7.0.6, a regression) and is left for a future Storybook major bump.
 - **security (dependencies)** — repo-wide `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (the same scanner
-  CI's `security-scan.yml` runs) is clean across every ecosystem except the one spring-webmvc exception above;
+  CI's `security-scan.yml` runs) is clean across every ecosystem;
   `helix-mcp-demo` has no `package.json`/dependencies (Node built-ins only), so nothing to scan there.
 
 ## v1.0.0-rc.7 (security hotfix)

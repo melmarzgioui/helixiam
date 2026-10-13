@@ -71,7 +71,8 @@ cookies over plain HTTP. Do not reuse those values anywhere real.
 
 ### Build and run from source (for development)
 
-Requires Java 21, Maven and Docker.
+Requires Java 21, Maven and Docker. The server is built on Spring Boot 4.1 (Spring Framework 7.0, Spring Security
+7.1 with its OAuth2 authorization server, Spring Session 4.1), Hibernate 7, Tomcat 11, Flyway 12 and OpenSAML 5.
 
 ```bash
 # 1. PostgreSQL + Redis

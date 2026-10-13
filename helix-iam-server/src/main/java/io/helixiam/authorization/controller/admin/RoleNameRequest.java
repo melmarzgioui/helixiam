@@ -13,8 +13,9 @@ import jakarta.validation.constraints.Pattern;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record RoleNameRequest(
         @NotBlank(message = "Role name is required.")
-        // Reserved: "admin_<x>" would collide with the realm-admin authority of realm "<x>_<thisRealm>"
-        // (see RealmAdminAuthorities.isReservedRoleName).
-        @Pattern(regexp = "(?is)(?!admin_).*", message = "Role names starting with 'admin_' are reserved.")
+        // Reserved: "admin_<x>" would collide with the realm-admin authority of realm "<x>_<thisRealm>", and "FACTOR_"
+        // is Spring Security 7's sign-in factor namespace (see RealmAdminAuthorities.isReservedRoleName).
+        @Pattern(regexp = "(?is)(?!admin_)(?!factor_).*",
+                message = "Role names starting with 'admin_' or 'FACTOR_' are reserved.")
         String name) {
 }

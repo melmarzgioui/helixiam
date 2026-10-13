@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.security.mapper;
 
+import io.helixiam.authorization.security.SignInAuthorities;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,12 +43,13 @@ public final class RoleClaimAssembler {
     public static Map<String, Object> assemble(final Set<String> realmBaseRoles, final List<TypedRole> typedRoles) {
         final Set<String> realm = new TreeSet<>();
         if (realmBaseRoles != null) {
-            realm.addAll(realmBaseRoles);
+            // FACTOR_* is the namespace of Spring Security 7's sign-in factors (reserved for role names): never a role.
+            realmBaseRoles.stream().filter(r -> r != null && !SignInAuthorities.isFactorName(r)).forEach(realm::add);
         }
         final Map<String, Set<String>> byClient = new TreeMap<>();
         if (typedRoles != null) {
             for (final TypedRole role : typedRoles) {
-                if (role == null || role.name() == null) {
+                if (role == null || role.name() == null || SignInAuthorities.isFactorName(role.name())) {
                     continue;
                 }
                 if ("CLIENT".equalsIgnoreCase(role.type()) && role.clientId() != null && !role.clientId().isBlank()) {
@@ -68,6 +71,22 @@ public final class RoleClaimAssembler {
             out.put("resource_access", resourceAccess);
         }
         return out;
+    }
+
+    /**
+     * The flat role set the {@code USER_ROLE} protocol mapper emits: the realm roles plus every typed role's name,
+     * without any name in the {@code FACTOR_} namespace (Spring Security 7's sign-in factors; never a role).
+     */
+    public static Set<String> flat(final Set<String> realmBaseRoles, final List<TypedRole> typedRoles) {
+        final Set<String> flat = new java.util.HashSet<>();
+        if (realmBaseRoles != null) {
+            realmBaseRoles.stream().filter(r -> r != null && !SignInAuthorities.isFactorName(r)).forEach(flat::add);
+        }
+        if (typedRoles != null) {
+            typedRoles.stream().filter(r -> r != null && r.name() != null && !SignInAuthorities.isFactorName(r.name()))
+                    .forEach(r -> flat.add(r.name()));
+        }
+        return flat;
     }
 
     /** A mutable {@code {"roles": [...]}} map safe for SAS's authorization (de)serialization allowlist. */

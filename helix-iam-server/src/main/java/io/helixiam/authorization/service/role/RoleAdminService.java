@@ -61,7 +61,7 @@ public class RoleAdminService {
         // Invariant guard (admin API validates the same; this also covers realm import): "admin_<x>" would be
         // read as the realm-admin authority of realm "<x>_<realmId>".
         if (RealmAdminAuthorities.isReservedRoleName(name)) {
-            throw new IllegalArgumentException("Role names starting with 'admin_' are reserved.");
+            throw new IllegalArgumentException(RealmAdminAuthorities.RESERVED_ROLE_MESSAGE);
         }
         if (userRolesRepository.existsByTenantIdAndName(realmId, name)) {
             return userRolesRepository.findByTenantIdAndName(realmId, name).map(r -> toDto(realmId, r)).orElse(null);

@@ -12,8 +12,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 /**
  * Helix IAM SSO P4: selects the SSO-session reader to match the active OAuth2-authorization (token) store
@@ -28,12 +26,13 @@ public class SsoSessionStoreConfig {
     @Bean
     @ConditionalOnProperty(name = "helix.iam.token-store", havingValue = "redis")
     public SsoSessionStore redisSsoSessionStore(final RedisConnectionFactory redisConnectionFactory) {
-        final RedisTemplate<String, Object> template = new RedisTemplate<>();
-        template.setConnectionFactory(redisConnectionFactory);
-        template.setKeySerializer(new StringRedisSerializer());
-        template.setValueSerializer(new JdkSerializationRedisSerializer());
-        template.afterPropertiesSet();
+        final RedisTemplate<String, Object> template = authorizationTemplate(redisConnectionFactory);
         return new RedisSsoSessionStore(template);
+    }
+
+    /** The same template as the Redis token store (PersistenceConfig): same serialization and allowlist. */
+    public static RedisTemplate<String, Object> authorizationTemplate(final RedisConnectionFactory redisConnectionFactory) {
+        return io.helixiam.authorization.security.PersistenceConfig.authorizationTemplate(redisConnectionFactory);
     }
 
     /** Default SSO reader — rolls up the authorizations from the subscriber over AMQP (token-store=queue). */

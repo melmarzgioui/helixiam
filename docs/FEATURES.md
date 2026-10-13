@@ -41,7 +41,8 @@ status.
 | Feature | Status | Code | Tests |
 |---|---|---|---|
 | AI-agent identity & lifecycle | Beta | `authorization/idp/agent` | agent suites |
-| On-behalf-of delegation (RFC 8693, scope intersection, attenuation) | Beta — hardening in progress (see `CHANGES-1.0.md` Phase 1) | `authorization/idp/agent/DelegationTokenController`, `security/agent/*` | Delegation (3), TokenExchange (1) |
+| On-behalf-of delegation (RFC 8693, scope intersection, attenuation) at `/agent/delegation/token` | Beta — hardening in progress (see `CHANGES-1.0.md` Phase 1) | `authorization/idp/agent/DelegationTokenController`, `security/agent/*` | Delegation (3), TokenExchange (1) |
+| Token exchange at `/oauth2/token` (RFC 8693 impersonation: `subject_token` only, `audience`/`resource`, `act` = requesting client) | Beta. An `actor_token` / `actor_token_type` is refused (`invalid_request`): RFC 8693 actor semantics (`may_act`, `act` from the actor) are not implemented there; use `/agent/delegation/token` | `security/tokenexchange/ActorTokenRefusingConverter`, `security/TokenExchangeTargets`, `service/client/TokenExchangePolicyService` | TokenExchange (4), TokenExchangeActorRefused (2+2) |
 | Workload Identity Federation (keyless K8s/CI) | Beta | `authorization/idp/workloadidentity` | WorkloadIdentity (8) |
 | MCP-ready resource-server auth | Beta | `helix-mcp-demo`, RFC 9728 metadata | mcp-demo tests |
 

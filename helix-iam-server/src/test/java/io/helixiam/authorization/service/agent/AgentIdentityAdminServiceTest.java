@@ -33,6 +33,18 @@ class AgentIdentityAdminServiceTest {
     private final AgentIdentityRepository repo = mock(AgentIdentityRepository.class);
     private final AgentIdentityAdminService service = new AgentIdentityAdminService(repo);
 
+    @Test
+    void save_rejectsAFactorNamedRole_realmOrClient() {
+        // FACTOR_ is Spring Security 7's sign-in factor namespace: never a role (SignInAuthorities).
+        for (final String roles : new String[] {"reader, FACTOR_PASSWORD", "billing/factor_ott"}) {
+            final AgentIdentityDto withRoles = new AgentIdentityDto(null, "master", "invoices-bot", null, null,
+                    "alice@example.com", null, null, "billing-service", "billing.read", true, null, null, null, roles);
+            assertThatThrownBy(() -> service.save(withRoles)).as(roles)
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("FACTOR_");
+        }
+        verify(repo, never()).save(any());
+    }
+
     private AgentIdentityDto dto(final String id, final String name) {
         return new AgentIdentityDto(id, "master", name, "Billing Agent", "Reconciles invoices",
                 "alice@example.com", null, null, "billing-service", "billing.read", true, null, null, null, null);

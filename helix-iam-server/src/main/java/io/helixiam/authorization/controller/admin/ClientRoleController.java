@@ -84,9 +84,16 @@ public class ClientRoleController {
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
-    public record ClientRoleRequest(@NotBlank(message = "Role name is required.") String name, String description) {
+    /** "FACTOR_" is Spring Security 7's sign-in factor namespace: never a role (SignInAuthorities). */
+    public record ClientRoleRequest(@NotBlank(message = "Role name is required.")
+                                    @jakarta.validation.constraints.Pattern(regexp = "(?is)(?!factor_).*",
+                                            message = "Role names starting with 'FACTOR_' are reserved.") String name,
+                                    String description) {
     }
 
-    public record SaRoleRequest(@NotBlank(message = "Role name is required.") String roleName, String roleType, String roleClientId) {
+    public record SaRoleRequest(@NotBlank(message = "Role name is required.")
+                                @jakarta.validation.constraints.Pattern(regexp = "(?is)(?!factor_).*",
+                                        message = "Role names starting with 'FACTOR_' are reserved.") String roleName,
+                                String roleType, String roleClientId) {
     }
 }
