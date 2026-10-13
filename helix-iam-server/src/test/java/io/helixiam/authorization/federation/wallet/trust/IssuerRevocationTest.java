@@ -381,7 +381,7 @@ class IssuerRevocationTest {
         v.validate(chains.get(0).chain(), root.anchors(RevocationMode.SOFT_FAIL), Instant.now());
         assertThat(stub.count("/c0.crl")).isEqualTo(2);
 
-        final int oneCrl = chains.get(0).issuing().crl(TOMORROW).length;
+        final int oneCrl = 3 * chains.get(0).issuing().crl(TOMORROW).length; // the parsed-heap estimate, no entries
         final IssuerRevocationClient small = new IssuerRevocationClient(OutboundUrlGuard.permissive(),
                 IssuerRevocationClient.Settings.DEFAULTS.withCache(100, oneCrl * 2L + oneCrl / 2), clock);
         final IssuerTrustValidator sv = new IssuerTrustValidator(small);
@@ -447,6 +447,33 @@ class IssuerRevocationTest {
         capped.validate(pki.chain(), anchors, Instant.now());
         capped.validate(pki.chain(), anchors, Instant.now());
         assertThat(stub.count("/issuing.crl")).isEqualTo(1);
+    }
+
+    @Test
+    void aCachedCrlCountsItsParsedSizeNotItsEncodedSize() throws Exception {
+        final TwoLevel pki = twoLevel(stub.url("/issuing.crl"), null);
+        final BigInteger[] many = new BigInteger[400];
+        for (int i = 0; i < many.length; i++) {
+            many[i] = BigInteger.valueOf(2_000_000L + i);
+        }
+        final byte[] encoded = pki.issuing().crl(TOMORROW, many);
+        stub.serve("/issuing.crl", encoded);
+        final java.security.cert.X509CRL parsed = (java.security.cert.X509CRL) java.security.cert.CertificateFactory
+                .getInstance("X.509").generateCRL(new java.io.ByteArrayInputStream(encoded));
+        final long estimate = IssuerRevocationClient.crlHeapEstimate(parsed, encoded.length);
+        assertThat(estimate).isEqualTo(3L * encoded.length + 400L * IssuerRevocationClient.CRL_ENTRY_OVERHEAD);
+
+        // a budget that fits the encoded CRL (twice over) but not its parsed estimate: not cached
+        final IssuerRevocationClient client = new IssuerRevocationClient(OutboundUrlGuard.permissive(),
+                IssuerRevocationClient.Settings.DEFAULTS.withCache(100, 2L * encoded.length), clock);
+        new IssuerTrustValidator(client).validate(pki.chain(), pki.root().anchors(RevocationMode.HARD_FAIL),
+                Instant.now());
+        assertThat(client.cachedBytes()).isLessThan(estimate);
+        final IssuerRevocationClient roomy = new IssuerRevocationClient(OutboundUrlGuard.permissive(),
+                IssuerRevocationClient.Settings.DEFAULTS, clock);
+        new IssuerTrustValidator(roomy).validate(pki.chain(), pki.root().anchors(RevocationMode.HARD_FAIL),
+                Instant.now());
+        assertThat(roomy.cachedBytes()).isGreaterThanOrEqualTo(estimate);
     }
 
     // ------------------------------------------------------------------------------------------- path

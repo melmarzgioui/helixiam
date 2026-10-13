@@ -93,7 +93,8 @@ import java.util.concurrent.TimeUnit;
  * <p><b>Cache.</b> OCSP responses and CRLs that gave a definite answer (good or revoked) are cached until their
  * {@code nextUpdate} (a CRL until {@code nextUpdate} plus the {@link #CRL_CLOCK_SKEW} it is still accepted for; never
  * longer than {@link #MAX_CACHE_TTL}; without {@code nextUpdate}: not cached), bounded by
- * {@link Settings#cacheMaxEntries()} and {@link Settings#cacheMaxBytes()} (encoded bytes), least recently used
+ * {@link Settings#cacheMaxEntries()} and {@link Settings#cacheMaxBytes()} (an OCSP response counts its encoded bytes, a
+ * CRL its estimated parsed heap, {@link #crlHeapEstimate}), least recently used
  * evicted first. A cached answer is validated again at every use.
  */
 public final class IssuerRevocationClient {
@@ -125,7 +126,8 @@ public final class IssuerRevocationClient {
      *
      * @param maxCrlBytes     largest CRL downloaded (default 10 MB)
      * @param cacheMaxEntries most cached OCSP responses and CRLs together (default 256)
-     * @param cacheMaxBytes   most cached bytes, OCSP responses and CRLs together (default 32 MB)
+     * @param cacheMaxBytes   most cached bytes, OCSP responses and CRLs together (default 32 MB; a CRL counts its
+     *                        estimated parsed heap, see {@link #crlHeapEstimate})
      */
     public record Settings(long maxCrlBytes, int cacheMaxEntries, long cacheMaxBytes) {
 
@@ -359,7 +361,7 @@ public final class IssuerRevocationClient {
                     if (crlUsable(parsed, cert, issuer, url, at)) {
                         final Answer a = jdkCrl(cert, issuer, parsed, at);
                         if (a == Answer.GOOD || a == Answer.REVOKED) {
-                            remember(key, parsed, body.length, parsed.getNextUpdate().toInstant()
+                            remember(key, parsed, crlHeapEstimate(parsed, body.length), parsed.getNextUpdate().toInstant()
                                     .plus(CRL_CLOCK_SKEW)); // usable until then (see crlUsable)
                         }
                     }
@@ -377,6 +379,20 @@ public final class IssuerRevocationClient {
             return Answer.UNDETERMINED;
         }
         return jdkCrl(cert, issuer, crl, at);
+    }
+
+    /** Estimated heap held per revoked entry of a parsed CRL, beyond its share of the encoding (bytes). */
+    static final int CRL_ENTRY_OVERHEAD = 256;
+
+    /**
+     * The heap a parsed CRL is counted as in the cache: three times its encoding (the JDK keeps the encoded CRL, the
+     * TBS part and each entry's own encoding) plus {@value #CRL_ENTRY_OVERHEAD} bytes per revoked entry (the entry
+     * object, its serial {@code BigInteger}, date, extensions and the lookup map). An estimate on the high side; an
+     * OCSP response is cached as its encoded bytes.
+     */
+    static long crlHeapEstimate(final X509CRL crl, final int encodedLength) {
+        final java.util.Set<? extends java.security.cert.X509CRLEntry> revoked = crl.getRevokedCertificates();
+        return 3L * encodedLength + (long) (revoked == null ? 0 : revoked.size()) * CRL_ENTRY_OVERHEAD;
     }
 
     private static X509CRL parseCrl(final byte[] body) {
