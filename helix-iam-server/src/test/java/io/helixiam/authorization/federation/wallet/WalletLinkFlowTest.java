@@ -46,7 +46,8 @@ class WalletLinkFlowTest {
     private final InMemoryWalletTransactionStore store = new InMemoryWalletTransactionStore(Clock.systemUTC(), 100);
     private final TestAccessKeys keys = new TestAccessKeys(ACCESS, "eudi-access", REALM);
     private final WalletLinkService links = mock(WalletLinkService.class);
-    private final WalletLinkFlow flow = new WalletLinkFlow(links);
+    private final WalletLinkedNotice notice = mock(WalletLinkedNotice.class);
+    private final WalletLinkFlow flow = new WalletLinkFlow(links, notice);
     private final MockHttpSession session = new MockHttpSession();
 
     private WalletIdentityProvider provider() {
@@ -229,5 +230,29 @@ class WalletLinkFlowTest {
     void aBlankCode_isRefused() {
         assertThat(flow.complete(provider(), REALM, USER, " ", session)).isEqualTo(WalletLinkFlow.Outcome.REFUSED);
         assertThat(flow.complete(provider(), REALM, USER, null, session)).isEqualTo(WalletLinkFlow.Outcome.REFUSED);
+    }
+
+    // ---- production readiness item 4: the "wallet linked" security notice ----
+
+    @Test
+    void aNewLink_emailsTheWalletLinkedNotice_once() {
+        final WalletIdentityProvider provider = provider();
+        when(links.link(any(), any(), any(), any())).thenReturn(WalletLinkService.LinkResult.LINKED);
+        final String code = verified(provider, new WalletSubject.AdminNumber("aa11", "bb22")); // number + tuple
+
+        flow.complete(provider, REALM, USER, code, session);
+
+        verify(notice).send(REALM, USER);
+    }
+
+    @Test
+    void anExistingLink_aRefusalOrAnotherUsersWallet_sendNoNotice() {
+        final WalletIdentityProvider provider = provider();
+        when(links.link(any(), any(), any(), any())).thenReturn(WalletLinkService.LinkResult.ALREADY_LINKED);
+        flow.complete(provider, REALM, USER, verified(provider, new WalletSubject.Tuple("cc33")), session);
+        when(links.link(any(), any(), any(), any())).thenReturn(WalletLinkService.LinkResult.LINKED_TO_ANOTHER_USER);
+        flow.complete(provider, REALM, USER, verified(provider, new WalletSubject.Tuple("dd44")), session);
+
+        verify(notice, never()).send(any(), any());
     }
 }

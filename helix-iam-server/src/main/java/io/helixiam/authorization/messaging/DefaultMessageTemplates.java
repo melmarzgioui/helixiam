@@ -21,6 +21,11 @@ public final class DefaultMessageTemplates {
     public static final String EMAIL_CHANGE_VERIFY = "email-change-verify";
     /** Account console: the notice sent to the previous address when the email address changes. */
     public static final String EMAIL_CHANGED_NOTICE = "email-changed-notice";
+    /**
+     * EUDI wallet: the notice sent when a wallet is linked to the account (account console or the sign-in upgrade
+     * path). Only {@code {{realm}}}: nothing about the wallet or the user.
+     */
+    public static final String WALLET_LINKED_NOTICE = "wallet-linked-notice";
 
     private static final String MUTED = "<p style=\"color:#7a7468;font-size:13px\">";
 
@@ -63,7 +68,13 @@ public final class DefaultMessageTemplates {
                     "<p>Hi {{user}},</p>\n<p>The email address of your {{realm}} account was just changed, and this "
                             + "address will no longer receive its messages.</p>\n"
                             + MUTED + "If you didn't do this, sign in and change your "
-                            + "password, or contact the service's support.</p>", true));
+                            + "password, or contact the service's support.</p>", true),
+            new Template(WALLET_LINKED_NOTICE, "EMAIL", "An EU Digital Identity Wallet was linked to your account",
+                    "<p>Hi,</p>\n<p>An EU Digital Identity Wallet was linked to your {{realm}} account. From now on "
+                            + "it can be used to sign in.</p>\n"
+                            + "<p>If this wasn't you, unlink it and change your password.</p>\n"
+                            + MUTED + "You can see and unlink the wallets linked to your account in your account "
+                            + "settings.</p>", true));
 
     private static final List<Template> DUTCH = List.of(
             new Template("otp-sms", "SMS", null, "{{realm}} verificatiecode: {{code}} (geldig {{ttl}}).", false),
@@ -100,7 +111,13 @@ public final class DefaultMessageTemplates {
                     "<p>Hoi {{user}},</p>\n<p>Het e-mailadres van je {{realm}}-account is zojuist gewijzigd. Dit adres "
                             + "ontvangt de berichten van het account niet meer.</p>\n"
                             + MUTED + "Heb je dit niet zelf gedaan? Log dan in en wijzig je wachtwoord, "
-                            + "of neem contact op met de support van de dienst.</p>", true));
+                            + "of neem contact op met de support van de dienst.</p>", true),
+            new Template(WALLET_LINKED_NOTICE, "EMAIL", "Er is een EU Digital Identity Wallet aan je account gekoppeld",
+                    "<p>Hoi,</p>\n<p>Er is een EU Digital Identity Wallet gekoppeld aan je {{realm}}-account. Daarmee "
+                            + "kan voortaan worden ingelogd.</p>\n"
+                            + "<p>Was jij dit niet? Ontkoppel de wallet dan en wijzig je wachtwoord.</p>\n"
+                            + MUTED + "In je accountinstellingen zie je welke wallets aan je account gekoppeld zijn en "
+                            + "kun je ze ontkoppelen.</p>", true));
 
     private DefaultMessageTemplates() {
     }

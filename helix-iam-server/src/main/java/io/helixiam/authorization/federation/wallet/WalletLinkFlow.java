@@ -52,10 +52,18 @@ public class WalletLinkFlow {
     private static final int STATE_BYTES = 32;
 
     private final WalletLinkService links;
+    /** Item 4: emails the "wallet linked" notice after a new link; null sends none (tests of other behaviour). */
+    private final WalletLinkedNotice notice;
     private final SecureRandom random = new SecureRandom();
 
     public WalletLinkFlow(final WalletLinkService links) {
+        this(links, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WalletLinkFlow(final WalletLinkService links, final WalletLinkedNotice notice) {
         this.links = links;
+        this.notice = notice;
     }
 
     /** How a link ended; the console shows each one. */
@@ -135,7 +143,11 @@ public class WalletLinkFlow {
                     LogSafe.sanitize(realmId), LogSafe.sanitize(alias), LogSafe.sanitize(userId));
             return Outcome.REFUSED;
         }
-        return link(realmId, userId, alias, redeemed.subject());
+        final Outcome outcome = link(realmId, userId, alias, redeemed.subject());
+        if (outcome == Outcome.LINKED && notice != null) {
+            notice.send(realmId, userId); // item 4: the user learns of a link they may not have made
+        }
+        return outcome;
     }
 
     private Outcome link(final String realmId, final String userId, final String alias, final WalletSubject subject) {
