@@ -38,6 +38,9 @@ class SmtpEmailDriverTest {
 
     private static final String PASSWORD = "smtp-test-password-19";
     private static TestTls tls;
+    /** Every port: the local test servers listen on random ports. */
+    private static final java.util.Set<Integer> ANY_PORT = java.util.stream.IntStream.rangeClosed(1, 65535).boxed()
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     @BeforeAll
     static void certs() {
@@ -45,7 +48,9 @@ class SmtpEmailDriverTest {
     }
 
     private static SmtpEmailDriver driver() {
-        return new SmtpEmailDriver(DeploymentProfile.production());
+        // the local test server listens on localhost, a random port: a permissive guard and that port allowed
+        return new SmtpEmailDriver(DeploymentProfile.production(), io.helixiam.common.net.OutboundUrlGuard.permissive(),
+                ANY_PORT);
     }
 
     private static ResolvedProviderDto provider(final int port, final Map<String, String> extra) {
@@ -269,7 +274,8 @@ class SmtpEmailDriverTest {
             assertThat(prod.reason()).isEqualTo(Reason.CONFIGURATION);
             assertThat(server.commands()).isEmpty();
 
-            final DeliveryResult dev = new SmtpEmailDriver(DeploymentProfile.development())
+            final DeliveryResult dev = new SmtpEmailDriver(DeploymentProfile.development(),
+                    io.helixiam.common.net.OutboundUrlGuard.permissive(), ANY_PORT)
                     .deliver(provider(server.port(), Map.of("tlsMode", "NONE")), message());
             assertThat(dev.status()).as(String.valueOf(dev)).isEqualTo(Status.ACCEPTED);
         }

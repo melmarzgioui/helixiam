@@ -268,6 +268,19 @@ public class OutboundUrlGuard {
         return check(url, true);
     }
 
+    /**
+     * As {@link #resolveAllowed} for a non-HTTP service ({@code host} and {@code port}, e.g. SMTP or LDAP): the same
+     * address checks and private-host allowlist (by name and port), one resolution, the validated addresses returned.
+     */
+    public ResolvedTarget resolveAllowedHost(final String host, final int port) throws SsrfBlockedException {
+        if (host == null || host.isBlank() || port < 1 || port > 65535) {
+            throw new SsrfBlockedException("Outbound host or port is missing");
+        }
+        final String h = host.trim();
+        final String literal = h.indexOf(':') >= 0 && !h.startsWith("[") ? "[" + h + "]" : h;
+        return resolveAllowed("https://" + literal + ":" + port + "/");
+    }
+
     private ResolvedTarget check(final String url, final boolean needAddresses) throws SsrfBlockedException {
         if (url == null || url.isBlank()) {
             throw new SsrfBlockedException("Outbound URL is missing");

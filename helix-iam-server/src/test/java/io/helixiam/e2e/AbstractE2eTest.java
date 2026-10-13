@@ -139,6 +139,7 @@ public abstract class AbstractE2eTest {
         registry.add("helix.e2e.capture-magic-links", () -> "true"); // CapturingMagicLinkSender
         registry.add("helix.e2e.capture-backchannel-logout", () -> "true"); // CapturingBackchannelPoster
         registry.add("helix.e2e.harness-egress", () -> "true"); // browser.HarnessEgressGuard: test RP + mail sink only
+        registry.add("helix.messaging.smtp.allowed-ports", () -> "1024-65535"); // the test SMTP servers' random ports
         registry.add("helix.e2e.account-clock", () -> "true"); // AccountClockTestController: age auth_time (B1 step-up)
         registry.add("helix.e2e.federation-stub", () -> "true"); // FederatedLoginStubController: post-broker half of a federated login
         registry.add("user.register.enabled", () -> "true"); // global switch on; each realm still decides

@@ -67,22 +67,77 @@ public class SmtpEmailDriver implements EmailTransport {
     static final int DEFAULT_READ_TIMEOUT_MS = 20_000;
     private static final Pattern REPLY_CODE = Pattern.compile("^\\s*([245]\\d\\d)[\\s-]");
 
+    /** The SMTP ports a realm may use; a deployment adds more with {@code helix.messaging.smtp.allowed-ports}. */
+    public static final java.util.Set<Integer> ALLOWED_PORTS = java.util.Set.of(25, 465, 587, 2525);
+
     private final MailTransport transport;
     private final DeploymentProfile profile;
+    /** Null only for the test seams that capture the message instead of dialing (no network, nothing to guard). */
+    private final io.helixiam.common.net.OutboundUrlGuard guard;
+    private final java.util.Set<Integer> allowedPorts;
 
+    /**
+     * Production: the realm-configured host goes through {@code guard} and the connection is pinned to the validated
+     * address; ports 25, 465, 587, 2525 plus {@code helix.messaging.smtp.allowed-ports} (a comma-separated list).
+     */
     @Autowired
-    public SmtpEmailDriver(final DeploymentProfile profile) {
-        this(defaultTransport(), profile);
+    public SmtpEmailDriver(final DeploymentProfile profile, final io.helixiam.common.net.OutboundUrlGuard guard,
+                           @org.springframework.beans.factory.annotation.Value(
+                                   "${helix.messaging.smtp.allowed-ports:}") final String extraPorts) {
+        this(profile, guard, parsePorts(extraPorts));
     }
 
-    /** A driver in production mode over {@code transport} (tests). */
+    public SmtpEmailDriver(final DeploymentProfile profile, final io.helixiam.common.net.OutboundUrlGuard guard,
+                           final java.util.Set<Integer> extraPorts) {
+        this(defaultTransport(), profile, java.util.Objects.requireNonNull(guard, "guard"), extraPorts);
+    }
+
+    /** A driver in production mode over {@code transport}, which never dials (tests capturing the message). */
     public SmtpEmailDriver(final MailTransport transport) {
         this(transport, DeploymentProfile.production());
     }
 
+    /** Over {@code transport}, which never dials (tests capturing the message): no egress check applies. */
     public SmtpEmailDriver(final MailTransport transport, final DeploymentProfile profile) {
+        this(transport, profile, null, java.util.Set.of());
+    }
+
+    private SmtpEmailDriver(final MailTransport transport, final DeploymentProfile profile,
+                            final io.helixiam.common.net.OutboundUrlGuard guard, final java.util.Set<Integer> extraPorts) {
         this.transport = transport;
         this.profile = profile == null ? DeploymentProfile.production() : profile;
+        this.guard = guard;
+        final java.util.Set<Integer> ports = new java.util.HashSet<>(ALLOWED_PORTS);
+        ports.addAll(extraPorts == null ? java.util.Set.of() : extraPorts);
+        this.allowedPorts = java.util.Set.copyOf(ports);
+    }
+
+    /**
+     * {@code helix.messaging.smtp.allowed-ports}: a comma-separated list of ports or ranges ({@code 2526},
+     * {@code 10025-10030}), each 1-65535; invalid entries fail.
+     */
+    public static java.util.Set<Integer> parsePorts(final String csv) {
+        if (csv == null || csv.isBlank()) {
+            return java.util.Set.of();
+        }
+        final java.util.Set<Integer> out = new java.util.HashSet<>();
+        for (final String raw : csv.split(",")) {
+            if (raw.isBlank()) {
+                continue;
+            }
+            final String entry = raw.trim();
+            final int dash = entry.indexOf('-');
+            final int from = Integer.parseInt(dash < 0 ? entry : entry.substring(0, dash).trim());
+            final int to = dash < 0 ? from : Integer.parseInt(entry.substring(dash + 1).trim());
+            if (from < 1 || to > 65535 || from > to) {
+                throw new IllegalArgumentException("helix.messaging.smtp.allowed-ports: " + entry + " is not a port"
+                        + " or range");
+            }
+            for (int p = from; p <= to; p++) {
+                out.add(p);
+            }
+        }
+        return java.util.Set.copyOf(out);
     }
 
     /** The real SMTP transport (tests that talk to a local SMTP server use it). */
@@ -123,6 +178,23 @@ public class SmtpEmailDriver implements EmailTransport {
         if (message.from() == null) {
             return DeliveryResult.permanent(Reason.CONFIGURATION, "The email provider has no from address");
         }
+        if (guard != null) {
+            if (!allowedPorts.contains(settings.port())) {
+                return DeliveryResult.permanent(Reason.CONFIGURATION, "SMTP port " + settings.port()
+                        + " is not allowed (25, 465, 587, 2525, or a port the deployment lists)");
+            }
+            // the realm's SMTP host through the outbound guard: one resolution, a connection to the validated address
+            final io.helixiam.common.net.OutboundUrlGuard.ResolvedTarget target;
+            try {
+                target = guard.resolveAllowedHost(settings.host().replace("[", "").replace("]", ""), settings.port());
+            } catch (final io.helixiam.common.net.UnresolvableHostException e) {
+                return DeliveryResult.transientFailure(Reason.NETWORK, "The SMTP host could not be resolved");
+            } catch (final io.helixiam.common.net.SsrfBlockedException e) {
+                return DeliveryResult.permanent(Reason.CONFIGURATION,
+                        "The SMTP host is not allowed by the egress policy");
+            }
+            pin(props, settings, target.addresses().get(0));
+        }
         final Session session = Session.getInstance(props);
         final MimeMessage mime;
         try {
@@ -145,6 +217,22 @@ public class SmtpEmailDriver implements EmailTransport {
         }
         return DeliveryResult.accepted(id, "Accepted by " + settings.host() + ":" + settings.port()
                 + " (" + settings.tlsMode() + ")");
+    }
+
+    /**
+     * Jakarta Mail connects through socket factories that dial {@code address} whatever host it asks for, while it
+     * keeps working with the configured host name: STARTTLS and SMTPS are layered over the pinned socket with that
+     * name (SNI) and the server identity is checked against it ({@code mail.smtp.ssl.checkserveridentity}).
+     */
+    private static void pin(final Properties props, final Settings settings, final java.net.InetAddress address) {
+        final javax.net.ssl.SSLSocketFactory tls = (javax.net.ssl.SSLSocketFactory) props.get(
+                "mail.smtp.ssl.socketFactory");
+        props.put("mail.smtp.socketFactory", new io.helixiam.common.net.PinnedSocketFactories.Plain(address,
+                settings.port(), settings.connectTimeoutMs()));
+        props.put("mail.smtp.socketFactory.fallback", "false");
+        props.put("mail.smtp.ssl.socketFactory", new io.helixiam.common.net.PinnedSocketFactories.Ssl(address,
+                settings.port(), settings.connectTimeoutMs(), tls));
+        props.put("mail.smtp.ssl.socketFactory.fallback", "false");
     }
 
     /** The MIME message: {@code multipart/alternative} (text first, then HTML) for an HTML email. */

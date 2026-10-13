@@ -74,7 +74,7 @@ public class HarnessEgressGuard extends OutboundUrlGuard {
         try {
             final URI uri = new URI(url.trim());
             return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
-                    && "127.0.0.1".equals(uri.getHost())
+                    && ("127.0.0.1".equals(uri.getHost()) || "localhost".equalsIgnoreCase(uri.getHost()))
                     && HARNESS_PORTS.contains(uri.getPort());
         } catch (final java.net.URISyntaxException e) {
             return false;
