@@ -28,8 +28,8 @@ cd helix-iam-server
 mvn -o clean test        # runs the test suite; Testcontainers starts its own PostgreSQL
 ```
 
-Docker must be running locally (Testcontainers needs it for the integration tests). Redis is
-**not** required for tests — they run with `spring.session.store-type=none`.
+Docker must be running locally (Testcontainers needs it for the integration tests). A local Redis is
+**not** required for tests: the end-to-end suite starts its own Redis (and PostgreSQL) container.
 
 To build the runnable jar without running tests:
 

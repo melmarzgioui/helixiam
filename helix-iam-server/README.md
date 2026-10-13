@@ -11,8 +11,8 @@ tier. See the [root README](../README.md) for the full project overview and
 - Java 21 (see `<java.version>` in `pom.xml`)
 - Maven (no wrapper is committed — use a locally installed `mvn`)
 - PostgreSQL (for running the app; the test suite spins up its own via Testcontainers)
-- Redis (for running the app with the default `redis` session store; tests run with
-  `spring.session.store-type=none` and don't need Redis)
+- Redis (for running the app with the default `redis` session store; the test suite starts its own
+  Redis container through Testcontainers, so a local Redis is not needed for tests)
 - Docker (required by the test suite's Testcontainers-backed PostgreSQL, and for local
   Postgres/Redis containers when running the app)
 
