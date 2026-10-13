@@ -213,6 +213,8 @@ replica (token bucket). The client IP is the TCP peer's address, unless that pee
 |---|---|---|---|
 | sign-in: `/login`, OTP/flow submit, password reset, registration | 20 | 20 / minute | `helix.ratelimit.login.burst`, `helix.ratelimit.login.refill-per-minute` |
 | `/oauth2/token` (all grants) | 120 | 120 / minute | `helix.ratelimit.token.burst`, `helix.ratelimit.token.refill-per-minute` |
+| EUDI Wallet: `/oid4vp/**` (any method) | 120 | 120 / minute | `helix.ratelimit.wallet.burst`, `helix.ratelimit.wallet.refill-per-minute` |
+| EUDI Wallet: starting a wallet login (`GET /broker/<wallet alias>`) | 30 | 30 / minute | `helix.ratelimit.wallet-start.burst`, `helix.ratelimit.wallet-start.refill-per-minute` |
 
 Excess requests get `429 Too Many Requests`. **In-cluster callers usually share one egress or pod IP**, so
 several backend services using `client_credentials` or token exchange from the same node count against one

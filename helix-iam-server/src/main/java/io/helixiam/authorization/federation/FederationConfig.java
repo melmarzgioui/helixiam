@@ -13,19 +13,29 @@ import io.helixiam.authorization.federation.saml.InMemorySamlAssertionReplayCach
 import io.helixiam.authorization.federation.saml.SamlAssertionReplayCache;
 import io.helixiam.authorization.federation.spi.AttributeMapper;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
+import io.helixiam.authorization.federation.wallet.transaction.InMemoryWalletTransactionStore;
+import io.helixiam.authorization.federation.wallet.transaction.RedisWalletTransactionStore;
+import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
+import io.helixiam.common.startup.DeploymentProfile;
+import io.helixiam.persistence.security.AttributeEncryption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.AnyNestedCondition;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Helix IAM E5.3/E5.4: wires the identity-federation runtime. The {@link IdentityBroker} is pure
@@ -102,12 +112,14 @@ public class FederationConfig {
         return new IdentityProviderRegistry(providers);
     }
 
-    // E8.3: load admin-managed providers from the persisted store into the live registry, on demand
-    // (and once at startup). Gated by helix.federation.store.enabled (default off) so a deployment
-    // without the E8.2 config exchange — or the build/tests — never call AMQP at boot.
+    // E8.3: load admin-managed providers from the persisted store into the live registry: every realm once at startup,
+    // and the written realm after each admin write. On by default (final review F1): the switch used to default off
+    // so that the build and deployments without the config exchange never called AMQP at boot, but the store is read
+    // in process since RabbitMQ was removed, so that reason is gone. helix.federation.store.enabled=false still turns
+    // it off (admin-created connections are then saved but never become loginable).
 
     @Bean
-    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true", matchIfMissing = true)
     public FederationStoreRefresher federationStoreRefresher(final IdentityProviderConfigSource source,
                                                              final FederationProviderFactory factory,
                                                              final IdentityProviderRegistry registry) {
@@ -115,18 +127,73 @@ public class FederationConfig {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true")
-    public ApplicationRunner federationStoreStartupRefresh(
-            final FederationStoreRefresher refresher,
-            @Value("${helix.federation.store.realm:master}") final String realmId) {
+    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public ApplicationRunner federationStoreStartupRefresh(final FederationStoreRefresher refresher) {
         return args -> {
             try {
-                final int loaded = refresher.refresh(realmId);
-                LOG.info("Helix federation: startup loaded {} store-backed provider(s) for realm {}", loaded, realmId);
+                final int loaded = refresher.refreshAll();
+                LOG.info("Helix federation: startup loaded {} store-backed provider(s) across all realms", loaded);
             } catch (final RuntimeException e) {
                 LOG.warn("Helix federation: startup store refresh failed (continuing with config/bean providers): {}",
                         e.getMessage());
             }
         };
+    }
+
+    /**
+     * EUDI wallet logins: the transaction store. Redis (shared by every replica) when the session or the token store is
+     * Redis, on the same connection factory; otherwise in process memory, which only works with one replica.
+     */
+    @Configuration(proxyBeanMethods = false)
+    public static class WalletTransactionStores {
+
+        // Redis is declared FIRST so the in-memory default's @ConditionalOnMissingBean sees it.
+        @Bean
+        @Conditional(RedisBackedStores.class)
+        public WalletTransactionStore redisWalletTransactionStore(
+                final RedisConnectionFactory redisConnectionFactory,
+                @Value("${database.encryption:#{null}}") final String encryptionKey,
+                final DeploymentProfile profile) {
+            return new RedisWalletTransactionStore(redisConnectionFactory, new AttributeEncryption(encryptionKey),
+                    profile, Clock.systemUTC());
+        }
+
+        @Bean
+        @ConditionalOnMissingBean(WalletTransactionStore.class)
+        public WalletTransactionStore inMemoryWalletTransactionStore(
+                @Value("${helix.iam.session-store:}") final String sessionStore, final DeploymentProfile profile) {
+            if (warnsAboutReplicas(sessionStore, profile)) {
+                LOG.warn("EUDI wallet logins keep their transactions in process memory (neither HELIX_SESSION_STORE "
+                        + "nor HELIX_TOKEN_STORE is redis). With more than one replica a wallet login fails whenever "
+                        + "the wallet's requests reach another replica: run one replica, or use Redis for the "
+                        + "session or token store.");
+            }
+            return new InMemoryWalletTransactionStore();
+        }
+
+        /**
+         * No replica count reaches the server (the Helm chart sets {@code replicas} on the Deployment only), so the
+         * PostgreSQL session store ({@code queue}), the one other multi-replica setup, is taken as the signal. Never
+         * under the {@code dev} profile, which defaults to {@code queue} and runs one process.
+         */
+        static boolean warnsAboutReplicas(final String sessionStore, final DeploymentProfile profile) {
+            return !profile.isDev() && sessionStore != null && "queue".equals(sessionStore.trim().toLowerCase(Locale.ROOT));
+        }
+    }
+
+    /** {@code helix.iam.session-store=redis} or {@code helix.iam.token-store=redis}. */
+    static class RedisBackedStores extends AnyNestedCondition {
+
+        RedisBackedStores() {
+            super(ConfigurationPhase.REGISTER_BEAN);
+        }
+
+        @ConditionalOnProperty(name = "helix.iam.session-store", havingValue = "redis")
+        static class SessionStoreRedis {
+        }
+
+        @ConditionalOnProperty(name = "helix.iam.token-store", havingValue = "redis")
+        static class TokenStoreRedis {
+        }
     }
 }

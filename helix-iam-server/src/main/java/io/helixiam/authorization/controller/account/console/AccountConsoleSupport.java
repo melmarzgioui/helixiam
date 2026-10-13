@@ -33,7 +33,9 @@ public class AccountConsoleSupport {
         AUTHENTICATOR_REMOVE("/account/authenticator/remove"),
         EMAIL("/account/email"),
         DATA("/account#data"),
-        DELETE("/account/delete");
+        DELETE("/account/delete"),
+        /** Task 21b: linking or unlinking an EU Digital Identity Wallet; back to the console's wallet section. */
+        WALLETS("/account#wallets");
 
         final String path;
 

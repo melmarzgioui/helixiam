@@ -39,6 +39,7 @@ import static org.mockito.Mockito.when;
 class FederatedLoginCompleterTest {
 
     private static final String SP = "https://helix.test";
+    private static final String USER_ID = "user-9";
 
     private final FlowExecutor flowExecutor = mock(FlowExecutor.class);
     private final AuthFlowPublisher authFlowPublisher = mock(AuthFlowPublisher.class);
@@ -62,6 +63,18 @@ class FederatedLoginCompleterTest {
         return new ObjectMapper().readValue(
                 "{\"userId\":\"" + id + "\",\"username\":\"ada@corp\",\"authorities\":[{\"role\":\"ROLE_USER\"}]}",
                 UserCredentials.class);
+    }
+
+    /** Stubs a federated login whose post-broker flow completes immediately (no step-up). */
+    private void givenFlowCompletes() {
+        try {
+            when(establisher.loadUser(USER_ID)).thenReturn(user(USER_ID));
+        } catch (final Exception e) {
+            throw new RuntimeException(e);
+        }
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(null); // use the in-code fallback
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
     }
 
     @Test
@@ -117,6 +130,136 @@ class FederatedLoginCompleterTest {
 
         assertThat(view).startsWith("redirect:/login?error");
         verify(establisher, never()).persist(any(), any(), any());
+    }
+
+    @Test
+    void completedFederatedLogin_rotatesTheSessionId_beforePersistingTheContext() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final String before = request.getSession(true).getId();
+        givenFlowCompletes();                       // existing helper in this test class
+        completer.complete(USER_ID, request, new MockHttpServletResponse());
+        assertThat(request.getSession(false).getId()).isNotEqualTo(before);
+    }
+
+    /**
+     * Task 3: the brokered level of assurance (eID SAML {@code loa} attribute / the stub's {@code loa}
+     * param) is carried into the session as {@code HELIX_ACR} so {@link
+     * io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService} can bind it onto
+     * the authorization the same way it binds {@code sid}/{@code auth_time}.
+     */
+    @Test
+    void completedFederatedLoginWithAcr_putsAcrInTheSessionAfterRotation() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, "http://eidas.europa.eu/LoA/substantial", request, new MockHttpServletResponse());
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
+
+    @Test
+    void completedFederatedLoginWithoutAcr_leavesNoAcrInTheSession() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, request, new MockHttpServletResponse()); // old signature: delegates with null acr
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    /**
+     * [Important fix round 1] Stale acr: a COMPLETED federated login must CLEAR a stale {@code HELIX_ACR}
+     * an EARLIER login in this same browser session left behind, not just leave it when this one asserts
+     * none. {@code authTimeStamper.stamp(request)} is the choke point that clears it — this proves the
+     * completer actually goes through it before (not instead of) deciding whether to set a fresh value.
+     */
+    @Test
+    void completedFederatedLoginWithoutAcr_clearsAStaleAcrFromAnEarlierLoginInThisSession() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute(
+                io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
+                "http://eidas.europa.eu/LoA/high"); // stale, from an earlier high-LoA login
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, request, new MockHttpServletResponse()); // this login asserts no LoA
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    /** Same stale-clearing choke point, but this login DOES assert a (different, lower) LoA. */
+    @Test
+    void completedFederatedLoginWithAcr_replacesAStaleAcrFromAnEarlierLoginInThisSession() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute(
+                io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE,
+                "http://eidas.europa.eu/LoA/high"); // stale, from an earlier high-LoA login
+        givenFlowCompletes();
+
+        completer.complete(USER_ID, "http://eidas.europa.eu/LoA/substantial", request, new MockHttpServletResponse());
+
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
+
+    /**
+     * [Important fix round 1] The step-up (CHALLENGE) path: the asserted LoA is held ONLY on {@link
+     * FlowExecutionState#pendingAcr()} — never written directly to the live {@code HELIX_ACR} session
+     * attribute. That means an abandoned challenge has NOTHING to leak: a later, unrelated login in this
+     * browser (which always gets its own brand-new {@code FlowExecutionState}, see {@code
+     * FlowLoginSuccessHandler}) can never see it. {@code FlowController} is what promotes it, and only when
+     * THIS SAME flow reaches COMPLETED (covered by {@code FlowControllerTest}).
+     */
+    @Test
+    void challengingFederatedLoginWithAcr_holdsItOnlyAsPendingOnTheFlowState_neverInTheLiveSession() throws Exception {
+        when(establisher.loadUser("user-9")).thenReturn(user("user-9"));
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(null);
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.challenge("otp-form", "browser-otp"));
+
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final String view = completer.complete("user-9", "http://eidas.europa.eu/LoA/substantial", request,
+                new MockHttpServletResponse());
+
+        assertThat(view).isEqualTo("redirect:/flow");
+        // NOT in the live session attribute — nothing to leak to an unrelated later login.
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+        // Held as pending on THIS flow's state, ready for FlowController to promote on completion.
+        final FlowExecutionState state = (FlowExecutionState) request.getSession(false)
+                .getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        assertThat(state.pendingAcr()).isEqualTo("http://eidas.europa.eu/LoA/substantial");
+    }
+
+    // --- final review F2: the outcome is explicit, and a pending login carries its connector's marker ---
+
+    @Test
+    void outcome_isCompleted_pending_orFailed_andAPendingLoginCarriesTheMarkerOnItsFlowState() throws Exception {
+        when(establisher.loadUser(USER_ID)).thenReturn(user(USER_ID));
+        when(authFlowPublisher.retrieveBrowserFlow(any())).thenReturn(null);
+        when(authFlowMapper.toAuthFlow(any())).thenReturn(AuthFlow.of("browser"));
+
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.completed(USER_ID));
+        assertThat(completer.completeLogin(USER_ID, null, new MockHttpServletRequest(), new MockHttpServletResponse(),
+                null, "marker").outcome()).isEqualTo(FederatedLoginCompleter.Outcome.COMPLETED);
+
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.failed());
+        assertThat(completer.completeLogin(USER_ID, null, new MockHttpServletRequest(), new MockHttpServletResponse(),
+                null, "marker").outcome()).isEqualTo(FederatedLoginCompleter.Outcome.FAILED);
+
+        when(flowExecutor.begin(any(), any())).thenReturn(FlowProgress.challenge("otp-form", "browser-otp"));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final FederatedLoginCompleter.Completion pending = completer.completeLogin(USER_ID, null, request,
+                new MockHttpServletResponse(), null, "marker");
+        assertThat(pending.outcome()).isEqualTo(FederatedLoginCompleter.Outcome.PENDING);
+        assertThat(pending.view()).isEqualTo("redirect:/flow");
+        assertThat(((FlowExecutionState) request.getSession().getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE))
+                .pendingOutcome()).isEqualTo("marker");
     }
 
     // --- the real flow engine with the realm's seeded browser flow (mfa-enabled condition gating otp) ---
@@ -212,5 +355,53 @@ class FederatedLoginCompleterTest {
 
         assertThat(request.getSession().getId()).isNotEqualTo(before);
         assertThat(request.getSession().getAttribute("HELIX_MFA_VERIFIED_USER")).isNull();
+    }
+
+    // --- merge (final review M3): MFA enrolment is a pending view; the login's work waits for it ---
+
+    @Test
+    void aLoginThatMustEnrolFirst_isPending_keepsItsCommitAcrAndMarker_andCommitsNothingYet() throws Exception {
+        givenFlowCompletes();
+        when(enrolment.mustEnrol(any(), org.mockito.ArgumentMatchers.eq(USER_ID))).thenReturn(true);
+        final FederatedLoginCommit commit = mock(FederatedLoginCommit.class);
+        completer.setLoginCommits(java.util.List.of(commit));
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+
+        final FederatedLoginCompleter.Completion completion = completer.completeLogin(USER_ID,
+                "http://eidas.europa.eu/LoA/high", request, new MockHttpServletResponse(), "pending-link", "marker");
+
+        assertThat(completion.outcome()).isEqualTo(FederatedLoginCompleter.Outcome.PENDING);
+        assertThat(completion.view()).isEqualTo("redirect:/mfa/enable");
+        verify(commit, never()).commit(any(), any());
+        final ArgumentCaptor<Authentication> auth = ArgumentCaptor.forClass(Authentication.class);
+        verify(establisher).persist(auth.capture(), any(), any());
+        assertThat(auth.getValue()).isInstanceOf(MfaAuthentication.class);
+        final FlowExecutionState state = (FlowExecutionState) request.getSession(false)
+                .getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        assertThat(state.pendingCommit()).isEqualTo("pending-link");
+        assertThat(state.pendingAcr()).isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(state.pendingOutcome()).isEqualTo("marker");
+        assertThat(request.getSession(false)
+                .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    @Test
+    void aFederatedLogin_rotatesTheSessionIdOnce() {
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true);
+        givenFlowCompletes();
+        final int[] rotations = new int[1];
+        final MockHttpServletRequest counting = new MockHttpServletRequest() {
+            @Override
+            public String changeSessionId() {
+                rotations[0]++;
+                return super.changeSessionId();
+            }
+        };
+        counting.setSession(request.getSession(false));
+
+        completer.complete(USER_ID, counting, new MockHttpServletResponse());
+
+        assertThat(rotations[0]).isEqualTo(1);
     }
 }

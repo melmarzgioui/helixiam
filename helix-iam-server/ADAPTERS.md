@@ -98,3 +98,25 @@ directly. Service = the `group.mfnr.authorization.service.*` bean the former lis
    which the adapters also use. No behaviour change.
 
 No sender method was left without a resolved target beyond deviation #1.
+
+---
+
+## EUDI Wallet: a federation SPI adapter, not a publisher adapter (wallet Tasks 19/26)
+
+The wallet verifier does not add a 39th `@Publisher`/`*LocalAdapter` pair — it adapts onto a different, older
+seam: the federation **SPI** (`io.helixiam.authorization.federation.spi.IdentityProvider`), the same interface
+every OIDC/SAML/LDAP/eID broker connector implements. `WalletIdentityProvider` (built per connection by
+`WalletIdentityProviders`, from either `helix.federation.wallet[*]` YAML or an admin-managed stored config via
+`FederationProviderFactory.fromStored`) is the adapter: it takes OpenID4VP's very different shape — an
+asynchronous, wallet-initiated response rather than a synchronous `start()`/`callback()` redirect round-trip —
+and presents it through the exact same three SPI methods (`metadata()`, `start()`, `callback()`) every other
+connector does, so `IdentityProviderRegistry`, the login page, the broker controller and (via `callback()`
+redeeming a transaction the wallet's own `response` endpoint already verified and stored) the rest of the
+federated-login pipeline need no wallet-specific branches at all.
+
+**One adapter #16 footnote (Task 26).** `GdprPublisher`'s adapter (`GdprLocalAdapter`, table row 16 above) still
+delegates to `GdprAdminService.export`/`.erase` unchanged — those method signatures did not change. What changed
+is `GdprAdminService` itself: it now also takes `IdentityProviderRegistry` (the same bean the federation SPI
+registry above is), so it can resolve a federated link's display name and recognise which links are wallet links
+(§"GDPR" in the Task 26 report) without a new adapter or a new `@Publisher` method — the registry was already a
+plain Spring bean, reachable the same way any other collaborator is.

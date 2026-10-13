@@ -25,7 +25,8 @@ export type ProviderKind =
   | "paypal"
   | "stackoverflow"
   | "openshift"
-  | "apple";
+  | "apple"
+  | "wallet";
 
 export interface ProviderLogoProps {
   kind: ProviderKind;
@@ -190,6 +191,18 @@ export function ProviderLogo({ kind, size = 36 }: ProviderLogoProps) {
       );
     case "oidc":
       return tile("#f7931e", monogram("ID"));
+    case "wallet":
+      // EUDI Wallet (OpenID4VP): the same neutral, generic wallet glyph as the login button
+      // (server /img/idp/eudi-wallet.svg) — never the EU flag or any EU emblem.
+      return tile(
+        "#334155",
+        <svg width={size * 0.62} height={size * 0.62} viewBox="8 9 29 27" fill="none" aria-hidden="true">
+          <path d="M11 16.2V15a3 3 0 0 1 3-3h14.5a2 2 0 0 1 2 2v2.2" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          <rect x="11" y="16.2" width="23" height="16.8" rx="3" stroke="#fff" strokeWidth="2.2" />
+          <path d="M34 21.6h-5.2a3 3 0 0 0 0 6H34" stroke="#fff" strokeWidth="2.2" strokeLinejoin="round" />
+          <circle cx="28.9" cy="24.6" r="1.2" fill="#fff" />
+        </svg>
+      );
     case "saml":
       return tile(
         "var(--kd-slate)",

@@ -182,7 +182,8 @@
                 <version>${cryptacular.version}</version>
             </dependency>
 
-            <!-- One patched Nimbus (CVE-2025-53864) for SAS (transitive 9.37.4 / 9.47). -->
+            <!-- One patched Nimbus (CVE-2025-53864) for SAS (transitive 9.37.4 / 9.47) and the EUDI Wallet
+                 verifier (direct). -->
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
@@ -306,6 +307,12 @@
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-cbor</artifactId>
         </dependency>
+        <!-- EUDI Wallet verifier: SD-JWT / KB-JWT / JWE on Nimbus. Declared directly (it was only transitive via
+             SAS); version comes from dependencyManagement above. -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+        </dependency>
 
         <!-- ============ Notifications (de-mfnr'd): direct SMTP, no broker ============
              Replaces mfnr-subscriber-starter-notification's AMQP emit. The vendored
@@ -415,6 +422,17 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- Task 25: runs io.helixiam.testwallet.TestWalletCli (src/test/java, never in the main jar or the
+                 server image) as a small standalone tool for the sandbox "Sign in with EUDI Wallet" demo. No
+                 execution is bound to a lifecycle phase, so `mvn package`/the Docker build never invokes it; it is
+                 only ever run explicitly:
+                 mvn -q -pl helix-iam-server exec:java -Dexec.classpathScope=test \
+                   -Dexec.mainClass=io.helixiam.testwallet.TestWalletCli -Dexec.args="..." -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.6.4</version>
+            </plugin>
             <!-- rc.6 item 1: the e2e context uses the Redis session store. This second run starts its own
                  JVM + context with the queue (PostgreSQL) store, as `HELIX_SESSION_STORE=queue` does in
                  production, and repeats the browser tests whose sessions carry the most state: the account
@@ -433,9 +451,12 @@
                             <includes>
                                 <include>io/helixiam/e2e/browser/AccountConsoleBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/CrossOriginSignInBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/FederatedSessionRotationBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/MfaGateBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/RegistrationReturnBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/RegistrationVerificationBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/WalletLoginBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/browser/WalletLinkBrowserE2eTest.java</include>
                             </includes>
                             <systemPropertyVariables>
                                 <helix.iam.session-store>queue</helix.iam.session-store>

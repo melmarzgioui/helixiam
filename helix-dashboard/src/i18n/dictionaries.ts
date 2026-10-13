@@ -9,6 +9,8 @@
 // Every page routes user-facing text through useT()/t(); strings with no key fall back to the key.
 // Keys are namespaced by screen (users.*, roles.*, account.*, shell.*, nav.*, common.*, …).
 
+import { walletEn, walletNl } from "./walletStrings";
+
 /** The supported UI locales. `en` is the source-of-truth / fallback. */
 export type Locale = "en" | "nl";
 
@@ -21,6 +23,7 @@ export const LOCALES: { value: Locale; label: string }[] = [
 export type Dict = Record<string, string>;
 
 export const en: Dict = {
+  ...walletEn,
   // Top bar / shell chrome
   "shell.realm": "Realm",
   "shell.menu.open": "Open menu",
@@ -2503,6 +2506,7 @@ export const en: Dict = {
 };
 
 export const nl: Dict = {
+  ...walletNl,
   // Topbalk / shell-chrome
   "shell.realm": "Realm",
   "shell.menu.open": "Menu openen",

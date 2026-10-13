@@ -76,7 +76,26 @@ class LoginControllerTest {
         final String view = controller.login(model, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(view).isEqualTo("login");
-        assertThat(model.getAttribute("federationProviders")).isEqualTo(registry.metadatas());
+        assertThat(model.getAttribute("federationProviders")).isEqualTo(registry.metadatas(null));
+    }
+
+    @Test
+    void loginPageOfARealm_listsOnlyTheProvidersServingThatRealm() {
+        final IdentityProviderRegistry realms =
+                new IdentityProviderRegistry(List.of(stub("google", "Google")));
+        realms.reload("realm-a", List.of(stub("eudi-a", "Wallet A")));
+        realms.reload("realm-b", List.of(stub("eudi-b", "Wallet B")));
+        final LoginController controller = new LoginController(false, realms);
+        final Model model = new ConcurrentModel();
+
+        RealmContextHolder.set("realm-a");
+        try {
+            controller.login(model, new MockHttpServletRequest(), new MockHttpServletResponse());
+        } finally {
+            RealmContextHolder.clear();
+        }
+
+        assertThat(providers(model)).extracting(IdpMetadata::alias).containsExactly("google", "eudi-a");
     }
 
     @Test

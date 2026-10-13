@@ -9,6 +9,10 @@ import io.helixiam.authorization.amqp.mfa.MfaRecoveryPublisher;
 import io.helixiam.authorization.amqp.mfa.RecoveryCodeVerification;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.security.flow.ResolveSavedRequestRedirect;
+import io.helixiam.authorization.federation.FederatedLoginCommit;
+import io.helixiam.authorization.federation.FederatedLoginOutcome;
+import io.helixiam.authorization.federation.PendingFederatedLogin;
+import io.helixiam.authorization.flow.FlowExecutionState;
 import io.helixiam.authorization.security.mfa.MfaSessionState;
 import io.helixiam.authorization.security.mfa.totp.QrCode;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
@@ -63,6 +67,8 @@ public class MfaAuthController {
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
+    private List<FederatedLoginCommit> loginCommits = List.of();
+    private List<FederatedLoginOutcome> loginOutcomes = List.of();
 
     @Autowired
     public MfaAuthController(final QrCode qrCode, final MfaService mfaService, final TotpService totp,
@@ -215,12 +221,33 @@ public class MfaAuthController {
         return LOCKED_REDIRECT;
     }
 
-    /** Second factor passed: restore the full authentication, mark the session, resume the authorize request. */
+    /**
+     * Second factor passed (or enrolled): restore the full authentication, mark the session, end the login and resume
+     * the authorize request. A federated login that waited on the realm's required enrolment
+     * ({@code FederatedLoginCompleter}) is ended here like after a step-up ({@link PendingFederatedLogin#finish}): its
+     * pending commit (refused → no session), {@code acr} and connector outcome — only this user's, never a flow state
+     * another sign-in left in the session (final review M3/M4).
+     */
     private String complete(final UserCredentials user, final HttpServletRequest request, final HttpServletResponse response) {
         mfaService.unlockUser();
         MfaSessionState.markVerified(request, user.getUsername());
-        authTimeStamper.stamp(request); // SSO P2
+        final FlowExecutionState pending = PendingFederatedLogin.of(request.getSession(false), user.getUserId());
+        if (!PendingFederatedLogin.finish(request, pending, loginCommits, loginOutcomes, authTimeStamper)) {
+            return REDIRECT_PREFIX + "/login?error=federation";
+        }
         sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
         return savedRequestRedirect.redirectView(request, response, spBaseUrl);
+    }
+
+    /** Final review M3: the committers of a federated login's pending commit, when it waited on enrolment. */
+    @Autowired(required = false)
+    public void setLoginCommits(final List<FederatedLoginCommit> loginCommits) {
+        this.loginCommits = loginCommits == null ? List.of() : List.copyOf(loginCommits);
+    }
+
+    /** Final review M3: the receivers of a federated login's outcome marker, when it waited on enrolment. */
+    @Autowired(required = false)
+    public void setLoginOutcomes(final List<FederatedLoginOutcome> loginOutcomes) {
+        this.loginOutcomes = loginOutcomes == null ? List.of() : List.copyOf(loginOutcomes);
     }
 }

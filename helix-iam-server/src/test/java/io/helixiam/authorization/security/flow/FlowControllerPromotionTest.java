@@ -115,4 +115,38 @@ class FlowControllerPromotionTest {
 
         assertThat(session.getId()).as("a completed sign-in gets a new session id").isNotEqualTo(before);
     }
+
+    /**
+     * Final review M4: a flow user A left in this session (an abandoned wallet step-up carrying eIDAS high) must never
+     * complete into a session that is now fully signed in as user B (e.g. by a magic link, which leaves no pending
+     * authentication): nothing of A is promoted — not A's acr into B's session — and the session is dropped.
+     */
+    @Test
+    void aStaleFlowOfUserA_neverPromotesAsAcrIntoUserBsSignedInSession() throws Exception {
+        when(executor.submit(any(), any(), anyString(), anyMap())).thenReturn(FlowProgress.completed("ada"));
+        final UserCredentials bob = MfaEnabledConditionTest.user("bob", false);
+        SecurityContextHolder.getContext().setAuthentication(
+                UsernamePasswordAuthenticationToken.authenticated(bob, null, bob.getAuthorities()));
+        final MockHttpSession session = pendingFlow("ada");
+        ((FlowExecutionState) session.getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE))
+                .setPendingAcr("http://eidas.europa.eu/LoA/high");
+
+        final String view = submit(session);
+
+        assertThat(view).contains("/login");
+        assertThat(session.isInvalid()).as("the session is dropped").isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).as("nothing stays signed in").isNull();
+    }
+
+    @Test
+    void aCompletedFlow_leavesNoFlowStateBehind() throws Exception {
+        when(executor.submit(any(), any(), anyString(), anyMap())).thenReturn(FlowProgress.completed("ada"));
+        pendingAs("ada");
+        final MockHttpSession session = pendingFlow("ada");
+
+        submit(session);
+
+        assertThat(session.getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE)).isNull();
+        assertThat(session.getAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE)).isNull();
+    }
 }

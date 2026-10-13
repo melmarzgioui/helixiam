@@ -37,6 +37,14 @@ public final class AuthTimeStamper {
     /** Session attribute holding the OIDC {@code sid} of this SSO session (A3). */
     public static final String HELIX_SID = "HELIX_SID";
 
+    /**
+     * Session attribute holding the brokered level of assurance of this login (Task 3), e.g. the eIDAS
+     * LoA URI an eID SAML assertion or an EUDI Wallet presentation asserted. Set at the same
+     * login-completion choke points as {@link #HELIX_SID}/{@link #HELIX_AUTH_TIME}, but only when the
+     * login was brokered through an external IdP that asserted one — a password login never sets it.
+     */
+    public static final String ACR_SESSION_ATTRIBUTE = "HELIX_ACR";
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final LongSupplier nowEpochSeconds;
@@ -53,6 +61,13 @@ public final class AuthTimeStamper {
     /**
      * Stamp the current time as the session's auth_time (creating the session if needed), and give the session
      * its {@code sid} if it has none yet.
+     *
+     * <p>Task 3 fix round 1: this is the choke point for EVERY interactive login completion (password,
+     * magic link, flow-engine, federated, MFA step-up) — so it is also where a stale {@link
+     * #ACR_SESSION_ATTRIBUTE} left by an EARLIER login in this same browser session is cleared, before
+     * whichever caller decides whether THIS login has a fresh one to set. Without this, a password
+     * re-login (prompt=login/max_age) after a high-LoA federated login would be bound with the old acr,
+     * and a federated login that asserts no LoA would keep whatever a previous one left behind.
      */
     public void stamp(final HttpServletRequest request) {
         final HttpSession session = request.getSession(true);
@@ -64,6 +79,7 @@ public final class AuthTimeStamper {
         if (!(session.getAttribute(HELIX_SID) instanceof String)) {
             session.setAttribute(HELIX_SID, newSid());
         }
+        session.removeAttribute(ACR_SESSION_ATTRIBUTE);
     }
 
     /** The session's OIDC {@code sid}, or {@code null} when the session never completed a login. */

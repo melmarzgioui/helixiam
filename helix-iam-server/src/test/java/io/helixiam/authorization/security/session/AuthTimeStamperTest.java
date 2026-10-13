@@ -35,6 +35,23 @@ class AuthTimeStamperTest {
         verify(session).setAttribute(AuthTimeStamper.HELIX_AUTH_TIME, NOW);
     }
 
+    /**
+     * Task 3 (fix round 1 — stale acr): {@code stamp} is the choke point for EVERY interactive login
+     * completion, so it must clear any {@code HELIX_ACR} a PRIOR login in this browser session left
+     * behind — otherwise a password re-login (prompt=login/max_age) after a high-LoA federated login
+     * would be bound with the old acr, and a federated login asserting no LoA would keep a previous one.
+     */
+    @Test
+    void stamp_clearsAnyStaleBrokeredAcrFromAnEarlierLoginInThisSession() {
+        final HttpServletRequest request = mock(HttpServletRequest.class);
+        final HttpSession session = mock(HttpSession.class);
+        when(request.getSession(true)).thenReturn(session);
+
+        stamper.stamp(request);
+
+        verify(session).removeAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE);
+    }
+
     @Test
     void read_returnsTheStampedValue() {
         final HttpServletRequest request = mock(HttpServletRequest.class);

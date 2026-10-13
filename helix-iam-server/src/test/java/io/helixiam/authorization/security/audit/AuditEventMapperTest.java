@@ -57,6 +57,14 @@ class AuditEventMapperTest {
     }
 
     @Test
+    void mapsVerifierKeyImport() {
+        final AuditEventMapper.AdminAudit a = map("POST", "/admin/realms/gov/verifier-keys", 201);
+        assertEquals("VERIFIER_KEY_IMPORT", a.type());
+        assertEquals("verifier-key", a.resourceType());
+        assertEquals("gov", a.realm());
+    }
+
+    @Test
     void mapsGroupLifecycleMembersAndRoles() {
         assertEquals("GROUP_CREATE", map("POST", "/admin/realms/gov/groups", 201).type());
         assertEquals("GROUP_UPDATE", map("PUT", "/admin/realms/gov/groups/g-1", 200).type());

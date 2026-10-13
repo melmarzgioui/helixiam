@@ -5,6 +5,9 @@
 
 import { findProviderType } from "../components/providerCatalog";
 import type { WizardResult } from "../components/ProviderWizard";
+import { fromIdpResponse, secretWriteConfig, type RawIdentityProviderConfig } from "./idpSecrets";
+import { adminJson } from "./adminError";
+import { WALLET_PROTOCOL } from "../pages/walletProvider";
 
 /** A persisted identity-provider connection (mirrors the backend E8.2 DTO). */
 export interface IdentityProviderConfig {
@@ -13,7 +16,10 @@ export interface IdentityProviderConfig {
   protocol: string;
   displayName: string;
   enabled: boolean;
+  /** Settings only: secrets are never returned (see `secretsSet`). */
   config: Record<string, string>;
+  /** Which write-only secrets are stored (`clientSecret: true`); from the API's `"<key>Set"` flags. */
+  secretsSet?: Record<string, boolean>;
 }
 
 /** Create/update body (realm + alias come from the path, never the body). */
@@ -52,7 +58,8 @@ const EID_SCHEMES = new Set(["digid", "eherkenning", "eidas"]);
  */
 export function toRequest(result: WizardResult): IdentityProviderRequest {
   const type = findProviderType(result.providerType);
-  const protocol = EID_SCHEMES.has(result.providerType)
+  // eID schemes and the EUDI wallet are stored under their own protocol name (the server picks the connector by it).
+  const protocol = EID_SCHEMES.has(result.providerType) || result.providerType === WALLET_PROTOCOL
     ? result.providerType
     : type?.protocol ?? result.providerType;
   const mappers = result.mappers
@@ -100,19 +107,22 @@ export function createHttpClient(baseUrl = ""): IdentityProviderApi {
   const url = (realmId: string, alias?: string) =>
     `${base}/admin/realms/${encodeURIComponent(realmId)}/identity-providers${alias ? `/${encodeURIComponent(alias)}` : ""}`;
 
-  const json = async (res: Response) => {
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.status === 204 ? null : res.json();
-  };
+  // A 400 {message, fieldErrors} becomes an AdminApiError, so forms can show the server's errors on their fields.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const json = (res: Response) => adminJson<any>(res);
+
+  const one = (raw: RawIdentityProviderConfig | null) => (raw ? fromIdpResponse(raw) : null);
+  // A blank secret is never sent: the API keeps the stored one.
+  const write = (body: IdentityProviderRequest) => JSON.stringify({ ...body, config: secretWriteConfig(body.config ?? {}) });
 
   return {
-    list: (realmId) => fetch(url(realmId)).then(json),
+    list: (realmId) => fetch(url(realmId)).then(json).then((all: RawIdentityProviderConfig[]) => all.map(fromIdpResponse)),
     get: (realmId, alias) =>
-      fetch(url(realmId, alias)).then((res) => (res.status === 404 ? null : json(res))),
+      fetch(url(realmId, alias)).then((res) => (res.status === 404 ? null : json(res).then(one))),
     create: (realmId, body) =>
-      fetch(url(realmId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(json),
+      fetch(url(realmId), { method: "POST", headers: { "Content-Type": "application/json" }, body: write(body) }).then(json).then(fromIdpResponse),
     update: (realmId, alias, body) =>
-      fetch(url(realmId, alias), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(json),
+      fetch(url(realmId, alias), { method: "PUT", headers: { "Content-Type": "application/json" }, body: write(body) }).then(json).then(fromIdpResponse),
     remove: (realmId, alias) => fetch(url(realmId, alias), { method: "DELETE" }).then(json).then(() => undefined),
     syncUsers: (realmId, alias) =>
       fetch(`${base}/admin/realms/${encodeURIComponent(realmId)}/user-federation/${encodeURIComponent(alias)}/sync`, { method: "POST" }).then(json),

@@ -74,27 +74,34 @@ public final class EidLevelOfAssurance {
     private EidLevelOfAssurance() {
     }
 
-    /** The rung of this AuthnContextClassRef on the scheme's ladder, or {@code 0} if unrecognised/blank. */
+    /**
+     * The rung of this AuthnContextClassRef on the scheme's ladder, or {@code 0} if unrecognised/blank.
+     * {@link EidScheme#EUDI_WALLET} is an audit/display tag only — it has no ladder of its own and
+     * delegates to {@link EidScheme#EIDAS}'s.
+     */
     public static int rung(final EidScheme scheme, final String authnContextClassRef) {
         if (authnContextClassRef == null || authnContextClassRef.isBlank()) {
             return 0;
         }
-        return LADDERS.getOrDefault(scheme, Map.of()).getOrDefault(authnContextClassRef.trim(), 0);
+        final EidScheme ladderScheme = scheme == EidScheme.EUDI_WALLET ? EidScheme.EIDAS : scheme;
+        return LADDERS.getOrDefault(ladderScheme, Map.of()).getOrDefault(authnContextClassRef.trim(), 0);
     }
 
     /**
      * The scheme URN for a configured minimum: the URN itself when it is on the ladder, the URN a console
-     * keyword stands for, or {@code null} when the value is blank or not recognised for this scheme.
+     * keyword stands for, or {@code null} when the value is blank or not recognised for this scheme. Like
+     * {@link #rung}, {@link EidScheme#EUDI_WALLET} resolves on the eIDAS ladder (it has none of its own).
      */
     public static String canonicalMinimum(final EidScheme scheme, final String minimum) {
         if (minimum == null || minimum.isBlank()) {
             return null;
         }
+        final EidScheme ladderScheme = scheme == EidScheme.EUDI_WALLET ? EidScheme.EIDAS : scheme;
         final String value = minimum.trim();
-        if (LADDERS.getOrDefault(scheme, Map.of()).containsKey(value)) {
+        if (LADDERS.getOrDefault(ladderScheme, Map.of()).containsKey(value)) {
             return value;
         }
-        return KEYWORDS.getOrDefault(scheme, Map.of()).get(value.toLowerCase(java.util.Locale.ROOT));
+        return KEYWORDS.getOrDefault(ladderScheme, Map.of()).get(value.toLowerCase(java.util.Locale.ROOT));
     }
 
     /** Whether {@code minimum} may be configured for this scheme: blank (no minimum) or a recognised level. */

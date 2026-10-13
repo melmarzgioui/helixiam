@@ -14,11 +14,16 @@ import org.springframework.security.oauth2.server.authorization.token.JwtEncodin
  * on the authorization, so the code exchange and every refresh carry the same {@code sid} and the time of the
  * last interactive authentication (never the time of the token request). {@code auth_time} is emitted as epoch
  * seconds (a JSON number, as OIDC Core requires).
+ *
+ * <p>Task 3: the same mechanism carries {@code acr} — the brokered level of assurance of a federated login
+ * (eID SAML, EUDI Wallet), bound from {@link SsoSessionBindingAuthorizationService#ACR_ATTRIBUTE}. Absent
+ * for a password login, which never sets it.
  */
 public final class IdTokenSessionClaims {
 
     public static final String SID = "sid";
     public static final String AUTH_TIME = "auth_time";
+    public static final String ACR = "acr";
 
     private IdTokenSessionClaims() {
     }
@@ -34,12 +39,16 @@ public final class IdTokenSessionClaims {
         }
         final Object sid = authorization.getAttribute(SsoSessionBindingAuthorizationService.SID_ATTRIBUTE);
         final Object authTime = authorization.getAttribute(SsoSessionBindingAuthorizationService.AUTH_TIME_ATTRIBUTE);
+        final Object acr = authorization.getAttribute(SsoSessionBindingAuthorizationService.ACR_ATTRIBUTE);
         context.getClaims().claims(claims -> {
             if (sid instanceof String value && !value.isBlank()) {
                 claims.put(SID, value);
             }
             if (authTime instanceof Long seconds) {
                 claims.put(AUTH_TIME, seconds);
+            }
+            if (acr instanceof String value && !value.isBlank()) {
+                claims.put(ACR, value);
             }
         });
     }

@@ -191,3 +191,15 @@ like the token. What is logged is the realm id (and exception messages / theme n
 - **#279** `java/unsafe-cert-trust` — `src/test/java/io/helixiam/testsupport/TestSmtpServer.java:209`. False positive:
   a test-only SMTP server used to exercise STARTTLS/SMTPS against a throw-away self-signed certificate; it is not on
   the production classpath. Production SMTP always verifies certificates (optional custom CA, no trust-all switch).
+
+## `feature/eudi-wallet` branch (Phase 2, Task 23): pending GitHub CodeQL run
+
+The CodeQL CLI is not installed in this environment, so Phase 1-2 of the EUDI Wallet (OpenID4VP verifier) work
+(`io.helixiam.authorization.federation.wallet.*`, ~25 production files, `pid.requestedClaims`/x5c parsing/CBOR
+decoding/JWE decryption/status-list HTTP fetches — the usual CodeQL hot spots for a new protocol surface) has not
+been scanned locally. It will be scanned by GitHub's CodeQL workflow on the branch's first push/PR; triage any new
+alerts there following this file's format (false positive vs fixed-with-test) before Phase 2 merges. Candidates to
+check against existing entries above: `java/ssrf` on `TokenStatusListClient`'s status-list fetch (guarded by the
+same `OutboundUrlGuard` as `UpstreamLogoutClient`, #84/#85 above) and `java/log-injection` on the wallet's own
+`LogSafe.sanitize` usage (`WalletLoginAudit`, `WalletResponseHandler`, `WalletIdentityProvider` — never log
+`vp_token`/disclosures/PID values/nonces/`response_code`/keys per the branch's constraints).

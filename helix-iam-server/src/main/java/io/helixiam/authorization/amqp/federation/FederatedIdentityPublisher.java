@@ -25,6 +25,10 @@ public interface FederatedIdentityPublisher {
     String AUTHORIZATION_FEDERATION_LINK_CREATE = "authorization.federation.link.create";
     String AUTHORIZATION_FEDERATION_USER_PROVISION = "authorization.federation.user.provision";
     String AUTHORIZATION_FEDERATION_USER_LOAD = "authorization.federation.user.load";
+    // Task 21a: realm-scoped link operations (wallet). ALL dots: the subscriber binding turns every dash into a dot.
+    String AUTHORIZATION_FEDERATION_LINK_FIND_IN_REALM = "authorization.federation.link.find.in.realm";
+    String AUTHORIZATION_FEDERATION_LINK_CLAIM = "authorization.federation.link.claim";
+    String AUTHORIZATION_FEDERATION_LINK_REMOVE_ALL = "authorization.federation.link.remove.all";
 
     /** The local user id linked to this external identity, or {@code null} if none. */
     String findLinkedUser(final FederatedLinkLookup lookup);
@@ -40,4 +44,19 @@ public interface FederatedIdentityPublisher {
 
     /** Passwordless load of a user by id, to establish the post-federation session. */
     UserCredentials loadUser(final String userId);
+
+    /**
+     * Task 21a: the live user of the lookup's realm linked to (alias, subject), or {@code null}; a stale link (owner
+     * deleted or in another realm) counts as none.
+     */
+    String findRealmLinkedUser(final RealmFederatedLinkLookup lookup);
+
+    /**
+     * Task 21a: link (alias, subject) to the user only if it is free (unlinked or stale), race-safely; never overwrites
+     * a live link.
+     */
+    FederatedLinkClaimResult claimLink(final RealmFederatedLink link);
+
+    /** Task 21a: remove every link the user has for the alias; returns how many were removed. */
+    Integer unlinkAll(final RealmFederatedUnlink unlink);
 }

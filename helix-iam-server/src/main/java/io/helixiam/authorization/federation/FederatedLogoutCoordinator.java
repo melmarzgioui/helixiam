@@ -34,7 +34,7 @@ public class FederatedLogoutCoordinator {
             return; // not a brokered session — nothing upstream to log out
         }
         try {
-            final IdentityProvider provider = registry.get(context.idpAlias());
+            final IdentityProvider provider = registry.get(context.realmId(), context.idpAlias());
             if (provider == null) {
                 LOG.debug("Federated logout: no provider registered for alias {}", context.idpAlias());
                 return;

@@ -16,6 +16,11 @@ import io.helixiam.authorization.amqp.federation.IdentityProviderRef;
 import io.helixiam.authorization.federation.saml.Saml2IdentityProvider;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
+import io.helixiam.authorization.federation.wallet.VerifiedIdentityJson;
+import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
+import io.helixiam.authorization.federation.wallet.WalletLinkService;
+import io.helixiam.authorization.federation.wallet.WalletLoginCompleter;
+import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
@@ -75,6 +80,8 @@ public class FederationBrokerController {
     public static final String IDP_SOURCE_ATTR = "HELIX_IDP_SOURCE";
     public static final String IDP_SUBJECT_ATTR = "HELIX_IDP_SUBJECT";
     private static final String LOGIN_ERROR = "redirect:/login?error=federation";
+    /** Task 18 fix round 1: the id of this browser's live wallet login per alias (one at a time). */
+    private static final String WALLET_TX_ATTR = "HELIX_WALLET_TX_";
 
     private final IdentityProviderRegistry registry;
     private final IdentityBroker broker;
@@ -84,6 +91,8 @@ public class FederationBrokerController {
     private final IdentityProviderConfigPublisher idpConfig;
     private final String idpBaseUrl;
     private final Supplier<String> stateGenerator;
+    /** Task 18: completes EUDI wallet logins (account decision, JIT, link); without it a wallet callback is refused. */
+    private WalletLoginCompleter walletLoginCompleter;
 
     @org.springframework.beans.factory.annotation.Autowired
     public FederationBrokerController(final IdentityProviderRegistry registry, final IdentityBroker broker,
@@ -116,15 +125,51 @@ public class FederationBrokerController {
         this.stateGenerator = stateGenerator;
     }
 
+    /** Task 18: the wallet-aware completion (setter, so the existing constructors and their callers stay as they are). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWalletLoginCompleter(final WalletLoginCompleter walletLoginCompleter) {
+        this.walletLoginCompleter = walletLoginCompleter;
+    }
+
     @GetMapping("/broker/{alias}")
     public String start(@PathVariable final String alias, final HttpServletRequest request, final Model model) {
-        final IdentityProvider provider = registry.get(alias);
+        final IdentityProvider provider;
+        try {
+            provider = registry.get(RealmContextHolder.get(), alias);
+        } catch (final IllegalArgumentException e) {
+            // no such provider in this realm (a stored provider of another realm included): the login page's error
+            LOG.warn("Federation: no provider {} in this realm", LogSafe.sanitize(alias));
+            return LOGIN_ERROR;
+        }
         final String state = stateGenerator.get();
-        final IdentityProvider.RedirectResponse redirect =
-                provider.start(new IdentityProvider.AuthnRequestContext(RealmContextHolder.get(), state, callbackUri(alias)));
-
         final HttpSession session = request.getSession();
+        // Task 18 fix round 1: one live wallet login per browser and provider: starting again discards the previous
+        // transaction, so one session can never pile transactions up in the store.
+        final WalletIdentityProvider wallet = WalletIdentityProvider.from(provider).orElse(null);
+        if (wallet != null && session.getAttribute(WALLET_TX_ATTR + alias) instanceof String previous) {
+            wallet.transactions().discard(previous);
+            session.removeAttribute(WALLET_TX_ATTR + alias);
+        }
+        // Ties this login to this browser (a session secret, not the session id, which rotates); the EUDI wallet
+        // provider stores the hash in its transaction and the callback must present the same one.
+        final String browserBindingHash = BrowserBinding.begin(session, alias);
+        final IdentityProvider.RedirectResponse redirect;
+        try {
+            redirect = provider.start(new IdentityProvider.AuthnRequestContext(
+                    RealmContextHolder.get(), state, callbackUri(alias), browserBindingHash));
+        } catch (final RuntimeException e) {
+            // e.g. a stored wallet provider asked to start in another realm: the browser only sees error=federation
+            BrowserBinding.clear(session, alias);
+            LOG.warn("Federation: provider {} refused to start: {}", LogSafe.sanitize(alias),
+                    LogSafe.sanitize(e.getMessage()));
+            return LOGIN_ERROR;
+        }
+
         session.setAttribute(STATE_ATTR + alias, state);
+        if (wallet != null && redirect.parameters() != null
+                && redirect.parameters().get(WalletIdentityProvider.TRANSACTION_PARAM) != null) {
+            session.setAttribute(WALLET_TX_ATTR + alias, redirect.parameters().get(WalletIdentityProvider.TRANSACTION_PARAM));
+        }
         if (redirect.parameters() != null && redirect.parameters().get("nonce") != null) {
             session.setAttribute(NONCE_ATTR + alias, redirect.parameters().get("nonce"));
         }
@@ -171,16 +216,51 @@ public class FederationBrokerController {
         session.removeAttribute(REQUEST_ID_ATTR + alias);
 
         final BrokeredIdentity identity;
+        VerifiedIdentityJson.StoredLogin walletLogin = null;
         try {
-            final IdentityProvider provider = registry.get(alias);
+            final IdentityProvider provider = registry.get(RealmContextHolder.get(), alias);
             final IdentityProvider.CallbackContext context = new IdentityProvider.CallbackContext(
                     RealmContextHolder.get(), parameters(request), expectedState, expectedNonce,
-                    callbackUri(alias), expectedRequestId);
-            identity = provider.callback(context);
+                    callbackUri(alias), expectedRequestId, BrowserBinding.current(session, alias));
+            final WalletIdentityProvider walletProvider = WalletIdentityProvider.from(provider).orElse(null);
+            if (walletProvider != null) {
+                // Task 18: a wallet login carries the account decision made when the presentation was verified; it
+                // never goes through IdentityBroker (no email linking, no overwriting link).
+                if (walletLoginCompleter == null) {
+                    throw new IllegalStateException("EUDI wallet logins are not wired");
+                }
+                walletLogin = walletProvider.redeem(context);
+                identity = walletLogin.identity();
+            } else {
+                identity = provider.callback(context);
+            }
+        } catch (final WalletVerificationException e) {
+            // The browser only ever sees error=federation; which check failed is logged, never shown.
+            LOG.warn("Federation: wallet callback refused for provider {}: reason={} detail={}",
+                    LogSafe.sanitize(alias), e.code().reason(), LogSafe.sanitize(e.getMessage()));
+            return LOGIN_ERROR;
         } catch (final RuntimeException e) {
             LOG.warn("Federation: callback validation failed for provider {}: {}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
             return LOGIN_ERROR;
+        }
+        BrowserBinding.clear(session, alias);
+
+        if (walletLogin != null) {
+            session.removeAttribute(WALLET_TX_ATTR + alias); // redeemed: nothing left to discard
+            if (!(walletLogin.decision() instanceof WalletLinkService.Decision.Refused)) {
+                session.setAttribute(IDP_SOURCE_ATTR, alias);
+                session.setAttribute(IDP_SUBJECT_ATTR, identity.externalSubject());
+            }
+            try {
+                return walletLoginCompleter.complete(alias, walletLogin, mapperConfigFor(alias), request, response);
+            } catch (final RuntimeException e) {
+                // Task 18 fix round 1: e.g. the link store or provisioning failed after a verified login; the browser
+                // only ever sees error=federation (no detail, no PII in the log: the exception type only).
+                LOG.warn("Federation: wallet login for provider {} could not be completed: {}",
+                        LogSafe.sanitize(alias), e.getClass().getSimpleName());
+                return LOGIN_ERROR;
+            }
         }
 
         // B5: apply this provider's configured attribute/claim mappers during link/JIT provisioning.
@@ -198,7 +278,10 @@ public class FederationBrokerController {
         session.setAttribute(IDP_SOURCE_ATTR, alias);
         session.setAttribute(IDP_SUBJECT_ATTR, identity.externalSubject());
         // Run the post-broker flow (optional step-up); it establishes the session or routes to /flow.
-        return loginCompleter.complete(result.userId(), request, response);
+        // Task 3 (fix round 1): ONLY the typed BrokeredIdentity#levelOfAssurance() may reach acr — NEVER
+        // identity.attributes().get("loa"), which is free-form/provider-controlled and forgeable (any OIDC
+        // IdP whose id_token carries a "loa" claim would otherwise set it verbatim).
+        return loginCompleter.complete(result.userId(), identity.levelOfAssurance(), request, response);
     }
 
     /**

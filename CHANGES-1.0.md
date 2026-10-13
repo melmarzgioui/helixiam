@@ -118,8 +118,63 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.5`)
 
+- **feature (experimental)** — HelixIAM can now act as an OpenID4VP *Verifier* for EU Digital Identity Wallets:
+  users present a PID credential (SD-JWT VC and/or ISO mdoc) instead of, or alongside, a password. New package
+  `io.helixiam.authorization.federation.wallet`, one admin-managed identity-provider connection per realm
+  (protocol `eudi-wallet`), same-device redirect and cross-device QR flows, Token Status List revocation
+  checking, and a subject rule of "administrative number, else an explicit account link" (a PID without one
+  cannot create an account by itself). Pure Java — no Kotlin, no vendored EUDI reference libraries — on top of
+  Nimbus JOSE+JWT (now pinned at **10.10**, see the CVE item below), Jackson CBOR, BouncyCastle and ZXing, all
+  already on the classpath. Full operator guide: `docs/eudi-wallet.md`; threat model: `helix-iam-server/
+  SECURITY-REVIEW.md` Appendix B; known gaps: `helix-iam-server/DEFERRED-SECURITY-WORK.md`. **Experimental** —
+  not yet run against the OpenID Foundation conformance suite or a real wallet (see `docs/FEATURES.md` and
+  `ROADMAP.md`).
+
+- **behaviour (all connectors)** — A federated login gets a new session id: `FederatedLoginCompleter` rotates it when
+  the login completes and `FlowController` when a post-broker step-up completes (OIDC, SAML, eID, wallet). On the
+  `queue` (PostgreSQL) session store `QueueIndexedSessionRepository.save` now deletes the pre-rotation row, so the old
+  cookie no longer works after the rotation.
+- **behaviour (all connectors)** — ID tokens carry `acr`. `BrokeredIdentity` gained a typed `levelOfAssurance`; the eID
+  SAML connector sets it from the assertion's `AuthnContextClassRef` (only a value on that scheme's ladder) and the
+  wallet sets `http://eidas.europa.eu/LoA/high`. It is bound into the authorization code like `sid`/`auth_time` and put
+  on the ID token (kept across refresh, never on access tokens). A provider attribute named `loa` is never used, so an
+  upstream OIDC IdP cannot set it. Every login completion clears a previous login's value; a step-up holds it on the
+  flow state until that flow completes.
+- **behaviour (all connectors)** — The broker start turns any provider error (and an alias unknown in the realm) into
+  `/login?error=federation` with a WARN log, instead of an error page.
+- **behaviour (admin, all connectors)** — Console/admin-API identity providers are live in every realm:
+  `helix.federation.store.enabled` defaults to `true` (it was `false`, so that boot never called AMQP, which is gone);
+  the startup load covers every realm (`helix.federation.store.realm` is removed); an admin write refreshes only its
+  realm; the registry keys stored providers by (realm, alias), so realms may share an alias such as `eudi-wallet`; the
+  login page, broker, wallet endpoints and account console resolve providers for the request's realm only. A stored
+  config whose secrets cannot be read is skipped by id instead of failing the realm's (or every realm's) load.
+- **audit (wallet)** — A wallet login that steps up (MFA, risk step) is audited when the step ends:
+  `WALLET_LOGIN_SUCCESS` for the signed-in user, or `WALLET_LOGIN_FAILURE`; previously it was never audited.
+
 CodeQL opened 19 alerts on code added in rc.5. Twelve are fixed below; the seven false positives are explained in
 `helix-iam-server/CODEQL-TRIAGE.md` ("rc.5 scan").
+
+- **security** — Nimbus JOSE + JWT is pinned to **10.10** (CVE-2025-53864 / GHSA-xwmg-2g98-w7v9). Nimbus before
+  10.0.2 (and before 9.37.4 on the 9.x line) has no bound on JSON nesting in a JWT claim set, so an attacker-supplied
+  token with deeply nested arrays or objects can exhaust the stack (denial of service). **This also affects the
+  already-released versions:** Spring Authorization Server 1.5.8 brings in the vulnerable 9.47, which it and Spring
+  Security use to decode JWTs (for example `private_key_jwt` client assertions). Boot 3.5 does not manage Nimbus, so the
+  version is now pinned in `helix-iam-server/pom.xml` `dependencyManagement`; the build resolves a single Nimbus.
+  `NimbusNestedJsonRegressionTest` checks that a claim set nested 10 000 levels deep is refused with a
+  `ParseException` (9.47 accepted it). The EUDI Wallet verifier also uses Nimbus directly to parse wallet JWTs.
+
+- **security** — Identity-provider secrets are encrypted at rest and never returned. The OIDC `clientSecret`, the eID
+  SP private keys (`spDecryptionPrivateKey`, `spSigningPrivateKey`), the LDAP bind password and the coming EUDI Wallet
+  keys (`accessCertificatePrivateKey`, `subjectPepper`) were stored in plain text in `identity_provider.config_json`
+  and returned as is by `GET /admin/realms/{realm}/identity-providers` (list and by alias). They now live in a new
+  column `secret_json`, encrypted with `DB_ENCRYPTION` (Flyway `V75`, and `schema.sql`); existing secrets are moved
+  out of `config_json` by Flyway `V75.1`, or at startup on the `schema.sql` path (idempotent). The API returns
+  `"<key>Set": true|false` instead of the value. Secrets are write-only, like the messaging provider's
+  `secret` / `clearSecret`: an absent or blank value keeps the stored one, a value replaces it, and
+  `"clear<Key>": "true"` (e.g. `clearClientSecret`) removes it; a value together with its clear flag is a 400. The realm
+  export masks every one of these keys (also `subjectPepper` and `bindPw`, which the key-name rule missed), and a
+  re-import without them keeps the stored secrets. The console shows "Set" / "Not set" with Replace and sends a secret
+  only when one is typed. The list of secret keys per protocol is `ProviderSecretKeys`.
 
 - **security** — `79b5bf4` No state change on a `GET` (CodeQL #258, #259). Opening `/required-actions` sent the
   verification email; the email is now sent in the sign-in `POST` that holds the user, and "send again" stays a

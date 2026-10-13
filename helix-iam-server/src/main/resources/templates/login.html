@@ -83,7 +83,8 @@
 
             <!--/* Helix IAM E5.4: federated login — one "Sign in with X" button per configured provider.
                  Each button carries its brand mark: an admin-set logoUrl wins, else the built-in official
-                 eID mark (DigiD / eHerkenning / eIDAS) keyed by the provider's iconKey. */-->
+                 eID mark (DigiD / eHerkenning / eIDAS) keyed by the provider's iconKey, or (Task 18) the neutral
+                 wallet glyph for an EUDI wallet (never an EU emblem). */-->
             <div class="federationProviders" th:if="${federationProviders != null and !federationProviders.isEmpty()}">
                 <div class="federationDivider"><span th:text="#{login.federation.divider}">or sign in with</span></div>
                 <a class="federationProvider" th:each="provider : ${federationProviders}"
@@ -93,6 +94,7 @@
                     <img th:if="${provider.logoUrl() == null and provider.iconKey() == 'digid'}" class="fed-logo" th:src="@{/img/idp/digid.svg}" alt="" aria-hidden="true">
                     <img th:if="${provider.logoUrl() == null and provider.iconKey() == 'eherkenning'}" class="fed-logo" th:src="@{/img/idp/eherkenning.png}" alt="" aria-hidden="true">
                     <img th:if="${provider.logoUrl() == null and provider.iconKey() == 'eidas'}" class="fed-logo" th:src="@{/img/idp/eidas.png}" alt="" aria-hidden="true">
+                    <img th:if="${provider.logoUrl() == null and provider.iconKey() == 'eudi-wallet'}" class="fed-logo" th:src="@{/img/idp/eudi-wallet.svg}" alt="" aria-hidden="true">
                     <span th:text="${provider.displayName()}">Provider</span>
                 </a>
             </div>

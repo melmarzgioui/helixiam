@@ -245,6 +245,176 @@ h1, h2, h3, h4 {
 .hx-break {
   word-break: break-all;
 }
+
+/* ------------------------------------------------- EUDI wallet sign-in (Task 18) -- */
+/* Desktop: the QR code leads (the user is on another device than the wallet). The DOM puts "Open wallet app" first,
+   which is what a phone shows first (below). */
+.hx-wallet-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: calc(var(--hx-space) * 5);
+}
+.hx-wallet-grid > .hx-wallet-qr {
+  order: -1;
+}
+.hx-wallet-narrow {
+  display: none;
+}
+.hx-wallet-qr {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--hx-space) * 1.5);
+}
+/* The QR code stays black on white in every theme and colour scheme: a scanner needs the contrast. */
+.hx-wallet-qr img {
+  display: block;
+  box-sizing: border-box;
+  width: 264px;
+  height: 264px;
+  max-width: 100%;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--hx-border);
+  border-radius: var(--hxi-radius-sm);
+}
+.hx-wallet-qr figcaption {
+  color: var(--hx-ink-muted);
+  font-size: 0.875rem;
+}
+.hx-wallet-device h2 {
+  font-family: var(--hx-font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--hx-ink);
+}
+.hx-wallet-device p {
+  margin: var(--hx-space) 0 0;
+}
+.mainWrapper > main > div.container article .hx-wallet-device .buttonHolder {
+  justify-content: flex-start;
+  margin-top: calc(var(--hx-space) * 2.5);
+}
+.hx-wallet-device .buttonHolder > a.button {
+  width: auto;
+  padding: 0 calc(var(--hx-space) * 5);
+}
+/* A phone (same-device is the natural path there): "Open wallet app" first and full width, the QR code second and
+   smaller, for when the wallet is on another device. */
+@media screen and (max-width: 640px) {
+  .hx-wallet-grid {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: calc(var(--hx-space) * 4);
+  }
+  .hx-wallet-grid > .hx-wallet-qr {
+    order: 0;
+    padding-top: calc(var(--hx-space) * 3);
+    border-top: 1px solid var(--hx-border);
+    width: 100%;
+  }
+  .hx-wallet-qr img {
+    width: 200px;
+    height: 200px;
+  }
+  .hx-wallet-narrow {
+    display: block;
+  }
+  .hx-wallet-wide {
+    display: none;
+  }
+  .mainWrapper > main > div.container article .hx-wallet-device .buttonHolder {
+    justify-content: center;
+  }
+  .hx-wallet-device {
+    width: 100%;
+  }
+  .hx-wallet-device .buttonHolder > a.button {
+    width: 100%;
+  }
+}
+.hx-wallet-status {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 1.5);
+  margin: 0;
+  padding: calc(var(--hx-space) * 1.5) calc(var(--hx-space) * 2);
+  border-radius: var(--hxi-radius-sm);
+  background: var(--hx-surface-sunken);
+  color: var(--hx-ink);
+}
+/* A small spinner while the page waits for the wallet (an external stylesheet: no inline style, CSP intact). */
+.hx-wallet-status.is-waiting::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid var(--hx-primary);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hx-wallet-spin 0.9s linear infinite;
+}
+@keyframes hx-wallet-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hx-wallet-status.is-waiting::before {
+    animation: none;
+    border-right-color: var(--hx-primary);
+    opacity: 0.6;
+  }
+}
+/* Task 21b: "Link your wallet first": three numbered steps (sign in another way, link in the account, sign in with
+   the wallet). Counters in CSS, so the markup stays a plain <ol>. */
+.hx-wallet-steps {
+  list-style: none;
+  counter-reset: hx-wallet-step;
+  margin: calc(var(--hx-space) * 3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--hx-space) * 2.5);
+}
+.hx-wallet-steps li {
+  counter-increment: hx-wallet-step;
+  display: grid;
+  grid-template-columns: calc(var(--hx-space) * 7) 1fr;
+  column-gap: calc(var(--hx-space) * 2);
+  row-gap: calc(var(--hx-space) * 0.5);
+  align-items: start;
+}
+.hx-wallet-steps li::before {
+  content: counter(hx-wallet-step);
+  grid-row: span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--hx-space) * 7);
+  height: calc(var(--hx-space) * 7);
+  border-radius: 50%;
+  background: var(--hx-primary-tint);
+  color: var(--hx-primary-strong);
+  font-weight: 700;
+}
+.hx-wallet-steps strong {
+  color: var(--hx-ink);
+  font-weight: 600;
+  padding-top: calc(var(--hx-space) * 0.75);
+}
+.hx-wallet-steps span {
+  color: var(--hx-ink-muted);
+}
+/* [hidden] must win over the buttons' and the grid's display rules (the polling script toggles it). */
+.hx-wallet [hidden],
+.buttonHolder > a.button[hidden] {
+  display: none;
+}
 .hx-alert {
   display: block;
   border-radius: var(--hxi-radius-sm);
@@ -335,7 +505,8 @@ form button.cancel:hover {
 .mainWrapper > main > div.container article .buttonHolder {
   margin-top: calc(var(--hx-space) * 4);
 }
-.buttonHolder > button.secondary > span {
+.buttonHolder > button.secondary > span,
+.buttonHolder > a.button.secondary > span {
   color: var(--hx-ink);
 }
 

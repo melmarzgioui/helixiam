@@ -23,13 +23,27 @@ export function Tabs({ tabs, value, defaultValue, onChange }: TabsProps) {
   const [internal, setInternal] = React.useState(defaultValue ?? tabs[0]?.id);
   const active = isControlled ? value : internal;
 
+  // The row scrolls sideways inside itself on narrow screens (.hx-tablist overflow-x): keep the active tab in view,
+  // also when it is changed programmatically (e.g. a save jumping to the tab with an error). Only the row scrolls,
+  // never the page.
+  const listRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const list = listRef.current;
+    const tab = list?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!list || !tab) return;
+    const left = tab.offsetLeft - list.offsetLeft;
+    const right = left + tab.offsetWidth;
+    if (left < list.scrollLeft) list.scrollLeft = left;
+    else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth;
+  }, [active]);
+
   const select = (id: string) => {
     if (!isControlled) setInternal(id);
     onChange?.(id);
   };
 
   return (
-    <div role="tablist" className="hx-tablist">
+    <div role="tablist" className="hx-tablist" ref={listRef}>
       {tabs.map((t) => (
         <button key={t.id} role="tab" className="hx-tab" aria-selected={t.id === active} onClick={() => select(t.id)}>
           {t.label}

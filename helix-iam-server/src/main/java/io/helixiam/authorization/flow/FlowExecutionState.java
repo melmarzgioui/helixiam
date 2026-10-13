@@ -25,6 +25,24 @@ public class FlowExecutionState implements Serializable {
     private String userId;
     private String currentChallengeExecutionId;
     private String currentChallengeView;
+    /**
+     * Task 3 fix round 1: the brokered level of assurance a federated login asserted, held here (NOT in a
+     * live {@code HELIX_ACR} session attribute) while this flow is mid-CHALLENGE, so it can never be read
+     * by anything other than THIS flow completing. A fresh login always gets a brand-new {@code
+     * FlowExecutionState} (see {@code FlowLoginSuccessHandler}/{@code FederatedLoginCompleter}), so an
+     * abandoned challenge's pending acr can never leak into a later, unrelated login.
+     */
+    private String pendingAcr;
+    /**
+     * Task 18: work a federated login may only do once it has fully succeeded ({@code FederatedLoginCommit}), held
+     * here while this flow is mid-CHALLENGE and made by {@code FlowController} when THIS flow completes.
+     */
+    private java.io.Serializable pendingCommit;
+    /**
+     * Final review F2: the marker a federated login reports its end with ({@code FederatedLoginOutcome}), held here
+     * while this flow is mid-CHALLENGE and reported (then cleared) by {@code FlowController} when THIS flow ends.
+     */
+    private java.io.Serializable pendingOutcome;
 
     public FlowExecutionState(final String realmId) {
         this.realmId = realmId;
@@ -69,5 +87,32 @@ public class FlowExecutionState implements Serializable {
 
     public void setCurrentChallengeView(final String view) {
         this.currentChallengeView = view;
+    }
+
+    /** The brokered level of assurance pending promotion into {@code HELIX_ACR} when THIS flow completes. */
+    public String pendingAcr() {
+        return pendingAcr;
+    }
+
+    public void setPendingAcr(final String pendingAcr) {
+        this.pendingAcr = pendingAcr;
+    }
+
+    /** The federated login's pending commit, made only when THIS flow completes ({@code FederatedLoginCommit}). */
+    public java.io.Serializable pendingCommit() {
+        return pendingCommit;
+    }
+
+    public void setPendingCommit(final java.io.Serializable pendingCommit) {
+        this.pendingCommit = pendingCommit;
+    }
+
+    /** The federated login's outcome marker, reported once when THIS flow ends ({@code FederatedLoginOutcome}). */
+    public java.io.Serializable pendingOutcome() {
+        return pendingOutcome;
+    }
+
+    public void setPendingOutcome(final java.io.Serializable pendingOutcome) {
+        this.pendingOutcome = pendingOutcome;
     }
 }

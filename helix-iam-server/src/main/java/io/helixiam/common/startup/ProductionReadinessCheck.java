@@ -19,6 +19,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
+import io.helixiam.authorization.federation.FederationProviderProperties;
+import io.helixiam.authorization.federation.wallet.WalletProviderConfig;
+
 import jakarta.annotation.PostConstruct;
 
 /**
@@ -33,6 +36,14 @@ import jakarta.annotation.PostConstruct;
  *       {@code HELIX_DB_ENCRYPTION_MIGRATE_UNTIL} set to a date at most 30 days ahead — the mode is time-boxed.</li>
  *   <li>{@code IDP_BASE_URL} / {@code SP_BASE_URL} unset — the server would otherwise fall back to
  *       placeholder URLs and mint tokens/redirects for the wrong host.</li>
+ *   <li>Task 22: a YAML-configured EUDI Wallet ({@code helix.federation.wallet[*]}) with {@code responseMode:
+ *       direct_post} (unencrypted) — allowed only in {@code dev}; outside it, {@link WalletConfigValidator} would
+ *       otherwise just skip the provider silently (it throws, the factory logs and moves on), leaving the operator
+ *       with a server that started but a wallet login button that is quietly missing.</li>
+ *   <li>Task 22: a YAML-configured wallet provider while {@code DB_ENCRYPTION} is unset — never downgradable with
+ *       {@code HELIX_ALLOW_PLAINTEXT_SECRETS}, unlike the general plaintext-secrets risk above: the wallet's peppers,
+ *       transaction keys and transactions themselves all refuse to work without at-rest encryption, so starting
+ *       "successfully" here would only be confusing.</li>
  * </ul>
  *
  * <p>It always logs a one-line "production readiness" summary of any remaining insecure-but-allowed
@@ -54,6 +65,8 @@ public class ProductionReadinessCheck {
     private final boolean cookieSecure;
     private final boolean springdocPublic;
     private final boolean egressAllowPrivate;
+    /** Task 22: YAML wallet providers (never null; checked for direct_post and for running without encryption). */
+    private final List<WalletProviderConfig> walletProviders;
     private final boolean migratePlaintext;
     private final String migrateUntil;
     private final Clock clock;
@@ -83,9 +96,22 @@ public class ProductionReadinessCheck {
             @Value("${helix.springdoc.public:false}") final boolean springdocPublic,
             @Value("${helix.egress.allow-private:false}") final boolean egressAllowPrivate,
             @Value("${helix.security.db-encryption.migrate-plaintext:false}") final boolean migratePlaintext,
-            @Value("${helix.security.db-encryption.migrate-until:}") final String migrateUntil) {
+            @Value("${helix.security.db-encryption.migrate-until:}") final String migrateUntil,
+            final FederationProviderProperties federation) {
         this(env, encryptionKey, allowPlaintextSecrets, idpBaseUrl, spBaseUrl, registrationEnabled, prometheusAnonymous,
-                cookieSecure, springdocPublic, egressAllowPrivate, migratePlaintext, migrateUntil, Clock.systemUTC());
+                cookieSecure, springdocPublic, egressAllowPrivate, migratePlaintext, migrateUntil, Clock.systemUTC(),
+                federation);
+    }
+
+    /** Task 22: the checks with YAML wallet providers ({@code helix.federation.wallet[*]}). */
+    public ProductionReadinessCheck(final Environment env, final String encryptionKey,
+                                    final boolean allowPlaintextSecrets, final String idpBaseUrl,
+                                    final String spBaseUrl, final boolean registrationEnabled,
+                                    final boolean prometheusAnonymous, final boolean cookieSecure,
+                                    final boolean springdocPublic, final boolean egressAllowPrivate,
+                                    final FederationProviderProperties federation) {
+        this(env, encryptionKey, allowPlaintextSecrets, idpBaseUrl, spBaseUrl, registrationEnabled, prometheusAnonymous,
+                cookieSecure, springdocPublic, egressAllowPrivate, false, "", Clock.systemUTC(), federation);
     }
 
     ProductionReadinessCheck(final Environment env, final String encryptionKey, final boolean allowPlaintextSecrets,
@@ -93,6 +119,15 @@ public class ProductionReadinessCheck {
                              final boolean prometheusAnonymous, final boolean cookieSecure, final boolean springdocPublic,
                              final boolean egressAllowPrivate, final boolean migratePlaintext, final String migrateUntil,
                              final Clock clock) {
+        this(env, encryptionKey, allowPlaintextSecrets, idpBaseUrl, spBaseUrl, registrationEnabled, prometheusAnonymous,
+                cookieSecure, springdocPublic, egressAllowPrivate, migratePlaintext, migrateUntil, clock, null);
+    }
+
+    ProductionReadinessCheck(final Environment env, final String encryptionKey, final boolean allowPlaintextSecrets,
+                             final String idpBaseUrl, final String spBaseUrl, final boolean registrationEnabled,
+                             final boolean prometheusAnonymous, final boolean cookieSecure, final boolean springdocPublic,
+                             final boolean egressAllowPrivate, final boolean migratePlaintext, final String migrateUntil,
+                             final Clock clock, final FederationProviderProperties federation) {
         this.devProfile = Arrays.asList(env.getActiveProfiles()).contains("dev");
         this.encryptionKey = encryptionKey;
         this.allowPlaintextSecrets = allowPlaintextSecrets;
@@ -103,6 +138,8 @@ public class ProductionReadinessCheck {
         this.cookieSecure = cookieSecure;
         this.springdocPublic = springdocPublic;
         this.egressAllowPrivate = egressAllowPrivate;
+        this.walletProviders = federation == null || federation.getWallet() == null ? List.of()
+                : List.copyOf(federation.getWallet());
         this.migratePlaintext = migratePlaintext;
         this.migrateUntil = migrateUntil;
         this.clock = clock;
@@ -143,6 +180,23 @@ public class ProductionReadinessCheck {
             }
             if (isBlank(spBaseUrl)) {
                 fatal.add("SP_BASE_URL is not set: the server needs the console/SP origin (CORS, redirects).");
+            }
+            // Task 22: a direct_post wallet provider is dev-only; WalletConfigValidator refuses it too, but only by
+            // skipping that one provider (logged, not fatal) — so without this check the server starts "successfully"
+            // with a wallet login button that silently does not work.
+            final List<String> directPost = walletProviders.stream()
+                    .filter(w -> w.responseMode() == WalletProviderConfig.ResponseMode.DIRECT_POST)
+                    .map(WalletProviderConfig::alias).toList();
+            if (!directPost.isEmpty()) {
+                fatal.add("wallet provider(s) " + directPost + " use responseMode direct_post (unencrypted), "
+                        + "which is allowed only in the dev profile.");
+            }
+            // Task 22: a wallet provider cannot function without at-rest encryption (peppers, transaction keys and
+            // transactions themselves all refuse), so — unlike the general plaintext-secrets risk below — this is
+            // never downgradable with HELIX_ALLOW_PLAINTEXT_SECRETS.
+            if (encryptionOff && !walletProviders.isEmpty()) {
+                fatal.add("a wallet provider is configured but DB_ENCRYPTION is not set: wallet peppers, "
+                        + "transaction keys and transactions themselves refuse to work without at-rest encryption.");
             }
         }
 

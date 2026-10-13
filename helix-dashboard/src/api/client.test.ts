@@ -21,6 +21,15 @@ const digidResult: WizardResult = {
 };
 
 describe("toRequest", () => {
+  it("stores the EUDI wallet under its own protocol name, without mappers", () => {
+    const req = toRequest({
+      providerType: "eudi-wallet", alias: "eudi", displayName: "EUDI Wallet", enabled: true, mappers: [],
+      config: { accessKeyRef: "software:acme/k", credentialFormats: '["dc+sd-jwt"]' },
+    });
+    expect(req.protocol).toBe("eudi-wallet");
+    expect(req.config).toEqual({ accessKeyRef: "software:acme/k", credentialFormats: '["dc+sd-jwt"]' });
+  });
+
   it("maps a DigiD wizard result to an eID-scheme request", () => {
     const req = toRequest(digidResult);
     expect(req.alias).toBe("digid");

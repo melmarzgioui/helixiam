@@ -145,6 +145,8 @@ public class FlowLoginSuccessHandler implements AuthenticationSuccessHandler {
                 // Promote to the full authentication FIRST, then resume the saved /oauth2/authorize so the
                 // SAS chain sees an authenticated session and issues a code for the originating client.
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                // completed at once: its flow state must not outlive it (final review M4)
+                io.helixiam.authorization.federation.PendingFederatedLogin.clear(request.getSession());
                 authTimeStamper.stamp(request); // SSO P2
                 sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
                 // Auth-hardening (feature 6): enforce the per-realm concurrent-session cap.

@@ -96,6 +96,95 @@ class IdentityProviderConfigServiceTest {
         verify(repository, never()).deleteByRealmIdAndAlias("gov", "ghost");
     }
 
+    @Test
+    void saveOrUpdate_storesSecretsOutsideConfigJson_andReadMergesThemBack() {
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        final IdentityProviderConfig saved = service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up",
+                true, Map.of("clientId", "web", "clientSecret", "s3cret", "clientSecretSet", "true")));
+
+        final ArgumentCaptor<IdentityProviderEntity> captor = ArgumentCaptor.forClass(IdentityProviderEntity.class);
+        verify(repository).save(captor.capture());
+        assertEquals("{\"clientId\":\"web\"}", captor.getValue().getConfigJson());
+        assertEquals("{\"clientSecret\":\"s3cret\"}", captor.getValue().getSecretJson());
+        assertEquals("s3cret", saved.config().get("clientSecret"), "the runtime map is merged");
+        assertFalse(saved.config().containsKey("clientSecretSet"));
+    }
+
+    @Test
+    void saveOrUpdate_absentOrBlankSecret_keepsTheStoredOne_andClearRemovesIt() {
+        final IdentityProviderEntity stored = entity("gov", "up", "oidc", "Up", true, "{\"clientId\":\"web\"}");
+        stored.setSecretJson("{\"clientSecret\":\"s3cret\"}");
+        when(repository.findById("gov|up")).thenReturn(Optional.of(stored));
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up", true, Map.of("clientId", "web2")));
+        assertEquals("{\"clientSecret\":\"s3cret\"}", stored.getSecretJson());
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up", true,
+                Map.of("clientId", "web2", "clientSecret", " ")));
+        assertEquals("{\"clientSecret\":\"s3cret\"}", stored.getSecretJson());
+
+        final IdentityProviderConfig cleared = service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc",
+                "Up", true, Map.of("clientId", "web2", "clientSecret", "", "clearClientSecret", "true")));
+        assertEquals(null, stored.getSecretJson());
+        assertFalse(cleared.config().containsKey("clientSecret"));
+        assertEquals("{\"clientId\":\"web2\"}", stored.getConfigJson());
+    }
+
+    @Test
+    void read_legacySecretStillInConfigJson_isMergedForTheRuntime_andMovedOnTheNextSave() {
+        final IdentityProviderEntity legacy = entity("gov", "up", "oidc", "Up", true,
+                "{\"clientId\":\"web\",\"clientSecret\":\"old\"}");
+        when(repository.findByRealmIdAndAlias("gov", "up")).thenReturn(Optional.of(legacy));
+        when(repository.findById("gov|up")).thenReturn(Optional.of(legacy));
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals("old", service.get("gov", "up").orElseThrow().config().get("clientSecret"));
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "up", "oidc", "Up", true, Map.of("clientId", "web")));
+        assertEquals("{\"clientId\":\"web\"}", legacy.getConfigJson());
+        assertEquals("{\"clientSecret\":\"old\"}", legacy.getSecretJson());
+    }
+
+    // --- final review m3 / F1: one unreadable row never takes down the realm (or, at startup, every realm) ---
+
+    @Test
+    void list_skipsARowWhoseSecretsCannotBeRead_andReturnsTheRest() {
+        final IdentityProviderEntity broken = entity("gov", "broken", "oidc", "Broken", true, "{}");
+        broken.setSecretJson("not-json-and-not-decryptable");
+        when(repository.findAllByRealmId("gov"))
+                .thenReturn(List.of(entity("gov", "ok", "saml", "OK", true, "{}"), broken));
+
+        final List<IdentityProviderConfig> list = service.list("gov");
+
+        assertEquals(List.of("ok"), list.stream().map(IdentityProviderConfig::alias).toList());
+    }
+
+    @Test
+    void list_whenLoadingTheRealmFails_loadsRowByRow_skippingTheUnreadableOne() {
+        // e.g. the entity converter refusing an undecryptable secret_json fails the whole query
+        when(repository.findAllByRealmId("gov")).thenThrow(new IllegalStateException("cannot decrypt"));
+        when(repository.findIdsByRealmId("gov")).thenReturn(List.of("gov|ok", "gov|broken"));
+        when(repository.findById("gov|ok")).thenReturn(Optional.of(entity("gov", "ok", "saml", "OK", true, "{}")));
+        when(repository.findById("gov|broken")).thenThrow(new IllegalStateException("cannot decrypt"));
+
+        final List<IdentityProviderConfig> list = service.list("gov");
+
+        assertEquals(List.of("ok"), list.stream().map(IdentityProviderConfig::alias).toList());
+    }
+
+    @Test
+    void listAll_returnsTheConfigsOfEveryRealm_skippingAnUnreadableRow() {
+        when(repository.findAll()).thenThrow(new IllegalStateException("cannot decrypt"));
+        when(repository.findAllIds()).thenReturn(List.of("a|one", "b|two", "b|bad"));
+        when(repository.findById("a|one")).thenReturn(Optional.of(entity("a", "one", "oidc", "One", true, "{}")));
+        when(repository.findById("b|two")).thenReturn(Optional.of(entity("b", "two", "oidc", "Two", true, "{}")));
+        when(repository.findById("b|bad")).thenThrow(new IllegalStateException("cannot decrypt"));
+
+        final List<IdentityProviderConfig> all = service.listAll();
+
+        assertEquals(List.of("a/one", "b/two"), all.stream().map(c -> c.realmId() + "/" + c.alias()).toList());
+    }
+
     private static IdentityProviderEntity entity(final String realm, final String alias, final String protocol,
                                                  final String displayName, final boolean enabled, final String json) {
         final IdentityProviderEntity e = new IdentityProviderEntity();

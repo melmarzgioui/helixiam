@@ -51,6 +51,10 @@ import java.util.regex.Pattern;
  *       is blocked. Only origins of URIs the client registered are added (never the request's own
  *       {@code redirect_uri}), so a page can at most post to where the authorization server would redirect anyway.</li>
  *   <li>SAML POST-binding pages allow {@code form-action https:} (the auto-submit goes to the peer).</li>
+ *   <li>Task 18: the EUDI wallet page ({@code /broker/<alias>/wallet}) gets this same strict sign-in policy (not the
+ *       SAML one, see {@code SecurityConfig}). It needs nothing beyond it: its QR code is a server-rendered SVG
+ *       {@code data:} image ({@code img-src 'self' data:}) and its status polling is a same-origin {@code fetch}
+ *       ({@code connect-src 'self'}) from the static {@code /js/wallet-poll.js} ({@code script-src 'self'}).</li>
  * </ul>
  * Any lookup failure falls back to the realm-less policy (never to a looser one).
  */
@@ -124,7 +128,7 @@ public class PageCspPolicy {
             }
             final IdentityProviderRegistry registry = identityProviders.getIfAvailable();
             if (registry != null) {
-                for (final IdpMetadata idp : registry.metadatas()) {
+                for (final IdpMetadata idp : registry.metadatas(realm)) {
                     final String origin = ThemeUrls.httpsOrigin(idp.logoUrl());
                     if (origin != null) {
                         images.add(origin);

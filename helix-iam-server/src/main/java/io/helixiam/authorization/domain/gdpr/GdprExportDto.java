@@ -63,9 +63,20 @@ public record GdprExportDto(Long generatedAt, String schema, String realmId, Str
                                      Long lastUsedAt) {
     }
 
-    /** One external-IdP association. */
+    /**
+     * One external-IdP association: {@code idpAlias} + a human {@code displayName} resolved from the live provider
+     * registry (null when the provider no longer exists). {@code externalSubject} is the IdP's own subject value —
+     * EXCEPT for an EUDI Wallet link (Task 26), where it is always {@code null}. A wallet link's external subject is
+     * the {@link io.helixiam.authorization.federation.wallet.WalletSubject} HMAC, a pseudonymous identifier derived
+     * from the realm's pepper and (for the weak-tuple case) the holder's own PID attributes, not an identifier the
+     * wallet issued to Helix the way an OIDC {@code sub} or SAML {@code NameID} is. Handing it back in a GDPR export
+     * would (a) not actually tell the subject anything they can use — it is not the wallet's or issuer's subject,
+     * just Helix's own linking key — and (b) is exactly the kind of correlation handle Art. 25 data minimisation says
+     * to keep out of an export whose only purpose is showing the subject what Helix holds about them. The alias and
+     * display name already say which provider the link is with; that is the whole user-facing fact.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record GdprFederatedLink(String idpAlias, String externalSubject) {
+    public record GdprFederatedLink(String idpAlias, String externalSubject, String displayName) {
     }
 
     /** One login/admin audit event, if an event store is available. */

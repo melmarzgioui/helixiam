@@ -378,6 +378,8 @@ body {
 .helix-form a.federationProvider.idp-digid { border-left: 3px solid #e17000; }
 .helix-form a.federationProvider.idp-eherkenning { border-left: 3px solid #2b3a8c; }
 .helix-form a.federationProvider.idp-eidas { border-left: 3px solid #003399; }
+/* the EUDI wallet has no scheme colour of its own: the neutral slate of its wallet glyph */
+.helix-form a.federationProvider.idp-eudi-wallet { border-left: 3px solid #334155; }
 
 /* ---------------------------------------------------------- dark mode -- */
 /* the panel and the form side must read as two halves in dark mode too (review S8) */

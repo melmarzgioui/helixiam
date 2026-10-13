@@ -27,8 +27,18 @@ public interface IdentityProvider {
     /** RP-initiated / single logout at the external IdP (no-op for protocols without SLO). */
     void logout(LogoutContext context);
 
-    /** Context for {@link #start}: the realm, anti-forgery state, and where the IdP returns to. */
-    record AuthnRequestContext(String realmId, String state, String callbackUri) {
+    /**
+     * Context for {@link #start}: the realm, anti-forgery state, and where the IdP returns to.
+     * {@code browserBindingHash} ties the login to the browser that started it: base64url SHA-256 of a random
+     * per-login secret the broker keeps in the HTTP session (never the session id, which rotates). Providers that do
+     * not need it ignore it; it is {@code null} when built with the three-argument form.
+     */
+    record AuthnRequestContext(String realmId, String state, String callbackUri, String browserBindingHash) {
+
+        /** Back-compat: no browser binding. */
+        public AuthnRequestContext(final String realmId, final String state, final String callbackUri) {
+            this(realmId, state, callbackUri, null);
+        }
     }
 
     /** How the browser is sent to the IdP: a 302 redirect, or an auto-submitting HTML POST form. */
@@ -61,11 +71,19 @@ public interface IdentityProvider {
      * the provider can reject CSRF (state mismatch) and replay (nonce mismatch). {@code expectedRequestId}
      * is the outbound SAML AuthnRequest id the broker persisted server-side for this session (SAML-1/S-H1):
      * a non-null value marks a solicited flow whose assertion's {@code InResponseTo} must match it. It is
-     * null for OIDC and for unsolicited (IdP-initiated) SAML.
+     * null for OIDC and for unsolicited (IdP-initiated) SAML. {@code browserBindingHash} is recomputed from the session
+     * by the broker (see {@link AuthnRequestContext}); {@code null} when the session holds no binding.
      */
     record CallbackContext(String realmId, Map<String, String> parameters,
                            String expectedState, String expectedNonce, String redirectUri,
-                           String expectedRequestId) {
+                           String expectedRequestId, String browserBindingHash) {
+
+        /** Back-compat: no browser binding ({@code browserBindingHash} as in {@link AuthnRequestContext}). */
+        public CallbackContext(final String realmId, final Map<String, String> parameters,
+                               final String expectedState, final String expectedNonce, final String redirectUri,
+                               final String expectedRequestId) {
+            this(realmId, parameters, expectedState, expectedNonce, redirectUri, expectedRequestId, null);
+        }
 
         /** Back-compat: a callback with no pending outbound request id (OIDC, or unsolicited SAML). */
         public CallbackContext(final String realmId, final Map<String, String> parameters,

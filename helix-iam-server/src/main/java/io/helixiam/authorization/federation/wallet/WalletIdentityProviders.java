@@ -1,0 +1,145 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.helixiam.authorization.federation.wallet;
+
+import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
+import io.helixiam.authorization.federation.wallet.mdoc.MdocPresentationVerifier;
+import io.helixiam.authorization.federation.wallet.sdjwt.SdJwtVcPresentationVerifier;
+import io.helixiam.authorization.federation.wallet.status.StatusPolicy;
+import io.helixiam.authorization.federation.wallet.status.TokenStatusListClient;
+import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
+import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
+import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
+import io.helixiam.authorization.security.audit.AuditLog;
+import io.helixiam.authorization.service.key.RealmSigningKeys;
+import io.helixiam.authorization.service.key.SigningKeyHandle;
+import io.helixiam.authorization.service.key.SoftwareRealmSigningKeys;
+import io.helixiam.common.net.OutboundUrlGuard;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Builds {@link WalletIdentityProvider}s for {@code FederationProviderFactory}: the wallet collaborators (validator,
+ * realm signing keys, the transaction store bean, outbound guard, audit log) in one place.
+ *
+ * <p>{@link #build}: resolves the signing key <em>once</em> ({@code accessKeyRef} in the given realm, or, for the
+ * dev-only {@code accessCertificatePrivateKey}, a restricted handle over that key and the configured chain), then runs
+ * {@link WalletConfigValidator#requireValid(String, WalletProviderConfig, SigningKeyHandle)} on that same handle, so
+ * the leaf whose SAN and validity were checked is the leaf that signs. An invalid config throws
+ * {@link IllegalArgumentException} naming every field; the factory's callers log it and skip the provider. Then one
+ * {@link TokenStatusListClient} per provider, with its {@link StatusPolicy} (the instance also put in its
+ * {@link VerificationContext}) and {@link TokenStatusListClient#auditLogSink}, and one verifier per configured format
+ * with the provider's limits (the mdoc verifier on {@link TokenStatusListClient#cwtEvaluator()}).
+ *
+ * <p>Realm of the key: a stored provider's own realm; a YAML provider ({@code helix.federation.wallet[*]}) resolves
+ * in {@link #YAML_REALM} (ruling: its key must be imported in master).
+ */
+@Component
+public class WalletIdentityProviders {
+
+    /** The realm a YAML-configured wallet provider's {@code accessKeyRef} is resolved in. */
+    public static final String YAML_REALM = "master";
+
+    private final WalletConfigValidator validator;
+    private final RealmSigningKeys keys;
+    private final WalletTransactionStore transactions;
+    private final OutboundUrlGuard guard;
+    private final TokenStatusListClient.AuditSink auditSink;
+    private final Clock clock;
+    /** Task 22: the built provider's own audit log (WALLET_LOGIN_SUCCESS/FAILURE), distinct from {@link #auditSink}. */
+    private final AuditLog auditLog;
+
+    @Autowired
+    public WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
+                                   final WalletTransactionStore transactions, final OutboundUrlGuard guard,
+                                   final AuditLog auditLog) {
+        this(validator, keys, transactions, guard, TokenStatusListClient.auditLogSink(auditLog), Clock.systemUTC(),
+                auditLog);
+    }
+
+    WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
+                            final WalletTransactionStore transactions, final OutboundUrlGuard guard,
+                            final TokenStatusListClient.AuditSink auditSink, final Clock clock,
+                            final AuditLog auditLog) {
+        this.validator = Objects.requireNonNull(validator, "validator");
+        this.keys = Objects.requireNonNull(keys, "keys");
+        this.transactions = Objects.requireNonNull(transactions, "transactions");
+        this.guard = Objects.requireNonNull(guard, "guard");
+        this.auditSink = Objects.requireNonNull(auditSink, "auditSink");
+        this.clock = Objects.requireNonNull(clock, "clock");
+        this.auditLog = Objects.requireNonNull(auditLog, "auditLog");
+    }
+
+    /**
+     * A validated STORED provider of {@code realmId}: its key lives there, and it starts logins only there.
+     *
+     * @throws IllegalArgumentException when the config is invalid (the message names each field, never key material)
+     */
+    public WalletIdentityProvider build(final String realmId, final WalletProviderConfig config) {
+        return build(realmId, realmId, config);
+    }
+
+    /**
+     * A validated YAML provider ({@code helix.federation.wallet[*]}): its key lives in {@link #YAML_REALM}, and it serves
+     * every realm.
+     *
+     * @throws IllegalArgumentException when the config is invalid
+     */
+    public WalletIdentityProvider buildFromYaml(final WalletProviderConfig config) {
+        return build(YAML_REALM, null, config);
+    }
+
+    private WalletIdentityProvider build(final String realmId, final String keyRealm,
+                                         final WalletProviderConfig config) {
+        final SigningKeyHandle signingKey = signingKey(realmId, config);
+        validator.requireValid(realmId, config, signingKey);
+        if (signingKey == null) { // valid on a second resolve that the first one missed: refuse, never sign unchecked
+            throw new IllegalArgumentException("Wallet provider '" + config.alias()
+                    + "' is invalid: accessKeyRef: The key behind accessKeyRef cannot be used");
+        }
+        final TrustAnchors anchors = TrustAnchors.fromPem(config.trustAnchors(), null, config.revocationChecking());
+        final StatusPolicy statusPolicy = config.statusList().toStatusPolicy();
+        final IssuerTrustValidator trust = new IssuerTrustValidator(guard);
+        final TokenStatusListClient statusClient = new TokenStatusListClient(statusPolicy, trust, guard, auditSink);
+        final WalletProviderConfig.Limits limits = config.limits();
+        final Map<String, PresentationVerifier> verifiers = new LinkedHashMap<>();
+        for (final String format : config.credentialFormats()) {
+            if (DcqlQueryBuilder.SD_JWT_FORMAT.equals(format)) {
+                verifiers.put(format, new SdJwtVcPresentationVerifier(trust, statusClient,
+                        SdJwtVcPresentationVerifier.DEFAULT_KB_MAX_AGE, SdJwtVcPresentationVerifier.DEFAULT_MAX_DISCLOSURES,
+                        limits.maxJwtBytes()));
+            } else if (DcqlQueryBuilder.MDOC_FORMAT.equals(format)) {
+                verifiers.put(format, new MdocPresentationVerifier(trust, statusClient.cwtEvaluator(),
+                        limits.maxJwtBytes(), limits.cborLimits()));
+            }
+        }
+        return new WalletIdentityProvider(config, keyRealm, signingKey, anchors, statusPolicy, statusClient, verifiers,
+                transactions, clock, auditLog);
+    }
+
+    /**
+     * The one handle the provider signs with, or null when it cannot be had (the validator then reports why): the
+     * dev PEM over the configured chain, else {@code accessKeyRef} resolved in {@code realmId}.
+     */
+    private SigningKeyHandle signingKey(final String realmId, final WalletProviderConfig config) {
+        try {
+            if (config.accessCertificatePrivateKey() != null && !config.accessCertificatePrivateKey().isBlank()) {
+                return config.accessCertificateChain() == null ? null : SoftwareRealmSigningKeys.softwareHandle(
+                        "dev-pem:" + config.alias(), config.accessCertificatePrivateKey(),
+                        config.accessCertificateChain());
+            }
+            return config.accessKeyRef() == null || config.accessKeyRef().isBlank() ? null
+                    : keys.resolve(realmId, config.accessKeyRef());
+        } catch (final RuntimeException e) {
+            return null;
+        }
+    }
+}

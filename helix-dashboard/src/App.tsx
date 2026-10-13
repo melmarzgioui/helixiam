@@ -51,6 +51,7 @@ import { McpPage } from "./pages/McpPage";
 import { LocaleProvider, useT } from "./i18n/LocaleContext";
 import { InProgressPage } from "./pages/InProgressPage";
 import { createHttpClient } from "./api/client";
+import { createWalletHttpClient } from "./api/wallet";
 import { createUserHttpClient } from "./api/users";
 import { createRoleHttpClient } from "./api/roles";
 import { createClientHttpClient } from "./api/clients";
@@ -81,6 +82,7 @@ const REALMS = [
 
 /** API base URL — set VITE_API_BASE to the auth server (e.g. http://localhost:8083); defaults to same-origin. */
 const api = createHttpClient(import.meta.env?.VITE_API_BASE ?? "");
+const walletApi = createWalletHttpClient(import.meta.env?.VITE_API_BASE ?? "");
 const userApi = createUserHttpClient(import.meta.env?.VITE_API_BASE ?? "");
 const roleApi = createRoleHttpClient(import.meta.env?.VITE_API_BASE ?? "");
 const clientApi = createClientHttpClient(import.meta.env?.VITE_API_BASE ?? "");
@@ -445,13 +447,13 @@ function AppInner() {
     >
       {active === "providers" ? (
         detail ? (
-          <ConnectionDetailPage api={api} realmId={realm} alias={detail} onBack={() => goSection("providers")} onDeleted={() => goSection("providers")} />
+          <ConnectionDetailPage api={api} walletApi={walletApi} realmId={realm} alias={detail} onBack={() => goSection("providers")} onDeleted={() => goSection("providers")} />
         ) : (
-          <ConnectionsPage api={api} realmId={realm} onOpen={(alias) => openDetail("providers", alias)} />
+          <ConnectionsPage api={api} walletApi={walletApi} realmId={realm} onOpen={(alias) => openDetail("providers", alias)} />
         )
       ) : active === "federation" ? (
         detail ? (
-          <ConnectionDetailPage api={api} realmId={realm} alias={detail} onBack={() => goSection("federation")} onDeleted={() => goSection("federation")} />
+          <ConnectionDetailPage api={api} walletApi={walletApi} realmId={realm} alias={detail} onBack={() => goSection("federation")} onDeleted={() => goSection("federation")} />
         ) : (
           <UserFederationPage api={api} realmId={realm} onOpen={(alias) => openDetail("federation", alias)} />
         )

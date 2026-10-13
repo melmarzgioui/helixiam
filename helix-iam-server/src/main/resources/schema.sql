@@ -1072,3 +1072,24 @@ ALTER TABLE notification_code ADD COLUMN IF NOT EXISTS expires_at timestamp;
 -- Security (same as Flyway V74): emailed one-time codes are stored as their hex SHA-256; pending plain codes are hashed
 -- in place (idempotent: a 64-hex value is already a hash).
 UPDATE notification_code SET code = encode(sha256(convert_to(code, 'UTF8')), 'hex') WHERE code !~ '^[0-9a-f]{64}$';
+-- Security (same as Flyway V75): identity-provider secrets live encrypted in their own column, never in config_json.
+-- Existing secrets are moved at startup by IdentityProviderSecretsBackfill (the V75.1 counterpart).
+ALTER TABLE identity_provider ADD COLUMN IF NOT EXISTS secret_json text;
+-- EUDI Wallet (same as Flyway V76): per-realm verifier access-certificate signing keys; private_key encrypted at rest
+-- (DB_ENCRYPTION, AttributeEncryption), certificate chain leaf first without the trust anchor.
+CREATE TABLE IF NOT EXISTS verifier_signing_key (
+    realm_id              character varying(255) NOT NULL,
+    name                  character varying(64)  NOT NULL,
+    alg                   character varying(16)  NOT NULL,
+    private_key           text                   NOT NULL,
+    certificate_chain_pem text                   NOT NULL,
+    created_at            timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    PRIMARY KEY (realm_id, name)
+);
+-- EUDI Wallet (same as Flyway V77): the per-realm 256-bit pepper of the wallet subject HMAC, created lazily, the base64
+-- value encrypted at rest (DB_ENCRYPTION, AttributeEncryption). Never exported.
+CREATE TABLE IF NOT EXISTS realm_wallet_pepper (
+    realm_id   character varying(255) NOT NULL PRIMARY KEY,
+    pepper     text                   NOT NULL,
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
+);

@@ -16,6 +16,7 @@ import io.helixiam.authorization.domain.tenant.TenantUser;
 import io.helixiam.authorization.domain.user.UserCredentials;
 import io.helixiam.authorization.domain.user.UserRoles;
 import io.helixiam.authorization.domain.user.admin.CredentialSummary;
+import io.helixiam.authorization.federation.IdentityProviderRegistry;
 import io.helixiam.authorization.repository.UserCredentialsRepository;
 import io.helixiam.authorization.repository.federation.FederatedLinkRepository;
 import io.helixiam.authorization.repository.gdpr.GdprUserMutationRepository;
@@ -54,6 +55,7 @@ class GdprAdminServiceTest {
     private CredentialAdminService credentials;
     private ConsentLedgerService consents;
     private GdprUserMutationRepository mutation;
+    private IdentityProviderRegistry registry;
     private GdprAdminService service;
 
     @BeforeEach
@@ -66,8 +68,9 @@ class GdprAdminServiceTest {
         credentials = mock(CredentialAdminService.class);
         consents = mock(ConsentLedgerService.class);
         mutation = mock(GdprUserMutationRepository.class);
+        registry = new IdentityProviderRegistry(List.of());
         service = new GdprAdminService(users, tenantUsers, organizations, orgMembers, federatedLinks,
-                credentials, consents, mutation);
+                credentials, consents, mutation, registry);
     }
 
     @Test

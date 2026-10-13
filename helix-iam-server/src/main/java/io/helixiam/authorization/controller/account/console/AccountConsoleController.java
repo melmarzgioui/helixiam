@@ -21,7 +21,8 @@ import java.util.Optional;
 
 /**
  * B1: the realm's account console, {@code /realms/{realm}/account}: the signed-in user's profile and email, password,
- * authenticator app and recovery codes, sessions, and (when the realm allows) their data and account deletion. The
+ * authenticator app and recovery codes, sessions, linked EU Digital Identity Wallets (Task 21b,
+ * {@link AccountWalletController}), and (when the realm allows) their data and account deletion. The
  * actions are on their own pages ({@link AccountSecurityController}, {@link AccountSessionsController},
  * {@link AccountEmailController}, {@link AccountDataController}); this is the overview they return to.
  *
@@ -32,9 +33,12 @@ import java.util.Optional;
 public class AccountConsoleController {
 
     private final AccountOverviewService overview;
+    /** Task 21b: the realm's EU Digital Identity Wallet providers and the user's links. */
+    private final AccountWallets wallets;
 
-    public AccountConsoleController(final AccountOverviewService overview) {
+    public AccountConsoleController(final AccountOverviewService overview, final AccountWallets wallets) {
         this.overview = overview;
+        this.wallets = wallets;
     }
 
     @GetMapping("/account")
@@ -50,6 +54,7 @@ public class AccountConsoleController {
                 AuthTimeStamper.readSid(request), DeviceLabel.parse(request.getHeader(HttpHeaders.USER_AGENT)),
                 authMillis != null ? authMillis : authSeconds == null ? null : authSeconds * 1000L,
                 org.springframework.context.i18n.LocaleContextHolder.getLocale()));
+        model.addAttribute("wallets", wallets.rows(RealmContextHolder.get(), user.get().userId()));
         return "account/index";
     }
 

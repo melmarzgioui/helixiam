@@ -21,6 +21,8 @@ import io.helixiam.authorization.domain.tenant.TenantUser;
 import io.helixiam.authorization.domain.user.UserCredentials;
 import io.helixiam.authorization.domain.user.UserRoles;
 import io.helixiam.authorization.domain.user.admin.CredentialSummary;
+import io.helixiam.authorization.federation.IdentityProviderRegistry;
+import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
 import io.helixiam.authorization.repository.UserCredentialsRepository;
 import io.helixiam.authorization.repository.federation.FederatedLinkRepository;
 import io.helixiam.authorization.repository.gdpr.GdprUserMutationRepository;
@@ -71,6 +73,7 @@ public class GdprAdminService {
     private final CredentialAdminService credentials;
     private final ConsentLedgerService consents;
     private final GdprUserMutationRepository mutation;
+    private final IdentityProviderRegistry registry;
 
     public GdprAdminService(final UserCredentialsRepository users,
                             final TenantUserRepository tenantUsers,
@@ -79,7 +82,8 @@ public class GdprAdminService {
                             final FederatedLinkRepository federatedLinks,
                             final CredentialAdminService credentials,
                             final ConsentLedgerService consents,
-                            final GdprUserMutationRepository mutation) {
+                            final GdprUserMutationRepository mutation,
+                            final IdentityProviderRegistry registry) {
         this.users = users;
         this.tenantUsers = tenantUsers;
         this.organizations = organizations;
@@ -88,6 +92,7 @@ public class GdprAdminService {
         this.credentials = credentials;
         this.consents = consents;
         this.mutation = mutation;
+        this.registry = registry;
     }
 
     /**
@@ -125,7 +130,7 @@ public class GdprAdminService {
                 .toList();
 
         final List<GdprFederatedLink> federated = federatedLinks.findAllByUserId(userId).stream()
-                .map(f -> new GdprFederatedLink(f.getIdpAlias(), f.getExternalSubject()))
+                .map(row -> toFederatedLink(realmId, row))
                 .toList();
 
         final List<GdprConsentRecordDto> consentLedger = consents.list(realmId, userId);
@@ -181,6 +186,16 @@ public class GdprAdminService {
         users.save(user);
         mutation.markAnonymized(user.getUserId());
 
+        // Task 26: drop the EUDI Wallet links explicitly. Hard-delete above never reaches here — it removes every
+        // federated_link row (wallet or not) via the FK cascade on user_credentials. Anonymize keeps the row (and
+        // every other federated link, same as today), but a wallet link's external subject is a pseudonymous HMAC
+        // the realm's pepper can still resolve back through WalletLinkService; leaving it in place after erasure
+        // would keep a live route from "the wallet holder" to the now-anonymized account. Non-wallet links (OIDC,
+        // SAML, eID) are untouched, matching anonymize's existing scope (roles/org memberships also survive).
+        federatedLinks.findAllByUserId(erase.userId()).stream()
+                .filter(row -> isWalletAlias(row.getIdpAlias()))
+                .forEach(federatedLinks::delete);
+
         // Strip every enrolled factor (each delete is store-scoped + ownership-guarded inside the service).
         credentials.list(erase.userId()).forEach(c -> credentials.revoke(erase.userId(), c.type(), c.id()));
 
@@ -202,5 +217,38 @@ public class GdprAdminService {
 
     private static GdprCredentialMeta toMeta(final CredentialSummary s) {
         return new GdprCredentialMeta(s.type(), s.id(), s.label(), s.detail(), s.createdAt(), s.lastUsedAt());
+    }
+
+    /**
+     * One export row. A wallet link's {@code externalSubject} is never carried (see {@link GdprFederatedLink}'s
+     * javadoc); the alias and the provider's own display name are.
+     */
+    private GdprFederatedLink toFederatedLink(final String realmId, final FederatedLinkEntity link) {
+        final String displayName = displayNameOf(realmId, link.getIdpAlias());
+        final String externalSubject = isWalletAlias(link.getIdpAlias()) ? null : link.getExternalSubject();
+        return new GdprFederatedLink(link.getIdpAlias(), externalSubject, displayName);
+    }
+
+    /** The provider's display name, or {@code null} when the alias no longer names a registered provider. */
+    private String displayNameOf(final String realmId, final String alias) {
+        if (alias == null) {
+            return null;
+        }
+        try {
+            return registry.get(realmId, alias).metadata().displayName(); // the exported realm's own provider first
+        } catch (final IllegalArgumentException e) {
+            // a link made through another realm's provider (links are per user): fall through
+        }
+        // not a currently-registered provider (removed/renamed since the link was made) → null
+        return registry.named(alias).stream().findFirst().map(p -> p.metadata().displayName()).orElse(null);
+    }
+
+    /** Whether {@code alias} names an EU Digital Identity Wallet provider — same check as the account console's
+     * {@code AccountIdentityController} (its external subjects are HMAC hashes, never a real IdP subject). */
+    private boolean isWalletAlias(final String alias) {
+        if (alias == null) {
+            return false;
+        }
+        return registry.named(alias).stream().anyMatch(p -> WalletIdentityProvider.from(p).isPresent());
     }
 }

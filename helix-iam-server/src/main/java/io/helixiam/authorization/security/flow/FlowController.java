@@ -52,6 +52,10 @@ public class FlowController {
     private final ResolveSavedRequestRedirect savedRequestRedirect = new ResolveSavedRequestRedirect();
     private final io.helixiam.authorization.security.session.AuthTimeStamper authTimeStamper =
             new io.helixiam.authorization.security.session.AuthTimeStamper();
+    /** Task 18: make a federated login's pending commit when its step-up completes. */
+    private java.util.List<io.helixiam.authorization.federation.FederatedLoginCommit> loginCommits = java.util.List.of();
+    /** Final review F2: report how a federated login that stepped up ended (its connector's audit). */
+    private java.util.List<io.helixiam.authorization.federation.FederatedLoginOutcome> loginOutcomes = java.util.List.of();
 
     public FlowController(final FlowExecutor flowExecutor, final AuthFlowMapper authFlowMapper,
                           final MfaService mfaService, @Value("${sp.base.url}") final String spBaseUrl,
@@ -63,6 +67,20 @@ public class FlowController {
         this.spBaseUrl = spBaseUrl;
         this.rpId = rpId;
         this.sessionPolicyApplier = sessionPolicyApplier;
+    }
+
+    /** Task 18: the committers of a federated login's pending commit (none → such a login is refused). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLoginCommits(
+            final java.util.List<io.helixiam.authorization.federation.FederatedLoginCommit> loginCommits) {
+        this.loginCommits = loginCommits == null ? java.util.List.of() : java.util.List.copyOf(loginCommits);
+    }
+
+    /** Final review F2: the receivers of a federated login's outcome marker. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLoginOutcomes(
+            final java.util.List<io.helixiam.authorization.federation.FederatedLoginOutcome> loginOutcomes) {
+        this.loginOutcomes = loginOutcomes == null ? java.util.List.of() : java.util.List.copyOf(loginOutcomes);
     }
 
     @GetMapping("/flow")
@@ -112,16 +130,23 @@ public class FlowController {
 
         return switch (progress.type()) {
             case COMPLETED -> {
-                // Restore the fully authenticated token — only if it is the user the flow completed for.
+                // Restore the fully authenticated token — only if it is the user the flow completed for, pending in
+                // this session (the merge of the wallet and security branches: user check, one rotation, commit or
+                // undo, stamp, acr).
                 final String flowUser = progress.userId() != null ? progress.userId() : state.userId();
-                if (!mfaService.unlockUser(flowUser)) {
+                if (flowUser == null || !flowUser.equals(state.userId()) || !mfaService.unlockUser(flowUser)) {
                     LOG.warn("Login flow completed for another user than the pending sign-in; refusing it");
                     org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                    io.helixiam.authorization.federation.PendingFederatedLogin.clear(session);
                     session.invalidate();
+                    reportFailed(state);
                     yield REDIRECT_PREFIX + flowPath("/login") + "?error";
                 }
                 request.changeSessionId(); // a completed sign-in gets a new session id (no fixation)
-                authTimeStamper.stamp(request); // SSO P2
+                if (!io.helixiam.authorization.federation.PendingFederatedLogin.finish(request, state, loginCommits,
+                        loginOutcomes, authTimeStamper)) {
+                    yield REDIRECT_PREFIX + flowPath("/login?error=federation");
+                }
                 sessionPolicyApplier.applyOnLogin(request, io.helixiam.authorization.security.realm.RealmContextHolder.get()); // SSO P3
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }
@@ -131,6 +156,13 @@ public class FlowController {
                 yield VIEW_PREFIX + state.currentChallengeView();
             }
         };
+    }
+
+    /** Final review F2: the federated login of this flow ended without a session; reported once. */
+    private void reportFailed(final FlowExecutionState state) {
+        final java.io.Serializable marker = state.pendingOutcome();
+        state.setPendingOutcome(null);
+        io.helixiam.authorization.federation.FederatedLoginOutcome.failed(loginOutcomes, marker);
     }
 
     private FlowExecutionState state(final HttpSession session) {

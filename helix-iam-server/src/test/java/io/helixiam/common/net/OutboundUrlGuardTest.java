@@ -145,4 +145,24 @@ class OutboundUrlGuardTest {
                 .isInstanceOf(SsrfBlockedException.class)
                 .hasMessageNotContaining("pa55w0rd").hasMessageNotContaining("qu3rys3cret");
     }
+
+    @Test
+    void unresolvableHostIsADistinctRefusal() {
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, host -> {
+            throw new java.net.UnknownHostException(host);
+        });
+        assertThatThrownBy(() -> guard.checkAllowed("https://status.example/x"))
+                .isInstanceOf(UnresolvableHostException.class).isInstanceOf(SsrfBlockedException.class);
+        final OutboundUrlGuard empty = new OutboundUrlGuard(false, host -> new InetAddress[0]);
+        assertThatThrownBy(() -> empty.checkAllowed("https://status.example/x"))
+                .isInstanceOf(UnresolvableHostException.class);
+    }
+
+    @Test
+    void blockedAddressIsNotAnUnresolvableHost() {
+        assertThatThrownBy(() -> blocking.checkAllowed("https://169.254.169.254/x"))
+                .isInstanceOf(SsrfBlockedException.class).isNotInstanceOf(UnresolvableHostException.class);
+        assertThatThrownBy(() -> blocking.checkAllowed("ftp://example.com/x"))
+                .isNotInstanceOf(UnresolvableHostException.class);
+    }
 }

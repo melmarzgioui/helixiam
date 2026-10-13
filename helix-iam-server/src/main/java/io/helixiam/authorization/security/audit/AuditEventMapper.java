@@ -77,6 +77,8 @@ public final class AuditEventMapper {
                         ? "ORGANIZATION_THEME_UPDATE" : null;
             }
             case "sessions" -> "DELETE".equals(method) ? "SESSION_REVOKE" : null;
+            // Task 24: a verifier access key imported for the EUDI wallet (the detail names the key, never its PEM).
+            case "verifier-keys" -> "POST".equals(method) ? "VERIFIER_KEY_IMPORT" : null;
             case "flow" -> "PUT".equals(method) ? "FLOW_UPDATE" : null;
             case "groups" -> {
                 if ("members".equals(sub)) {
@@ -112,6 +114,7 @@ public final class AuditEventMapper {
             case "sessions" -> "session";
             case "settings" -> "realm";
             case "flow" -> "flow";
+            case "verifier-keys" -> "verifier-key";
             default -> resource;
         };
     }

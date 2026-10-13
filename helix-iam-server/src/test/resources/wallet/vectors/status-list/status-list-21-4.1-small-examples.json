@@ -1,0 +1,20 @@
+{
+  "source": "draft-ietf-oauth-status-list-21, Sections 4.1, 4.2 and 4.3",
+  "examples": [
+    {
+      "bits": 1,
+      "uncompressed_hex": "b9a3",
+      "compressed_hex": "78dadbb918000217015d",
+      "lst": "eNrbuRgAAhcBXQ",
+      "cbor_status_list_hex": "a2646269747301636c73744a78dadbb918000217015d",
+      "statuses": [1, 0, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 1]
+    },
+    {
+      "bits": 2,
+      "uncompressed_hex": "c944f9",
+      "compressed_hex": "78da3be9f2130003df0207",
+      "lst": "eNo76fITAAPfAgc",
+      "statuses": [1, 2, 0, 3, 0, 1, 0, 1, 1, 2, 3, 3]
+    }
+  ]
+}

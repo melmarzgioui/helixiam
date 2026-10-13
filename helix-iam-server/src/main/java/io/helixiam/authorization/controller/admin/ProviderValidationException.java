@@ -8,7 +8,10 @@ package io.helixiam.authorization.controller.admin;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** A messaging provider that cannot be saved: one message per invalid field (400 via {@link AdminValidationAdvice}). */
+/**
+ * A messaging or identity provider that cannot be saved: one message per invalid field (400 via
+ * {@link AdminValidationAdvice}).
+ */
 public class ProviderValidationException extends RuntimeException {
 
     private final transient Map<String, String> fieldErrors;

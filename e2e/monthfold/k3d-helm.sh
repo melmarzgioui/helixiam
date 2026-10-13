@@ -57,7 +57,8 @@ if [ -n "${NO_REDIS:-}" ]; then
     "token store $(kc exec deploy/helixiam -- printenv HELIX_TOKEN_STORE)"
 fi
 kc exec deploy/postgres -- psql -U helixiam -d helixiam -tAc \
-  "select 'flyway V' || max(version::int) || ', all successful: ' || bool_and(success) from flyway_schema_history"
+  "select 'flyway V' || (select version from flyway_schema_history order by installed_rank desc limit 1) \
+    || ', all successful: ' || bool_and(success) from flyway_schema_history"
 
 kc port-forward svc/helixiam "$PORT:8080" >/dev/null 2>&1 &
 PF=$!

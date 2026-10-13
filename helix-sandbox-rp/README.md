@@ -107,6 +107,121 @@ Live-verified (Playwright): `/saml/login` → IdP AuthnRequest → password → 
 flow applies MFA to this user) → signed assertion auto-POSTed to `/saml/acs` → validated → NameID +
 `mail` attribute shown; then RP-initiated SLO clears the session at the IdP.
 
+## EUDI Wallet (OpenID4VP) — experimental
+
+The sandbox's "Sign in with EUDI Wallet" button runs the real OpenID4VP verifier flow (request
+object, DCQL query, encrypted `direct_post.jwt` response, SD-JWT VC and mdoc presentation
+verification) against the IdP's wallet broker. Standing in for a phone, there's a small test-wallet
+CLI (`TestWalletCli`, `helix-iam-server/src/test/java`) that fetches the request object, mints a PID
+and posts the presentation — **test/dev tooling only, never built into the server image or the main
+jar** (it lives under `src/test/java` and runs on the test classpath).
+
+> **DEV/TEST ONLY.** The test wallet, its CA and every key `TestWalletCli ca` writes are throwaway
+> material generated for this sandbox. They prove nothing about identity in the real world and must
+> never be trusted, imported, or referenced by a production deployment.
+
+### 1. Start the server and the sandbox
+
+```bash
+# Postgres for the dev profile (matches application-dev.properties' defaults)
+docker run -d --name hlx-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=helixiam -p 5432:5432 postgres:16-alpine
+
+cd helix-iam-server
+mvn -q clean package -DskipTests
+# HELIX_ADMIN_DEV_OPEN=true: local-dev-only, opens the admin API with no auth so the seed script
+# below can provision the demo realm with a single curl pipeline — same shortcut
+# helix-sandbox-rp's own OIDC provisioning uses (see above). HELIX_FEDERATION_STORE_ENABLED=true:
+# admin-API-managed identity providers (this wallet connection) are off by default — turn the
+# refresher on so a console/admin-API write takes effect in the running server.
+SPRING_PROFILES_ACTIVE=dev HELIX_ADMIN_DEV_OPEN=true HELIX_FEDERATION_STORE_ENABLED=true \
+  java -jar target/helix-iam-server-1.0.0-SNAPSHOT.jar &
+
+cd ../helix-sandbox-rp
+npm install
+```
+
+### 2. Seed the demo realm
+
+```bash
+cd ..   # repo root
+e2e/wallet-demo/seed.sh
+```
+
+Idempotent — creates (or updates) a `wallet-demo` realm, imports a throwaway verifier access key,
+creates the `eudi-wallet` identity provider (trust anchor = the test wallet's own PID-issuer CA,
+response mode `direct_post.jwt`, encrypted, with `DB_ENCRYPTION` set — the dev profile's default
+encryption key, the same posture the e2e base uses; plaintext `direct_post` is a dev-only allowance
+this script does not use), and registers `helix-sandbox` as an OIDC client in that realm. It writes
+`e2e/wallet-demo/out/sandbox.env` with the client credentials for step 3. See
+`e2e/wallet-demo/seed.sh` for every option and why it lives under `e2e/` rather than here.
+
+### 3. Point the sandbox at the demo realm
+
+```bash
+cd helix-sandbox-rp
+source ../e2e/wallet-demo/out/sandbox.env
+npm start
+```
+
+Open <http://localhost:9090/login> — the IdP's login page now offers **"Sign in with EU Digital
+Identity Wallet"** below the password form.
+
+### 4. Cross-device: scan the QR, respond with the CLI
+
+Click the wallet button. The wallet page shows a QR code (and an "Open wallet" link — see step 5) that
+really does encode the cross-device invocation URL — point a phone camera or any QR-reader app at the
+screen to read it out (it is a plain inline SVG, nothing fancy). Without a phone handy, scan it from a
+screenshot with any QR-decoding tool. Either way, hand the decoded URL to the CLI:
+
+```bash
+cd ../helix-iam-server
+mvn -q exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.helixiam.testwallet.TestWalletCli \
+  -Dexec.args="respond '<invocation-url>' --format sd-jwt --dir ../e2e/wallet-demo/out/wallet-demo-ca"
+```
+
+Switch back to the browser tab — it polls `/broker/eudi-wallet/wallet/status` automatically and
+signs in within a couple of seconds, landing back on the sandbox at `/claims`.
+
+### 5. Same-device: follow the "Open wallet" link
+
+On the same wallet page, right-click **"Open wallet"** and copy its link (a `haip-vp://` URL) instead
+of scanning the QR — this is what a phone's OS would hand to the installed wallet app. Give it to the
+same CLI:
+
+```bash
+mvn -q exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.helixiam.testwallet.TestWalletCli \
+  -Dexec.args="respond '<open-wallet-url>' --format mdoc --dir ../e2e/wallet-demo/out/wallet-demo-ca"
+```
+
+(`--format` is independent of cross- vs same-device; either flow accepts SD-JWT VC or mdoc, since the
+demo realm's connection was seeded to accept both.) The CLI posts the response and prints the
+`redirect_uri` the verifier returned — open that URL (same browser) to complete the sign-in, since
+there's no real wallet app here to follow it for you.
+
+### What the RP receives
+
+Live-verified against a real running server (same-device, `--format sd-jwt`, the CLI's default
+persona): the sandbox's `/claims` page shows the decoded id_token with `acr:
+http://eidas.europa.eu/LoA/high` (the eIDAS-high LoA the wallet broker always asserts),
+`given_name: Erika` / `family_name: Mustermann`, a fresh `sub` (one account was created on first
+sign-in), and the usual `iss`/`aud`/`nonce`/`jti`/`auth_time`. `--format mdoc` was separately verified
+to post and verify successfully against the same running server. A repeat sign-in with the *same*
+`--administrative-number` resolves to the same account rather than creating a new one — covered by
+`WalletFlowE2eTest#sameDevice_openWallet_redirectUriBringsTheBrowserBackSignedIn` and not retested by
+hand here (each manual run above used a fresh random administrative number, by the CLI's default, to
+avoid colliding with a previous run's account).
+
+### Account linking
+
+A PID's `personal_administrative_number` is what lets the wallet create an account on first sign-in
+(maintainer decision: without one, the wallet cannot create an account by itself). To link a wallet to
+an **already-signed-in** account instead: sign in normally (password), open the account console
+(`/realms/wallet-demo/account`), find "EU Digital Identity Wallet" under its wallets section and click
+**Link wallet** — this starts the same wallet page/CLI flow (`respond` works identically), except the
+callback is `/account/wallet/eudi-wallet/callback` and it binds the wallet to *that* account rather
+than signing in. The console then shows the provider as **Linked**.
+
 ## Notes / follow-ups
 
 - The id_token for this flow carried no `auth_time` / `amr` / `sid` — worth wiring the

@@ -297,6 +297,11 @@ public class SecurityConfig {
         // cross-site from the IdP, so permit them and exempt the callback from CSRF.
         http.authorizeHttpRequests(requests -> requests.requestMatchers("/broker/**").permitAll());
         http.csrf(csrf -> csrf.ignoringRequestMatchers("/broker/*/callback"));
+        // Task 18: the OpenID4VP verifier endpoints (request object, Authorization Response) are called by the wallet,
+        // which has no session and no CSRF token; they are protected by single-use bearer ids, the per-transaction
+        // nonce/state/encryption key, a dedicated rate limit and a 256 KB body limit (walletRequestBodyLimitFilter).
+        http.authorizeHttpRequests(requests -> requests.requestMatchers("/oid4vp/**").permitAll());
+        http.csrf(csrf -> csrf.ignoringRequestMatchers("/oid4vp/**"));
         // Helix IAM E7.1: SAML IdP role — metadata is public; the SSO endpoint stays behind login (an
         // unauthenticated SP request is sent through the flow engine first) and is CSRF-exempt because
         // the SP POSTs the AuthnRequest cross-site.
@@ -464,11 +469,13 @@ public class SecurityConfig {
      * <ul>
      *   <li>the JSON / machine endpoints served by this chain ({@code /admin/**}, {@code /scim/v2/**},
      *       {@code /connect/register/**}, {@code /v3/api-docs/**}, {@code /swagger-ui/**}, {@code /actuator/**},
-     *       {@code /workload-identity/**}, {@code /agent/delegation/**}, the MCP resource-metadata doc) get
+     *       {@code /workload-identity/**}, {@code /agent/delegation/**}, the MCP resource-metadata doc, the OpenID4VP
+     *       verifier endpoints {@code /oid4vp/**}) get
      *       <b>no</b> CSP — a page-content policy is meaningless on JSON and must not touch the separately
      *       served SPA console's fetches;</li>
-     *   <li>the SAML POST-binding pages ({@code /saml/idp/**}, {@code /broker/**}) get the relaxed
-     *       {@code form-action}; every other page gets the strict one ({@link PageCspPolicy}).</li>
+     *   <li>the SAML POST-binding pages ({@code /saml/idp/**}, {@code /broker/**} except the EUDI wallet pages
+     *       {@code /broker/<alias>/wallet} and below) get the relaxed {@code form-action}; every other page gets the strict one
+     *       ({@link PageCspPolicy}).</li>
      * </ul>
      */
     private void applySecurityHeaders(final HttpSecurity http, final PageCspPolicy pageCspPolicy) throws Exception {
@@ -485,11 +492,20 @@ public class SecurityConfig {
                         new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/actuator/**"),
                         new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/workload-identity/**"),
                         new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/agent/delegation/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/.well-known/oauth-protected-resource"));
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/.well-known/oauth-protected-resource"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/oid4vp/**"));
+        // Task 18: the EUDI wallet page is a sign-in page, not a SAML POST-binding page: it gets the strict login CSP
+        // (whose img-src 'self' data: and connect-src 'self' carry the SVG QR code and the status polling).
+        final org.springframework.security.web.util.matcher.RequestMatcher walletPages =
+                new org.springframework.security.web.util.matcher.OrRequestMatcher(
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/*/wallet"),
+                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/*/wallet/**"));
         final org.springframework.security.web.util.matcher.RequestMatcher samlPaths =
                 new org.springframework.security.web.util.matcher.OrRequestMatcher(
                         new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/saml/idp/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/**"));
+                        new org.springframework.security.web.util.matcher.AndRequestMatcher(
+                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/**"),
+                                new org.springframework.security.web.util.matcher.NegatedRequestMatcher(walletPages)));
         final org.springframework.security.web.util.matcher.RequestMatcher strictPaths =
                 new org.springframework.security.web.util.matcher.AndRequestMatcher(
                         new org.springframework.security.web.util.matcher.NegatedRequestMatcher(apiPaths),
@@ -505,6 +521,23 @@ public class SecurityConfig {
                         strictPaths, pageCspPolicy.headerWriter(false)))
                 .addHeaderWriter(new org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter(
                         samlPaths, pageCspPolicy.headerWriter(true))));
+    }
+
+    /**
+     * Task 18: the body limit of the OpenID4VP verifier endpoints. It runs before every filter that could read a body
+     * (Spring's FormContentFilter parses PUT/PATCH/DELETE forms at order -9900), so it matches the raw
+     * {@code /realms/<realm>/oid4vp/...} URI itself.
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter> walletRequestBodyLimitFilter(
+            @Value("${helix.wallet.max-request-bytes:" + io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter.DEFAULT_MAX_BYTES + "}") final int maxBytes) {
+        final org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter> registration =
+                new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+                        new io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter(maxBytes));
+        // Right after the character-encoding filter, before FormContentFilter (-9900) and the realm routing.
+        registration.setOrder(org.springframework.boot.web.servlet.filter.OrderedFormContentFilter.DEFAULT_ORDER - 1);
+        registration.addUrlPatterns("/*");
+        return registration;
     }
 
     @Bean
