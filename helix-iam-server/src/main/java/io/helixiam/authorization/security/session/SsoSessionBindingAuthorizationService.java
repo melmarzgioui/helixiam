@@ -73,9 +73,12 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
      * Spring Boot 4: Spring Security 7's {@code JwtGenerator} copies {@code auth_time} from the previous ID token on a
      * refresh and reads it as a {@link Date}. HelixIAM's ID tokens carry it as epoch seconds ({@link Long}, see
      * {@link IdTokenSessionClaims}), and so does every ID token 1.0 stored, so each ID-token refresh failed with a
-     * {@code ClassCastException} (HTTP 500). The loaded authorization's stored ID token gets the same instant as a
-     * {@link Date}, in memory only: the stored row is not rewritten, the token's metadata (claims) is unchanged, and
-     * {@link IdTokenSessionClaims} still writes {@code auth_time} into the new ID token as epoch seconds.
+     * {@code ClassCastException} (HTTP 500). The loaded authorization is handed out with its ID token's
+     * {@code auth_time} claim as a {@link Date} of the same instant; the token value and the token's claims metadata
+     * keep epoch seconds, and {@link IdTokenSessionClaims} still writes {@code auth_time} into every new ID token as
+     * epoch seconds. Loading itself writes nothing, but whatever Spring Authorization Server saves back is this
+     * authorization: a refresh replaces the ID token, while a revocation or invalidation stores it again, now with the
+     * {@code Date} form, which later loads hand out unchanged ({@code RefreshAuthTimeTest}).
      */
     static OAuth2Authorization withDateAuthTime(final OAuth2Authorization authorization) {
         if (authorization == null) {

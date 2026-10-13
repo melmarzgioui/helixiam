@@ -66,6 +66,23 @@ class RefreshAuthTimeTest {
         assertThat(SsoSessionBindingAuthorizationService.withDateAuthTime(noAuthTime)).isSameAs(noAuthTime);
     }
 
+    @Test
+    void anAuthorizationSavedAgainAfterLoading_keepsTheDate_andLoadsUnchanged() throws IOException {
+        // SAS saves what it loaded when it revokes or invalidates a token (the ID token stays): the stored ID token then
+        // carries auth_time as a Date, while the token value and its claims metadata keep epoch seconds.
+        final OAuth2Authorization loaded = SsoSessionBindingAuthorizationService.withDateAuthTime(
+                AuthorizationBlobs.deserialize(blob()));
+        final OAuth2Authorization revoked = OAuth2Authorization.from(loaded)
+                .invalidate(loaded.getRefreshToken().getToken()).build();
+
+        final OAuth2Authorization reloaded = AuthorizationBlobs.deserialize(AuthorizationBlobs.serialize(revoked));
+        final OAuth2Authorization.Token<OidcIdToken> idToken = reloaded.getToken(OidcIdToken.class);
+        assertThat(idToken.getToken().getClaims().get("auth_time")).isEqualTo(AUTH_TIME);
+        assertThat(idToken.getClaims()).containsEntry("auth_time", 1_790_000_000L); // metadata: epoch seconds
+        assertThat(idToken.getToken().getTokenValue()).isEqualTo("id-1");
+        assertThat(SsoSessionBindingAuthorizationService.withDateAuthTime(reloaded)).isSameAs(reloaded);
+    }
+
     private static String blob() throws IOException {
         try (InputStream in = RefreshAuthTimeTest.class.getResourceAsStream("/upgrade/boot3/authorization.b64")) {
             return new String(in.readAllBytes(), StandardCharsets.US_ASCII).trim();
