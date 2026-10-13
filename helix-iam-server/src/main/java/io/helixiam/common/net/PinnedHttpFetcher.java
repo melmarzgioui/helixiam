@@ -30,8 +30,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A small HTTP/1.1 client for server-initiated fetches of attacker-influenced URLs (wallet issuer CRL / OCSP, Token
@@ -244,8 +242,7 @@ public final class PinnedHttpFetcher {
         private final byte[] body;
         private final Limits limits;
         private final long deadline;
-        private final AtomicBoolean aborted = new AtomicBoolean();
-        private final AtomicReference<Socket> socket = new AtomicReference<>();
+        private final SocketSlot slot = new SocketSlot();
 
         Exchange(final String method, final String url, final Map<String, String> headers, final byte[] body,
                 final Limits limits, final long deadline) {
@@ -258,12 +255,11 @@ public final class PinnedHttpFetcher {
         }
 
         boolean timedOut() {
-            return aborted.get() || System.nanoTime() - deadline >= 0;
+            return slot.aborted() || System.nanoTime() - deadline >= 0;
         }
 
         void abort() {
-            aborted.set(true);
-            closeQuietly(socket.get());
+            slot.abort();
         }
 
         Response run() throws IOException {
@@ -273,14 +269,14 @@ public final class PinnedHttpFetcher {
             final Socket connected = connect(target);
             try {
                 final Socket s = target.https() ? tls(connected, target) : connected;
-                socket.set(s);
+                slot.register(s);
                 s.setSoTimeout(remainingMillis());
                 writeRequest(s.getOutputStream(), target);
                 return readResponse(new DeadlineInputStream(s.getInputStream(), s));
             } catch (final SocketTimeoutException e) {
                 throw new FetchException(FetchException.Kind.TIMEOUT, "fetch timed out");
             } finally {
-                closeQuietly(socket.get());
+                closeQuietly(slot.current());
                 closeQuietly(connected);
             }
         }
@@ -288,16 +284,16 @@ public final class PinnedHttpFetcher {
         /** Connects to the first validated address that accepts, each attempt bounded by the connect timeout. */
         private Socket connect(final OutboundUrlGuard.ResolvedTarget target) throws IOException {
             for (final InetAddress address : target.addresses()) {
-                if (aborted.get()) {
+                if (slot.aborted()) {
                     break;
                 }
                 final int remaining = remainingMillis();
                 final Socket s = new Socket();
-                socket.set(s);
+                slot.register(s); // closed and refused if the caller aborted meanwhile
                 try {
                     s.connect(new InetSocketAddress(address, target.port()),
                             (int) Math.min(limits.connectTimeout().toMillis(), remaining));
-                    if (aborted.get()) {
+                    if (slot.aborted()) {
                         break;
                     }
                     return s;
@@ -305,7 +301,7 @@ public final class PinnedHttpFetcher {
                     closeQuietly(s);
                 }
             }
-            if (aborted.get() || System.nanoTime() - deadline >= 0) {
+            if (slot.aborted() || System.nanoTime() - deadline >= 0) {
                 throw new FetchException(FetchException.Kind.TIMEOUT, "fetch timed out");
             }
             throw new FetchException(FetchException.Kind.IO, "could not connect");
@@ -315,7 +311,7 @@ public final class PinnedHttpFetcher {
         private Socket tls(final Socket plain, final OutboundUrlGuard.ResolvedTarget target) throws IOException {
             final SSLSocket s = (SSLSocket) sslContext.getSocketFactory().createSocket(plain, target.host(),
                     target.port(), true);
-            socket.set(s);
+            slot.register(s);
             final SSLParameters params = s.getSSLParameters();
             params.setEndpointIdentificationAlgorithm("HTTPS");
             if (!isIpLiteral(target.host())) {
@@ -472,7 +468,7 @@ public final class PinnedHttpFetcher {
 
         private int remainingMillis() throws FetchException {
             final long remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
-            if (remaining <= 0 || aborted.get()) {
+            if (remaining <= 0 || slot.aborted()) {
                 throw new FetchException(FetchException.Kind.TIMEOUT, "fetch timed out");
             }
             return (int) Math.min(Integer.MAX_VALUE, remaining);
