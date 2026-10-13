@@ -20,10 +20,14 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Helix IAM M6 (SSRF): the single gate every server-initiated call to an <b>attacker-configurable</b> URL
- * (webhook / SCIM target / OIDC-broker token &amp; JWKS URIs / DCR client JWKS / WIF {@code jwksUri} /
- * eID artifact-resolution service / upstream &amp; back-channel logout / realm-config'd notification HTTP
- * endpoints) passes through before opening a connection. It rejects a URL whose:
+ * Helix IAM M6 (SSRF): the single gate every server-initiated call to an <b>attacker-configurable</b> URL passes
+ * through before opening a connection: webhooks, SCIM targets, the OIDC broker's token endpoint and JWKS, a client's
+ * registered JWKS (FAPI request objects, and the token endpoint's {@code private_key_jwt} assertions through
+ * {@code GuardedClientAssertionDecoderFactory}; SAS's own decoder fetched it unguarded and followed redirects), WIF
+ * JWKS and issuer discovery, the eID artifact-resolution service, upstream and back-channel logout, realm-configured
+ * notification HTTP endpoints, the SAML metadata import, and the wallet's status lists and issuer CRL / OCSP. Every one
+ * of them connects through {@link PinnedHttpFetcher} on the address this guard validated. (APNs is the exception by
+ * design: Apple's two fixed hosts over HTTP/2, see {@code ApnsHttp2Transport}.) It rejects a URL whose:
  * <ul>
  *   <li>scheme is not {@code http} or {@code https} (blocks {@code file:}, {@code gopher:}, {@code ftp:}, …);</li>
  *   <li>host cannot be resolved; or</li>
