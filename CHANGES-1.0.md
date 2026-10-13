@@ -18,6 +18,12 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — SAML runs on OpenSAML **5.2.3** only (M7 done). The unused `spring-security-saml2-service-provider`,
+  whose POM still pulled OpenSAML 4.3.2, is removed; the pom declares OpenSAML 5 (`opensaml-saml-api`/`-impl`,
+  `shib-support` 9.2.3, xmlsec 3.0.6, cryptacular 1.3.0, BouncyCastle 1.86) directly. No 4.x is left on the tree.
+- **security** — eID artifact binding (classic DigiD): the back-channel `ArtifactResponse` must now carry a valid
+  signature by the IdP's metadata signing key. An unsigned response is refused, and so is any response when the eID
+  connection has no IdP signing certificate (DEEP-3). The inner assertion signature check is unchanged.
 - **security** — **BREAKING.** The request-derived issuer could be steered with the `Host` header itself: a server
   reached directly answered `Host: evil.example` with issuer `http://evil.example/realms/...`. Outside the `dev`
   profile, a request whose host (after trusted forwarded-header processing) is not the host of `IDP_BASE_URL` or
