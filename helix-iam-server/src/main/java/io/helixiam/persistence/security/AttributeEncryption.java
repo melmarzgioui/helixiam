@@ -19,6 +19,9 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.security.Security;
 import java.util.Base64;
 import java.util.Collections;
@@ -38,7 +41,9 @@ import java.util.Set;
  * ({@code HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT}, its own flag, time-boxed by {@code ProductionReadinessCheck})
  * while it migrates: undecryptable values are then read as stored, each read is logged (with its entity and
  * attribute by {@link PlaintextReadLogger}), and the value is encrypted on the entity's next write. That mode also
- * hides a changed key, so it is turned off once the rows are re-encrypted. A blank key means no key.
+ * hides a changed key, so it is turned off once the rows are re-encrypted. Its end date
+ * ({@code HELIX_DB_ENCRYPTION_MIGRATE_UNTIL}, last day included) is enforced at every read, not only at startup: after
+ * it, a plaintext read fails closed and logs an ERROR. A blank key means no key.
  */
 @Converter
 public class AttributeEncryption implements AttributeConverter<String, String> {
@@ -57,6 +62,9 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
     private final SecretKey key;
     private final SecretKey keyOld;
     private final boolean allowPlaintextRead;
+    /** {@code HELIX_DB_ENCRYPTION_MIGRATE_UNTIL} (ISO date, last day included), or null when unset. */
+    private final String migrateUntil;
+    private final Clock clock;
     private final SecureRandom secureRandom = new SecureRandom();
 
     static {
@@ -68,11 +76,24 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
         this(password, false);
     }
 
+    /** Plaintext reads with no end date (the dev profile; outside dev the startup check requires one). */
+    public AttributeEncryption(final String password, final boolean allowPlaintextRead) {
+        this(password, allowPlaintextRead, null, Clock.systemUTC());
+    }
+
     @Autowired
     public AttributeEncryption(@Value("${database.encryption:#{null}}") final String password,
                                @Value("${helix.security.db-encryption.migrate-plaintext:false}")
-                               final boolean allowPlaintextRead) {
+                               final boolean allowPlaintextRead,
+                               @Value("${helix.security.db-encryption.migrate-until:}") final String migrateUntil) {
+        this(password, allowPlaintextRead, migrateUntil, Clock.systemUTC());
+    }
+
+    AttributeEncryption(final String password, final boolean allowPlaintextRead, final String migrateUntil,
+                        final Clock clock) {
         this.allowPlaintextRead = allowPlaintextRead;
+        this.migrateUntil = migrateUntil == null || migrateUntil.isBlank() ? null : migrateUntil.trim();
+        this.clock = clock;
         if (password == null || password.isBlank()) { // DB_ENCRYPTION unset arrives as "": no key
             // Security review H2: with no key, every value below is stored/read as plaintext. That is a
             // legitimate opt-out for local dev, but it must never be silent — these columns hold realm
@@ -170,6 +191,15 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
      * reading legacy plaintext rows. Neither the exception nor the log ever carries the value.
      */
     private String undecryptable(final String data) {
+        if (allowPlaintextRead && migrationWindowEnded()) {
+            // The startup check only looks at the date once; a server that keeps running past it must stop reading
+            // plaintext then, or the time box would end only at the next restart.
+            LOG.error("Refused to read a plaintext value from an encrypted column: the plaintext migration window ended on "
+                    + "{} (HELIX_DB_ENCRYPTION_MIGRATE_UNTIL). Unset HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT once the rows "
+                    + "are re-encrypted, or set a new end date and restart", LogSafeDate.of(migrateUntil));
+            throw new IllegalStateException("An encrypted database column could not be read: it is not encrypted, and the "
+                    + "plaintext migration window (HELIX_DB_ENCRYPTION_MIGRATE_UNTIL) has ended.");
+        }
         if (allowPlaintextRead) {
             Set<String> reads = PLAINTEXT_READS.get();
             if (reads == null || reads.size() >= MAX_TRACKED_PLAINTEXT_READS) {
@@ -188,6 +218,32 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
                         + "set HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true (helix.security.db-encryption.migrate-plaintext) "
                         + "with HELIX_DB_ENCRYPTION_MIGRATE_UNTIL until they are rewritten";
         throw new IllegalStateException("An encrypted database column could not be read: " + cause + ".");
+    }
+
+    /**
+     * Whether the plaintext migration window is over: today (UTC) is after {@code HELIX_DB_ENCRYPTION_MIGRATE_UNTIL},
+     * whose last day is included. An end date that is not an ISO date counts as over (fail closed); no end date at all
+     * is the dev profile's unbounded mode (outside dev the server does not start without one).
+     */
+    private boolean migrationWindowEnded() {
+        if (migrateUntil == null) {
+            return false;
+        }
+        try {
+            return LocalDate.now(clock).isAfter(LocalDate.parse(migrateUntil));
+        } catch (final DateTimeParseException e) {
+            return true;
+        }
+    }
+
+    /** The configured end date for a log line: an ISO date as is, anything else replaced (never echoed). */
+    private static final class LogSafeDate {
+        private LogSafeDate() {
+        }
+
+        static String of(final String value) {
+            return value != null && value.matches("\\d{4}-\\d{2}-\\d{2}") ? value : "(not an ISO date)";
+        }
     }
 
     /** Base64 of at least one AES block: what this converter writes (GCM: IV + tag; legacy: whole blocks). */

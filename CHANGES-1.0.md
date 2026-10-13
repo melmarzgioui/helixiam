@@ -18,6 +18,10 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` was checked only at startup, so a server started inside the
+  plaintext-read window kept reading plaintext secret columns after it ended, until its next restart. The end date
+  (its last day included, UTC) is now enforced on every read: after it, a plaintext read fails closed and logs an
+  ERROR naming the date.
 - **security** — `/flow` completion now applies the MFA enrolment rule too. In a realm that requires MFA, a user who
   had not enrolled TOTP and completed an admin-built flow whose challenge was not TOTP (email OTP, push, QR) got a
   full session at `/flow`. Like the password and federated completions, the user now goes to `/mfa/enable` with the

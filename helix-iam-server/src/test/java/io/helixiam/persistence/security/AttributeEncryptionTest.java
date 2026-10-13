@@ -92,6 +92,70 @@ class AttributeEncryptionTest {
         assertThat(new AttributeEncryption(KEY, false).convertToEntityAttribute(rewritten)).isEqualTo(SECRET);
     }
 
+    // --- the migration window is enforced at runtime, not only at startup -----------------------------------------
+
+    private static java.time.Clock at(final String isoDate) {
+        return java.time.Clock.fixed(java.time.LocalDate.parse(isoDate).atStartOfDay(java.time.ZoneOffset.UTC)
+                .plusHours(12).toInstant(), java.time.ZoneOffset.UTC);
+    }
+
+    @Test
+    void withinTheMigrationWindow_aPlaintextRowIsRead_upToAndIncludingTheLastDay() {
+        assertThat(new AttributeEncryption(KEY, true, "2026-10-20", at("2026-10-13")).convertToEntityAttribute(SECRET))
+                .isEqualTo(SECRET);
+        assertThat(new AttributeEncryption(KEY, true, "2026-10-20", at("2026-10-20")).convertToEntityAttribute(SECRET))
+                .isEqualTo(SECRET);
+    }
+
+    @Test
+    void afterTheMigrationWindow_aPlaintextReadFailsClosed_andLogsAnError() {
+        final AttributeEncryption enc = new AttributeEncryption(KEY, true, "2026-10-20", at("2026-10-21"));
+
+        try (io.helixiam.testsupport.LogCapture log =
+                     io.helixiam.testsupport.LogCapture.named(io.helixiam.persistence.DatabaseConstant.MODULE_NAME)) {
+            assertThatThrownBy(() -> enc.convertToEntityAttribute(SECRET))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("HELIX_DB_ENCRYPTION_MIGRATE_UNTIL")
+                    .satisfies(e -> assertThat(e.getMessage()).doesNotContain(SECRET));
+            assertThat(log.text()).contains("migration window ended on 2026-10-20").doesNotContain(SECRET);
+        }
+        assertThat(AttributeEncryption.plaintextReadsOnThisThread()).isEmpty();
+    }
+
+    @Test
+    void aMigrationWindowThatIsNotADate_failsClosed() {
+        assertThatThrownBy(() -> new AttributeEncryption(KEY, true, "next week", at("2026-10-13"))
+                .convertToEntityAttribute(SECRET)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void theWindowEndsWhileRunning_withTheSameConverterInstance() {
+        final java.util.concurrent.atomic.AtomicReference<java.time.Clock> clock =
+                new java.util.concurrent.atomic.AtomicReference<>(at("2026-10-20"));
+        final java.time.Clock moving = new java.time.Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return java.time.ZoneOffset.UTC;
+            }
+
+            @Override
+            public java.time.Clock withZone(final java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public java.time.Instant instant() {
+                return clock.get().instant();
+            }
+        };
+        final AttributeEncryption enc = new AttributeEncryption(KEY, true, "2026-10-20", moving);
+        assertThat(enc.convertToEntityAttribute(SECRET)).isEqualTo(SECRET);
+
+        clock.set(at("2026-10-21"));
+
+        assertThatThrownBy(() -> enc.convertToEntityAttribute(SECRET)).isInstanceOf(IllegalStateException.class);
+    }
+
     @Test
     void theLegacyAesFormat_stillDecrypts() throws Exception {
         final Cipher legacy = Cipher.getInstance("AES");
@@ -175,11 +239,13 @@ class AttributeEncryptionTest {
 
     @Test
     void theSpringConstructor_readsTheDedicatedMigrationFlag_notAllowPlaintextSecrets() throws Exception {
-        final java.lang.reflect.Constructor<AttributeEncryption> ctor =
-                AttributeEncryption.class.getConstructor(String.class, boolean.class);
-        final org.springframework.beans.factory.annotation.Value flag =
-                ctor.getParameters()[1].getAnnotation(org.springframework.beans.factory.annotation.Value.class);
+        final java.lang.reflect.Constructor<?> ctor = java.util.Arrays.stream(AttributeEncryption.class.getConstructors())
+                .filter(c -> c.isAnnotationPresent(org.springframework.beans.factory.annotation.Autowired.class))
+                .findFirst().orElseThrow();
+        final java.util.List<String> values = java.util.Arrays.stream(ctor.getParameters())
+                .map(p -> p.getAnnotation(org.springframework.beans.factory.annotation.Value.class).value()).toList();
 
-        assertThat(flag.value()).isEqualTo("${helix.security.db-encryption.migrate-plaintext:false}");
+        assertThat(values).contains("${helix.security.db-encryption.migrate-plaintext:false}",
+                "${helix.security.db-encryption.migrate-until:}");
     }
 }
