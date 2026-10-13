@@ -94,8 +94,9 @@ Affected released versions (see `CHANGES-1.0.md`).
 - **LDAP egress (pre-existing, released versions)** — DONE (344aedd9): guarded, pinned, LDAPS on the configured name,
   referrals ignored; internal directories only via `helix.federation.ldap.allowed-hosts`.
 - **Audit webhook timeout** — DONE (b76047b8).
-- **Still open (small):** realm import does not re-validate an `https` `jwksUrl` for `private_key_jwt` clients (the
-  token endpoint still guards the fetch); the console client form does not pre-validate it (the API answers 400).
+- **Imported / console `jwksUrl` checks** — DONE (6521ceb8, 27a81470): realm import applies the admin API's
+  `jwksUrl` rule (`JwksUrlPolicy`) and refuses an invalid client with its field error; the console client form
+  validates it before save with an inline error.
 
 ## Re-review of the M6 move (2026-10-13) — all DONE
 - **APNs regression (HTTP/2)** — DONE (8b5e8a98): APNs over the JDK client, HTTP/2, Apple's two hosts only; the

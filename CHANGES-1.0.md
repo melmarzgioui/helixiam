@@ -59,7 +59,7 @@ question. Newest first within each phase.
 > 9. `helix.outbound.fetch.login.*` is split into `login-admin` (OIDC broker, eID, workload identity) and
 >    `login-client` (client-assertion JWKS, FAPI request-object JWKS). The old `login` names are still read as
 >    `login-admin`.
-> 10. Admin and console client writes need an `https` `jwksUrl` (`http://localhost` / `http://127.0.0.1` in `dev`
+> 10. Admin, console and realm-import client writes need an `https` `jwksUrl` (`http://localhost` / `http://127.0.0.1` in `dev`
 >    only). Flyway `V80` rewrites DCR-stored lowercase `private_key_jwt` to `PRIVATE_KEY_JWT`, and the server logs a
 >    WARN at startup for every `private_key_jwt` client without a JWKS URL (it cannot authenticate).
 
@@ -381,6 +381,11 @@ question. Newest first within each phase.
   OIDC broker token client are bounded LRU caches (1,000 entries) instead of unbounded maps cleared on overflow.
 - **security** — Local-use NAT64 `64:ff9b:1::/48` is refused outright (it has no public meaning), also for an
   allowlisted host.
+- **security** — Realm import (API, realm-config folder, Keycloak import) wrote a client's `jwksUrl` unchecked; it now
+  applies the admin API's rule (https with a host; http to `localhost` / `127.0.0.1` only in `dev`). A client that
+  breaks it is not created or updated and is reported as a failed `clients` entry with its field error
+  (`jwksUrl: The JWKS URL must be an https URL.`). The console client form checks the same rule before save and shows
+  the error inline.
 - **fix** — `private_key_jwt` client assertions are accepted with `typ` `JWT`, absent, or `client-authentication+jwt`.
 - **fix** — The SIEM audit webhook (`helix.audit.http.*`) has an explicit connect timeout, a request timeout within
   (0, 30 s] (2 s when unset, zero or negative; zero used to make every forward fail), no redirects, and a bounded
