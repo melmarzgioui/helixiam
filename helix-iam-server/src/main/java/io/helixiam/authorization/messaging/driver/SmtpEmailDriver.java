@@ -220,19 +220,26 @@ public class SmtpEmailDriver implements EmailTransport {
     }
 
     /**
-     * Jakarta Mail connects through socket factories that dial {@code address} whatever host it asks for, while it
-     * keeps working with the configured host name: STARTTLS and SMTPS are layered over the pinned socket with that
-     * name (SNI) and the server identity is checked against it ({@code mail.smtp.ssl.checkserveridentity}).
+     * Jakarta Mail never sees the configured name as the host: {@code mail.smtp.host} becomes the validated IP literal,
+     * so no code path in Angus can resolve the name again (for an SSL socket factory, SMTPS, Angus connects a socket
+     * of its own to {@code new InetSocketAddress(host, port)}). The socket factories dial the validated address, and
+     * TLS (SMTPS and STARTTLS) is layered with the configured name: SNI, HTTPS-style endpoint identification against
+     * that name, and the realm's CA bundle. Angus's own {@code checkserveridentity} would compare the certificate with
+     * the IP literal, so it is off on this path; the endpoint identification replaces it. EHLO sends
+     * {@code ehloName} (or the local host name), never the server's name, so nothing else changes on the wire.
      */
     private static void pin(final Properties props, final Settings settings, final java.net.InetAddress address) {
         final javax.net.ssl.SSLSocketFactory tls = (javax.net.ssl.SSLSocketFactory) props.get(
                 "mail.smtp.ssl.socketFactory");
+        final String name = settings.host().replace("[", "").replace("]", "");
+        props.put("mail.smtp.host", address.getHostAddress());
         props.put("mail.smtp.socketFactory", new io.helixiam.common.net.PinnedSocketFactories.Plain(address,
                 settings.port(), settings.connectTimeoutMs()));
         props.put("mail.smtp.socketFactory.fallback", "false");
         props.put("mail.smtp.ssl.socketFactory", new io.helixiam.common.net.PinnedSocketFactories.Ssl(address,
-                settings.port(), settings.connectTimeoutMs(), tls));
+                settings.port(), settings.connectTimeoutMs(), tls, name));
         props.put("mail.smtp.ssl.socketFactory.fallback", "false");
+        props.put("mail.smtp.ssl.checkserveridentity", "false"); // replaced by endpoint identification on the name
     }
 
     /** The MIME message: {@code multipart/alternative} (text first, then HTML) for an HTML email. */

@@ -97,11 +97,24 @@ public final class PinnedSocketFactories {
     public static final class Ssl extends SSLSocketFactory {
         private final Plain plain;
         private final SSLSocketFactory tls;
+        private final String identityName;
 
         public Ssl(final InetAddress address, final int port, final int connectTimeoutMillis,
                 final SSLSocketFactory tls) {
+            this(address, port, connectTimeoutMillis, tls, null);
+        }
+
+        /**
+         * With {@code identityName}: TLS always uses that name for SNI and checks the server certificate against it
+         * (HTTPS-style endpoint identification), whatever host the library passes. For callers that must hand the
+         * library the validated IP literal as the host (so it never resolves the name itself), e.g. SMTPS in Angus
+         * Mail, whose own host check would then compare against the IP.
+         */
+        public Ssl(final InetAddress address, final int port, final int connectTimeoutMillis,
+                final SSLSocketFactory tls, final String identityName) {
             this.plain = new Plain(address, port, connectTimeoutMillis);
             this.tls = Objects.requireNonNull(tls, "tls");
+            this.identityName = identityName == null || identityName.isBlank() ? null : identityName;
         }
 
         @Override
@@ -112,12 +125,12 @@ public final class PinnedSocketFactories {
         @Override
         public Socket createSocket(final Socket s, final String host, final int port, final boolean autoClose)
                 throws IOException {
-            return tls.createSocket(s, host, port, autoClose); // SNI and the identity check use the configured name
+            return layer(s, host, port, autoClose);
         }
 
         @Override
         public Socket createSocket(final String host, final int port) throws IOException {
-            return tls.createSocket(plain.createSocket(host, port), host, port, true);
+            return layer(plain.createSocket(host, port), host, port, true);
         }
 
         @Override
@@ -128,13 +141,34 @@ public final class PinnedSocketFactories {
 
         @Override
         public Socket createSocket(final InetAddress host, final int port) throws IOException {
-            return tls.createSocket(plain.createSocket(host, port), host.getHostAddress(), port, true);
+            return layer(plain.createSocket(host, port), host.getHostAddress(), port, true);
         }
 
         @Override
         public Socket createSocket(final InetAddress address, final int port, final InetAddress localAddress,
                 final int localPort) throws IOException {
             return createSocket(address, port);
+        }
+
+        private Socket layer(final Socket s, final String host, final int port, final boolean autoClose)
+                throws IOException {
+            if (identityName == null) {
+                return tls.createSocket(s, host, port, autoClose); // SNI and the identity check use the given name
+            }
+            final Socket layered = tls.createSocket(s, identityName, port, autoClose);
+            if (layered instanceof javax.net.ssl.SSLSocket ssl) {
+                final javax.net.ssl.SSLParameters params = ssl.getSSLParameters();
+                params.setEndpointIdentificationAlgorithm("HTTPS");
+                if (!isIpLiteral(identityName)) {
+                    params.setServerNames(java.util.List.of(new javax.net.ssl.SNIHostName(identityName)));
+                }
+                ssl.setSSLParameters(params);
+            }
+            return layered;
+        }
+
+        private static boolean isIpLiteral(final String name) {
+            return name.indexOf(':') >= 0 || name.matches("[0-9.]+");
         }
 
         @Override

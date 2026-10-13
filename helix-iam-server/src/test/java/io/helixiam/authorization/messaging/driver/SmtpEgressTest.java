@@ -127,4 +127,56 @@ class SmtpEgressTest {
             }
         }
     }
+
+    /**
+     * SMTPS (implicit TLS): Angus connects its own socket for an SSL socket factory, so the configured name must never
+     * reach it. The name here does not resolve on the real network: any lookup outside the guard fails the send.
+     */
+    @Test
+    void implicitTlsConnectsToTheValidatedAddressOnly() throws Exception {
+        final String name = "smtps-pin-probe.invalid";
+        final TestTls tls = TestTls.createFor("smtps-rebind", name);
+        try (TestSmtpServer server = TestSmtpServer.implicitTls(tls)) {
+            final AtomicInteger lookups = new AtomicInteger();
+            final SmtpEmailDriver driver = new SmtpEmailDriver(DeploymentProfile.production(),
+                    rebinding(name, server.port(), lookups), Set.of(server.port()));
+
+            final DeliveryResult r = driver.deliver(provider(name, server.port(),
+                    Map.of("tlsMode", "IMPLICIT", "caBundle", tls.caPem())), message());
+
+            assertThat(r.status()).as(String.valueOf(r)).isEqualTo(Status.ACCEPTED);
+            final TestSmtpServer.Received got = server.await(x -> true, Duration.ofSeconds(5));
+            assertThat(got.tls()).isTrue();
+            assertThat(got.rcptTo()).containsExactly("<ada@example.org>");
+            assertThat(lookups).hasValue(1);
+        }
+    }
+
+    @Test
+    void implicitTlsRefusesACertificateForAnotherName() throws Exception {
+        final TestTls other = TestTls.createFor("smtps-other", "other.test");
+        try (TestSmtpServer server = TestSmtpServer.implicitTls(other)) {
+            final DeliveryResult r = new SmtpEmailDriver(DeploymentProfile.production(),
+                    rebinding("smtps-pin-probe.invalid", server.port(), new AtomicInteger()), Set.of(server.port()))
+                    .deliver(provider("smtps-pin-probe.invalid", server.port(),
+                            Map.of("tlsMode", "IMPLICIT", "caBundle", other.caPem())), message());
+            assertThat(r.status()).isNotEqualTo(Status.ACCEPTED);
+            assertThat(server.received()).isEmpty();
+        }
+    }
+
+    @Test
+    void startTlsWithAnUnresolvableNameStillUsesTheValidatedAddress() throws Exception {
+        final String name = "smtp-pin-probe.invalid";
+        final TestTls tls = TestTls.createFor("smtp-pin", name);
+        try (TestSmtpServer server = TestSmtpServer.startTls(tls)) {
+            final AtomicInteger lookups = new AtomicInteger();
+            final DeliveryResult r = new SmtpEmailDriver(DeploymentProfile.production(),
+                    rebinding(name, server.port(), lookups), Set.of(server.port()))
+                    .deliver(provider(name, server.port(),
+                            Map.of("tlsMode", "STARTTLS_REQUIRED", "caBundle", tls.caPem())), message());
+            assertThat(r.status()).as(String.valueOf(r)).isEqualTo(Status.ACCEPTED);
+            assertThat(lookups).hasValue(1);
+        }
+    }
 }
