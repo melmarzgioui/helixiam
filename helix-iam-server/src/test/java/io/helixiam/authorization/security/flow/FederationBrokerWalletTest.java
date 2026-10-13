@@ -122,7 +122,7 @@ class FederationBrokerWalletTest {
         store.claimResponse(tx.responseId());
         store.complete(txId, null, VerifiedIdentityJson.write(new BrokeredIdentity(ALIAS, "s".repeat(64), null, false,
                 Map.of(), "http://eidas.europa.eu/LoA/high"), new WalletLinkService.Decision.Existing("user-1")));
-        final String code = store.issueResponseCode(txId, BrowserBinding.current(session, ALIAS)).orElseThrow();
+        final String code = store.issueResponseCode(txId, BrowserBinding.current(session, REALM, ALIAS)).orElseThrow();
         when(walletCompleter.complete(any(), any(), any(), any(), any()))
                 .thenThrow(new IllegalStateException("link store down"));
         final MockHttpServletRequest callback = new MockHttpServletRequest();

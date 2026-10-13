@@ -11,6 +11,7 @@ import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
 import io.helixiam.authorization.federation.wallet.WalletSubject;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction;
 import io.helixiam.authorization.security.flow.BrowserBinding;
+import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.common.log.LogSafe;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -188,7 +189,7 @@ public class WalletPageController {
             return Optional.empty(); // ruling 1: expired reads as unknown, whatever the store says
         }
         final HttpSession session = request.getSession(false);
-        final String binding = BrowserBinding.current(session, alias);
+        final String binding = BrowserBinding.current(session, RealmContextHolder.get(), alias);
         if (binding == null || tx.browserBindingHash() == null || !MessageDigest.isEqual(
                 binding.getBytes(StandardCharsets.US_ASCII), tx.browserBindingHash().getBytes(StandardCharsets.US_ASCII))) {
             return Optional.empty();

@@ -304,7 +304,7 @@ class WalletAuditE2eTest {
         final String code = store.issueResponseCode(tx.transactionId(), "binding-A").orElseThrow();
 
         // Another browser session never began this (or any) wallet login, so it holds no binding at all —
-        // BrowserBinding.current(session, alias) is exactly this: null/blank for a session that never started one.
+        // BrowserBinding.current(session, realm, alias) is exactly this: null/blank for a session that never started one.
         assertThatRefusalIsAudited(provider, code, HELIX_STATE, null, WalletErrorCode.BROWSER_MISMATCH);
     }
 

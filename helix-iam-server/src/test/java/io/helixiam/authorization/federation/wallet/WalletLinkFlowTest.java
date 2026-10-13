@@ -78,7 +78,7 @@ class WalletLinkFlowTest {
         final WalletTransaction tx = store.byTransactionId(page.substring(page.indexOf("tx=") + 3)).orElseThrow();
         assertThat(tx.purpose()).isEqualTo(WalletTransaction.Purpose.LINK);
         assertThat(tx.initiatingUserId()).isEqualTo(USER);
-        assertThat(tx.browserBindingHash()).isEqualTo(BrowserBinding.current(session, ALIAS));
+        assertThat(tx.browserBindingHash()).isEqualTo(BrowserBinding.current(session, REALM, ALIAS));
         assertThat(tx.helixState()).isNotBlank();
     }
 
@@ -102,7 +102,7 @@ class WalletLinkFlowTest {
 
         verify(links).link(REALM, USER, ALIAS, new WalletSubject.AdminNumber("aa11", null));
         verify(links).link(REALM, USER, ALIAS, new WalletSubject.Tuple("bb22"));
-        assertThat(BrowserBinding.current(session, ALIAS)).as("the binding is spent").isNull();
+        assertThat(BrowserBinding.current(session, REALM, ALIAS)).as("the binding is spent").isNull();
     }
 
     @Test
@@ -211,7 +211,7 @@ class WalletLinkFlowTest {
     @Test
     void aLoginTransactionsCode_isNeverALink() {
         final WalletIdentityProvider provider = provider();
-        final String binding = BrowserBinding.begin(session, ALIAS);
+        final String binding = BrowserBinding.begin(session, REALM, ALIAS);
         final var redirect = provider.start(new io.helixiam.authorization.federation.spi.IdentityProvider
                 .AuthnRequestContext(REALM, "login-state", null, binding));
         final String txId = redirect.location().substring(redirect.location().indexOf("tx=") + 3);
