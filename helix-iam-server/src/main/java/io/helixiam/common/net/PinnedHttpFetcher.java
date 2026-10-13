@@ -63,6 +63,11 @@ public final class PinnedHttpFetcher {
     /** Largest response head (status line and headers) read. */
     static final int MAX_HEADER_BYTES = 32 * 1024;
     private static final int MAX_INTERIM_RESPONSES = 5;
+    private static final java.util.Set<String> METHODS = java.util.Set.of("GET", "HEAD", "POST", "PUT", "PATCH",
+            "DELETE", "OPTIONS");
+    private static final java.util.Set<String> BODY_METHODS = java.util.Set.of("POST", "PUT", "PATCH");
+    private static final java.util.Set<String> RESTRICTED_HEADERS = java.util.Set.of("host", "connection",
+            "content-length", "transfer-encoding", "expect", "upgrade", "te", "keep-alive", "proxy-connection");
     private static final java.util.regex.Pattern HEADER_NAME =
             java.util.regex.Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
     private static final java.util.regex.Pattern DIGITS = java.util.regex.Pattern.compile("[0-9]+");
@@ -99,7 +104,55 @@ public final class PinnedHttpFetcher {
      * An answer: the status, the {@code Location} header (3xx), the {@code Content-Type} header, and the body (200
      * only; empty otherwise).
      */
-    public record Response(int status, String location, String contentType, byte[] body) {
+    public record Response(int status, String location, String contentType, byte[] body,
+            Map<String, java.util.List<String>> headers) {
+
+        public Response {
+            final Map<String, java.util.List<String>> copy = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            if (headers != null) {
+                headers.forEach((k, v) -> copy.put(k, java.util.List.copyOf(v)));
+            }
+            headers = java.util.Collections.unmodifiableMap(copy);
+        }
+
+        /** The first value of response header {@code name} (case-insensitive), or null. */
+        public String header(final String name) {
+            final java.util.List<String> values = headers.get(name);
+            return values == null || values.isEmpty() ? null : values.get(0);
+        }
+
+        /** The body as text in the {@code charset} of its Content-Type, UTF-8 when absent or unknown. */
+        public String bodyAsString() {
+            java.nio.charset.Charset charset = StandardCharsets.UTF_8;
+            if (contentType != null) {
+                for (final String param : contentType.split(";")) {
+                    final String p = param.trim();
+                    if (p.regionMatches(true, 0, "charset=", 0, 8)) {
+                        try {
+                            charset = java.nio.charset.Charset.forName(p.substring(8).replace("\"", "").trim());
+                        } catch (final RuntimeException e) {
+                            charset = StandardCharsets.UTF_8;
+                        }
+                    }
+                }
+            }
+            return new String(body, charset);
+        }
+    }
+
+    /**
+     * A request for {@link #exchange}.
+     *
+     * @param method              GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS
+     * @param url                 the target (vetted by the guard, inside the deadline)
+     * @param headers             request headers; Host, Connection, Content-Length, Transfer-Encoding, Expect, Upgrade,
+     *                            TE and Keep-Alive are set by the client and refused here
+     * @param body                the request body, or null for none
+     * @param limits              connect / total timeouts and the response body cap
+     * @param readBodyOfAnyStatus read the body of every final answer (error bodies included), not only of a 200
+     */
+    public record Request(String method, String url, Map<String, String> headers, byte[] body, Limits limits,
+            boolean readBodyOfAnyStatus) {
     }
 
     /** A fetch that did not produce an answer. The message is safe to log (no URL, no peer data). */
@@ -120,14 +173,25 @@ public final class PinnedHttpFetcher {
         }
 
         private final Kind kind;
+        private final int status;
 
         public FetchException(final Kind kind, final String message) {
+            this(kind, message, -1);
+        }
+
+        public FetchException(final Kind kind, final String message, final int status) {
             super(message, null);
             this.kind = Objects.requireNonNull(kind, "kind");
+            this.status = status;
         }
 
         public Kind kind() {
             return kind;
+        }
+
+        /** The HTTP status when one was received (for {@link Kind#TOO_LARGE}), else -1. */
+        public int status() {
+            return status;
         }
     }
 
@@ -166,28 +230,39 @@ public final class PinnedHttpFetcher {
      */
     public Response get(final String url, final Map<String, String> headers, final Limits limits)
             throws FetchException {
-        return send("GET", url, headers, null, limits);
+        return exchange(new Request("GET", url, headers, null, limits, false));
     }
 
     /** POSTs {@code body} to {@code url}; failures as for {@link #get}. */
     public Response post(final String url, final Map<String, String> headers, final byte[] body, final Limits limits)
             throws FetchException {
-        return send("POST", url, headers, Objects.requireNonNull(body, "body"), limits);
+        return exchange(new Request("POST", url, headers, Objects.requireNonNull(body, "body"), limits, false));
     }
 
-    private Response send(final String method, final String url, final Map<String, String> headers,
-            final byte[] body, final Limits limits) throws FetchException {
-        Objects.requireNonNull(limits, "limits");
+    /** Any method, any body; failures as for {@link #get}. */
+    public Response exchange(final Request request) throws FetchException {
+        Objects.requireNonNull(request, "request");
+        final String method = request.method();
+        if (method == null || !METHODS.contains(method)) {
+            throw new IllegalArgumentException("unsupported HTTP method");
+        }
+        final Map<String, String> headers = request.headers();
+        final Limits limits = Objects.requireNonNull(request.limits(), "limits");
+        final byte[] body = request.body();
+        final String url = request.url();
         // the request is validated whole before any DNS lookup or connection
         if (headers != null) {
             headers.forEach((name, value) -> {
                 token(name);
                 value(value);
+                if (RESTRICTED_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+                    throw new IllegalArgumentException("restricted header " + name);
+                }
             });
         }
         final long deadline = System.nanoTime() + limits.totalTimeout().toNanos();
         final Exchange exchange = new Exchange(method, url, headers == null ? Map.of() : headers, body, limits,
-                deadline);
+                deadline, request.readBodyOfAnyStatus());
         try {
             if (!limiter.acquire(deadline)) {
                 throw new FetchException(FetchException.Kind.TIMEOUT, "fetch timed out waiting for a free slot");
@@ -244,10 +319,12 @@ public final class PinnedHttpFetcher {
         private final byte[] body;
         private final Limits limits;
         private final long deadline;
+        private final boolean readBodyOfAnyStatus;
         private final SocketSlot slot = new SocketSlot();
 
         Exchange(final String method, final String url, final Map<String, String> headers, final byte[] body,
-                final Limits limits, final long deadline) {
+                final Limits limits, final long deadline, final boolean readBodyOfAnyStatus) {
+            this.readBodyOfAnyStatus = readBodyOfAnyStatus;
             this.method = method;
             this.url = url;
             this.headers = headers;
@@ -347,13 +424,17 @@ public final class PinnedHttpFetcher {
             final StringBuilder head = new StringBuilder(256)
                     .append(method).append(' ').append(path).append(query).append(" HTTP/1.1\r\n")
                     .append("Host: ").append(hostHeader(target)).append("\r\n")
-                    .append("User-Agent: HelixIAM\r\n")
                     .append("Connection: close\r\n");
+            if (headers.keySet().stream().noneMatch(k -> k.equalsIgnoreCase("User-Agent"))) {
+                head.append("User-Agent: HelixIAM\r\n");
+            }
             for (final Map.Entry<String, String> h : headers.entrySet()) {
                 head.append(token(h.getKey())).append(": ").append(value(h.getValue())).append("\r\n");
             }
             if (body != null) {
                 head.append("Content-Length: ").append(body.length).append("\r\n");
+            } else if (BODY_METHODS.contains(method)) {
+                head.append("Content-Length: 0\r\n"); // an empty body, stated (no chunked request bodies)
             }
             head.append("\r\n");
             out.write(head.toString().getBytes(StandardCharsets.US_ASCII));
@@ -387,16 +468,18 @@ public final class PinnedHttpFetcher {
                 }
                 final String location = first(fields, "Location");
                 final String contentType = first(fields, "Content-Type");
-                if (status != 200) {
-                    return new Response(status, location, contentType, new byte[0]);
+                // no body: HEAD, 204, 304 (RFC 9112 6.3); otherwise only a 200's unless every body is wanted
+                final boolean noBody = "HEAD".equals(method) || status == 204 || status == 304;
+                if (noBody || status != 200 && !readBodyOfAnyStatus) {
+                    return new Response(status, location, contentType, new byte[0], fields);
                 }
-                return new Response(status, location, contentType, readBody(in, fields));
+                return new Response(status, location, contentType, readBody(in, fields, status), fields);
             }
             throw malformed("too many interim responses");
         }
 
-        private byte[] readBody(final InputStream in, final Map<String, java.util.List<String>> fields)
-                throws IOException {
+        private byte[] readBody(final InputStream in, final Map<String, java.util.List<String>> fields,
+                final int status) throws IOException {
             final long max = limits.maxBodyBytes();
             final java.util.List<String> te = fields.get("Transfer-Encoding");
             final java.util.List<String> cl = fields.get("Content-Length");
@@ -407,7 +490,7 @@ public final class PinnedHttpFetcher {
                 if (te.size() != 1 || !"chunked".equalsIgnoreCase(te.get(0))) {
                     throw malformed("unsupported transfer encoding");
                 }
-                return readChunked(in, max);
+                return readChunked(in, max, status);
             }
             if (cl != null) {
                 long declared = -1;
@@ -423,7 +506,7 @@ public final class PinnedHttpFetcher {
                     declared = value;
                 }
                 if (declared > max) {
-                    throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large");
+                    throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
                 }
                 final byte[] out = in.readNBytes((int) declared);
                 if (out.length != declared) {
@@ -433,12 +516,12 @@ public final class PinnedHttpFetcher {
             }
             final byte[] out = in.readNBytes((int) Math.min(Integer.MAX_VALUE - 8, max + 1));
             if (out.length > max) {
-                throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large");
+                throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
             }
             return out;
         }
 
-        private byte[] readChunked(final InputStream in, final long max) throws IOException {
+        private byte[] readChunked(final InputStream in, final long max, final int status) throws IOException {
             final ByteArrayOutputStream out = new ByteArrayOutputStream();
             while (true) {
                 final String sizeLine = readLine(in);
@@ -460,7 +543,7 @@ public final class PinnedHttpFetcher {
                     return out.toByteArray();
                 }
                 if (out.size() + size > max) {
-                    throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large");
+                    throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
                 }
                 final byte[] chunk = in.readNBytes((int) size);
                 if (chunk.length != size) {
