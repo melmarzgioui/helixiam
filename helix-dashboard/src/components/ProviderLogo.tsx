@@ -40,27 +40,19 @@ export interface ProviderLogoProps {
  */
 export function ProviderLogo({ kind, size = 36 }: ProviderLogoProps) {
   const r = Math.round(size * 0.28);
+  // Each mark picks its own pixel size and brand colour/gradient — values CSS cannot itself express —
+  // so they're carried as custom properties, never literal style props.
   const tile = (bg: string, children: React.ReactNode, ring = false): React.ReactElement => (
     <span
-      style={{
-        width: size,
-        height: size,
-        flexShrink: 0,
-        borderRadius: r,
-        background: bg,
-        border: ring ? "1px solid var(--border)" : "none",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
+      className={`hx-plogo${ring ? " hx-plogo--ring" : ""}`}
+      style={{ "--plogo-size": `${size}px`, "--plogo-r": `${r}px`, "--plogo-bg": bg } as React.CSSProperties}
     >
       {children}
     </span>
   );
 
   const monogram = (text: string, color = "#fff", fs = size * 0.36) => (
-    <span style={{ color, font: `800 ${fs}px var(--font)`, letterSpacing: "-0.02em" }}>{text}</span>
+    <span className="hx-plogo-mono" style={{ "--plogo-color": color, "--plogo-fs": `${fs}px` } as React.CSSProperties}>{text}</span>
   );
 
   switch (kind) {

@@ -3,30 +3,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import React from "react";
+
 export interface SpinnerProps {
   size?: number;
   label?: string;
 }
 
-/** Indeterminate spinner. Keyframes are injected once. */
+/** Indeterminate spinner. Keyframes live in components.css (helix-spin). */
 export function Spinner({ size = 20, label }: SpinnerProps) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: ".5rem" }}>
-      <style>{"@keyframes helix-spin{to{transform:rotate(360deg)}}"}</style>
+    <span className="hx-spinner-wrap">
       <span
         role="status"
         aria-label={label ?? "Loading"}
-        style={{
-          width: size,
-          height: size,
-          borderRadius: "50%",
-          border: `${Math.max(2, Math.round(size / 10))}px solid var(--border)`,
-          borderTopColor: "var(--primary)",
-          animation: "helix-spin .7s linear infinite",
-          display: "inline-block",
-        }}
+        className="hx-spinner-ring"
+        // `size` is an open numeric prop; the border width is derived from it. Both are carried as
+        // custom properties — a value CSS cannot itself compute.
+        style={{ "--spin-size": `${size}px`, "--spin-border": `${Math.max(2, Math.round(size / 10))}px` } as React.CSSProperties}
       />
-      {label && <span style={{ color: "var(--fg-muted)", font: "500 .9rem var(--font)" }}>{label}</span>}
+      {label && <span className="hx-spinner-label">{label}</span>}
     </span>
   );
 }

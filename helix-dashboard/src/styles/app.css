@@ -147,14 +147,21 @@
   .hx-topbar__brand { width: auto; padding: 0 1rem; gap: .6rem; }
 }
 .hx-topbar__right { display: flex; align-items: center; gap: 1rem; margin-left: auto; }
-/* Phones: the bar must fit 390px and narrower. Tighter gutters and gaps, and the realm switcher gives up width
-   (it truncates its label) so the language, theme and account controls always stay on screen. */
+.hx-topbar__realm--select { width: 188px; }
+/* Phones: the bar must fit 390px and narrower, with the language/theme/account controls at their
+   required 44px tap size. Tighter gutters/gaps and dropping the account menu's decorative chevron
+   (the avatar alone is enough affordance — nothing is lost, the menu still opens on tap) claw back
+   room so the realm switcher — the one control with open-ended, data-driven content — gets first
+   claim on what's left. Common realm names ("master", "acme-production") fit without truncating;
+   an unusually long one still ellipsizes gracefully (full name in `title` + in the open dropdown),
+   and the control's own width never grows the page (it stays inside the topbar's flex row). */
 @media (max-width: 560px) {
   .hx-topbar { padding-right: .75rem; }
   .hx-topbar__brand { padding: 0 .4rem 0 .75rem; gap: .35rem; }
-  .hx-topbar__right { flex: 1 1 auto; min-width: 0; justify-content: flex-end; gap: .4rem; }
+  .hx-topbar__right { flex: 1 1 auto; min-width: 0; justify-content: flex-end; gap: .3rem; }
   .hx-topbar__right > * { flex-shrink: 0; }
-  .hx-topbar__right > .hx-topbar__realm { width: auto !important; flex: 0 1 132px; min-width: 64px; flex-shrink: 1; }
+  .hx-topbar__right > .hx-topbar__realm { width: auto !important; flex: 1 1 160px; min-width: 100px; flex-shrink: 1; }
+  .hx-usermenu-trigger .hx-menutrigger__chevron { display: none; }
 }
 
 .hx-content { min-height: 0; overflow-y: auto; overflow-x: hidden; background-image: var(--grad-canvas); background-attachment: fixed; }

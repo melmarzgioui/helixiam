@@ -36,10 +36,10 @@ export function MetadataUpload({ fileName, onLoaded, onClear }: MetadataUploadPr
     return (
       <div className="hx-dropzone hx-dropzone--has-file">
         <FileIcon />
-        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+        <span className="hx-dropzone__filename">
           {fileName}
         </span>
-        <button type="button" className="hx-btn hx-btn--ghost" style={{ padding: ".4rem .9rem", fontSize: ".85rem" }} onClick={onClear}>
+        <button type="button" className="hx-btn hx-btn--ghost hx-dropzone__remove" onClick={onClear}>
           Remove
         </button>
       </div>
@@ -57,18 +57,18 @@ export function MetadataUpload({ fileName, onLoaded, onClear }: MetadataUploadPr
       onDrop={onDrop}
     >
       <UploadIcon />
-      <div style={{ flex: 1 }}>
-        <span style={{ display: "block", fontWeight: 600, color: "var(--fg)" }}>Upload metadata XML</span>
-        <span style={{ display: "block", fontSize: ".82rem", color: "var(--fg-faint)" }}>Drag &amp; drop or browse — .xml</span>
+      <div className="hx-dropzone__text">
+        <span className="hx-dropzone__title">Upload metadata XML</span>
+        <span className="hx-dropzone__hint">Drag &amp; drop or browse — .xml</span>
       </div>
-      <button type="button" className="hx-btn hx-btn--ghost" style={{ padding: ".5rem 1rem", fontSize: ".88rem" }} onClick={() => inputRef.current?.click()}>
+      <button type="button" className="hx-btn hx-btn--ghost hx-dropzone__browse" onClick={() => inputRef.current?.click()}>
         Browse…
       </button>
       <input
         ref={inputRef}
         type="file"
         accept=".xml,application/xml,text/xml"
-        style={{ display: "none" }}
+        className="hx-visually-hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) read(file);
@@ -81,7 +81,7 @@ export function MetadataUpload({ fileName, onLoaded, onClear }: MetadataUploadPr
 
 function UploadIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, color: "var(--primary)" }}>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="hx-dropzone__icon">
       <path d="M12 16V4m0 0L8 8m4-4l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -90,7 +90,7 @@ function UploadIcon() {
 
 function FileIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, color: "var(--primary)" }}>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="hx-dropzone__icon">
       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
       <path d="M14 2v6h6" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
     </svg>

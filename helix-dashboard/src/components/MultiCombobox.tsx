@@ -151,8 +151,10 @@ export function MultiCombobox({
       </svg>
 
       {open && pos && createPortal(
-        <ul ref={listRef} role="listbox" aria-multiselectable="true" className="hx-select-panel"
-          style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, right: "auto", zIndex: 95 }}>
+        // The panel's screen position/width is the control's measured rect — a value CSS cannot
+        // express — so it is carried as custom properties, never as literal style props.
+        <ul ref={listRef} role="listbox" aria-multiselectable="true" className="hx-select-panel hx-select-panel--portal"
+          style={{ "--mx-top": `${pos.top}px`, "--mx-left": `${pos.left}px`, "--mx-width": `${pos.width}px` } as React.CSSProperties}>
           {loading ? (
             <li className="hx-option hx-combo__msg">Loading…</li>
           ) : visibleCount === 0 ? (

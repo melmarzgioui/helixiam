@@ -124,7 +124,7 @@ export function AppShell({ sections, activeId, onNavigate, realms, activeRealm, 
               </button>
             )}
             {realms && realms.length > 0 && (
-              <div className="hx-topbar__realm" style={{ width: 188 }}>
+              <div className="hx-topbar__realm hx-topbar__realm--select" title={activeRealm}>
                 <Select options={realms} value={activeRealm} onChange={onRealmChange} aria-label={t("shell.realm")} />
               </div>
             )}
@@ -191,8 +191,8 @@ function UserMenu({ user, onLogout, block }: { user: { name: string; email?: str
     <>
       <span className="hx-avatar" aria-hidden="true">{initials(user.name)}</span>
       <span className="hx-userchip__meta">
-        <span style={{ font: "600 .85rem var(--font)", color: "var(--fg)" }}>{user.name}</span>
-        {user.email && <span style={{ fontSize: ".75rem", color: "var(--fg-faint)" }}>{user.email}</span>}
+        <span className="hx-userchip__name">{user.name}</span>
+        {user.email && <span className="hx-userchip__email">{user.email}</span>}
       </span>
     </>
   );
@@ -201,26 +201,27 @@ function UserMenu({ user, onLogout, block }: { user: { name: string; email?: str
 
   return (
     <>
-      <button ref={btnRef} type="button" className="hx-usermenu-trigger" aria-haspopup="menu" aria-expanded={open}
-        aria-label={t("shell.account")} onClick={toggle}
-        style={{ display: "flex", alignItems: "center", gap: ".55rem", width: block ? "100%" : undefined,
-          background: open ? "var(--surface)" : "transparent", border: "1px solid transparent",
-          borderRadius: "var(--r-sm)", padding: ".25rem .35rem", cursor: "pointer", color: "var(--fg)" }}>
+      <button ref={btnRef} type="button" className={`hx-usermenu-trigger hx-menutrigger${block ? " hx-menutrigger--block" : ""}`}
+        aria-haspopup="menu" aria-expanded={open} aria-label={t("shell.account")} onClick={toggle}>
         {chip}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ color: "var(--fg-faint)", flexShrink: 0, marginLeft: block ? "auto" : "0", transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="hx-menutrigger__chevron">
           <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
       {open && pos && createPortal(
-        <div ref={menuRef} role="menu" style={{ position: "fixed", top: pos.top, bottom: pos.bottom, right: pos.right, zIndex: 95, minWidth: 220, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-lg)", padding: ".35rem", textAlign: "left" }}>
-          <div style={{ padding: ".55rem .6rem", borderBottom: "1px solid var(--border)", marginBottom: ".3rem" }}>
-            <div style={{ font: "600 .9rem var(--font)", color: "var(--fg)" }}>{user.name}</div>
-            <div style={{ fontSize: ".76rem", color: "var(--fg-faint)", marginTop: "2px" }}>{user.email || t("shell.signedIn")}</div>
+        // The menu's screen position is computed from the trigger's own bounding rect — a value CSS
+        // cannot express — so it is carried as custom properties, never as literal style props.
+        <div ref={menuRef} role="menu" className="hx-portalmenu hx-portalmenu--wide"
+          style={{
+            "--mx-top": pos.top !== undefined ? `${pos.top}px` : undefined,
+            "--mx-bottom": pos.bottom !== undefined ? `${pos.bottom}px` : undefined,
+            "--mx-right": `${pos.right}px`,
+          } as React.CSSProperties}>
+          <div className="hx-portalmenu__head">
+            <div className="hx-portalmenu__head-name">{user.name}</div>
+            <div className="hx-portalmenu__head-sub">{user.email || t("shell.signedIn")}</div>
           </div>
-          <button role="menuitem" onClick={() => { setOpen(false); onLogout(); }}
-            style={{ display: "flex", alignItems: "center", gap: ".55rem", width: "100%", textAlign: "left", padding: ".55rem .6rem", border: "none", borderRadius: "calc(var(--r-sm) - 4px)", background: "transparent", color: "var(--fg)", font: "500 .9rem var(--font)", cursor: "pointer" }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+          <button role="menuitem" className="hx-portalmenu-item" onClick={() => { setOpen(false); onLogout(); }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M15 17l5-5-5-5M20 12H9M9 21H6a2 2 0 01-2-2V5a2 2 0 012-2h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

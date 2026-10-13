@@ -16,7 +16,7 @@ export function Tooltip({ content, children, side = "top" }: TooltipProps) {
   const [open, setOpen] = React.useState(false);
   return (
     <span
-      style={{ position: "relative", display: "inline-flex" }}
+      className="hx-tooltip-root"
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
@@ -26,21 +26,7 @@ export function Tooltip({ content, children, side = "top" }: TooltipProps) {
       {open && (
         <span
           role="tooltip"
-          style={{
-            position: "absolute",
-            left: "50%",
-            transform: "translateX(-50%)",
-            [side === "top" ? "bottom" : "top"]: "calc(100% + 7px)",
-            zIndex: 40,
-            padding: ".4rem .6rem",
-            borderRadius: "calc(var(--r-sm) - 2px)",
-            background: "var(--kd-blackcat)",
-            color: "#fff",
-            font: "500 .8rem var(--font)",
-            whiteSpace: "nowrap",
-            boxShadow: "var(--shadow)",
-            pointerEvents: "none",
-          }}
+          className={`hx-tooltip-bubble hx-tooltip-bubble--${side === "top" ? "top" : "bottom"}`}
         >
           {content}
         </span>

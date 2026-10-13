@@ -8,8 +8,10 @@ import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
+import { EmptyState } from "../components/EmptyState";
 import { ConfirmDialog } from "../components/Modal";
 import { AccountApi, AccountSession } from "./api";
+import { clientLabel } from "../api/clients";
 import type { Note } from "./AccountApp";
 import { useT } from "../i18n/LocaleContext";
 
@@ -43,30 +45,30 @@ export function SessionsTab({ api, onNote }: { api: AccountApi; onNote: (n: Note
   };
 
   if (sessions === null) {
-    return <div style={{ padding: "3rem", display: "flex", justifyContent: "center" }}><Spinner size={24} label={t("account.sessions.loading")} /></div>;
+    return <div className="hx-loadwrap"><Spinner size={24} label={t("account.sessions.loading")} /></div>;
   }
 
   return (
     <Card title={t("account.sessions.card.title")} subtitle={t("account.sessions.card.subtitle")}>
       {sessions.length === 0 ? (
-        <p style={{ color: "var(--fg-muted)", fontSize: ".9rem" }}>{t("account.sessions.empty")}</p>
+        <EmptyState title={t("account.sessions.empty")} message={t("account.sessions.empty.msg")} />
       ) : (
-        <div style={{ display: "grid", gap: ".7rem" }}>
+        <div className="hx-acctlist">
           {sessions.map((s) => (
-            <div key={s.ssoSessionId} className="hx-card" style={{ padding: ".9rem 1.1rem" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>{t("account.sessions.browserSession")}</div>
-                  <div style={{ color: "var(--fg-muted)", fontSize: ".8rem" }}>
+            <div key={s.ssoSessionId} className="hx-card hx-acctrow">
+              <div className="hx-acctrow__body">
+                <div className="hx-acctrow__main">
+                  <div className="hx-acctrow__title">{t("account.sessions.browserSession")}</div>
+                  <div className="hx-acctrow__meta">
                     {s.issuedAt ? t("account.sessions.startedAt", { date: new Date(s.issuedAt).toLocaleString() }) : t("account.sessions.active")}
                   </div>
-                  <div style={{ marginTop: ".5rem", display: "flex", flexWrap: "wrap", gap: ".35rem" }}>
+                  <div className="hx-acctrow__badges">
                     {s.clients.length === 0
-                      ? <span style={{ color: "var(--fg-faint)", fontSize: ".8rem" }}>{t("account.sessions.noApplications")}</span>
-                      : s.clients.map((c) => <Badge key={c.clientId} tone="neutral">{c.clientId}</Badge>)}
+                      ? <span className="hx-acctrow__empty">{t("account.sessions.noApplications")}</span>
+                      : s.clients.map((c) => <Badge key={c.clientId} tone="neutral">{clientLabel({ clientId: c.clientId })}</Badge>)}
                   </div>
                 </div>
-                <Button variant="ghost" onClick={() => setConfirm(s)} style={{ padding: ".4rem .85rem", flexShrink: 0 }}>{t("account.sessions.signOut")}</Button>
+                <Button variant="ghost" onClick={() => setConfirm(s)} className="hx-acctrow__action">{t("account.sessions.signOut")}</Button>
               </div>
             </div>
           ))}

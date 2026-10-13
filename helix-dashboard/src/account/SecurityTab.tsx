@@ -22,7 +22,7 @@ import { useT } from "../i18n/LocaleContext";
  */
 export function SecurityTab({ api, onNote }: { api: AccountApi; onNote: (n: Note) => void }) {
   return (
-    <div style={{ display: "grid", gap: "1rem" }}>
+    <div className="hx-acctstack">
       <ChangePasswordCard api={api} onNote={onNote} />
       <FactorsCard api={api} onNote={onNote} />
     </div>
@@ -69,7 +69,7 @@ function ChangePasswordCard({ api, onNote }: { api: AccountApi; onNote: (n: Note
       <FormField label={t("account.security.confirmPassword")} error={errors.confirmPassword} required>
         <Input type="password" autoComplete="new-password" value={fields.confirmPassword} onChange={set("confirmPassword")} aria-label={t("account.security.confirmPassword")} />
       </FormField>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div className="hx-acctform-actions">
         <Button onClick={submit} disabled={busy}>{busy ? t("account.security.changing") : t("account.security.changePassword")}</Button>
       </div>
     </Card>
@@ -111,41 +111,41 @@ function FactorsCard({ api, onNote }: { api: AccountApi; onNote: (n: Note) => vo
   };
 
   if (creds === null) {
-    return <Card title={t("account.security.mfa.title")}><div style={{ padding: "1.5rem", display: "flex", justifyContent: "center" }}><Spinner size={22} label={t("account.security.loadingFactors")} /></div></Card>;
+    return <Card title={t("account.security.mfa.title")}><div className="hx-loadwrap"><Spinner size={22} label={t("account.security.loadingFactors")} /></div></Card>;
   }
 
   const byType = (type: string) => creds.filter((c) => c.type === type);
 
   return (
     <Card title={t("account.security.mfa.title")} subtitle={t("account.security.mfa.subtitle")}>
-      <div style={{ display: "grid", gap: ".75rem" }}>
+      <div className="hx-acctlist">
         {kinds.map((k) => {
           const items = byType(k.type);
           const enrolled = items.length > 0;
           return (
-            <div key={k.type} className="hx-card" style={{ padding: ".9rem 1.1rem", opacity: enrolled ? 1 : 0.78 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: ".85rem" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>{k.title}</div>
-                  <div style={{ color: "var(--fg-muted)", fontSize: ".8rem" }}>{k.blurb}</div>
+            <div key={k.type} className={`hx-card hx-acctrow${enrolled ? "" : " hx-acctrow--dim"}`}>
+              <div className="hx-acctrow__body hx-acctrow__body--center">
+                <div className="hx-acctrow__main">
+                  <div className="hx-acctrow__title">{k.title}</div>
+                  <div className="hx-acctrow__meta">{k.blurb}</div>
                 </div>
-                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: ".55rem" }}>
+                <div className="hx-acctrow__actions">
                   {enrolled ? <Badge tone="success">{t("account.security.factor.activeCount", { count: items.length })}</Badge>
-                    : <span style={{ color: "var(--fg-faint)", fontSize: ".82rem", fontWeight: 500 }}>{t("account.security.factor.notSetUp")}</span>}
+                    : <span className="hx-faint">{t("account.security.factor.notSetUp")}</span>}
                   {k.canEnroll === "passkey" && (
-                    <a className="hx-btn hx-btn--ghost" href="/webauthn/register" style={{ textDecoration: "none", padding: ".4rem .85rem" }}>{t("account.security.factor.add")}</a>
+                    <a className="hx-btn hx-btn--ghost hx-btn--compact" href="/webauthn/register">{t("account.security.factor.add")}</a>
                   )}
                 </div>
               </div>
               {enrolled && (
-                <div style={{ marginTop: ".7rem", borderTop: "1px solid var(--border)", display: "grid" }}>
-                  {items.map((c, i) => (
-                    <div key={c.type + c.id} style={{ display: "flex", alignItems: "center", gap: "1rem", padding: ".6rem .1rem", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500, fontSize: ".9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</div>
-                        <div style={{ color: "var(--fg-faint)", fontSize: ".76rem" }}>{c.detail || meta(c, t)}</div>
+                <div className="hx-acctsub">
+                  {items.map((c) => (
+                    <div key={c.type + c.id} className="hx-acctsub__row">
+                      <div className="hx-acctrow__main">
+                        <div className="hx-acctrow__detail">{c.label}</div>
+                        <div className="hx-acctrow__sub">{c.detail || meta(c, t)}</div>
                       </div>
-                      {c.revocable && <Button variant="ghost" onClick={() => setConfirm(c)} style={{ padding: ".4rem .85rem", flexShrink: 0 }}>{t("account.security.factor.remove")}</Button>}
+                      {c.revocable && <Button variant="ghost" onClick={() => setConfirm(c)} className="hx-acctrow__action">{t("account.security.factor.remove")}</Button>}
                     </div>
                   ))}
                 </div>

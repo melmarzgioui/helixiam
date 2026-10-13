@@ -140,12 +140,11 @@ export function Select({
   };
 
   return (
-    <div ref={rootRef} style={{ position: "relative" }}>
+    <div ref={rootRef} className="hx-select-root">
       <button
         type="button"
         id={id}
-        className="hx-select-trigger"
-        style={{ color: selectedOption ? "var(--fg)" : "var(--fg-faint)" }}
+        className={`hx-select-trigger ${selectedOption ? "hx-select-trigger--filled" : "hx-select-trigger--placeholder"}`}
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -154,15 +153,17 @@ export function Select({
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onTriggerKey}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span className="hx-truncate">
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <Chevron />
       </button>
 
       {open && pos && createPortal(
-        <ul ref={listRef} role="listbox" className="hx-select-panel"
-          style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, right: "auto", zIndex: 95 }}>
+        // The panel's screen position/width is the trigger's measured rect — a value CSS cannot
+        // express — so it is carried as custom properties, never as literal style props.
+        <ul ref={listRef} role="listbox" className="hx-select-panel hx-select-panel--portal"
+          style={{ "--mx-top": `${pos.top}px`, "--mx-left": `${pos.left}px`, "--mx-width": `${pos.width}px` } as React.CSSProperties}>
           {options.map((o, i) => {
             const isSelected = o.value === selected;
             const isActive = i === active;
@@ -181,10 +182,10 @@ export function Select({
                 }}
               >
                 <Check visible={isSelected} />
-                <span style={{ display: "block" }}>
-                  <span style={{ display: "block", fontWeight: isSelected ? 600 : 400 }}>{o.label}</span>
+                <span className="hx-select-optlabel">
+                  <span className={`hx-select-optlabel__title${isSelected ? " hx-select-optlabel__title--selected" : ""}`}>{o.label}</span>
                   {o.description && (
-                    <span style={{ display: "block", fontSize: ".8rem", color: "var(--fg-faint)" }}>
+                    <span className="hx-select-optlabel__desc">
                       {o.description}
                     </span>
                   )}
@@ -215,7 +216,7 @@ function Check({ visible }: { visible: boolean }) {
       viewBox="0 0 24 24"
       fill="none"
       aria-hidden="true"
-      style={{ flexShrink: 0, marginTop: 3, color: "var(--accent)", opacity: visible ? 1 : 0 }}
+      className={`hx-select-check${visible ? " hx-select-check--visible" : ""}`}
     >
       <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>

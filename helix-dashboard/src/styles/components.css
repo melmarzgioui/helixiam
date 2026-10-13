@@ -9,10 +9,13 @@
   font: 600 .95rem var(--font); letter-spacing: -.01em; cursor: pointer;
   padding: .68rem 1.4rem;
   white-space: nowrap; /* never wrap a button label (e.g. "Delete" must not break per-character) */
+  text-decoration: none; /* .hx-btn is also used on <a> (sign out, docs links, …) — never underlined */
   transition: transform .12s var(--ease), box-shadow .16s var(--ease), background .16s var(--ease), border-color .16s var(--ease), filter .16s var(--ease);
 }
 .hx-btn--lg { padding: 1.05rem 2.1rem; font-size: 1.02rem; }
 .hx-btn--block { width: 100%; }
+/* A tighter ghost button inline with body text/header chrome (sign out, "Add" next to a factor row). */
+.hx-btn--compact { padding: .4rem .85rem; }
 .hx-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .hx-btn:active:not(:disabled) { transform: translateY(0); }
 .hx-btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -88,6 +91,50 @@
 .hx-switch:disabled { opacity: .55; cursor: not-allowed; }
 .hx-switch-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(34,37,31,.3); transition: left .16s var(--ease); }
 .hx-switch[aria-checked="true"] .hx-switch-thumb { left: 21px; }
+/* Mobile tap target: an invisible 44×44 hit-slop centered on the switch, so the touch target meets the
+   44px minimum without visually bloating the control (on standalone switches with no wrapping row). */
+@media (max-width: 640px) {
+  .hx-switch { position: relative; }
+  .hx-switch::after { content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+}
+.hx-switchlabelrow { display: inline-flex; align-items: center; gap: .6rem; cursor: pointer; }
+.hx-switchlabelrow--disabled { cursor: not-allowed; }
+.hx-switchlabelrow__text { color: var(--fg); font: 500 .95rem var(--font); }
+@media (max-width: 640px) { .hx-switchlabelrow { min-height: 44px; } }
+
+/* ===================== ProviderLogo (ProviderLogo.tsx) =====================
+   Each mark picks its own pixel size (an open numeric prop) and brand colour/gradient (arbitrary CSS
+   paint, not a fixed palette a class could enumerate) — both carried as custom properties. */
+.hx-plogo {
+  width: var(--plogo-size); height: var(--plogo-size); flex-shrink: 0;
+  border-radius: var(--plogo-r); background: var(--plogo-bg); border: none;
+  display: inline-flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.hx-plogo--ring { border: 1px solid var(--border); }
+.hx-plogo-mono { color: var(--plogo-color, #fff); font: 800 var(--plogo-fs) var(--font); letter-spacing: -0.02em; }
+
+/* ===================== Badge (Badge.tsx) — a finite set of tones ===================== */
+.hx-badge { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .6rem; border-radius: 999px; border: 1px solid; font: 600 .8rem var(--font); }
+.hx-badge--neutral { background: var(--surface); color: var(--fg-muted); border-color: var(--border); }
+.hx-badge--success { background: var(--kd-jade-soft); color: var(--kd-cucumber-d); border-color: var(--kd-jade); }
+.hx-badge--warning { background: #fdf3e7; color: #8a5a12; border-color: #f0d9b5; }
+.hx-badge--danger { background: #fdecec; color: #9a2b2b; border-color: #f1c9c9; }
+.hx-badge--accent { background: var(--kd-jade-soft); color: var(--kd-cucumber); border-color: var(--kd-jade); }
+/* Dark mode: same formula as Alert's tone overrides, so badges stay legible on a dark ground. */
+[data-theme="dark"] .hx-badge--success,
+[data-theme="dark"] .hx-badge--accent { background: color-mix(in srgb, var(--kd-jade) 12%, transparent); color: var(--kd-jade); border-color: color-mix(in srgb, var(--kd-jade) 30%, transparent); }
+[data-theme="dark"] .hx-badge--warning { background: color-mix(in srgb, #d9a441 12%, transparent); color: #e6c079; border-color: color-mix(in srgb, #d9a441 30%, transparent); }
+[data-theme="dark"] .hx-badge--danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger-fg); border-color: color-mix(in srgb, var(--danger) 34%, transparent); }
+
+/* ===================== LanguageSwitcher (LanguageSwitcher.tsx) ===================== */
+.hx-langswitch-root { position: relative; }
+.hx-langswitch-code { margin-left: 4px; font: 600 .72rem var(--font); text-transform: uppercase; }
+.hx-langswitch-panel { position: absolute; top: calc(100% + 6px); right: 0; min-width: 160px; z-index: 95; }
+.hx-langswitch-opt--selected { font-weight: 600; }
+.hx-langswitch-opt { font-weight: 400; }
+
+/* Connection logo preview (ConnectionDetailPage.tsx). */
+.hx-logopreview { height: 26px; width: auto; max-width: 120px; object-fit: contain; }
 
 /* ===================== Checkbox / Radio ===================== */
 .hx-check { width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--border-strong); background: var(--bg); cursor: pointer; padding: 0; transition: background .12s var(--ease), border-color .12s var(--ease); }
@@ -97,6 +144,23 @@
 .hx-check:focus-visible { outline: none; box-shadow: var(--ring); }
 .hx-check[aria-checked="true"] { border-color: var(--primary); }
 .hx-check--box[aria-checked="true"] { background: var(--primary); }
+/* Checkbox/Radio row (Choice.tsx Row): the whole label is the tap target — clicking anywhere on it
+   (native label→control activation) toggles the control, so growing the label at mobile widths grows
+   the tap target without needing JS. */
+.hx-choicerow { display: inline-flex; align-items: center; gap: .55rem; cursor: pointer; }
+.hx-choicerow--disabled { cursor: not-allowed; opacity: .55; }
+.hx-choicerow__label { color: var(--fg); font: 400 .95rem var(--font); }
+.hx-choicerow__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary); }
+.hx-choicerow > .hx-check { cursor: inherit; }
+
+/* ===================== Divider (Divider.tsx) ===================== */
+/* `gap` is an open CSS-length prop (any valid length, not a fixed set of sizes) — carried as a custom
+   property, with the kit's default baked in as the CSS fallback. */
+.hx-divider { border: 0; border-top: 1px solid var(--border); margin: var(--divider-gap, 1.25rem) 0; }
+.hx-divider-row { display: flex; align-items: center; gap: .8rem; margin: var(--divider-gap, 1.25rem) 0; }
+.hx-divider-row__line { flex: 1; border-top: 1px solid var(--border); }
+.hx-divider-row__label { color: var(--fg-faint); font: 600 .75rem var(--font); letter-spacing: .06em; text-transform: uppercase; }
+@media (max-width: 640px) { .hx-choicerow { min-height: 44px; } }
 
 /* ===================== Selectable tiles ===================== */
 .hx-tile {
@@ -108,6 +172,13 @@
 .hx-tile:focus-visible { outline: none; box-shadow: var(--ring); }
 .hx-tile[aria-checked="true"] { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), 0 8px 20px -12px color-mix(in srgb, var(--primary) 45%, transparent); }
 .hx-tile:disabled { opacity: .55; cursor: not-allowed; }
+/* ProviderTile.tsx parts — a selectable tile with a title row (name + tag) and a top-right check mark. */
+.hx-ptile { position: relative; }
+.hx-ptile__text { flex: 1; min-width: 0; }
+.hx-ptile__row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.hx-ptile__title { font: 600 1rem var(--font); color: var(--fg); }
+.hx-ptile__desc { display: block; margin-top: .25rem; font-size: .85rem; color: var(--fg-muted); }
+.hx-ptile__check { position: absolute; top: 10px; right: 10px; color: var(--accent); display: flex; }
 
 /* ===================== Tabs ===================== */
 /* The tablist itself is the horizontal scroll container, so a long tab strip scrolls *within itself*
@@ -128,6 +199,53 @@
 .hx-ghosticon:hover { background: var(--surface); color: var(--fg); }
 .hx-ghosticon:focus-visible { outline: none; box-shadow: var(--ring); }
 
+/* ===================== Portalled overflow/account menus (RowMenu.tsx, AppShell UserMenu) ===================== */
+/* The trigger — a 32px kebab (RowMenu) or the wider account chip trigger (AppShell). `top`/`right`/`bottom`
+   are the one genuinely dynamic value (the trigger's own measured position) — carried as CSS custom
+   properties set inline, never as literal style props. */
+.hx-kebabbtn { width: 32px; height: 32px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--fg-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.hx-kebabbtn[aria-expanded="true"] { background: var(--surface); }
+@media (max-width: 640px) { .hx-kebabbtn { width: 44px; height: 44px; } }
+.hx-menutrigger { display: flex; align-items: center; gap: .55rem; background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); padding: .25rem .35rem; cursor: pointer; color: var(--fg); }
+.hx-menutrigger[aria-expanded="true"] { background: var(--surface); }
+.hx-menutrigger--block { width: 100%; }
+.hx-menutrigger__chevron { color: var(--fg-faint); flex-shrink: 0; margin-left: 0; transition: transform .15s var(--ease); }
+.hx-menutrigger--block .hx-menutrigger__chevron { margin-left: auto; }
+.hx-menutrigger[aria-expanded="true"] .hx-menutrigger__chevron { transform: rotate(180deg); }
+/* The portalled panel: fixed position via --mx-top/--mx-bottom/--mx-right custom properties. */
+.hx-portalmenu { position: fixed; top: var(--mx-top, auto); bottom: var(--mx-bottom, auto); right: var(--mx-right, 8px); z-index: 90; min-width: 190px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: var(--shadow-lg); padding: .3rem; text-align: left; }
+.hx-portalmenu--wide { min-width: 220px; z-index: 95; }
+.hx-portalmenu__head { padding: .55rem .6rem; border-bottom: 1px solid var(--border); margin-bottom: .3rem; }
+.hx-portalmenu__head-name { font: 600 .9rem var(--font); color: var(--fg); }
+.hx-portalmenu__head-sub { font-size: .76rem; color: var(--fg-faint); margin-top: 2px; }
+.hx-portalmenu-item { display: flex; align-items: center; gap: .55rem; width: 100%; text-align: left; padding: .5rem .6rem; border: none; border-radius: calc(var(--r-sm) - 4px); background: transparent; color: var(--fg); font: 500 .9rem var(--font); cursor: pointer; }
+.hx-portalmenu-item:hover { background: var(--surface); }
+.hx-portalmenu-item--danger { color: var(--danger-fg); }
+.hx-userchip__name { font: 600 .85rem var(--font); color: var(--fg); }
+.hx-userchip__email { font-size: .75rem; color: var(--fg-faint); }
+
+/* Generic single-line truncation utility (avoids a one-off inline style per use site). */
+.hx-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ===================== Select (Select.tsx) ===================== */
+.hx-select-root { position: relative; }
+.hx-select-trigger--placeholder { color: var(--fg-faint); }
+.hx-select-trigger--filled { color: var(--fg); }
+/* The portalled option panel: position is the trigger's measured rect — a value CSS cannot express —
+   carried as custom properties, never literal style props. */
+.hx-select-panel--portal { position: fixed; top: var(--mx-top); left: var(--mx-left); width: var(--mx-width); right: auto; z-index: 95; }
+.hx-select-optlabel { display: block; }
+.hx-select-optlabel__title { display: block; font-weight: 400; }
+.hx-select-optlabel__title--selected { font-weight: 600; }
+.hx-select-optlabel__desc { display: block; font-size: .8rem; color: var(--fg-faint); }
+.hx-select-check { flex-shrink: 0; margin-top: 3px; color: var(--accent); opacity: 0; }
+.hx-select-check--visible { opacity: 1; }
+
+/* ===================== Table (Table.tsx) — a boxed, standalone variant of the kit's .hx-table ===================== */
+.hx-tablescroll--boxed { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.hx-table th { width: var(--colw, auto); }
+.hx-table__empty { padding: 2rem 1rem; text-align: center; color: var(--fg-faint); }
+
 /* ===================== Overlays ===================== */
 .hx-scrim-modal { position: fixed; inset: 0; z-index: 60; background: rgba(34,37,31,.45); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; padding: 1.5rem; overflow-y: auto; animation: hx-fade .16s var(--ease); }
 .hx-dialog { width: 100%; max-height: calc(100dvh - 3rem); display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow-lg); overflow: hidden; animation: hx-rise .18s var(--ease); }
@@ -139,6 +257,16 @@
 @keyframes hx-rise { from { opacity: 0; transform: translateY(8px) scale(.99); } }
 
 /* ===================== Stepper (responsive) ===================== */
+.hx-stepper { display: flex; align-items: center; gap: .5rem; list-style: none; margin: 0; padding: 0; }
+.hx-stepper__item { display: inline-flex; align-items: center; gap: .5rem; }
+.hx-stepper__circle { width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; border: 2px solid var(--border-strong); background: var(--bg); color: var(--fg-faint); display: inline-flex; align-items: center; justify-content: center; font: 700 .8rem var(--font); }
+.hx-stepper__circle--active { border-color: var(--primary); color: var(--primary); }
+.hx-stepper__circle--done { border-color: var(--primary); background: var(--primary); color: #fff; }
+.hx-stepper__label { font: 500 .9rem var(--font); color: var(--fg-faint); white-space: nowrap; }
+.hx-stepper__label--active { font-weight: 600; color: var(--fg); }
+.hx-stepper__label--done { color: var(--fg); }
+.hx-stepper__connector { flex: 1; min-width: 18px; border-top: 2px solid var(--border); }
+.hx-stepper__connector--done { border-top-color: var(--primary); }
 @media (max-width: 560px) { .hx-step-label { display: none; } }
 
 /* ===================== Metadata upload (dropzone) ===================== */
@@ -150,6 +278,13 @@
 }
 .hx-dropzone--drag { border-color: var(--primary); background: var(--bg); box-shadow: var(--ring); }
 .hx-dropzone--has-file { border-style: solid; border-color: var(--primary); background: var(--bg); }
+.hx-dropzone__icon { flex-shrink: 0; color: var(--primary); }
+.hx-dropzone__filename { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.hx-dropzone__remove { padding: .4rem .9rem; font-size: .85rem; }
+.hx-dropzone__text { flex: 1; }
+.hx-dropzone__title { display: block; font-weight: 600; color: var(--fg); }
+.hx-dropzone__hint { display: block; font-size: .82rem; color: var(--fg-faint); }
+.hx-dropzone__browse { padding: .5rem 1rem; font-size: .88rem; }
 
 /* ===================== Toast ===================== */
 .hx-toast { animation: hx-toast-in .2s var(--ease); }
@@ -157,6 +292,15 @@
 
 /* Modal lede — the intro line above a dialog's body content. */
 .hx-modal__lede { margin: 0 0 1rem; color: var(--fg-muted); font-size: .9rem; line-height: 1.5; }
+/* Modal internals (Modal.tsx). Every dialog on the page picks its own width (420–760px, dozens of
+   call sites) — an open-ended author-supplied number, not a fixed set a class could enumerate — so
+   it is the one value carried as a custom property, never a literal style. */
+.hx-dialog { max-width: var(--modal-maxw, 520px); }
+.hx-modal__head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 1.3rem; border-bottom: 1px solid var(--border); }
+.hx-modal__title { margin: 0; font-size: 1.1rem; color: var(--fg); }
+.hx-modal__close { width: 32px; height: 32px; }
+.hx-modal__body { padding: 1.3rem; color: var(--fg-muted); overflow-y: auto; flex: 1; }
+.hx-modal__foot { display: flex; justify-content: flex-end; gap: .6rem; padding: 1rem 1.3rem; border-top: 1px solid var(--border); flex-shrink: 0; }
 
 /* ============================================================================
    PAGE LAYOUT KIT — the canonical scaffold EVERY page derives from (Page.tsx).
@@ -329,12 +473,52 @@ td.hx-col-sticky { background: var(--bg); }
 .hx-colorswatch { width: 44px; height: 38px; border: 1px solid var(--border); border-radius: var(--r-sm); background: none; cursor: pointer; padding: 2px; }
 /* Vertical list of CopyRow items (e.g. OIDC endpoints). */
 .hx-copylist { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hx-copyrow { display: flex; align-items: center; gap: .5rem; }
+.hx-copyrow__label { width: 156px; flex-shrink: 0; color: var(--fg-muted); font-size: .8rem; }
+.hx-copyrow__value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, monospace); font-size: .8rem; color: var(--fg); }
+/* CopyButton.tsx — icon-only copy button, two sizes used across the console. */
+.hx-copybtn { flex-shrink: 0; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: var(--r-sm); background: transparent; cursor: pointer; color: var(--fg-muted); display: inline-flex; align-items: center; justify-content: center; }
+.hx-copybtn--lg { width: 38px; height: 38px; }
+.hx-copybtn--copied { color: var(--accent); }
+@media (max-width: 640px) { .hx-copybtn { width: 44px; height: 44px; } }
+
+/* ===================== Logo wordmark (Logo.tsx) — three fixed sizes ===================== */
+.hx-logo { font: 800 1.75rem var(--font); letter-spacing: -0.02em; color: var(--fg); white-space: nowrap; line-height: 1; }
+.hx-logo--sm { font-size: 1.4rem; }
+.hx-logo--lg { font-size: 2.5rem; }
+.hx-logo__accent { color: var(--wordmark-accent); }
+.hx-logo__spark { height: 0.72em; width: 0.72em; margin-left: 0.03em; vertical-align: baseline; }
+
+/* ===================== Spinner (Spinner.tsx) ===================== */
+.hx-spinner-wrap { display: inline-flex; align-items: center; gap: .5rem; }
+/* `size` is an open numeric prop (any pixel size across dozens of call sites) and the ring's border
+   width is derived from it — both carried as custom properties, with the kit default as the fallback. */
+@keyframes helix-spin { to { transform: rotate(360deg); } }
+.hx-spinner-ring {
+  width: var(--spin-size, 20px); height: var(--spin-size, 20px); border-radius: 50%;
+  border: var(--spin-border, 2px) solid var(--border); border-top-color: var(--primary);
+  animation: helix-spin .7s linear infinite; display: inline-block;
+}
+.hx-spinner-label { color: var(--fg-muted); font: 500 .9rem var(--font); }
+
+/* ===================== Tooltip (Tooltip.tsx) ===================== */
+.hx-tooltip-root { position: relative; display: inline-flex; }
+.hx-tooltip-bubble {
+  position: absolute; left: 50%; transform: translateX(-50%); z-index: 40;
+  padding: .4rem .6rem; border-radius: calc(var(--r-sm) - 2px);
+  background: var(--kd-blackcat); color: #fff; font: 500 .8rem var(--font);
+  white-space: nowrap; box-shadow: var(--shadow); pointer-events: none;
+}
+.hx-tooltip-bubble--top { bottom: calc(100% + 7px); }
+.hx-tooltip-bubble--bottom { top: calc(100% + 7px); }
 
 /* ---- Drawer: reusable right-side overlay panel (Sessions v2 + future tables) ---- */
 .hx-drawer-root { position: fixed; inset: 0; z-index: 60; }
 .hx-drawer-scrim { position: absolute; inset: 0; background: rgba(34, 37, 31, 0.38); animation: hx-fade 0.12s ease; }
 .hx-drawer-panel {
-  position: absolute; top: 0; right: 0; height: 100%; height: 100dvh; width: min(480px, 100vw);
+  /* `width` is an open CSS-length override prop (not a fixed set of sizes); carried as a custom
+     property, with the kit default (min(480px, 100vw)) as the CSS fallback. */
+  position: absolute; top: 0; right: 0; height: 100%; height: 100dvh; width: var(--drawer-w, min(480px, 100vw));
   background: var(--surface, #ffffff); border-left: 1px solid var(--line, #e9e8e3);
   box-shadow: -24px 0 60px -30px rgba(34, 37, 31, 0.4);
   display: flex; flex-direction: column; animation: hx-drawer-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -564,8 +748,84 @@ td.hx-col-sticky { background: var(--bg); }
 .hx-certlist__dn { color: var(--fg-faint); font-size: .78rem; overflow-wrap: anywhere; }
 .hx-certlist__ok { color: var(--accent); font-size: .85rem; }
 .hx-certlist__item > .hx-field__error { margin-top: 0; }
+/* ---- Account self-service app (AccountApp.tsx + account/*Tab.tsx) ----
+   A small, standalone shell (its own entry point, account.html) distinct from the admin console's
+   AppShell. A single-column settings surface reads better at a constrained width than stretched edge
+   to edge, so --acct-maxw caps `.hx-acct__main` the way a prose column would — this is NOT a page-chrome
+   gutter on a data table/list (those still fill the width per the kit rule). */
+.hx-acct { --acct-maxw: 880px; min-height: 100vh; background: var(--surface); color: var(--fg); font-family: var(--font); }
+.hx-acct__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.4rem; background: var(--bg); border-bottom: 1px solid var(--border); }
+.hx-acct__brand { display: flex; align-items: center; gap: .7rem; }
+.hx-acct__brand-title { font-weight: 700; font-size: 1.05rem; }
+.hx-acct__user { display: flex; align-items: center; gap: .6rem; color: var(--fg-muted); font-size: .9rem; }
+.hx-acct__main { max-width: var(--acct-maxw); margin: 0 auto; padding: 1.6rem 1.4rem 4rem; width: 100%; box-sizing: border-box; }
+.hx-acct__tabs { margin-bottom: 1.2rem; }
+.hx-acct__toast { position: fixed; right: 1.2rem; bottom: 1.2rem; z-index: 80; }
+/* Stack of cards within one tab (ProfileTab/SecurityTab/PrivacyTab wrap more than one Card). */
+.hx-acctstack { display: grid; gap: 1rem; }
+/* List of row-cards inside a Card (factors, consents, sessions, identities, consent history). */
+.hx-acctlist { display: grid; gap: .7rem; }
+.hx-acctrow { padding: .9rem 1.1rem; }
+.hx-acctrow--dim { opacity: .75; }
+.hx-acctrow__body { display: flex; align-items: flex-start; gap: 1rem; }
+.hx-acctrow__body--center { align-items: center; }
+.hx-acctrow__main { flex: 1; min-width: 0; }
+.hx-acctrow__title { font-weight: 600; }
+.hx-acctrow__title--row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.hx-acctrow__meta { color: var(--fg-muted); font-size: .8rem; }
+.hx-acctrow__meta--ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: .15rem; }
+.hx-acctrow__sub { color: var(--fg-faint); font-size: .76rem; margin-top: .15rem; }
+.hx-acctrow__badges { margin-top: .5rem; display: flex; flex-wrap: wrap; gap: .35rem; }
+.hx-acctrow__empty { color: var(--fg-faint); font-size: .8rem; }
+.hx-acctrow__action { flex-shrink: 0; padding: .4rem .85rem; }
+.hx-acctrow__actions { display: flex; align-items: center; gap: .55rem; flex-shrink: 0; flex-wrap: wrap; }
+.hx-acctrow__detail { font-weight: 500; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Sub-list of enrolled factors inside an expanded factor-family row (SecurityTab). */
+.hx-acctsub { margin-top: .7rem; border-top: 1px solid var(--border); display: grid; }
+.hx-acctsub__row { display: flex; align-items: center; gap: 1rem; padding: .6rem .1rem; border-top: 1px solid var(--border); }
+.hx-acctsub__row:first-child { border-top: none; }
+.hx-acctform-actions { display: flex; justify-content: flex-end; }
 /* "Add identity provider" wizard (ProviderWizard.tsx): fills the modal's width; stepper, provider tiles, nav row. */
 .hx-wizard { width: 100%; min-width: 0; }
 .hx-wizard__steps { margin-bottom: 1.6rem; }
 .hx-wizard__tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .7rem; }
 .hx-wizard__nav { display: flex; justify-content: space-between; gap: var(--sp-3); }
+/* Connection / Review step head: provider logo + name on one line. */
+.hx-wizard__head { display: flex; align-items: center; gap: .7rem; margin-bottom: 1.1rem; }
+.hx-wizard__head--tight { margin-bottom: 1rem; }
+.hx-wizard__head-title { font: 600 1.05rem var(--font); }
+.hx-wizard__head-meta { display: flex; gap: .4rem; margin-top: .25rem; align-items: center; }
+.hx-wizard__head-proto { font-size: .82rem; color: var(--fg-muted); }
+.hx-wizard__upload { margin-bottom: 1rem; }
+.hx-wizard__loacustom { margin-top: .55rem; }
+/* Mappers step: intro line, preset checkbox list, custom attribute rows. */
+.hx-wizard__intro { margin-top: 0; color: var(--fg-muted); }
+.hx-wizard__presets { display: flex; flex-direction: column; gap: .7rem; }
+.hx-wizard__custom { margin-top: 1.1rem; display: flex; flex-direction: column; gap: .55rem; }
+.hx-wizard__custom-title { font-weight: 600; font-size: .9rem; color: var(--fg); }
+.hx-wizard__custom-row { display: flex; align-items: center; gap: .5rem; }
+.hx-wizard__custom-arrow { color: var(--fg-faint); flex-shrink: 0; }
+.hx-wizard__addattr { margin-top: .9rem; }
+/* Review step: key/value list + enable-on-create switch. */
+.hx-wizard__kv { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem 0; border-bottom: 1px solid var(--border); }
+.hx-wizard__kv-key { color: var(--fg-faint); }
+.hx-wizard__kv-val { color: var(--fg); text-align: right; word-break: break-all; }
+.hx-wizard__kvlist { font: 400 .9rem var(--font); }
+.hx-wizard__enable { margin-top: 1.1rem; }
+
+/* ============================================================================
+   MOBILE TAP TARGETS — every interactive control is at least 44px tall at
+   mobile widths, without bloating desktop density. Controls that are already
+   visually small keep their look via an invisible hit-slop (::after) instead
+   of growing; controls that can grow in place (buttons, tabs, the toolbar
+   icon button) get a straightforward min-height bump.
+   ============================================================================ */
+@media (max-width: 640px) {
+  .hx-btn { min-height: 44px; }
+  .hx-tab { min-height: 44px; display: inline-flex; align-items: center; }
+  .hx-iconbtn { width: 44px; height: 44px; }
+  .hx-modal__close { width: 44px; height: 44px; }
+  .hx-ghosticon--36 { width: 44px; height: 44px; }
+  .hx-colorswatch { height: 44px; }
+  .hx-select-trigger, .hx-combo__input, .hx-multicombo__control { min-height: 44px; }
+}
