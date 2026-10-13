@@ -43,8 +43,11 @@ public final class RebindingTarget implements AutoCloseable {
         }
     }
 
-    /** A canned answer. */
-    public record Answer(int status, String contentType, String body) {
+    /** A canned answer, with optional extra response headers (e.g. Location). */
+    public record Answer(int status, String contentType, String body, Map<String, String> headers) {
+        public Answer(final int status, final String contentType, final String body) {
+            this(status, contentType, body, Map.of());
+        }
     }
 
     private final String host;
@@ -74,6 +77,9 @@ public final class RebindingTarget implements AutoCloseable {
                 final Answer a = responder.apply(s);
                 if (a.contentType() != null) {
                     exchange.getResponseHeaders().add("Content-Type", a.contentType());
+                }
+                if (a.headers() != null) {
+                    a.headers().forEach((k, v) -> exchange.getResponseHeaders().add(k, v));
                 }
                 final byte[] b = a.body() == null ? new byte[0] : a.body().getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(a.status(), b.length == 0 ? -1 : b.length);
