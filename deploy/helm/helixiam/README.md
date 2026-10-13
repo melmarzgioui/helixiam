@@ -47,7 +47,8 @@ from directly. The same applies to an external load balancer or Gateway in front
 
 The server also answers only for the hosts of `config.idpBaseUrl` and `config.spBaseUrl` and those in
 `config.allowedHosts`; any other `Host` gets `400` (the probes are unaffected). List in-cluster names that relying
-parties use, e.g. `--set 'config.allowedHosts={helixiam.identity.svc}'`.
+parties use, e.g. `--set 'config.allowedHosts={helixiam.identity.svc}'` (any port; `name:port` pins one). A host of
+`idpBaseUrl`/`spBaseUrl` is accepted only on that URL's port.
 
 ## Running without Redis
 Redis is used by exactly two things, both selectable:

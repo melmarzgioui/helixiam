@@ -54,7 +54,9 @@ config:
   # shared rate-limit bucket). Never list ranges clients can connect from directly.
   trustedProxies: []             # HELIX_TRUSTED_PROXIES
   # Host names the server answers to besides the hosts of idpBaseUrl and spBaseUrl, e.g. the in-cluster service name
-  # (helixiam.<namespace>.svc) when relying parties call it directly. Any other Host gets 400. Probes are unaffected.
+  # (helixiam.<namespace>.svc) when relying parties call it directly; "name" accepts any port, "name:port" only that one.
+  # Any other Host gets 400, and so does a host of idpBaseUrl/spBaseUrl on another port than that URL's.
+  # Probes are unaffected.
   allowedHosts: []               # HELIX_ALLOWED_HOSTS
   extraEnv: []                   # list of {name, value} or {name, valueFrom}
 

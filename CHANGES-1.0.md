@@ -13,11 +13,21 @@ question. Newest first within each phase.
 >    rate-limit bucket. The server logs an ERROR once a minute when an https `IDP_BASE_URL` is reached over http.
 > 2. List every other host name clients use to reach the server in `HELIX_ALLOWED_HOSTS` (Helm:
 >    `config.allowedHosts`), e.g. the in-cluster service name relying parties call for tokens or JWKS. The hosts of
->    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already; any other `Host` gets `400`. Probes are unaffected.
+>    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already, on that URL's port; any other `Host`, or one of those hosts
+>    with another explicit port, gets `400` (write `host:port` in `HELIX_ALLOWED_HOSTS` to allow it). Probes are
+>    unaffected.
 > 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — The Host allow-list ignored the port, so `Host: localhost:6666` on a server whose `IDP_BASE_URL` is
+  `http://localhost:8080` put `:6666` into the request-derived issuer. Outside `dev`, a host of `IDP_BASE_URL` or
+  `SP_BASE_URL` now accepts only that URL's port (its explicit one, or the scheme's default), plus a `Host` without a
+  port, which no built URL shows. `HELIX_ALLOWED_HOSTS` entries accept any port unless written `host:port` (or
+  `[v6]:port`). A port outside 1–65535 gets `400`. The probe exemptions (the connection's own address, `localhost`
+  from a loopback peer) apply only on the port the connection arrived on; `/actuator/health/**` still answers any host
+  and port. **Operators:** a client that reaches the server by its base URL's host on another port (for example
+  through a port mapping) needs that `host:port` in `HELIX_ALLOWED_HOSTS`.
 - **security** — `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` was checked only at startup, so a server started inside the
   plaintext-read window kept reading plaintext secret columns after it ended, until its next restart. The end date
   (its last day included, UTC) is now enforced on every read: after it, a plaintext read fails closed and logs an
