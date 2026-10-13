@@ -79,7 +79,8 @@ public final class SessionBlobs {
             return new java.util.HashMap<>();
         }
         final RecordingFilter filter = new RecordingFilter();
-        try (ObjectInputStream ois = new ObjectInputStream(
+        // Boot 4 upgrade: also reads authorization-server objects written by 1.0 (Spring Authorization Server 1.5).
+        try (ObjectInputStream ois = LegacyAuthorizationServerSerialization.objectInputStream(
                 new ByteArrayInputStream(Base64.getDecoder().decode(blob)))) {
             ois.setObjectInputFilter(filter);
             final Object o = ois.readObject();

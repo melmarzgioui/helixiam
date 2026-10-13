@@ -12,7 +12,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 /**
@@ -31,7 +30,8 @@ public class SsoSessionStoreConfig {
         final RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(redisConnectionFactory);
         template.setKeySerializer(new StringRedisSerializer());
-        template.setValueSerializer(new JdkSerializationRedisSerializer());
+        // JDK serialization as before; also reads authorizations written by 1.0 (Spring Authorization Server 1.5).
+        template.setValueSerializer(io.helixiam.authorization.security.LegacyAuthorizationServerSerialization.redisSerializer());
         template.afterPropertiesSet();
         return new RedisSsoSessionStore(template);
     }
