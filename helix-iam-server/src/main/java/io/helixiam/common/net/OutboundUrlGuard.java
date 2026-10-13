@@ -478,12 +478,18 @@ public class OutboundUrlGuard {
      * are {@link SsrfBlockedException}s whose message is safe to show (no network error details).
      */
     public String fetch(final String url, final String accept, final boolean httpsOnly) throws SsrfBlockedException {
+        return fetch(url, accept, httpsOnly, null);
+    }
+
+    /** As {@link #fetch(String, String, boolean)}, counted against {@code realm}'s share of the OUTBOUND slots. */
+    public String fetch(final String url, final String accept, final boolean httpsOnly, final String realm)
+            throws SsrfBlockedException {
         // M6: every hop through PinnedHttpFetcher: this guard resolves the hop's host once, inside its deadline, and
         // the connection goes to the address it validated (no second DNS answer); redirects re-run all of it
         final PinnedHttpFetcher http;
         try {
             http = new PinnedHttpFetcher(this, fetchTls != null ? fetchTls : javax.net.ssl.SSLContext.getDefault(),
-                    FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND));
+                    FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND), () -> realm);
         } catch (final java.security.GeneralSecurityException e) {
             throw new SsrfBlockedException("Could not fetch that URL.");
         }

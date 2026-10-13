@@ -86,7 +86,8 @@ public class SamlRelyingPartyAdminController {
         // reserved addresses are refused on every redirect hop; 1 MB cap; no network details in the error.
         final String xml;
         try {
-            xml = outboundUrlGuard.fetch(uri.toString(), "application/samlmetadata+xml, application/xml, text/xml", true);
+            xml = outboundUrlGuard.fetch(uri.toString(), "application/samlmetadata+xml, application/xml, text/xml", true,
+                    realmId); // the realm's own share of the OUTBOUND slots
         } catch (final io.helixiam.common.net.SsrfBlockedException e) {
             return badRequest("Could not fetch metadata: " + safeReason(e));
         }

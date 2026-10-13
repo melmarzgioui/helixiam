@@ -34,6 +34,11 @@ public class BackchannelLogoutNotifier {
         void post(String uri, String logoutToken);
     }
 
+    /** A poster that takes the session's realm, so the fetch counts against that realm's share of the slots. */
+    public interface RealmAwarePoster extends Poster {
+        void post(String realm, String uri, String logoutToken);
+    }
+
     private final LogoutTokenIssuer issuer;
     private final Poster poster;
 
@@ -67,7 +72,11 @@ public class BackchannelLogoutNotifier {
             }
             try {
                 final String logoutToken = issuer.issue(realm, issuerUrl, target.clientId(), subject, sid);
-                poster.post(target.backchannelLogoutUri(), logoutToken);
+                if (poster instanceof RealmAwarePoster realmAware) {
+                    realmAware.post(realm, target.backchannelLogoutUri(), logoutToken);
+                } else {
+                    poster.post(target.backchannelLogoutUri(), logoutToken);
+                }
                 LOG.info("Back-channel logout sent to {} ({})", target.clientId(), target.backchannelLogoutUri());
             } catch (final RuntimeException e) {
                 LOG.warn("Back-channel logout to {} failed (continuing): {}", target.clientId(), e.getMessage());
@@ -76,7 +85,7 @@ public class BackchannelLogoutNotifier {
     }
 
     /** Default form-POST {@code logout_token=<jwt>} with a short timeout. */
-    static final class HttpPoster implements Poster {
+    static final class HttpPoster implements RealmAwarePoster {
         /** 3 s connect, 5 s in total; the answer's body is not used (read up to 64 KB). */
         private static final PinnedHttpFetcher.Limits LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(3),
                 Duration.ofSeconds(5), 64 * 1024);
@@ -89,12 +98,18 @@ public class BackchannelLogoutNotifier {
 
         @Override
         public void post(final String uri, final String logoutToken) {
+            post(null, uri, logoutToken);
+        }
+
+        @Override
+        public void post(final String realm, final String uri, final String logoutToken) {
             // M6: the back-channel logout URI comes from (self-service) client registration: pinned to the validated
             // address, no redirects
             final String body = "logout_token=" + java.net.URLEncoder.encode(logoutToken, StandardCharsets.UTF_8);
             try {
-                http.post(uri, java.util.Map.of("Content-Type", "application/x-www-form-urlencoded"),
-                        body.getBytes(StandardCharsets.UTF_8), LIMITS);
+                http.exchange(new PinnedHttpFetcher.Request("POST", uri,
+                        java.util.Map.of("Content-Type", "application/x-www-form-urlencoded"),
+                        body.getBytes(StandardCharsets.UTF_8), LIMITS, false).inPartition(realm));
             } catch (final PinnedHttpFetcher.FetchException e) {
                 if (e.kind() != PinnedHttpFetcher.FetchException.Kind.TOO_LARGE) {
                     throw new RuntimeException(e.getMessage(), e);

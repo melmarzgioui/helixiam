@@ -63,6 +63,8 @@ public final class PinnedHttpFetcher {
     /** Largest response head (status line and headers) read. */
     static final int MAX_HEADER_BYTES = 32 * 1024;
     private static final int MAX_INTERIM_RESPONSES = 5;
+    /** The partition of fetches that name no realm: bounded like a realm, so it neither starves nor is starved. */
+    public static final String NO_REALM = "(no realm)";
     /** Most bytes of an error (non-2xx) body read; more is truncated, never a failure. */
     static final int ERROR_BODY_BYTES = 16 * 1024;
 
@@ -312,7 +314,8 @@ public final class PinnedHttpFetcher {
             });
         }
         final long deadline = System.nanoTime() + limits.totalTimeout().toNanos();
-        final String partition = request.partition() != null ? request.partition() : defaultPartition.get();
+        final String named = request.partition() != null ? request.partition() : defaultPartition.get();
+        final String partition = named == null || named.isBlank() ? NO_REALM : named; // a bounded share of its own
         final Exchange exchange = new Exchange(method, url, headers == null ? Map.of() : headers, body, limits,
                 deadline, request.readBodyOfAnyStatus());
         try {
