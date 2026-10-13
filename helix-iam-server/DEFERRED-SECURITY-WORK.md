@@ -55,7 +55,9 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 - **L5 — DONE (2d95f51).** `LegacyEncryptionBackfill` re-encrypts every legacy AES/ECB value of every
   `AttributeEncryption` column to AES-GCM at startup (idempotent, logged by row id only, unreadable rows skipped and
   named in a readiness WARN); afterwards the ECB fallback is off unless `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true`, so a
-  legacy value fails closed. A legacy decryption must also be valid UTF-8 (review #10).
+  legacy value fails closed. A legacy decryption must also be valid UTF-8 (review #10). Each column runs in its own transaction; a failed
+  column is logged at ERROR, shown as a production-readiness WARNING and in the gauge
+  `helix_db_encryption_legacy_failed_columns`, and keeps the fallback on (follow-up commit).
 - **L6 — DONE (bd561bd).** The generated bootstrap admin password was already written 0600 to
   `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`) with only the path logged; a whole-boot test
   now captures every log line and checks the password is in none of them and the file is 0600. The Helm notes and

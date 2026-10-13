@@ -56,8 +56,14 @@ public class LegacyEncryptionMigrator {
             new EncryptedColumn("verifier_signing_key", "realm_id || '/' || name", "private_key"),
             new EncryptedColumn("realm_wallet_pepper", "realm_id", "pepper"));
 
-    /** What a run did: rows rewritten, and the rows ({@code table.column id}) it could not read. */
-    public record Result(int reEncrypted, List<String> unreadable) {
+    /**
+     * What a run did: rows rewritten, the rows ({@code table.column id}) it could not read, and the columns
+     * ({@code table.column}) whose migration failed as a whole (a database error).
+     */
+    public record Result(int reEncrypted, List<String> unreadable, List<String> failedColumns) {
+        public Result(final int reEncrypted, final List<String> unreadable) {
+            this(reEncrypted, unreadable, List.of());
+        }
     }
 
     private final AttributeEncryption encryption;
@@ -72,36 +78,52 @@ public class LegacyEncryptionMigrator {
         this.columns = List.copyOf(columns);
     }
 
+    /** Every column, on one connection (one transaction when the caller has one). */
     public Result migrate(final Connection connection) throws SQLException {
         int reEncrypted = 0;
         final List<String> unreadable = new ArrayList<>();
         for (final EncryptedColumn column : columns) {
-            for (final String[] row : candidates(connection, column)) {
-                final String id = row[0];
-                final String stored = row[1];
-                final String current;
-                try {
-                    current = encryption.reencryptLegacy(stored);
-                } catch (final RuntimeException e) {
-                    unreadable.add(column.name() + " " + id);
-                    LOG.warn("{} of row {}: neither the current nor the legacy format reads it with this DB_ENCRYPTION "
-                            + "key; skipped", column.name(), LogSafe.sanitize(id));
-                    continue;
-                }
-                if (current == null) {
-                    continue; // already the current format
-                }
-                if (update(connection, column, id, stored, current)) {
-                    reEncrypted++;
-                    LOG.info("{} of row {}: re-encrypted from the legacy AES/ECB format to AES-GCM", column.name(),
-                            LogSafe.sanitize(id));
-                }
-            }
+            final Result one = migrateColumn(connection, column);
+            reEncrypted += one.reEncrypted();
+            unreadable.addAll(one.unreadable());
         }
         if (reEncrypted > 0) {
             LOG.info("Re-encrypted {} value(s) from the legacy AES/ECB format to AES-GCM", reEncrypted);
         }
         return new Result(reEncrypted, List.copyOf(unreadable));
+    }
+
+    /** One column: its legacy rows rewritten. */
+    public Result migrateColumn(final Connection connection, final EncryptedColumn column) throws SQLException {
+        int reEncrypted = 0;
+        final List<String> unreadable = new ArrayList<>();
+        for (final String[] row : candidates(connection, column)) {
+            final String id = row[0];
+            final String stored = row[1];
+            final String current;
+            try {
+                current = encryption.reencryptLegacy(stored);
+            } catch (final RuntimeException e) {
+                unreadable.add(column.name() + " " + id);
+                LOG.warn("{} of row {}: neither the current nor the legacy format reads it with this DB_ENCRYPTION "
+                        + "key; skipped", column.name(), LogSafe.sanitize(id));
+                continue;
+            }
+            if (current == null) {
+                continue; // already the current format
+            }
+            if (update(connection, column, id, stored, current)) {
+                reEncrypted++;
+                LOG.info("{} of row {}: re-encrypted from the legacy AES/ECB format to AES-GCM", column.name(),
+                        LogSafe.sanitize(id));
+            }
+        }
+        return new Result(reEncrypted, List.copyOf(unreadable));
+    }
+
+    /** The columns this migrator covers. */
+    public List<EncryptedColumn> columns() {
+        return columns;
     }
 
     /** The rows whose value base64-decodes to whole AES blocks (the only ones that can be legacy). */

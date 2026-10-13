@@ -99,4 +99,39 @@ class LegacyEncryptionMigrationE2eTest extends AbstractE2eTest {
         assertThat(second.reEncrypted()).isZero();
         assertThat(storedSecret(legacyUser)).isEqualTo(rewritten);
     }
+
+    /**
+     * One column failing (here: a table that does not exist) is its own transaction: it is logged at ERROR by table and
+     * column, every other column is still migrated, the ECB fallback stays on (legacy reads keep working), and the
+     * condition shows in the production-readiness check and as a metric.
+     */
+    @Test
+    void aFailingColumn_isReported_theOthersAreStillMigrated_andTheFallbackStaysOn() throws Exception {
+        final String legacy = legacyEcb(KEY, SECRET);
+        write("INSERT INTO mfa_hotp (user_id, secret, counter) VALUES (?, ?, 0)", legacyUser, legacy);
+        final LegacyEncryptionBackfill backfill = context.getBean(LegacyEncryptionBackfill.class);
+        final java.util.List<LegacyEncryptionMigrator.EncryptedColumn> columns = java.util.List.of(
+                new LegacyEncryptionMigrator.EncryptedColumn("no_such_table", "id", "secret"),
+                new LegacyEncryptionMigrator.EncryptedColumn("mfa_hotp", "user_id", "secret"));
+
+        final LegacyEncryptionMigrator.Result result;
+        try (LogCapture log = LogCapture.of(LegacyEncryptionBackfill.class)) {
+            result = backfill.runOnce(columns);
+            assertThat(log.text()).contains("no_such_table.secret").doesNotContain(SECRET).doesNotContain(legacy);
+        }
+
+        assertThat(result.failedColumns()).containsExactly("no_such_table.secret");
+        assertThat(result.reEncrypted()).isEqualTo(1);
+        assertThat(storedSecret(legacyUser)).isNotEqualTo(legacy);
+        assertThat(AttributeEncryption.legacyFallbackEnabled()).as("legacy reads keep working").isTrue();
+        assertThat(context.getBean(io.helixiam.common.startup.ProductionReadinessCheck.class).lateWarnings())
+                .anySatisfy(w -> assertThat(w).contains("no_such_table.secret"));
+        assertThat(context.getBean(io.micrometer.core.instrument.MeterRegistry.class)
+                .get("helix_db_encryption_legacy_failed_columns").gauge().value()).isEqualTo(1.0);
+
+        // a clean run afterwards clears the condition
+        backfill.runOnce();
+        assertThat(context.getBean(io.micrometer.core.instrument.MeterRegistry.class)
+                .get("helix_db_encryption_legacy_failed_columns").gauge().value()).isZero();
+    }
 }

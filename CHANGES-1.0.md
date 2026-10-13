@@ -54,7 +54,12 @@ question. Newest first within each phase.
   idempotent, logs table, column and row id only, and skips and names rows it cannot read in a production-readiness
   WARN. After the run the converter no longer falls back to ECB, so a legacy value fails closed, unless
   `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true` (default `false`). A legacy decryption must also be valid UTF-8, so a value
-  under another key no longer "decrypts" to garbage about 1 time in 256 (review #10). **Upgrade:** nothing to do; the
+  under another key no longer "decrypts" to garbage about 1 time in 256 (review #10). Each column is migrated in its own
+  transaction: a column that fails (a database error) is logged at ERROR by table and column, reported as a
+  production-readiness WARNING and counted in the gauge `helix_db_encryption_legacy_failed_columns`, the other
+  columns are still migrated, and the ECB fallback then stays on (legacy TOTP secrets and keys keep reading) until a
+  start migrates it. A WARNING, not fatal: the condition comes from a runtime database failure after the startup
+  check, and refusing to serve would also lock out every legacy secret that still reads. **Upgrade:** nothing to do; the
   first start rewrites the legacy rows (check its log for the readiness WARN). Only if that WARN names rows, or a
   database restored from an older backup is attached to a running server, set `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true`
   (or restart, which re-runs the job) while you investigate.
