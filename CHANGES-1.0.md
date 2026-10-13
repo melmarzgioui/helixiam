@@ -41,6 +41,16 @@ question. Newest first within each phase.
 >    Boot's Jackson 3 mapper only); `spring.dao.exceptiontranslation.enabled` is now
 >    `spring.persistence.exceptiontranslation.enabled`.
 
+- **security** — A sign-in factor is never a role. Spring Security 7 marks every password login with the authority
+  `FACTOR_PASSWORD`, and admin RBAC matched authorities to realm role names, so a realm role named `FACTOR_PASSWORD`
+  with a grant would have been granted to every password login. Roles are now derived without factors everywhere
+  (admin RBAC and its cache, realm-admin checks, `realm_access`/`resource_access` in tokens), every sign-in path
+  carries exactly one factor (password, magic link, federated, impersonation) so the derived roles are identical,
+  and **the `FACTOR_` prefix is reserved** (any case) like `admin_`: the admin API refuses it for realm roles, client
+  roles and service-account roles (400), realm import refuses it, and an existing role with that prefix is ignored.
+- **oidc** — `requireProofKey` is pinned on every client HelixIAM builds: Spring Security 7's `ClientSettings` default
+  became `true` (1.x: `false`), which had silently made PKCE mandatory for `HelixClientPolicies.tokenExchangeClient`.
+  Database clients already pinned it (public: required; confidential: optional), unchanged.
 - **security** — The Redis stores now apply the same JEP-290 deserialization allowlists as the queue (PostgreSQL)
   stores (pre-existing gap, found in the Spring Boot 4 review): the Redis token store and SSO-session reader
   (`HELIX_TOKEN_STORE=redis`) use the token allowlist, Spring Session's Redis HTTP sessions (the default session
