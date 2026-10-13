@@ -48,6 +48,11 @@ public class FederationStoreVersionPoller implements AutoCloseable {
                     + "effect here at the next restart");
             return;
         }
+        if (!refresher.reportsVersions()) {
+            LOG.warn("Helix federation: the identity-provider config store does not report identity-provider config "
+                    + "versions, so replicas do not converge: a write on another replica takes effect here only at the "
+                    + "next restart");
+        }
         scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             final Thread thread = new Thread(runnable, "helix-idp-config-poll");
             thread.setDaemon(true);

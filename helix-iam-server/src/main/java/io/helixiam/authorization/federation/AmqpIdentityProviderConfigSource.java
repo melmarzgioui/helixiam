@@ -38,4 +38,9 @@ public class AmqpIdentityProviderConfigSource implements IdentityProviderConfigS
     public java.util.Map<String, Long> versions() {
         return publisher.versions();
     }
+
+    @Override
+    public boolean reportsVersions() {
+        return publisher.reportsVersions();
+    }
 }

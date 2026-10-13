@@ -73,6 +73,11 @@ public class FederationStoreRefresher {
         return providers.values().stream().mapToInt(List::size).sum();
     }
 
+    /** Whether the store reports per-realm versions, without which {@link #refreshChanged()} never reloads anything. */
+    public boolean reportsVersions() {
+        return source.reportsVersions();
+    }
+
     /**
      * The cross-replica poll (production readiness item 1, {@link FederationStoreVersionPoller}): reloads every realm
      * whose store version moved past the published one (a write or a realm import on another replica, or on this one

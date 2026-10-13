@@ -79,6 +79,11 @@ not specific to the wallet; every admin-API-managed connection (OIDC, SAML, eID,
 - Publication is **version-ordered**: a refresh labels what it publishes with the version it read before loading,
   and a set older than the one already published is dropped. Two concurrent writes can no longer leave the older
   set live.
+- **After a database restore, restart every replica.** A replica only reloads a realm whose version went *up*. A
+  restore to an earlier backup can lower `idp_config_version` below what the replicas already published, and they
+  would keep serving the newer (now gone) connections until a later write passes the old number. A restart loads every
+  realm from the restored database. A transport that reports no versions at all (a custom
+  `IdentityProviderConfigSource`) disables convergence; the poller logs a `WARN` at startup when that is the case.
 
 ### 2.3 Through the console
 

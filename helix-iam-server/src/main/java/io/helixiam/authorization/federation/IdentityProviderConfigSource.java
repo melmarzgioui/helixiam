@@ -38,6 +38,14 @@ public interface IdentityProviderConfigSource {
         return Map.of();
     }
 
+    /**
+     * Whether this source reports {@link #versions()} at all. One that does not (the interface default) leaves the
+     * cross-replica poll without anything to compare, so a write on another replica reaches this one only at a restart.
+     */
+    default boolean reportsVersions() {
+        return false;
+    }
+
     /** {@code realmId}'s identity-provider config version (0 when it was never written). */
     default long version(final String realmId) {
         return versions().getOrDefault(realmId, 0L);

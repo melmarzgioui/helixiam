@@ -303,7 +303,6 @@ public class FederationBrokerController {
         }
     }
 
-    /** Realm-prefixed external callback the IdP redirects back to: {@code {idpBase}/realms/{realm}/broker/{alias}/callback}. */
     /**
      * The session attribute of a per-login value of {@code alias} in the request's realm (production readiness item 2):
      * keyed by (realm, alias), so two realms using one alias in one browser do not clobber each other.
@@ -312,6 +311,7 @@ public class FederationBrokerController {
         return BrowserBinding.sessionKey(prefix, RealmContextHolder.get(), alias);
     }
 
+    /** Realm-prefixed external callback the IdP redirects back to: {@code {idpBase}/realms/{realm}/broker/{alias}/callback}. */
     private String callbackUri(final String alias) {
         return idpBaseUrl + "/realms/" + RealmContextHolder.get() + "/broker/" + alias + "/callback";
     }

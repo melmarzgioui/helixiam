@@ -46,6 +46,11 @@ class FederationStoreVersionPollerTest {
         }
 
         @Override
+        public boolean reportsVersions() {
+            return true;
+        }
+
+        @Override
         public Map<String, Long> versions() {
             if (databaseDown) {
                 throw new IllegalStateException("connection refused");
@@ -101,5 +106,34 @@ class FederationStoreVersionPollerTest {
                 new FederationStoreRefresher(store, factory, new IdentityProviderRegistry(List.of())), Duration.ZERO);
         poller.start(); // no scheduler, nothing to close
         poller.close();
+    }
+
+    // ---- fix round: a transport that reports no versions disables convergence; say so at start ----
+
+    @Test
+    void aSourceWithoutVersions_warnsAtStartThatConvergenceIsOff() {
+        final IdentityProviderConfigSource noVersions = realm -> List.of(); // the interface default: no versions
+        try (io.helixiam.testsupport.LogCapture logs =
+                     io.helixiam.testsupport.LogCapture.of(FederationStoreVersionPoller.class);
+             FederationStoreVersionPoller poller = new FederationStoreVersionPoller(
+                     new FederationStoreRefresher(noVersions, factory, new IdentityProviderRegistry(List.of())),
+                     Duration.ofSeconds(10))) {
+            poller.start();
+
+            assertThat(logs.text()).contains("does not report identity-provider config versions");
+        }
+    }
+
+    @Test
+    void aSourceWithVersions_doesNotWarn() {
+        try (io.helixiam.testsupport.LogCapture logs =
+                     io.helixiam.testsupport.LogCapture.of(FederationStoreVersionPoller.class);
+             FederationStoreVersionPoller poller = new FederationStoreVersionPoller(
+                     new FederationStoreRefresher(store, factory, new IdentityProviderRegistry(List.of())),
+                     Duration.ofSeconds(10))) {
+            poller.start();
+
+            assertThat(logs.text()).doesNotContain("does not report");
+        }
     }
 }

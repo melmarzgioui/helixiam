@@ -61,4 +61,9 @@ public class IdentityProviderConfigLocalAdapter implements IdentityProviderConfi
     public java.util.Map<String, Long> versions() {
         return service.versions();
     }
+
+    @Override
+    public boolean reportsVersions() {
+        return true;
+    }
 }

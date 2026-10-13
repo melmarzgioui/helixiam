@@ -133,7 +133,9 @@ question. Newest first within each phase.
 - **fix (EUDI wallet)** — The broker's per-login session attributes (state, nonce, SAML request id, browser binding,
   wallet transaction) and the account console's wallet-link state are keyed by (realm, alias) instead of alias only:
   wallet logins in two realms that both use the alias `eudi-wallet`, from one browser at the same time, no longer
-  clobber each other.
+  clobber each other. **Upgrade note:** the session keys were renamed, so a federated or wallet login (or a wallet
+  link) that is in flight while the deploy rolls out, started on the old version and finished on the new one, ends
+  with `error=federation` (or a refused link); starting it again works. Transient, no data is affected.
 - **fix (EUDI wallet)** — Another realm's wallet connection whose alias matched this realm's OIDC connection made the
   user's OIDC link look like a wallet link: hidden from `/account/identities`, its delete answered 409, its subject
   left out of the GDPR export, and an anonymizing erasure deleted it. The alias is now resolved in the user's own realm

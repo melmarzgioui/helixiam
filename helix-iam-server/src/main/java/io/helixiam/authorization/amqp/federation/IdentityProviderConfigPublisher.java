@@ -43,4 +43,9 @@ public interface IdentityProviderConfigPublisher {
     default java.util.Map<String, Long> versions() {
         return java.util.Map.of();
     }
+
+    /** Whether {@link #versions()} is implemented (the default answers none, which disables the cross-replica poll). */
+    default boolean reportsVersions() {
+        return false;
+    }
 }
