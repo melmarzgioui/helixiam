@@ -33,6 +33,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -138,6 +139,19 @@ public class FederationConfig {
                         e.getMessage());
             }
         };
+    }
+
+    /**
+     * Production readiness item 1: polls the per-realm identity-provider config versions so a write or a realm import
+     * on another replica reaches this one within {@code helix.federation.store.poll-interval-seconds} (default 10;
+     * 0 turns polling off). Plain PostgreSQL, so it works on every deployment.
+     */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public FederationStoreVersionPoller federationStoreVersionPoller(
+            final FederationStoreRefresher refresher,
+            @Value("${helix.federation.store.poll-interval-seconds:10}") final long intervalSeconds) {
+        return new FederationStoreVersionPoller(refresher, Duration.ofSeconds(Math.max(0, intervalSeconds)));
     }
 
     /**

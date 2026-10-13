@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -196,5 +197,26 @@ class IdentityProviderConfigServiceTest {
         e.setEnabled(enabled);
         e.setConfigJson(json);
         return e;
+    }
+
+    // ---- production readiness item 1: every write bumps the realm's version, which replicas poll ----
+
+    @Test
+    void everySaveAndDelete_bumpsTheRealmsVersion_aMissedDeleteDoesNot() {
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.existsByRealmIdAndAlias("gov", "digid")).thenReturn(true);
+
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "digid", "saml", "DigiD", true, Map.of()));
+        service.delete("gov", "digid");
+        service.delete("gov", "ghost");
+
+        verify(repository, times(2)).bumpVersion("gov");
+    }
+
+    @Test
+    void versions_mapsEveryRealmsRow() {
+        when(repository.findAllVersions()).thenReturn(List.of(new Object[] {"gov", 3L}, new Object[] {"corp", 1}));
+
+        assertEquals(Map.of("gov", 3L, "corp", 1L), service.versions());
     }
 }

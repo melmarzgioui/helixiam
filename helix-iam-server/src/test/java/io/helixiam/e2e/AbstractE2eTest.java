@@ -146,6 +146,9 @@ public abstract class AbstractE2eTest {
         registry.add("helix.admin.password", () -> ADMIN_PASSWORD);
         registry.add("helix.theme.directory", THEMES_DIR::toString);
         registry.add("helix.theme.reload-interval-seconds", () -> "0");
+        // The server's identity-provider version poll is off: tests reload its registry on purpose (restart helpers,
+        // fixtures). IdentityProviderRegistryReplicasE2eTest runs its own replica with its own poller.
+        registry.add("helix.federation.store.poll-interval-seconds", () -> "0");
     }
 
     @Autowired

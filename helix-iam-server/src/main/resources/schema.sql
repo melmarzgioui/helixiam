@@ -1093,3 +1093,9 @@ CREATE TABLE IF NOT EXISTS realm_wallet_pepper (
     pepper     text                   NOT NULL,
     created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+-- Production readiness (same as Flyway V78): the per-realm identity-provider config version every replica polls.
+CREATE TABLE IF NOT EXISTS idp_config_version (
+    realm_id   character varying(255) NOT NULL PRIMARY KEY,
+    version    bigint                 NOT NULL,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
+);

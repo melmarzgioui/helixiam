@@ -24,7 +24,8 @@ import java.util.Objects;
  * is logged and skipped without sinking the rest of the refresh.
  *
  * <p>Final review F1: {@link #refreshAll()} (startup) loads every realm; {@link #refresh(String)} (after an admin
- * write) replaces only that realm's providers.
+ * write) replaces only that realm's providers. Production readiness item 1: {@link #refreshChanged()} (polled) reloads
+ * the realms another replica wrote, and every publication is version-ordered.
  */
 public class FederationStoreRefresher {
 
@@ -42,23 +43,50 @@ public class FederationStoreRefresher {
         this.registry = registry;
     }
 
-    /** Reloads the registry's store-backed providers of one realm, leaving every other realm's. Returns the number. */
+    /**
+     * Reloads the registry's store-backed providers of one realm, leaving every other realm's. Returns the number
+     * published (0 when a newer version of the realm was published meanwhile).
+     *
+     * <p>Production readiness item 1: the realm's store version is read BEFORE its configs, so the configs are at least
+     * that new, and the set is published only if no newer version is (version-ordered publication): two concurrent
+     * refreshes, which build outside the registry lock, can never publish the older set over the newer one.
+     */
     public int refresh(final String realmId) {
+        return refresh(realmId, source.version(realmId));
+    }
+
+    private int refresh(final String realmId, final long version) {
         final List<IdentityProvider> providers = build(source.load(realmId));
-        registry.reload(realmId, providers);
-        return providers.size();
+        return registry.reload(realmId, providers, version) ? providers.size() : 0;
     }
 
     /** Loads the store-backed providers of every realm (startup), replacing whatever was loaded. Returns the number. */
     public int refreshAll() {
+        final Map<String, Long> versions = source.versions(); // before the configs, as in refresh(realm)
         final Map<String, List<IdentityProviderConfig>> byRealm = new LinkedHashMap<>();
         for (final IdentityProviderConfig config : source.loadAll()) {
             byRealm.computeIfAbsent(config.realmId(), r -> new ArrayList<>()).add(config);
         }
         final Map<String, List<IdentityProvider>> providers = new LinkedHashMap<>();
         byRealm.forEach((realmId, configs) -> providers.put(realmId, build(configs)));
-        registry.replaceAll(providers);
+        registry.replaceAll(providers, versions);
         return providers.values().stream().mapToInt(List::size).sum();
+    }
+
+    /**
+     * The cross-replica poll (production readiness item 1, {@link FederationStoreVersionPoller}): reloads every realm
+     * whose store version moved past the published one (a write or a realm import on another replica, or on this one
+     * when its own refresh failed). One cheap query when nothing changed. Returns the number of realms reloaded.
+     */
+    public int refreshChanged() {
+        int reloaded = 0;
+        for (final Map.Entry<String, Long> entry : source.versions().entrySet()) {
+            if (entry.getValue() > registry.version(entry.getKey())) {
+                refresh(entry.getKey(), entry.getValue());
+                reloaded++;
+            }
+        }
+        return reloaded;
     }
 
     private List<IdentityProvider> build(final List<IdentityProviderConfig> configs) {

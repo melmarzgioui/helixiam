@@ -56,4 +56,9 @@ public class IdentityProviderConfigLocalAdapter implements IdentityProviderConfi
     public Boolean delete(final IdentityProviderRef ref) {
         return service.delete(ref.realmId(), ref.alias());
     }
+
+    @Override
+    public java.util.Map<String, Long> versions() {
+        return service.versions();
+    }
 }

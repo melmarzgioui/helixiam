@@ -33,4 +33,9 @@ public class AmqpIdentityProviderConfigSource implements IdentityProviderConfigS
     public List<IdentityProviderConfig> loadAll() {
         return publisher.listAll();
     }
+
+    @Override
+    public java.util.Map<String, Long> versions() {
+        return publisher.versions();
+    }
 }

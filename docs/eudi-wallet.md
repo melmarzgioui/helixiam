@@ -69,9 +69,16 @@ not specific to the wallet; every admin-API-managed connection (OIDC, SAML, eID,
   realm cannot be started there.
 - A stored connection whose secrets cannot be read (for example after `DB_ENCRYPTION` changed) is skipped with a
   `WARN` naming its id; the realm's other connections still load.
-- Limits: a refresh after a write reaches the replica that handled the write; other replicas pick the change up at
-  their next restart. A realm **import** (`/admin/realms/{realm}/import`) saves its connections without refreshing
-  the registry either; they go live at the next restart or the next admin write in that realm.
+- **Every replica converges without a restart.** Each write (admin API, console, realm import) bumps the realm's
+  row in `idp_config_version` in the same transaction. The replica that handled the write (or ran the import)
+  reloads that realm at once; every replica polls the versions every
+  `helix.federation.store.poll-interval-seconds` (default **10**, env `HELIX_FEDERATION_STORE_POLL_INTERVAL_SECONDS`;
+  `0` turns polling off) and reloads the realms whose version moved. This is plain PostgreSQL, so it works on the
+  `queue` (PostgreSQL-only) deployment as well as with Redis. A change therefore reaches every replica within one
+  interval.
+- Publication is **version-ordered**: a refresh labels what it publishes with the version it read before loading,
+  and a set older than the one already published is dropped. Two concurrent writes can no longer leave the older
+  set live.
 
 ### 2.3 Through the console
 
