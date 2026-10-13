@@ -20,6 +20,17 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — L5 done: the legacy AES/ECB format of secret columns is migrated away. At every startup (Flyway and
+  `schema.sql` paths) `LegacyEncryptionBackfill` re-encrypts every value of every `AttributeEncryption` column (realm
+  keys, TOTP and HOTP secrets, client secrets, SCIM tokens, webhook secrets, identity-provider and messaging secrets,
+  SAML relying-party certificates, verifier keys, wallet peppers) that is still in the legacy format to AES-GCM. It is
+  idempotent, logs table, column and row id only, and skips and names rows it cannot read in a production-readiness
+  WARN. After the run the converter no longer falls back to ECB, so a legacy value fails closed, unless
+  `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true` (default `false`). A legacy decryption must also be valid UTF-8, so a value
+  under another key no longer "decrypts" to garbage about 1 time in 256 (review #10). **Upgrade:** nothing to do; the
+  first start rewrites the legacy rows (check its log for the readiness WARN). Only if that WARN names rows, or a
+  database restored from an older backup is attached to a running server, set `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true`
+  (or restart, which re-runs the job) while you investigate.
 - **security** — The Host allow-list ignored the port, so `Host: localhost:6666` on a server whose `IDP_BASE_URL` is
   `http://localhost:8080` put `:6666` into the request-derived issuer. Outside `dev`, a host of `IDP_BASE_URL` or
   `SP_BASE_URL` now accepts only that URL's port (its explicit one, or the scheme's default), plus a `Host` without a

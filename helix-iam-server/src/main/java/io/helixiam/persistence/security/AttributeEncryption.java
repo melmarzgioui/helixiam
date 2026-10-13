@@ -18,6 +18,9 @@ import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import java.nio.ByteBuffer;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -31,8 +34,9 @@ import java.util.Set;
 /**
  * Vendored verbatim (package renamed only) from
  * io.helixiam.subscriber.starter.database.security.AttributeEncryption.
- * AES/GCM (with a legacy plain-AES fallback for decrypting older values) semantics preserved
- * exactly, byte-for-byte, per the Task 1 constraint (this converts DB columns like TOTP secrets).
+ * Writes AES/GCM. The legacy plain-AES (AES/ECB) format of older values is read only until the startup
+ * re-encryption ({@link LegacyEncryptionBackfill}) has rewritten them, then only with
+ * {@code HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true} (L5; this converts DB columns like TOTP secrets).
  *
  * <p>A stored value that neither format can decrypt is never returned as if it were the secret: the read fails
  * with an {@link IllegalStateException} that names the cause (the value is not encrypted, or the key changed or
@@ -58,6 +62,9 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
     private static final ThreadLocal<Set<String>> PLAINTEXT_READS = new ThreadLocal<>();
     /** Bound on {@link #PLAINTEXT_READS}: values read outside an entity load are never claimed. */
     private static final int MAX_TRACKED_PLAINTEXT_READS = 64;
+
+    /** L5: see {@link #setLegacyFallback}. */
+    private static volatile boolean legacyFallback = true;
 
     private final SecretKey key;
     private final SecretKey keyOld;
@@ -152,7 +159,58 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
         if (key == null || data == null) {
             return data;
         }
+        final String current = decryptGcm(data);
+        if (current != null) {
+            return current;
+        }
+        if (legacyFallback) {
+            LOG.trace("GCM decryption failed, trying legacy mode");
+            final String legacy = decryptLegacy(data);
+            if (legacy != null) {
+                return legacy;
+            }
+        } else if (decryptLegacy(data) != null) {
+            // L5: after the startup re-encryption the legacy format is no longer read (unless the operator allows it).
+            throw new IllegalStateException("An encrypted database column could not be read: it is in the legacy "
+                    + "AES/ECB format, which is read only with HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true "
+                    + "(helix.security.db-encryption.allow-legacy). The startup re-encryption rewrites such rows.");
+        }
+        return undecryptable(data);
+    }
 
+    /**
+     * L5 — the one-time re-encryption of the legacy format: {@code stored} in the current AES-GCM format when it is in
+     * the legacy AES/ECB one, {@code null} when it already is current (or there is no key, or no value). Throws
+     * {@link IllegalStateException} (never naming the value) when neither format reads it. Independent of the
+     * runtime fallback ({@link #setLegacyFallback}).
+     */
+    public String reencryptLegacy(final String stored) {
+        if (key == null || stored == null || decryptGcm(stored) != null) {
+            return null;
+        }
+        final String plain = decryptLegacy(stored);
+        if (plain == null) {
+            throw new IllegalStateException("The value is neither in the current nor in the legacy format of this key");
+        }
+        return convertToDatabaseColumn(plain);
+    }
+
+    /**
+     * Whether a value that is not in the current format is still tried in the legacy AES/ECB format. On by default, so
+     * legacy rows read until the startup re-encryption ({@link LegacyEncryptionBackfill}) has rewritten them; then it is
+     * {@code HELIX_DB_ENCRYPTION_ALLOW_LEGACY} (default false). Process-wide: it covers the JPA columns and the JDBC
+     * stores that hold their own converter.
+     */
+    public static void setLegacyFallback(final boolean enabled) {
+        legacyFallback = enabled;
+    }
+
+    public static boolean legacyFallbackEnabled() {
+        return legacyFallback;
+    }
+
+    /** The value in the current AES-GCM format, or null when it is not (any failure). */
+    private String decryptGcm(final String data) {
         try {
             final byte[] combined = Base64.getDecoder().decode(data);
 
@@ -161,7 +219,7 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
             System.arraycopy(combined, 0, iv, 0, iv.length);
 
             // Extract encrypted data
-            byte[] encrypted = new byte[combined.length - GCM_IV_LENGTH];
+            final byte[] encrypted = new byte[combined.length - GCM_IV_LENGTH];
             System.arraycopy(combined, iv.length, encrypted, 0, encrypted.length);
 
             final Cipher cipher = Cipher.getInstance(AES_GCM, "BC");
@@ -170,19 +228,26 @@ public class AttributeEncryption implements AttributeConverter<String, String> {
 
             return new String(cipher.doFinal(encrypted));
         } catch (final Exception e) {
-            LOG.trace("GCM decryption failed, trying legacy mode");
-            return tryLegacyDecryption(data);
+            return null;
         }
     }
 
-    private String tryLegacyDecryption(final String data) {
+    /**
+     * The value in the legacy AES/ECB format, or null when it is not. ECB has no integrity check: a value under another
+     * key passes the padding check about 1 time in 256, so the result must also be valid UTF-8 text (every secret this
+     * converter stores is), which garbage almost never is (security review #10).
+     */
+    private String decryptLegacy(final String data) {
         try {
             final Cipher cipher = Cipher.getInstance(AES);
             cipher.init(Cipher.DECRYPT_MODE, keyOld);
-
-            return new String(cipher.doFinal(Base64.getDecoder().decode(data)));
+            final byte[] plain = cipher.doFinal(Base64.getDecoder().decode(data));
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(plain)).toString();
         } catch (final Exception e) {
-            return undecryptable(data);
+            return null;
         }
     }
 

@@ -32,6 +32,13 @@ class AttributeEncryptionTest {
     @AfterEach
     void clearPlaintextReads() {
         AttributeEncryption.clearPlaintextReads();
+        AttributeEncryption.setLegacyFallback(true); // the process default until the startup re-encryption has run
+    }
+
+    private static String legacyEcb(final String key, final String value) throws Exception {
+        final Cipher legacy = Cipher.getInstance("AES");
+        legacy.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "AES"));
+        return Base64.getEncoder().encodeToString(legacy.doFinal(value.getBytes(StandardCharsets.UTF_8)));
     }
 
     @Test
@@ -157,12 +164,65 @@ class AttributeEncryptionTest {
     }
 
     @Test
-    void theLegacyAesFormat_stillDecrypts() throws Exception {
-        final Cipher legacy = Cipher.getInstance("AES");
-        legacy.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(KEY.getBytes(StandardCharsets.UTF_8), "AES"));
-        final String stored = Base64.getEncoder().encodeToString(legacy.doFinal(SECRET.getBytes(StandardCharsets.UTF_8)));
+    void theLegacyAesFormat_stillDecrypts_whileTheFallbackIsOn() throws Exception {
+        AttributeEncryption.setLegacyFallback(true);
+        final String stored = legacyEcb(KEY, SECRET);
 
         assertThat(new AttributeEncryption(KEY, false).convertToEntityAttribute(stored)).isEqualTo(SECRET);
+    }
+
+    // --- L5: the legacy AES/ECB format is re-encrypted once, then its fallback is off --------------------------------
+
+    @Test
+    void withTheFallbackOff_aLegacyRowFailsClosed_namingTheFlag_notTheValue() throws Exception {
+        final String stored = legacyEcb(KEY, SECRET);
+        AttributeEncryption.setLegacyFallback(false);
+
+        assertThatThrownBy(() -> new AttributeEncryption(KEY, false).convertToEntityAttribute(stored))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HELIX_DB_ENCRYPTION_ALLOW_LEGACY")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain(SECRET).doesNotContain(stored));
+        // The plaintext-migration mode does not reopen it either: a legacy value is not plaintext.
+        assertThatThrownBy(() -> new AttributeEncryption(KEY, true).convertToEntityAttribute(stored))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void reencryptLegacy_turnsALegacyValueIntoTheCurrentFormat() throws Exception {
+        final AttributeEncryption enc = new AttributeEncryption(KEY, false);
+        final String stored = legacyEcb(KEY, SECRET);
+        AttributeEncryption.setLegacyFallback(false); // the re-encryption never depends on the runtime fallback
+
+        final String rewritten = enc.reencryptLegacy(stored);
+
+        assertThat(rewritten).isNotNull().isNotEqualTo(stored);
+        assertThat(enc.convertToEntityAttribute(rewritten)).isEqualTo(SECRET);
+    }
+
+    @Test
+    void reencryptLegacy_leavesACurrentValueAlone_andRefusesAnUnreadableOne() {
+        final AttributeEncryption enc = new AttributeEncryption(KEY, false);
+
+        assertThat(enc.reencryptLegacy(enc.convertToDatabaseColumn(SECRET))).isNull();
+        assertThat(enc.reencryptLegacy(null)).isNull();
+        assertThatThrownBy(() -> enc.reencryptLegacy(new AttributeEncryption(OTHER_KEY, false)
+                .convertToDatabaseColumn(SECRET))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> enc.reencryptLegacy(SECRET)).isInstanceOf(IllegalStateException.class);
+        assertThat(new AttributeEncryption(null, false).reencryptLegacy(SECRET)).as("no key: nothing to do").isNull();
+    }
+
+    @Test
+    void aLegacyDecryptionThatIsNotUtf8_isNotTakenForTheSecret() throws Exception {
+        // ECB "decrypting" a value under the wrong key passes the padding check about 1 time in 256 and yields bytes
+        // that are not text; such a result must not be returned (or re-encrypted) as the secret.
+        final Cipher legacy = Cipher.getInstance("AES");
+        legacy.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(KEY.getBytes(StandardCharsets.UTF_8), "AES"));
+        final String notText = Base64.getEncoder().encodeToString(legacy.doFinal(new byte[] {(byte) 0xC3, (byte) 0x28,
+                (byte) 0xFF, (byte) 0xFE}));
+        final AttributeEncryption enc = new AttributeEncryption(KEY, false);
+
+        assertThatThrownBy(() -> enc.convertToEntityAttribute(notText)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> enc.reencryptLegacy(notText)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
