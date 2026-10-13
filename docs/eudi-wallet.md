@@ -138,29 +138,37 @@ curl -s -X POST "https://helix.example/admin/realms/$REALM/identity-providers" \
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
 
-## 3. Transaction store: Redis vs in-memory
+## 3. Transaction store: PostgreSQL or Redis
 
 Each wallet login's in-flight state (nonce, decryption key, bound-browser hash, DCQL query, TTL) lives in a
-`WalletTransactionStore`, chosen automatically at boot
-(`FederationConfig.WalletTransactionStores`,
-`helix-iam-server/src/main/java/io/helixiam/authorization/federation/FederationConfig.java:143-180`):
+`WalletTransactionStore`, chosen at boot (`FederationConfig.WalletTransactionStores`). Every choice except the
+explicit development one is shared by all replicas, so a cross-device (QR) login whose wallet requests land on a
+different pod from the one that started it still works. **No sticky sessions are needed.**
 
-- **Redis-backed**, when either `helix.iam.session-store=redis` or `helix.iam.token-store=redis` — shared by every
-  replica, so a cross-device (QR) login that lands on a different pod from the one that started it still works.
-- **In process memory**, otherwise (the `@ConditionalOnMissingBean` default).
+- **PostgreSQL** (`JdbcWalletTransactionStore`, table `wallet_transaction`, Flyway V79) whenever
+  `helix.iam.session-store=queue`, and whenever neither the session nor the token store is Redis.
+- **Redis** (`RedisWalletTransactionStore`) when `helix.iam.session-store=redis`, or when
+  `helix.iam.token-store=redis` and the session store is not `queue`.
+- **In process memory** (`InMemoryWalletTransactionStore`) only when you ask for it with
+  `helix.wallet.transaction-store=memory` (env `HELIX_WALLET_TRANSACTION_STORE`). It works with **one replica only**
+  and is meant for development and tests; outside the `dev` profile startup logs a `WARN`.
 
-**Multi-replica warning:** the in-memory store only works correctly with exactly one replica. If neither the
-session nor the token store is Redis and the process is not running under the `dev` profile, startup logs a
-`WARN`:
+`helix.wallet.transaction-store` (`jdbc`, `redis` or `memory`) overrides the automatic choice. A server with neither
+Redis nor a database that was not asked for `memory` refuses to start rather than fall back silently.
 
-> EUDI wallet logins keep their transactions in process memory (neither `HELIX_SESSION_STORE` nor
-> `HELIX_TOKEN_STORE` is redis). With more than one replica a wallet login fails whenever the wallet's requests
-> reach another replica: run one replica, or use Redis for the session or token store.
+Both shared stores keep the same guarantees:
 
-This is specifically checked against `helix.iam.session-store=queue` (the PostgreSQL session store, the project's
-other multi-replica setup) outside `dev`
-(`FederationConfig.java:174-179`, `warnsAboutReplicas`). If you run more than one HelixIAM replica, put the wallet
-transaction store on Redis (by putting the session or token store on Redis) — there is no separate knob for it.
+- **Atomic, single-use transitions.** Redis runs one Lua script per transition; PostgreSQL runs one conditional
+  statement (`UPDATE … WHERE … AND status = ? AND expires_at > ? RETURNING …`), so exactly one of any number of
+  racing claims, completions, code issues or redeems wins. The same contract suite, including the 20-thread races,
+  runs against both.
+- **Secrets at rest.** The request ids, the response id and the response code are looked up by their SHA-256 only;
+  the response code is stored only as its hash. The request ids, the response id, the private decryption key and the
+  verified identity are encrypted with `DB_ENCRYPTION` (`AttributeEncryption`, which fails closed). Outside `dev`,
+  creating a transaction without `DB_ENCRYPTION` is refused.
+- **Expiry.** An expired transaction reads as absent at once. Redis evicts it by TTL; PostgreSQL deletes expired rows
+  every `helix.wallet.transaction-sweep-seconds` (default 60). Expiry is checked against the application clock, so
+  keep the replicas' clocks in sync (NTP), as you already must for token lifetimes.
 
 ## 4. Trusted proxies / allowed hosts
 

@@ -436,7 +436,9 @@
             <!-- rc.6 item 1: the e2e context uses the Redis session store. This second run starts its own
                  JVM + context with the queue (PostgreSQL) store, as `HELIX_SESSION_STORE=queue` does in
                  production, and repeats the browser tests whose sessions carry the most state: the account
-                 console (flash attributes, step-up, sign out elsewhere) and the sign-in journeys. Run one class
+                 console (flash attributes, step-up, sign out elsewhere) and the sign-in journeys. On this store the
+                 EUDI wallet logins keep their transactions in PostgreSQL (JdbcWalletTransactionStore), so the wallet
+                 tests here cover that store booted end to end. Run one class
                  on the queue store locally with `-Dtest=… -Dhelix.iam.session-store=queue`. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -457,6 +459,7 @@
                                 <include>io/helixiam/e2e/browser/RegistrationVerificationBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/WalletLoginBrowserE2eTest.java</include>
                                 <include>io/helixiam/e2e/browser/WalletLinkBrowserE2eTest.java</include>
+                                <include>io/helixiam/e2e/WalletTwoRealmsOneBrowserE2eTest.java</include>
                             </includes>
                             <systemPropertyVariables>
                                 <helix.iam.session-store>queue</helix.iam.session-store>

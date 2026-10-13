@@ -6,6 +6,9 @@
 package io.helixiam.e2e;
 
 import io.helixiam.authorization.federation.wallet.testwallet.Oid4vpWalletClient;
+import io.helixiam.authorization.federation.wallet.transaction.JdbcWalletTransactionStore;
+import io.helixiam.authorization.federation.wallet.transaction.RedisWalletTransactionStore;
+import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +55,17 @@ class WalletTwoRealmsOneBrowserE2eTest extends AbstractE2eTest {
 
         assertCompletes(browser, a);
         assertCompletes(browser, b);
+    }
+
+    /**
+     * Item 3: the server keeps wallet transactions where every replica can read them: PostgreSQL on the queue session
+     * store (the pom's {@code browser-on-queue-session-store} run includes this class), Redis on the Redis one.
+     */
+    @Test
+    void theWalletTransactionStore_isSharedByEveryReplica() {
+        final boolean queue = "queue".equals(context.getEnvironment().getProperty("helix.iam.session-store"));
+        assertThat(context.getBean(WalletTransactionStore.class))
+                .isInstanceOf(queue ? JdbcWalletTransactionStore.class : RedisWalletTransactionStore.class);
     }
 
     // ------------------------------------------------------------------------------------------------ helpers
