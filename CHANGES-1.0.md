@@ -3,7 +3,12 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
-## Next release (after `v1.0.0-rc.7`)
+## v1.0.0-rc.9 (2026-10-13; also lists what shipped in `v1.0.0-rc.8`)
+
+rc.9 adds the EU Digital Identity Wallet sign-in (OpenID4VP 1.0 / HAIP 1.0 verifier, **experimental**), the
+Spring Boot 4.1 / Spring Framework 7 / Spring Security 7 platform, and a complete outbound-request (SSRF /
+DNS-rebinding) hardening, on top of the rc.8 security fixes. Read the upgrade checklists below and
+`docs/UPGRADING.md` before upgrading: the Spring Boot 4 step must not run old and new pods side by side.
 
 > **BREAKING — upgrade checklist (reverse proxies and host names).** The server now trusts forwarded headers only
 > from `HELIX_TRUSTED_PROXIES` and, outside `dev`, answers only for its own host names. Before upgrading:
