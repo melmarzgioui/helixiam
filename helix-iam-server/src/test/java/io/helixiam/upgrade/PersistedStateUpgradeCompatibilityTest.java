@@ -157,6 +157,57 @@ class PersistedStateUpgradeCompatibilityTest {
     }
 
     @Test
+    void aClientCredentialsAuthorizationWrittenBy10_isRead_withItsClientAuthentication() throws IOException {
+        final OAuth2Authorization stored = AuthorizationBlobs.deserialize(blob("authorization-client-credentials.b64"));
+
+        assertThat(stored).as("1.0 client_credentials blob is unreadable").isNotNull();
+        assertThat(stored.getAuthorizationGrantType().getValue()).isEqualTo("client_credentials");
+        assertThat(stored.getPrincipalName()).isEqualTo("ledger");
+        assertThat(stored.getAccessToken().getToken().getTokenValue()).isEqualTo("access-cc");
+        assertThat(stored.getAccessToken().getClaims()).containsEntry("sub", "ledger");
+        final org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken client =
+                stored.getAttribute(Principal.class.getName());
+        assertThat(client.isAuthenticated()).isTrue();
+        assertThat(client.getRegisteredClient().getClientId()).isEqualTo("ledger");
+        assertThat(client.getRegisteredClient().getClientSettings().isRequireProofKey()).isFalse();
+        assertThat(client.getRegisteredClient().getTokenSettings().getAccessTokenTimeToLive())
+                .isEqualTo(java.time.Duration.ofMinutes(5));
+        assertThat(client.getClientAuthenticationMethod().getValue()).isEqualTo("client_secret_basic");
+    }
+
+    @Test
+    void aTokenExchangeAuthorizationWrittenBy10_isRead_withSubjectAndActClaim() throws IOException {
+        final OAuth2Authorization stored = AuthorizationBlobs.deserialize(blob("authorization-token-exchange.b64"));
+
+        assertThat(stored).as("1.0 token-exchange blob is unreadable").isNotNull();
+        assertThat(stored.getAuthorizationGrantType().getValue())
+                .isEqualTo("urn:ietf:params:oauth:grant-type:token-exchange");
+        assertThat(((Principal) stored.getAttribute(Principal.class.getName())).getName()).isEqualTo("ada");
+        assertThat(stored.getAccessToken().getToken().getTokenValue()).isEqualTo("access-tx");
+        assertThat(stored.getAccessToken().getClaims()).containsEntry("sub", "ada")
+                .containsEntry("act", java.util.Map.of("sub", "web"));
+        assertThat(stored.getRegisteredClientId()).isEqualTo("client-tx");
+    }
+
+    @Test
+    void aDeviceCodeAuthorizationWrittenBy10_isRead_readyForTheDevicesPoll() throws IOException {
+        final OAuth2Authorization stored = AuthorizationBlobs.deserialize(blob("authorization-device-code.b64"));
+
+        assertThat(stored).as("1.0 device-code blob is unreadable").isNotNull();
+        assertThat(stored.getAuthorizationGrantType().getValue())
+                .isEqualTo("urn:ietf:params:oauth:grant-type:device_code");
+        assertThat(stored.getToken(org.springframework.security.oauth2.core.OAuth2DeviceCode.class).getToken()
+                .getTokenValue()).isEqualTo("device-1");
+        final OAuth2Authorization.Token<org.springframework.security.oauth2.core.OAuth2UserCode> userCode =
+                stored.getToken(org.springframework.security.oauth2.core.OAuth2UserCode.class);
+        assertThat(userCode.getToken().getTokenValue()).isEqualTo("WDJB-MJHT");
+        assertThat(userCode.isInvalidated()).isTrue();
+        assertThat(((Principal) stored.getAttribute(Principal.class.getName())).getName()).isEqualTo("ada");
+        assertThat(stored.<java.util.Set<String>>getAttribute("scope")).containsExactly("openid");
+        assertThat(stored.getAuthorizedScopes()).containsExactly("openid");
+    }
+
+    @Test
     void theCurrentLine_writesBlobsTheSameReaderAccepts() {
         // Guards the fixtures themselves: what this line writes, it reads.
         assertThat(AuthorizationBlobs.deserialize(AuthorizationBlobs.serialize(PersistedStateFixtures.authorization())))

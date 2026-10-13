@@ -98,6 +98,84 @@ public final class PersistedStateFixtures {
                 .build();
     }
 
+    /**
+     * A client_credentials grant as Spring Authorization Server stores it (principal = the client id, an access token
+     * with claims), plus, under the principal attribute, an authenticated {@code OAuth2ClientAuthenticationToken}
+     * carrying the full {@code RegisteredClient} (client and token settings): the 1.x class graph a stored client
+     * authentication brings along.
+     */
+    public static OAuth2Authorization clientCredentialsAuthorization() {
+        final RegisteredClient client = RegisteredClient.withId("client-cc").clientId("ledger").clientSecret("{noop}x")
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS).scope("api.read")
+                .clientSettings(org.springframework.security.oauth2.server.authorization.settings.ClientSettings.builder()
+                        .requireProofKey(false).requireAuthorizationConsent(false).build())
+                .tokenSettings(org.springframework.security.oauth2.server.authorization.settings.TokenSettings.builder()
+                        .accessTokenTimeToLive(java.time.Duration.ofMinutes(5)).build())
+                .build();
+        final Set<String> scopes = new LinkedHashSet<>(List.of("api.read"));
+        return OAuth2Authorization.withRegisteredClient(client)
+                .id("auth-cc").principalName("ledger")
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+                .authorizedScopes(scopes)
+                .attribute(Principal.class.getName(),
+                        new org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken(
+                                client, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, null))
+                .token(new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, "access-cc", ISSUED, EXPIRES, scopes),
+                        metadata -> metadata.put(OAuth2Authorization.Token.CLAIMS_METADATA_NAME,
+                                new HashMap<>(Map.of("sub", "ledger", "aud", new java.util.ArrayList<>(List.of("ledger")),
+                                        "realm_access", new HashMap<>(Map.of("roles",
+                                                new java.util.ArrayList<>(List.of("accountant"))))))))
+                .build();
+    }
+
+    /**
+     * An RFC 8693 token exchange as 1.0 can store it: the principal is the subject's authentication, and the access
+     * token's claims carry HelixIAM's {@code act} (the acting client). 1.0 cannot store an exchange with an
+     * {@code actor_token} at all: Spring Authorization Server 1.5's {@code OAuth2TokenExchangeActor} is not
+     * serializable (it is in Spring Security 7).
+     */
+    public static OAuth2Authorization tokenExchangeAuthorization() {
+        final RegisteredClient client = RegisteredClient.withId("client-tx").clientId("ledger")
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.TOKEN_EXCHANGE).scope("api.read").build();
+        final Set<String> scopes = new LinkedHashSet<>(List.of("api.read"));
+        final Map<String, Object> claims = new HashMap<>(Map.of("sub", "ada", "aud", new java.util.ArrayList<>(List.of("ledger")),
+                "act", new HashMap<>(Map.of("sub", "web"))));
+        return OAuth2Authorization.withRegisteredClient(client)
+                .id("auth-tx").principalName("ada")
+                .authorizationGrantType(AuthorizationGrantType.TOKEN_EXCHANGE)
+                .authorizedScopes(scopes)
+                .attribute(Principal.class.getName(), authenticated())
+                .token(new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, "access-tx", ISSUED, EXPIRES, scopes),
+                        metadata -> metadata.put(OAuth2Authorization.Token.CLAIMS_METADATA_NAME, claims))
+                .build();
+    }
+
+    /**
+     * A device authorization grant (RFC 8628) after the user approved it on {@code /activate}: device code, the used
+     * user code, the requested scopes and the approving user, as Spring Authorization Server stores them before the
+     * device polls.
+     */
+    public static OAuth2Authorization deviceCodeAuthorization() {
+        final AuthorizationGrantType deviceCode = new AuthorizationGrantType("urn:ietf:params:oauth:grant-type:device_code");
+        final RegisteredClient client = RegisteredClient.withId("client-cli").clientId("helix-cli")
+                .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+                .authorizationGrantType(deviceCode).authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+                .scope("openid").build();
+        final Set<String> scopes = new LinkedHashSet<>(List.of("openid"));
+        return OAuth2Authorization.withRegisteredClient(client)
+                .id("auth-device").principalName("ada")
+                .authorizationGrantType(deviceCode)
+                .authorizedScopes(scopes)
+                .attribute(OAuth2ParameterNames.SCOPE, new java.util.HashSet<>(scopes))
+                .attribute(Principal.class.getName(), authenticated())
+                .token(new org.springframework.security.oauth2.core.OAuth2DeviceCode("device-1", ISSUED, EXPIRES))
+                .token(new org.springframework.security.oauth2.core.OAuth2UserCode("WDJB-MJHT", ISSUED, EXPIRES),
+                        metadata -> metadata.put(OAuth2Authorization.Token.INVALIDATED_METADATA_NAME, true))
+                .build();
+    }
+
     /** What a signed-in browser session holds: security context (MFA-passed), saved request, CSRF, flash, locale. */
     public static Map<String, Object> sessionAttributes() {
         final MockHttpServletRequest authorize = new MockHttpServletRequest("GET", "/realms/monthfold/oauth2/authorize");
@@ -149,6 +227,12 @@ public final class PersistedStateFixtures {
                 StandardCharsets.US_ASCII);
         Files.writeString(dir.resolve("session.b64"), SessionBlobs.serialize(sessionAttributes()),
                 StandardCharsets.US_ASCII);
+        Files.writeString(dir.resolve("authorization-client-credentials.b64"),
+                AuthorizationBlobs.serialize(clientCredentialsAuthorization()), StandardCharsets.US_ASCII);
+        Files.writeString(dir.resolve("authorization-token-exchange.b64"),
+                AuthorizationBlobs.serialize(tokenExchangeAuthorization()), StandardCharsets.US_ASCII);
+        Files.writeString(dir.resolve("authorization-device-code.b64"),
+                AuthorizationBlobs.serialize(deviceCodeAuthorization()), StandardCharsets.US_ASCII);
         try (java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
              java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(bytes)) {
             out.writeObject(changedClass());
