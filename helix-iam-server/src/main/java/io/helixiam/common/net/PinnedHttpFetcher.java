@@ -379,6 +379,9 @@ public final class PinnedHttpFetcher {
                     fields.computeIfAbsent(line.substring(0, colon), k -> new java.util.ArrayList<>())
                             .add(line.substring(colon + 1).trim());
                 }
+                if (status == 101) {
+                    throw malformed("protocol switch refused"); // nothing here asks for an upgrade
+                }
                 if (status >= 100 && status < 200) {
                     continue; // interim answer (100 Continue): the real one follows
                 }
@@ -509,6 +512,9 @@ public final class PinnedHttpFetcher {
         while (state < 4) {
             final int b = in.read();
             if (b < 0) {
+                if (head.size() > 0) {
+                    throw malformed("incomplete response head"); // not HTTP/1.1 (bare LF, HTTP/0.9, garbage)
+                }
                 throw new FetchException(FetchException.Kind.IO, "connection closed before the response");
             }
             head.write(b);

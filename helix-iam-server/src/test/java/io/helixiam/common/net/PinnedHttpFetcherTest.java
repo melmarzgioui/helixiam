@@ -394,7 +394,10 @@ class PinnedHttpFetcherTest {
         "HTTP/1.1 200 OK\r\nContent-Length : 2\r\n\r\nhi",
         "HTTP/1.1 200 OK\r\nContent-Length\t: 2\r\n\r\nhi",
         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n  folded\r\n\r\nhi",
-        "HTTP/1.1 200 OK\r\nbad\r\n\r\nhi"})
+        "HTTP/1.1 200 OK\r\nbad\r\n\r\nhi",
+        "HTTP/1.1 101 Switching Protocols\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi",
+        "HTTP/1.1 200 OK\nContent-Length: 2\n\nhi",
+        "hello world"})
     void aMalformedResponseIsAProtocolFailure(final String response) throws Exception {
         final int p = raw(response.replace("\\r", "\r").replace("\\n", "\n").replace("\\t", "\t"));
         final PinnedHttpFetcher fetcher = PinnedHttpFetcher.plain(OutboundUrlGuard.permissive());
