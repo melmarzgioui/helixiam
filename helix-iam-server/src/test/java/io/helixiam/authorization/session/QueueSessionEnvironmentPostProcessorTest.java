@@ -55,9 +55,10 @@ class QueueSessionEnvironmentPostProcessorTest {
 
     @Test
     void isRegisteredSoBootActuallyRunsIt() {
-        // C4: Boot 3 reads post-processors from spring.factories; the former .imports file was silently ignored.
+        // C4: Boot reads post-processors from spring.factories (Boot 4 key: org.springframework.boot.EnvironmentPostProcessor);
+        // the former .imports file was silently ignored.
         assertThat(org.springframework.core.io.support.SpringFactoriesLoader.loadFactoryNames(
-                org.springframework.boot.env.EnvironmentPostProcessor.class, getClass().getClassLoader()))
+                org.springframework.boot.EnvironmentPostProcessor.class, getClass().getClassLoader()))
                 .contains(QueueSessionEnvironmentPostProcessor.class.getName());
     }
 }

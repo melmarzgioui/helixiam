@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build for helix-iam-server (Spring Boot 3.5 / Java 21).
+# Multi-stage build for helix-iam-server (Spring Boot 4.1 / Java 21).
 # Build context is this module directory: docker build -f helix-iam-server/Dockerfile helix-iam-server
 
 ########## Build stage ##########

@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.security.cors;
 
-import org.springframework.boot.autoconfigure.security.SecurityProperties;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,7 +26,7 @@ public class RealmCorsFilterConfig {
     public FilterRegistrationBean<CorsFilter> realmCorsFilter(final RealmClientCorsConfigurationSource source) {
         final FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
         // Between the realm routing filter (DEFAULT_FILTER_ORDER - 10) and Spring Security (DEFAULT_FILTER_ORDER).
-        registration.setOrder(SecurityProperties.DEFAULT_FILTER_ORDER - 5);
+        registration.setOrder(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 5);
         registration.addUrlPatterns("/*");
         return registration;
     }

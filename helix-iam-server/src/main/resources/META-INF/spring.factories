@@ -1,5 +1,6 @@
-# C4: Spring Boot 3 loads EnvironmentPostProcessors from spring.factories only. The former
+# C4: Spring Boot loads EnvironmentPostProcessors from spring.factories only. The former
 # META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports was never read, so the post-processor
-# below never ran and /actuator/health reported DOWN without Redis.
-org.springframework.boot.env.EnvironmentPostProcessor=\
+# below never ran and /actuator/health reported DOWN without Redis. Spring Boot 4 moved the interface (and so the
+# key) from org.springframework.boot.env.EnvironmentPostProcessor to org.springframework.boot.EnvironmentPostProcessor.
+org.springframework.boot.EnvironmentPostProcessor=\
 io.helixiam.authorization.session.QueueSessionEnvironmentPostProcessor

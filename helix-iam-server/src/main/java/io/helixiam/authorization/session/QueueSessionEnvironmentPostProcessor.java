@@ -6,7 +6,7 @@
 package io.helixiam.authorization.session;
 
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.env.EnvironmentPostProcessor;
+import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
@@ -24,7 +24,7 @@ import java.util.Map;
  * health indicators — the imperative and the reactive one, both keyed {@code management.health.redis.enabled} — are
  * switched off, so {@code /actuator/health} is not DOWN for a Redis that is not used. An explicit
  * {@code management.health.redis.enabled} setting always wins. Registered in {@code META-INF/spring.factories}
- * (Boot 3 does not read an {@code .imports} file for post-processors).
+ * (Boot does not read an {@code .imports} file for post-processors; Boot 4 moved the interface to {@code org.springframework.boot}).
  */
 public class QueueSessionEnvironmentPostProcessor implements EnvironmentPostProcessor {
 

@@ -60,7 +60,7 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
     }
 
     @Override
-    public AuthorizationDecision check(final Supplier<Authentication> authentication,
+    public AuthorizationDecision authorize(final Supplier<? extends Authentication> authentication,
                                        final RequestAuthorizationContext context) {
         if (devOpen) {
             return new AuthorizationDecision(true); // LOCAL-DEV: admin API is wide open, never enforce.

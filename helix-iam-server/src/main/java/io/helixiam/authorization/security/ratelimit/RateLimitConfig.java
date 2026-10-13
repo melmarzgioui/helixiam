@@ -7,7 +7,7 @@ package io.helixiam.authorization.security.ratelimit;
 
 import io.helixiam.authorization.security.net.ClientIpResolver;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.security.SecurityProperties;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -95,7 +95,7 @@ public class RateLimitConfig {
     public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(final RateLimitFilter filter) {
         final FilterRegistrationBean<RateLimitFilter> registration = new FilterRegistrationBean<>(filter);
         // After RealmRoutingFilter (DEFAULT_FILTER_ORDER - 10), before the security chain (DEFAULT_FILTER_ORDER).
-        registration.setOrder(SecurityProperties.DEFAULT_FILTER_ORDER - 9);
+        registration.setOrder(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 9);
         registration.addUrlPatterns("/*");
         return registration;
     }
