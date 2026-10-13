@@ -76,6 +76,15 @@ public class FlowController {
         this.loginCommits = loginCommits == null ? java.util.List.of() : java.util.List.copyOf(loginCommits);
     }
 
+    /** Realm requires MFA, user not enrolled: the completed flow sends the user to enrolment (null: not checked). */
+    private io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement mfaEnrolment;
+
+    /** The same enrolment rule as {@link FlowLoginSuccessHandler} and the federated completion. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setMfaEnrolment(final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement mfaEnrolment) {
+        this.mfaEnrolment = mfaEnrolment;
+    }
+
     /** Final review F2: the receivers of a federated login's outcome marker. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setLoginOutcomes(
@@ -134,6 +143,17 @@ public class FlowController {
                 // this session (the merge of the wallet and security branches: user check, one rotation, commit or
                 // undo, stamp, acr).
                 final String flowUser = progress.userId() != null ? progress.userId() : state.userId();
+                if (mfaEnrolment != null && flowUser != null && flowUser.equals(state.userId())
+                        && mfaService.isPendingSignInOf(flowUser)
+                        && mfaEnrolment.mustEnrol(io.helixiam.authorization.security.realm.RealmContextHolder.get(), flowUser)) {
+                    // The realm requires MFA and this user has not enrolled TOTP, yet the flow (an admin-built one
+                    // whose challenge was email OTP, push or QR) completed: no full session, enrol first — the rule of
+                    // FlowLoginSuccessHandler and the federated completion. The pending sign-in and the flow state
+                    // (a federated login's commit, acr and outcome) stay; MfaAuthController ends them after enrolment.
+                    request.changeSessionId();
+                    LOG.info("Login flow completed for a user who must enrol a second factor first");
+                    yield REDIRECT_PREFIX + flowPath("/mfa/enable");
+                }
                 if (flowUser == null || !flowUser.equals(state.userId()) || !mfaService.unlockUser(flowUser)) {
                     LOG.warn("Login flow completed for another user than the pending sign-in; refusing it");
                     org.springframework.security.core.context.SecurityContextHolder.clearContext();

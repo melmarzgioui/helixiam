@@ -18,6 +18,10 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — `/flow` completion now applies the MFA enrolment rule too. In a realm that requires MFA, a user who
+  had not enrolled TOTP and completed an admin-built flow whose challenge was not TOTP (email OTP, push, QR) got a
+  full session at `/flow`. Like the password and federated completions, the user now goes to `/mfa/enable` with the
+  sign-in still pending (and a federated login's pending commit kept until the enrolment ends), on a new session id.
 - **eID** — Classic DigiD: the AuthnRequest asked for the `urn:nl-eid-gdi:1.0:LoA:*` URN, which a DigiD endpoint
   does not know. Logius' Koppelvlakspecificatie DigiD SAML Authenticatie v3.5 maps the levels to SAML 2.0 context
   classes (Basis = `PasswordProtectedTransport`, Midden = `MobileTwoFactorContract`, Substantieel = `Smartcard`, Hoog

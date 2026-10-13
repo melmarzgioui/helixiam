@@ -50,6 +50,18 @@ public class MfaService {
         return true;
     }
 
+    /**
+     * Whether the pending second-factor sign-in ({@link MfaAuthentication}) in this context is exactly
+     * {@code expectedUserId}'s, without promoting it. False for {@code null}, for no pending sign-in, or another user's.
+     */
+    public boolean isPendingSignInOf(final String expectedUserId) {
+        final Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (expectedUserId == null || !(authentication instanceof MfaAuthentication mfaAuthentication)) {
+            return false;
+        }
+        return mfaAuthentication.getPrincipal() instanceof UserCredentials user && expectedUserId.equals(user.getUserId());
+    }
+
     public void unlockUser() {
         final Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if(authentication instanceof MfaAuthentication mfaAuthentication) {
