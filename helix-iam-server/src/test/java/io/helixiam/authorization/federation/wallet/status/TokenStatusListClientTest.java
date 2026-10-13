@@ -739,6 +739,84 @@ class TokenStatusListClientTest {
     }
 
     @Test
+    void cacheIsBoundedByDecodedBytesAndEvictsTheLeastRecentlyUsed() {
+        // three lists of 4 KB decoded each; a 10 000 byte budget holds two of them
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, signJwt(signer, header(signer), baseClaims(uri(r.path()))
+                .claim("status_list", Map.of("bits", 1, "lst", b64url(zlib(new byte[4096])))).build())
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache(64, 10_000);
+        final TokenStatusListClient client = client(failClosed(), cache);
+        for (final String list : List.of("/lists/a", "/lists/b", "/lists/c")) {
+            client.evaluate(new StatusReference(0, uri(list)), anchors);
+        }
+        assertThat(cache.entries()).isEqualTo(2);
+        assertThat(cache.bytes()).isEqualTo(8192);
+
+        client.evaluate(new StatusReference(0, uri("/lists/b")), anchors);
+        client.evaluate(new StatusReference(0, uri("/lists/c")), anchors);
+        client.evaluate(new StatusReference(0, uri("/lists/a")), anchors);
+        assertThat(stub.requests().stream().map(Request::path))
+                .containsExactly("/lists/a", "/lists/b", "/lists/c", "/lists/a");
+    }
+
+    @Test
+    void cacheIsBoundedByEntryCount() {
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, jwt(uri(r.path()), 1, new int[] {0})
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache(2, StatusListCache.DEFAULT_MAX_BYTES);
+        final TokenStatusListClient client = client(failClosed(), cache);
+        for (final String list : List.of("/lists/a", "/lists/b", "/lists/c")) {
+            client.evaluate(new StatusReference(0, uri(list)), anchors);
+        }
+        assertThat(cache.entries()).isEqualTo(2);
+    }
+
+    @Test
+    void theDefaultBudgetHoldsAtMost32MegabytesOfDecodedLists() {
+        // 20 lists of the largest accepted size (2 MB decoded): 40 MB without a byte budget
+        final byte[] compressed = zlib(new byte[StatusListToken.MAX_INFLATED_BYTES]);
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, signJwt(signer, header(signer), baseClaims(uri(r.path()))
+                .claim("status_list", Map.of("bits", 1, "lst", b64url(compressed))).build())
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache();
+        final TokenStatusListClient client = client(failClosed(), cache);
+        for (int i = 0; i < 20; i++) {
+            client.evaluate(new StatusReference(0, uri("/lists/" + i)), anchors);
+        }
+        assertThat(StatusListCache.DEFAULT_MAX_BYTES).isEqualTo(32L * 1024 * 1024);
+        assertThat(cache.bytes()).isLessThanOrEqualTo(StatusListCache.DEFAULT_MAX_BYTES);
+        assertThat(cache.entries()).isEqualTo(16);
+    }
+
+    @Test
+    void aListLargerThanTheBudgetIsNotCached() {
+        stub.respond(r -> StubResponse.ok(JWT_TYPE, signJwt(signer, header(signer), baseClaims(uri(r.path()))
+                .claim("status_list", Map.of("bits", 1, "lst", b64url(zlib(new byte[4096])))).build())
+                .getBytes(StandardCharsets.US_ASCII)));
+        final StatusListCache cache = new StatusListCache(64, 1_000);
+        final TokenStatusListClient client = client(failClosed(), cache);
+        client.evaluate(new StatusReference(0, uri("/lists/a")), anchors);
+        client.evaluate(new StatusReference(0, uri("/lists/a")), anchors);
+        assertThat(cache.entries()).isZero();
+        assertThat(stub.requests()).hasSize(2);
+    }
+
+    @Test
+    void oneCacheServesClientsWithDifferentMaxCache() {
+        stub.serveJwt(jwt(uri("/lists/1"), 1, new int[] {0}, c -> c.claim("ttl", 600)));
+        final StatusListCache cache = new StatusListCache();
+        final TokenStatusListClient longer = client(failClosed(), cache);
+        final TokenStatusListClient shorter = client(new StatusPolicy(true, OnUnavailable.FAIL_CLOSED,
+                Duration.ofSeconds(60), List.of()), cache);
+        longer.evaluate(new StatusReference(0, uri("/lists/1")), anchors);
+        clock.advance(Duration.ofSeconds(61));
+        shorter.evaluate(new StatusReference(0, uri("/lists/1")), anchors); // past ITS maxCache: refetched
+        assertThat(stub.requests()).hasSize(2);
+        longer.evaluate(new StatusReference(0, uri("/lists/1")), anchors); // within its 600 s ttl: cached
+        assertThat(stub.requests()).hasSize(2);
+    }
+
+    @Test
     void failuresAreNotCached() {
         stub.respond(r -> new StubResponse(503, null, new byte[0], 0, null));
         final TokenStatusListClient client = client(failClosed());
@@ -1066,6 +1144,12 @@ class TokenStatusListClientTest {
     private TokenStatusListClient client(final StatusPolicy policy, final OutboundUrlGuard guard) {
         return new TokenStatusListClient(policy, new IssuerTrustValidator(guard), guard, clientTls, clock,
                 (host, code, detail) -> audits.add(host + "|" + code));
+    }
+
+    private TokenStatusListClient client(final StatusPolicy policy, final StatusListCache cache) {
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, "localhost:" + stub.port());
+        return new TokenStatusListClient(policy, new IssuerTrustValidator(guard), guard, clientTls, clock,
+                (host, code, detail) -> audits.add(host + "|" + code), cache);
     }
 
     private static OutboundUrlGuard guardFor(final String url) {

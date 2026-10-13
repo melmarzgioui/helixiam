@@ -154,6 +154,11 @@ public final class StatusListToken {
         return bits;
     }
 
+    /** Size of the decoded (inflated) list in bytes: what this token costs in {@link StatusListCache}. */
+    public int decodedSize() {
+        return list.length;
+    }
+
     /** True when {@code exp} is present and passed at {@code now} (beyond {@link #CLOCK_SKEW}). */
     public boolean isExpiredAt(final Instant now) {
         return expiresAt != null && now.isAfter(expiresAt.plus(CLOCK_SKEW));

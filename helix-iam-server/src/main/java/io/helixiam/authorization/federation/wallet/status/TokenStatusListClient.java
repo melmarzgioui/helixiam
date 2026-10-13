@@ -34,7 +34,6 @@ import java.security.cert.TrustAnchor;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -66,9 +65,10 @@ import java.util.stream.Collectors;
  * ({@value StatusListToken#MAX_INFLATED_BYTES} bytes); here {@code sub} must equal the referenced {@code uri} and an
  * {@code exp} must not have passed.
  *
- * <p><b>Cache.</b> Verified tokens are cached by {@code uri} and form, for the anchors they were verified against, until
- * {@code min(ttl, maxCache)} after retrieval (without {@code ttl}: {@code maxCache}), and never past {@code exp}.
- * Failures are not cached.
+ * <p><b>Cache.</b> Verified tokens are cached in a {@link StatusListCache} (shared by every wallet provider in
+ * production; bounded by entry count and by total decoded list bytes, least recently used first) by {@code uri}, form
+ * and the anchors they were verified against, until {@code min(ttl, maxCache)} after retrieval (without {@code ttl}:
+ * {@code maxCache}; each client applies its own {@code maxCache}), and never past {@code exp}. Failures are not cached.
  *
  * <p><b>Outcome.</b> Status {@code 0} returns {@link StatusEvaluator#VALID}; {@code 1} (INVALID) throws
  * {@code CREDENTIAL_REVOKED}; {@code 2} throws {@code CREDENTIAL_SUSPENDED}; every other value (application-specific
@@ -101,8 +101,6 @@ public final class TokenStatusListClient implements StatusEvaluator {
     public static final int MAX_REDIRECTS = 3;
     /** {@code maxCache} when the policy leaves it unset, and its upper bound (spec: status cache max 900 s). */
     public static final Duration DEFAULT_MAX_CACHE = Duration.ofSeconds(900);
-    /** Most status lists kept; each may hold up to 2 MB inflated. */
-    static final int MAX_CACHE_ENTRIES = 64;
 
     private static final Logger LOG = LogManager.getLogger(TokenStatusListClient.class);
     private static final String JWT_MEDIA_TYPE = "application/statuslist+jwt";
@@ -135,12 +133,6 @@ public final class TokenStatusListClient implements StatusEvaluator {
     /** The two Status List Token forms. */
     private enum Form { JWT, CWT }
 
-    private record CacheKey(String uri, Form form) {
-    }
-
-    private record CacheEntry(StatusListToken token, Set<Object> anchors, Instant until) {
-    }
-
     private final StatusPolicy policy;
     private final IssuerTrustValidator trust;
     private final OutboundUrlGuard guard;
@@ -149,21 +141,29 @@ public final class TokenStatusListClient implements StatusEvaluator {
     private final HttpClient http;
     private final Duration maxCache;
     private final Set<String> allowedHosts;
-    private final Map<CacheKey, CacheEntry> cache = new LinkedHashMap<>(16, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(final Map.Entry<CacheKey, CacheEntry> eldest) {
-            return size() > MAX_CACHE_ENTRIES;
-        }
-    };
+    private final StatusListCache cache;
 
-    /** Production wiring: the JDK default trust store and the system clock. */
+    /** The JDK default trust store, the system clock and a cache of its own (default bounds). */
     public TokenStatusListClient(final StatusPolicy policy, final IssuerTrustValidator trust,
             final OutboundUrlGuard guard, final AuditSink audit) {
-        this(policy, trust, guard, defaultSslContext(), Clock.systemUTC(), audit);
+        this(policy, trust, guard, audit, new StatusListCache());
+    }
+
+    /** Production wiring: the JDK default trust store, the system clock and the shared {@code cache}. */
+    public TokenStatusListClient(final StatusPolicy policy, final IssuerTrustValidator trust,
+            final OutboundUrlGuard guard, final AuditSink audit, final StatusListCache cache) {
+        this(policy, trust, guard, defaultSslContext(), Clock.systemUTC(), audit, cache);
     }
 
     public TokenStatusListClient(final StatusPolicy policy, final IssuerTrustValidator trust,
             final OutboundUrlGuard guard, final SSLContext sslContext, final Clock clock, final AuditSink audit) {
+        this(policy, trust, guard, sslContext, clock, audit, new StatusListCache());
+    }
+
+    public TokenStatusListClient(final StatusPolicy policy, final IssuerTrustValidator trust,
+            final OutboundUrlGuard guard, final SSLContext sslContext, final Clock clock, final AuditSink audit,
+            final StatusListCache cache) {
+        this.cache = Objects.requireNonNull(cache, "cache");
         this.policy = Objects.requireNonNull(policy, "policy");
         this.trust = Objects.requireNonNull(trust, "trust");
         this.guard = Objects.requireNonNull(guard, "guard");
@@ -291,14 +291,10 @@ public final class TokenStatusListClient implements StatusEvaluator {
     // ------------------------------------------------------------------------------------------- cache + validation
 
     private StatusListToken load(final String uri, final TrustAnchors anchors, final Form form) {
-        final CacheKey key = new CacheKey(uri, form);
-        final Set<Object> anchorIds = anchorIds(anchors);
+        final StatusListCache.Key key = new StatusListCache.Key(uri, form.name(), anchorIds(anchors));
         final Instant now = clock.instant();
-        final CacheEntry cached;
-        synchronized (cache) {
-            cached = cache.get(key);
-        }
-        if (cached != null && cached.anchors().equals(anchorIds) && now.isBefore(cached.until())
+        final StatusListCache.Entry cached = cache.get(key);
+        if (cached != null && now.isBefore(until(cached.token(), cached.fetchedAt()))
                 && !cached.token().isExpiredAt(now)) {
             return cached.token();
         }
@@ -313,15 +309,15 @@ public final class TokenStatusListClient implements StatusEvaluator {
         if (token.isExpiredAt(now)) {
             throw nonTransient("Status List Token is expired");
         }
-        final Duration ttl = token.ttl() == null || token.ttl().compareTo(maxCache) > 0 ? maxCache : token.ttl();
-        Instant until = now.plus(ttl);
-        if (token.expiresAt() != null && token.expiresAt().isBefore(until)) {
-            until = token.expiresAt();
-        }
-        synchronized (cache) {
-            cache.put(key, new CacheEntry(token, anchorIds, until));
-        }
+        cache.put(key, token, now);
         return token;
+    }
+
+    /** {@code min(ttl, maxCache)} after {@code fetchedAt} (without {@code ttl}: {@code maxCache}), never past exp. */
+    private Instant until(final StatusListToken token, final Instant fetchedAt) {
+        final Duration ttl = token.ttl() == null || token.ttl().compareTo(maxCache) > 0 ? maxCache : token.ttl();
+        final Instant until = fetchedAt.plus(ttl);
+        return token.expiresAt() != null && token.expiresAt().isBefore(until) ? token.expiresAt() : until;
     }
 
     /** What makes two {@link TrustAnchors} the same for caching: their certificates / keys and revocation mode. */
