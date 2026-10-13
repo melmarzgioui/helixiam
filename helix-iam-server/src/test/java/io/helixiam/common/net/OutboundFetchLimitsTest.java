@@ -45,4 +45,15 @@ class OutboundFetchLimitsTest {
                 "helix.outbound.fetch.wallet.max-concurrent=9").run(ctx ->
                 assertThat(FetchLimiter.forGroup(FetchLimiter.Group.WALLET).max()).isEqualTo(9));
     }
+
+    @Test
+    void loginClientIsSizedFromItsOwnSettings() {
+        runner.withPropertyValues("helix.outbound.fetch.login-client.max-concurrent=31",
+                "helix.outbound.fetch.login-client.per-realm-max=5",
+                "helix.outbound.fetch.login-admin.max-concurrent=21").run(ctx -> {
+                    assertThat(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_CLIENT).max()).isEqualTo(31);
+                    assertThat(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_CLIENT).perPartitionMax()).isEqualTo(5);
+                    assertThat(FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_ADMIN).max()).isEqualTo(21);
+                });
+    }
 }

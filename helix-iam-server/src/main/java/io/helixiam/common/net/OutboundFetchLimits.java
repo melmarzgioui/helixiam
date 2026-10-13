@@ -34,6 +34,7 @@ public class OutboundFetchLimits {
             @Value("${helix.outbound.fetch.outbound.per-realm-max:8}") final int outboundPerRealm) {
         FetchLimiter.forGroup(FetchLimiter.Group.WALLET).configure(walletMax, walletPerRealm);
         FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_ADMIN).configure(loginMax, loginPerRealm);
+        FetchLimiter.forGroup(FetchLimiter.Group.LOGIN_CLIENT).configure(loginClientMax, loginClientPerRealm);
         FetchLimiter.forGroup(FetchLimiter.Group.OTP).configure(otpMax, otpPerRealm);
         FetchLimiter.forGroup(FetchLimiter.Group.OUTBOUND).configure(outboundMax, outboundPerRealm);
     }
