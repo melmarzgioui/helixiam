@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.security.agent;
 
+import io.helixiam.authorization.security.SignInAuthorities;
+
 import io.helixiam.authorization.amqp.agent.AgentIdentityDto;
 
 import java.util.ArrayList;
@@ -64,13 +66,29 @@ public final class AgentTokenEnricher {
     }
 
     /** Parse an agent's own least-privilege roles from its comma/whitespace-separated {@code roles} value. */
+    /** Every role token of the CSV as written (blank-free, no filtering), for validating a write. */
+    public static List<String> rawRolesFrom(final String csv) {
+        final List<String> out = new ArrayList<>();
+        if (csv != null) {
+            for (final String token : csv.split("[,\\s]+")) {
+                if (!token.isBlank()) {
+                    out.add(token);
+                }
+            }
+        }
+        return out;
+    }
+
     public static List<String> rolesFrom(final String csv) {
         final List<String> out = new ArrayList<>();
         if (csv == null) {
             return out;
         }
         for (final String token : csv.split("[,\\s]+")) {
-            if (!token.isBlank() && !out.contains(token)) {
+            // A role (realm, or the role part of clientId/role) in the reserved FACTOR_ namespace is never a role, also
+            // when an agent stored before the reservation carries one.
+            final String role = token.substring(token.indexOf('/') + 1);
+            if (!token.isBlank() && !out.contains(token) && !SignInAuthorities.isFactorName(role)) {
                 out.add(token);
             }
         }
@@ -136,7 +154,7 @@ public final class AgentTokenEnricher {
             final List<String> roles = existingRoles instanceof List
                     ? new ArrayList<>((List<String>) existingRoles) : new ArrayList<>();
             for (final String role : entry.getValue()) {
-                if (!roles.contains(role)) {
+                if (role != null && !roles.contains(role) && !SignInAuthorities.isFactorName(role)) {
                     roles.add(role);
                 }
             }
@@ -164,7 +182,7 @@ public final class AgentTokenEnricher {
         final List<String> roles = existingRoles instanceof List
                 ? new ArrayList<>((List<String>) existingRoles) : new ArrayList<>();
         for (final String role : agentRoles) {
-            if (!roles.contains(role)) {
+            if (role != null && !roles.contains(role) && !SignInAuthorities.isFactorName(role)) {
                 roles.add(role);
             }
         }

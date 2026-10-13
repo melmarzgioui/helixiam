@@ -9,7 +9,6 @@ import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
@@ -56,6 +55,11 @@ public final class SessionBlobs {
     private SessionBlobs() {
     }
 
+    /** The allowlist, also applied to Spring Session's Redis store ({@link FilteredJdkRedisSerializer}). */
+    public static ObjectInputFilter filter() {
+        return FILTER;
+    }
+
     /** Serialize a (serializable) attribute map to a base64 blob. */
     public static String serialize(final Map<String, Object> attributes) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -79,8 +83,9 @@ public final class SessionBlobs {
             return new java.util.HashMap<>();
         }
         final RecordingFilter filter = new RecordingFilter();
-        try (ObjectInputStream ois = new ObjectInputStream(
-                new ByteArrayInputStream(Base64.getDecoder().decode(blob)))) {
+        // Boot 4 upgrade: also reads authorization-server objects written by 1.0 (Spring Authorization Server 1.5).
+        try (ObjectInputStream ois = LegacyAuthorizationServerSerialization.objectInputStream(
+                Base64.getDecoder().decode(blob))) {
             ois.setObjectInputFilter(filter);
             final Object o = ois.readObject();
             return o instanceof Map ? (Map<String, Object>) o : new java.util.HashMap<>();

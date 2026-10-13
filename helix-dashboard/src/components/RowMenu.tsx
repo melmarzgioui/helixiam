@@ -51,17 +51,17 @@ export function RowMenu({ items, ariaLabel = "Row actions" }: { items: RowMenuIt
 
   return (
     <>
-      <button ref={btnRef} type="button" aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open} onClick={toggle}
-        style={{ width: 32, height: 32, border: "1px solid transparent", borderRadius: "var(--r-sm)", background: open ? "var(--surface)" : "transparent", color: "var(--fg-muted)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      <button ref={btnRef} type="button" aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open} onClick={toggle} className="hx-kebabbtn">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
       </button>
       {open && pos && createPortal(
-        <div ref={menuRef} role="menu" style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 90, minWidth: 190, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-lg)", padding: ".3rem", textAlign: "left" }}>
+        // The menu's screen position is computed from the trigger's own bounding rect — a value CSS
+        // cannot express — so it is carried as custom properties, never as literal style props.
+        <div ref={menuRef} role="menu" className="hx-portalmenu"
+          style={{ "--mx-top": `${pos.top}px`, "--mx-right": `${pos.right}px` } as React.CSSProperties}>
           {items.map((it) => (
             <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onSelect(); }}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: ".5rem .6rem", border: "none", borderRadius: "calc(var(--r-sm) - 4px)", background: "transparent", color: it.danger ? "var(--danger-fg)" : "var(--fg)", font: "500 .9rem var(--font)", cursor: "pointer" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              className={`hx-portalmenu-item${it.danger ? " hx-portalmenu-item--danger" : ""}`}
             >{it.label}</button>
           ))}
         </div>,

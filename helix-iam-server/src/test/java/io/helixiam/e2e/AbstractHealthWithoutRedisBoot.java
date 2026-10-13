@@ -9,9 +9,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.actuate.health.CompositeHealth;
-import org.springframework.boot.actuate.health.HealthComponent;
-import org.springframework.boot.actuate.health.HealthEndpoint;
+import org.springframework.boot.health.actuate.endpoint.CompositeHealthDescriptor;
+import org.springframework.boot.health.actuate.endpoint.HealthDescriptor;
+import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,10 +33,22 @@ abstract class AbstractHealthWithoutRedisBoot extends IsolatedBoot {
     @Autowired
     private HealthEndpoint healthEndpoint;
 
+    @Autowired
+    private org.springframework.context.ApplicationContext context;
+
+    @Test
+    void theQueueRepositoryIsTheOnlySessionStore() {
+        // What keeps Spring Session's Redis configuration out: the queue repository bean, not a property.
+        assertThat(context.getBeansOfType(org.springframework.session.SessionRepository.class).values())
+                .singleElement().isInstanceOf(io.helixiam.authorization.session.QueueIndexedSessionRepository.class);
+        assertThat(context.getBeansOfType(org.springframework.session.data.redis.RedisSessionRepository.class)).isEmpty();
+        assertThat(context.getEnvironment().getProperty("spring.session.store-type")).isNull();
+    }
+
     @Test
     void aggregateHealthIsUp_withoutAnyRedisContributor() throws Exception {
-        final HealthComponent health = healthEndpoint.health();
-        final Map<String, HealthComponent> components = health instanceof CompositeHealth c ? c.getComponents() : Map.of();
+        final HealthDescriptor health = healthEndpoint.health();
+        final Map<String, HealthDescriptor> components = health instanceof CompositeHealthDescriptor c ? c.getComponents() : Map.of();
         assertThat(components).as("health components: %s", components).doesNotContainKey("redis");
 
         final HttpResponse<String> response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(

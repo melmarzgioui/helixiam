@@ -63,7 +63,9 @@ public class AgentIdentityAdminController {
                     message = "Auth method must be one of FEDERATED, SECRET, JWT.") String authMethod,
             String clientId,
             String scopes,
-            String roles,
+            // FACTOR_ is Spring Security 7's sign-in factor namespace: never a role (realm role or clientId/role).
+            @Pattern(regexp = "(?is)(?!(?:.*[,\\s/])?factor_).*",
+                    message = "Role names starting with 'FACTOR_' are reserved.") String roles,
             Boolean enabled,
             Long expiresAt) {
     }

@@ -62,4 +62,20 @@ class HostAllowListE2eTest extends AbstractE2eTest {
         // A kubelet probe carries the pod IP (here: any host) — the health endpoints answer whatever the host.
         assertThat(raw("10.42.0.17:" + port, "/actuator/health/liveness")).startsWith("HTTP/1.1 200");
     }
+
+    @Test
+    void theServersOwnHost_onAnotherPort_gets400_andThePortNeverReachesTheIssuer() throws Exception {
+        final String forged = raw("localhost:6666", "/realms/" + MASTER + "/.well-known/openid-configuration");
+
+        assertThat(forged).startsWith("HTTP/1.1 400").doesNotContain("6666/realms");
+        assertThat(raw("localhost:6666", "/actuator/health/readiness")).startsWith("HTTP/1.1 200");
+    }
+
+    @Test
+    void anInvalidPort_gets400() throws Exception {
+        assertThat(raw("localhost:99999", "/realms/" + MASTER + "/.well-known/openid-configuration"))
+                .startsWith("HTTP/1.1 400").doesNotContain("\"issuer\"");
+        assertThat(raw("localhost:0", "/realms/" + MASTER + "/.well-known/openid-configuration"))
+                .startsWith("HTTP/1.1 400").doesNotContain("\"issuer\"");
+    }
 }

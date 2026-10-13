@@ -60,7 +60,7 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
     }
 
     @Override
-    public AuthorizationDecision check(final Supplier<Authentication> authentication,
+    public AuthorizationDecision authorize(final Supplier<? extends Authentication> authentication,
                                        final RequestAuthorizationContext context) {
         if (devOpen) {
             return new AuthorizationDecision(true); // LOCAL-DEV: admin API is wide open, never enforce.
@@ -96,10 +96,9 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
             return new AuthorizationDecision(true); // master-realm admins administer every realm
         }
 
-        final List<String> roleNames = auth.getAuthorities().stream()
-                .map(a -> a.getAuthority())
-                .filter(s -> s != null && !s.isBlank())
-                .distinct().toList();
+        // Roles only: Spring Security 7's sign-in factor (FACTOR_PASSWORD on a password login) is never a role name,
+        // neither for the grant lookup nor in the cache key.
+        final List<String> roleNames = io.helixiam.authorization.security.SignInAuthorities.roleNames(auth);
 
         final AdminEffectivePermissionsDto eff = resolve(realmId, roleNames);
         if (eff == null || !eff.modelConfigured()) {

@@ -50,6 +50,9 @@ class ImpersonationServiceTest {
         verify(establisher).persist(captor.capture(), any(), any());
         assertThat(captor.getValue().isAuthenticated()).isTrue();
         assertThat(((UserCredentials) captor.getValue().getPrincipal()).getUserId()).isEqualTo("u-1");
+        // Spring Security 7: like every sign-in path, exactly one factor authority, which is never a role.
+        assertThat(io.helixiam.authorization.security.SignInAuthorities.factorsOf(captor.getValue()))
+                .containsExactly(io.helixiam.authorization.security.SignInAuthorities.IMPERSONATION);
         // The original admin is recorded on the session so a banner + "stop" path can find it.
         assertThat(req.getSession().getAttribute(ImpersonationService.IMPERSONATOR_ATTR)).isEqualTo("admin");
         assertThat(result.username()).isEqualTo("u-1");

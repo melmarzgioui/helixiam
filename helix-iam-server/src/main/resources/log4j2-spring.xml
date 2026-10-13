@@ -24,8 +24,11 @@
         <Property name="CONSOLE_LOG_PATTERN">%d %-5level %logger - %enc{%m}{CRLF}%n</Property>
     </Properties>
     <Appenders>
-        <!-- Application logs: Boot's standard console format (falls back to a plain pattern off-Boot). -->
-        <Console name="Console" target="SYSTEM_OUT">
+        <!-- Application logs: Boot's standard console format (falls back to a plain pattern off-Boot).
+             follow="true" (as Boot's own log4j2.xml): write to the current System.out. Log4j 2.25 (Spring Boot 4)
+             otherwise binds the stream it saw first, which bypasses a System.out replaced later (tests capturing the
+             boot's console). In production System.out is never replaced, so the output is unchanged. -->
+        <Console name="Console" target="SYSTEM_OUT" follow="true">
             <!-- Reuse Boot's console pattern when set; otherwise the CRLF-safe CONSOLE_LOG_PATTERN property
                  above (a <Property> rather than a ':-' default, whose parser chokes on '{'). -->
             <PatternLayout pattern="${sys:CONSOLE_LOG_PATTERN}"/>
@@ -34,7 +37,7 @@
         <!-- Audit logs: the message IS the JSON event; no decoration, so each line is valid JSON. Serialised
              JSON never contains a raw CR/LF, so %enc{..}{CRLF} leaves it unchanged; it only guarantees that a
              non-JSON message cannot split the one-event-per-line stream. -->
-        <Console name="AuditConsole" target="SYSTEM_OUT">
+        <Console name="AuditConsole" target="SYSTEM_OUT" follow="true">
             <PatternLayout pattern="%enc{%m}{CRLF}%n"/>
         </Console>
 

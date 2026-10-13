@@ -49,4 +49,35 @@ class HelixClientPoliciesTest {
         assertThat(client.getClientSettings().isRequireProofKey()).isFalse();
         assertThat(client.getScopes()).contains("openid", "profile");
     }
+
+    /**
+     * Spring Security 7 changed {@code ClientSettings.builder()}'s default to {@code requireProofKey(true)} (Spring
+     * Authorization Server 1.x: false). Every client HelixIAM builds pins it, so the default never decides: PKCE is
+     * mandatory for public and FAPI clients and optional for confidential and machine clients, as in 1.0.
+     */
+    @Test
+    void everyClientHelixBuilds_pinsRequireProofKey_independentOfTheFrameworkDefault() {
+        assertThat(org.springframework.security.oauth2.server.authorization.settings.ClientSettings.builder().build()
+                .isRequireProofKey()).as("Spring Security 7's default, which none of these may inherit").isTrue();
+
+        assertThat(HelixClientPolicies.tokenExchangeClient("svc", "secret").getClientSettings().isRequireProofKey())
+                .isFalse();
+        assertThat(HelixClientPolicies.confidentialClient("web", "s", "https://web.example/cb").getClientSettings()
+                .isRequireProofKey()).isFalse();
+        assertThat(HelixClientPolicies.fapiClient("f", "https://f.example/jwks", "https://f.example/cb")
+                .getClientSettings().isRequireProofKey()).isTrue();
+
+        final io.helixiam.authorization.domain.ServiceProviderOAuthClient confidential =
+                new io.helixiam.authorization.domain.ServiceProviderOAuthClient();
+        assertThat(confidential.getClientSettings().isRequireProofKey()).as("publicClient unset").isFalse();
+        confidential.setPublicClient(false);
+        assertThat(confidential.getClientSettings().isRequireProofKey()).isFalse();
+        final io.helixiam.authorization.domain.ServiceProviderOAuthClient publicClient =
+                new io.helixiam.authorization.domain.ServiceProviderOAuthClient();
+        publicClient.setPublicClient(true);
+        assertThat(publicClient.getClientSettings().isRequireProofKey()).isTrue();
+        // What the repository hands SAS (RegisteredClient.from keeps the client's own settings).
+        assertThat(RegisteredClient.from(HelixClientPolicies.tokenExchangeClient("svc", "secret")).build()
+                .getClientSettings().isRequireProofKey()).isFalse();
+    }
 }

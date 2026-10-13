@@ -30,8 +30,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
-import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
-import org.springframework.security.oauth2.server.authorization.config.annotation.web.configurers.OAuth2AuthorizationServerConfigurer;
+import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.oauth2.server.authorization.oidc.authentication.OidcUserInfoAuthenticationContext;
 import org.springframework.security.oauth2.server.authorization.oidc.authentication.OidcUserInfoAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -96,12 +95,18 @@ public class SecurityConfig {
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(final HttpSecurity http, @Qualifier("helixClientCors") final CorsConfigurationSource corsConfigurationSource, final RegisteredClientRepository registeredClientRepository, final io.helixiam.authorization.security.realm.RealmSettingsResolver realmSettingsResolver, final org.springframework.security.core.session.SessionRegistry sessionRegistry, final io.helixiam.authorization.session.SsoLogoutResponseHandler ssoLogoutResponseHandler, final io.helixiam.authorization.amqp.resource.ResourceIndicatorPublisher resourceIndicatorPublisher, final org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder, final org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings authorizationServerSettings, final io.helixiam.authorization.amqp.agent.AgentIdentityPublisher agentIdentityPublisher, final io.helixiam.authorization.service.mfa.MfaPolicyService mfaPolicyService, final io.helixiam.authorization.service.mfa.TotpService totpService, final io.helixiam.authorization.service.org.OrganizationBrandingService organizationBrandingService, final io.helixiam.authorization.service.org.OrganizationMembershipPolicy organizationMembershipPolicy, final io.helixiam.authorization.security.audit.AuditLog auditLog, final io.helixiam.authorization.session.SessionRevocation sessionRevocation, final io.helixiam.authorization.session.BrowserSessionRegistry browserSessionRegistry, final io.helixiam.common.net.OutboundUrlGuard outboundUrlGuard) throws Exception {
         // Helix IAM SSO P4: share OUR SessionRegistry bean with the authorization server BEFORE
-        // applyDefaultSecurity (which would otherwise create its own). SAS reads it at token-issuance to
+        // the authorization server configurer is applied (it would otherwise create its own). SAS reads it at token-issuance to
         // stamp the OIDC `sid` (session id hash) into id_tokens — the key that unifies a login's client
         // authorizations. The login chain (@Order 2) registers sessions into the same bean.
         http.setSharedObject(org.springframework.security.core.session.SessionRegistry.class, sessionRegistry);
 
-        OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
+        // Spring Security 7 removed OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http). This is its
+        // body from Spring Authorization Server 1.5, unchanged: the chain is scoped to the authorization server
+        // endpoints (the deferred endpoints matcher), applies the authorization server configurer and requires an
+        // authenticated user for everything it matches. The configurer itself still exempts its endpoints from CSRF.
+        http.oauth2AuthorizationServer(Customizer.withDefaults());
+        http.securityMatcher(http.getConfigurer(OAuth2AuthorizationServerConfigurer.class).getEndpointsMatcher())
+                .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated());
 
         // B1: a browser session revoked by "sign out everywhere else" or an account deletion ends here, before any
         // authorization request can be answered from it.
@@ -220,6 +225,12 @@ public class SecurityConfig {
         // endpoints matcher) and advertises the endpoint. Additive — clients that never call PAR are unaffected.
         http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
                 .pushedAuthorizationRequestEndpoint(Customizer.withDefaults());
+
+        // RFC 8693 delegation (actor_token) is not supported on /oauth2/token: refused with invalid_request before any
+        // provider runs, so nothing is issued or stored. Delegation is /agent/delegation/token.
+        http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
+                .tokenEndpoint(tokenEndpoint -> tokenEndpoint.accessTokenRequestConverters(converters ->
+                        converters.add(0, new io.helixiam.authorization.security.tokenexchange.ActorTokenRefusingConverter())));
 
         // Helix IAM Agent (NHI) kill-switch, introspection side (Phase 1: gap 7). The lifecycle gate runs at
         // issuance; this re-checks live agent status on the RFC 7662 introspection response so a token minted
@@ -461,7 +472,7 @@ public class SecurityConfig {
         // form-login's default entry point.
         http.exceptionHandling(ex -> ex.defaultAuthenticationEntryPointFor(
                 new org.springframework.security.web.authentication.HttpStatusEntryPoint(org.springframework.http.HttpStatus.UNAUTHORIZED),
-                new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/admin/**")));
+                org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/admin/**")));
 
         return http.build();
     }
@@ -491,30 +502,30 @@ public class SecurityConfig {
     private void applySecurityHeaders(final HttpSecurity http, final PageCspPolicy pageCspPolicy) throws Exception {
         final org.springframework.security.web.util.matcher.RequestMatcher apiPaths =
                 new org.springframework.security.web.util.matcher.OrRequestMatcher(
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/admin/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/scim/v2/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/connect/register/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/connect/register"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/v3/api-docs/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/v3/api-docs"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/swagger-ui/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/swagger-ui.html"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/actuator/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/workload-identity/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/agent/delegation/**"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/.well-known/oauth-protected-resource"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/oid4vp/**"));
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/admin/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/scim/v2/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/connect/register/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/connect/register"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/v3/api-docs/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/v3/api-docs"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/swagger-ui/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/swagger-ui.html"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/actuator/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/workload-identity/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/agent/delegation/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/.well-known/oauth-protected-resource"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/oid4vp/**"));
         // Task 18: the EUDI wallet page is a sign-in page, not a SAML POST-binding page: it gets the strict login CSP
         // (whose img-src 'self' data: and connect-src 'self' carry the SVG QR code and the status polling).
         final org.springframework.security.web.util.matcher.RequestMatcher walletPages =
                 new org.springframework.security.web.util.matcher.OrRequestMatcher(
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/*/wallet"),
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/*/wallet/**"));
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/broker/*/wallet"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/broker/*/wallet/**"));
         final org.springframework.security.web.util.matcher.RequestMatcher samlPaths =
                 new org.springframework.security.web.util.matcher.OrRequestMatcher(
-                        new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/saml/idp/**"),
+                        org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/saml/idp/**"),
                         new org.springframework.security.web.util.matcher.AndRequestMatcher(
-                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/broker/**"),
+                                org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.withDefaults().matcher("/broker/**"),
                                 new org.springframework.security.web.util.matcher.NegatedRequestMatcher(walletPages)));
         final org.springframework.security.web.util.matcher.RequestMatcher strictPaths =
                 new org.springframework.security.web.util.matcher.AndRequestMatcher(
@@ -545,7 +556,7 @@ public class SecurityConfig {
                 new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
                         new io.helixiam.authorization.federation.wallet.web.WalletRequestBodyLimitFilter(maxBytes));
         // Right after the character-encoding filter, before FormContentFilter (-9900) and the realm routing.
-        registration.setOrder(org.springframework.boot.web.servlet.filter.OrderedFormContentFilter.DEFAULT_ORDER - 1);
+        registration.setOrder(org.springframework.boot.servlet.filter.OrderedFormContentFilter.DEFAULT_ORDER - 1);
         registration.addUrlPatterns("/*");
         return registration;
     }

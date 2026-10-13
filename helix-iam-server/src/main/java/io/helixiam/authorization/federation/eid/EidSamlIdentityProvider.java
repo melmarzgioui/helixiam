@@ -249,8 +249,11 @@ public class EidSamlIdentityProvider implements IdentityProvider {
         authnRequest.setIssuer(issuer);
 
         if (config.minimumLoa() != null && !config.minimumLoa().isBlank()) {
+            // Never the raw keyword: for DigiD always the Logius v3.5 context class of the level (loa3 or a stored
+            // urn:nl-eid-gdi:1.0:LoA:Substantial → Smartcard), for the other schemes the canonical URN.
+            final String canonical = EidLevelOfAssurance.requestedClass(config.scheme(), config.minimumLoa());
             final AuthnContextClassRef classRef = build(AuthnContextClassRef.DEFAULT_ELEMENT_NAME);
-            classRef.setURI(config.minimumLoa());
+            classRef.setURI(canonical != null ? canonical : config.minimumLoa().trim());
             final RequestedAuthnContext requested = build(RequestedAuthnContext.DEFAULT_ELEMENT_NAME);
             requested.setComparison(AuthnContextComparisonTypeEnumeration.MINIMUM);
             requested.getAuthnContextClassRefs().add(classRef);

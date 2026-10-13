@@ -21,27 +21,20 @@ export interface TableProps<T> {
   empty?: React.ReactNode;
 }
 
-/** Data table — connections, users, sessions. Hairline rows, hover highlight. */
+/** Data table — connections, users, sessions. Hairline rows, hover highlight (kit's .hx-table). */
 export function Table<T>({ columns, rows, rowKey, onRowClick, empty }: TableProps<T>) {
-  const [hover, setHover] = React.useState<string | null>(null);
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: "var(--r)", overflow: "hidden" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", font: "400 .92rem var(--font)" }}>
+    <div className="hx-tablescroll hx-tablescroll--boxed">
+      <table className="hx-table">
         <thead>
-          <tr style={{ background: "var(--surface)" }}>
+          <tr>
             {columns.map((c) => (
               <th
                 key={c.key}
-                style={{
-                  textAlign: c.align ?? "left",
-                  padding: ".7rem 1rem",
-                  width: c.width,
-                  color: "var(--fg-faint)",
-                  font: "600 .76rem var(--font)",
-                  letterSpacing: ".05em",
-                  textTransform: "uppercase",
-                  borderBottom: "1px solid var(--border)",
-                }}
+                className={c.align === "right" ? "hx-cell-right" : undefined}
+                // A per-column width is author-supplied and open-ended (not a fixed set of sizes a
+                // class could enumerate), so it's carried as a custom property, never a literal style.
+                style={c.width ? ({ "--colw": c.width } as React.CSSProperties) : undefined}
               >
                 {c.header}
               </th>
@@ -51,7 +44,7 @@ export function Table<T>({ columns, rows, rowKey, onRowClick, empty }: TableProp
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={columns.length} style={{ padding: "2rem 1rem", textAlign: "center", color: "var(--fg-faint)" }}>
+              <td colSpan={columns.length} className="hx-table__empty">
                 {empty ?? "No rows."}
               </td>
             </tr>
@@ -61,25 +54,11 @@ export function Table<T>({ columns, rows, rowKey, onRowClick, empty }: TableProp
             return (
               <tr
                 key={k}
-                onMouseEnter={() => setHover(k)}
-                onMouseLeave={() => setHover(null)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                style={{
-                  background: hover === k ? "var(--surface)" : "transparent",
-                  cursor: onRowClick ? "pointer" : "default",
-                  transition: "background .1s var(--ease)",
-                }}
+                className={onRowClick ? "hx-row-clickable" : undefined}
               >
                 {columns.map((c) => (
-                  <td
-                    key={c.key}
-                    style={{
-                      textAlign: c.align ?? "left",
-                      padding: ".75rem 1rem",
-                      color: "var(--fg)",
-                      borderBottom: "1px solid var(--border)",
-                    }}
-                  >
+                  <td key={c.key} className={c.align === "right" ? "hx-cell-right" : undefined}>
                     {c.render ? c.render(row) : (row as Record<string, React.ReactNode>)[c.key]}
                   </td>
                 ))}

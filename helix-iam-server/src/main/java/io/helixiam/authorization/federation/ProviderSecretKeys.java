@@ -129,6 +129,29 @@ public final class ProviderSecretKeys {
         return new Split(plain, secrets);
     }
 
+    /** {@code config} with every secret's value replaced (for {@code toString}); {@code null} stays {@code null}. */
+    public static Map<String, String> redacted(final String protocol, final Map<String, String> config) {
+        if (config == null) {
+            return null;
+        }
+        final Map<String, String> copy = new LinkedHashMap<>();
+        config.forEach((k, v) -> copy.put(k, isSecret(protocol, k) && v != null ? "[redacted]" : v));
+        return copy;
+    }
+
+    /**
+     * Whether a stored secret stays when an identity provider's protocol changes from {@code oldProtocol} to
+     * {@code newProtocol}: always when the protocol is the same (case-insensitively); otherwise only a key the new
+     * protocol uses, so the old protocol's secrets (e.g. an OIDC client secret on what is now an LDAP connection) are not
+     * kept encrypted and unread.
+     */
+    public static boolean keepsStoredSecret(final String oldProtocol, final String newProtocol, final String key) {
+        if (oldProtocol == null || newProtocol == null || oldProtocol.equalsIgnoreCase(newProtocol)) {
+            return true;
+        }
+        return keysFor(newProtocol).contains(key);
+    }
+
     private static String trim(final String v) {
         return v == null ? null : v.trim();
     }

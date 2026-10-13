@@ -64,7 +64,8 @@ public class PlaintextMigrationBanner {
         return "\n=====================================================================================\n"
                 + "  HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT=true — SECRET COLUMNS THAT CANNOT BE DECRYPTED ARE READ\n"
                 + "  AS PLAINTEXT. This also hides a changed DB_ENCRYPTION key or a planted plaintext secret.\n"
-                + "  Migration window ends: " + (until == null || until.isBlank() ? "(not set)" : until) + "\n"
+                + "  Migration window ends: " + (until == null || until.isBlank() ? "(not set)" : until)
+                + " — after that day (UTC), plaintext reads fail closed.\n"
                 + "  Unset it as soon as the plaintext rows have been rewritten (encrypted on their next write).\n"
                 + "=====================================================================================";
     }

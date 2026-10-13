@@ -11,7 +11,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 
@@ -42,16 +41,26 @@ public class PersistenceConfig {
                 new QueueOAuth2AuthorizationService(store));
     }
 
+    /**
+     * The Redis template of the token store: string keys, Java-serialized values read through the token store's
+     * JEP-290 allowlist (as the queue store's blobs); a refused or unreadable entry is absent. Also reads authorizations
+     * written by 1.0 (Spring Authorization Server 1.5).
+     */
+    public static RedisTemplate<String, Object> authorizationTemplate(final RedisConnectionFactory redisConnectionFactory) {
+        final RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(FilteredJdkRedisSerializer.forAuthorizations());
+        template.afterPropertiesSet();
+        return template;
+    }
+
     /** Opt-in: Redis authorization store for the high-throughput tier. */
     @Bean
     @ConditionalOnProperty(name = "helix.iam.token-store", havingValue = "redis")
     public OAuth2AuthorizationService redisAuthorizationService(
             final RedisConnectionFactory redisConnectionFactory) {
-        final RedisTemplate<String, Object> template = new RedisTemplate<>();
-        template.setConnectionFactory(redisConnectionFactory);
-        template.setKeySerializer(new StringRedisSerializer());
-        template.setValueSerializer(new JdkSerializationRedisSerializer());
-        template.afterPropertiesSet();
+        final RedisTemplate<String, Object> template = authorizationTemplate(redisConnectionFactory);
         return new io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService(
                 new RedisOAuth2AuthorizationService(template));
     }

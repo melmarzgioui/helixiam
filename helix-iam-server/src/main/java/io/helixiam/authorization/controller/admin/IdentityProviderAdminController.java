@@ -200,20 +200,32 @@ public class IdentityProviderAdminController {
      * {@code 400 {message, fieldErrors}} via {@link AdminValidationAdvice}.
      */
     private static void validateEid(final IdentityProviderRequest request) {
-        if (!EidScheme.isEidProtocol(request.protocol())) {
-            return;
+        final Map<String, String> errors = eidFieldErrors(request.protocol(), request.config());
+        if (!errors.isEmpty()) {
+            throw new ProviderValidationException(errors);
         }
-        final Map<String, String> config = request.config() == null ? Map.of() : request.config();
+    }
+
+    /**
+     * An eID connection's field errors ({@code scheme}, {@code minimumLoa}); empty for a valid one or another protocol.
+     * Shared with the realm import (review #9), so an imported connection is checked like an admin write.
+     */
+    public static Map<String, String> eidFieldErrors(final String protocol, final Map<String, String> configMap) {
+        if (!EidScheme.isEidProtocol(protocol)) {
+            return Map.of();
+        }
+        final Map<String, String> config = configMap == null ? Map.of() : configMap;
         final EidScheme scheme;
         try {
-            scheme = EidScheme.of(request.protocol(), config.get("scheme"));
+            scheme = EidScheme.of(protocol, config.get("scheme"));
         } catch (final IllegalArgumentException e) {
-            throw new ProviderValidationException(Map.of("scheme", "Unknown eID scheme."));
+            return Map.of("scheme", "Unknown eID scheme.");
         }
         if (!EidLevelOfAssurance.isValidMinimum(scheme, config.get("minimumLoa"))) {
-            throw new ProviderValidationException(Map.of("minimumLoa",
-                    "Unknown level of assurance for " + scheme + ". Use one of the listed levels or the scheme's URN."));
+            return Map.of("minimumLoa",
+                    "Unknown level of assurance for " + scheme + ". Use one of the listed levels or the scheme's URN.");
         }
+        return Map.of();
     }
 
     private static IdentityProviderConfig toConfig(final String realmId, final String alias,

@@ -51,13 +51,17 @@ class QueueSessionEnvironmentPostProcessorTest {
         new QueueSessionEnvironmentPostProcessor().postProcessEnvironment(env, new SpringApplication());
         assertThat(env.getProperty("management.health.redis.enabled")).isEqualTo("false");
         assertThat(env.getProperty("helix.iam.session-store")).isEqualTo("queue");
+        // Spring Boot 3 removed spring.session.store-type; the queue repository bean alone makes Boot's Redis session
+        // configuration back off (@ConditionalOnMissingBean(SessionRepository)), see AbstractHealthWithoutRedisBoot.
+        assertThat(env.getProperty("spring.session.store-type")).isNull();
     }
 
     @Test
     void isRegisteredSoBootActuallyRunsIt() {
-        // C4: Boot 3 reads post-processors from spring.factories; the former .imports file was silently ignored.
+        // C4: Boot reads post-processors from spring.factories (Boot 4 key: org.springframework.boot.EnvironmentPostProcessor);
+        // the former .imports file was silently ignored.
         assertThat(org.springframework.core.io.support.SpringFactoriesLoader.loadFactoryNames(
-                org.springframework.boot.env.EnvironmentPostProcessor.class, getClass().getClassLoader()))
+                org.springframework.boot.EnvironmentPostProcessor.class, getClass().getClassLoader()))
                 .contains(QueueSessionEnvironmentPostProcessor.class.getName());
     }
 }

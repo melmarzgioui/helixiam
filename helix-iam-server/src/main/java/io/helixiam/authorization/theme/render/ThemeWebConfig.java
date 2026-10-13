@@ -7,7 +7,7 @@ package io.helixiam.authorization.theme.render;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.boot.autoconfigure.security.SecurityProperties;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,7 +41,7 @@ public class ThemeWebConfig implements WebMvcConfigurer {
     public FilterRegistrationBean<ProtocolErrorPageFilter> protocolErrorPageFilter(final ThemedPageRenderer renderer) {
         final FilterRegistrationBean<ProtocolErrorPageFilter> registration =
                 new FilterRegistrationBean<>(new ProtocolErrorPageFilter(renderer));
-        registration.setOrder(SecurityProperties.DEFAULT_FILTER_ORDER - 8);
+        registration.setOrder(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 8);
         registration.addUrlPatterns("/*");
         return registration;
     }

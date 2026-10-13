@@ -6,6 +6,8 @@
 package io.helixiam.authorization.federation.eid;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -124,7 +126,7 @@ class EidLevelOfAssuranceTest {
     void theConsoleKeywordsAreRecognisedMinimums() {
         // The admin console stores the scheme's short keyword (loa1..loa4, low/substantial/high).
         assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.DIGID, "loa3"))
-                .isEqualTo("urn:nl-eid-gdi:1.0:LoA:Substantial");
+                .isEqualTo("urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard");
         assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EHERKENNING, "LoA3"))
                 .isEqualTo("urn:etoegang:core:assurance-class:loa3");
         assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "substantial"))
@@ -177,6 +179,70 @@ class EidLevelOfAssuranceTest {
         assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, SMARTCARD_PKI, "loa4")).isTrue();
         // A classic class may also be configured as the minimum itself.
         assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High", SMARTCARD)).isTrue();
+    }
+
+    /**
+     * Logius, Koppelvlakspecificatie DigiD SAML Authenticatie v3.5: Basis = PasswordProtectedTransport,
+     * Midden = MobileTwoFactorContract, Substantieel = Smartcard, Hoog = SmartcardPKI. Every DigiD console keyword
+     * (loa1..loa4 and the Dutch level names) resolves to that oasis class, so it is what the AuthnRequest asks for.
+     */
+    @ParameterizedTest(name = "DigiD {0} -> {1}")
+    @CsvSource({
+            "loa1, urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport",
+            "basis, urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport",
+            "loa2, urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract",
+            "midden, urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract",
+            "loa3, urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard",
+            "Substantieel, urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard",
+            "loa4, urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI",
+            "HOOG, urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI"})
+    void everyDigidKeyword_resolvesToTheLogiusOasisClass(final String keyword, final String oasisClass) {
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.DIGID, keyword)).isEqualTo(oasisClass);
+        assertThat(EidLevelOfAssurance.isValidMinimum(EidScheme.DIGID, keyword)).isTrue();
+    }
+
+    /** Per level: the class at that level meets the keyword's minimum, the class one level below does not. */
+    @ParameterizedTest(name = "DigiD minimum {0}: {1} meets, {2} does not")
+    @CsvSource({
+            "basis, urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport, ''",
+            "midden, urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract, urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport",
+            "substantieel, urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard, urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract",
+            "hoog, urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI, urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard"})
+    void digidComparisonPerLevel(final String keyword, final String atLevel, final String below) {
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, atLevel, keyword)).isTrue();
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, below, keyword)).isFalse();
+        // A broker that asserts the nl-eid-gdi URN of the same level is still accepted.
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High", keyword)).isTrue();
+    }
+
+    @Test
+    void theNlEidGdiUrnsStayAcceptedAsAStoredMinimum() {
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Substantial"))
+                .isEqualTo("urn:nl-eid-gdi:1.0:LoA:Substantial");
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID,
+                "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard", "urn:nl-eid-gdi:1.0:LoA:Substantial")).isTrue();
+    }
+
+    @Test
+    void theRequestedClass_isTheOasisClassForDigid_andTheCanonicalMinimumOtherwise() {
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:High"))
+                .isEqualTo("urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.DIGID, "midden"))
+                .isEqualTo("urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.EIDAS, "substantial"))
+                .isEqualTo("http://eidas.europa.eu/LoA/substantial");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.EHERKENNING, "loa2plus"))
+                .isEqualTo("urn:etoegang:core:assurance-class:loa2plus");
+        assertThat(EidLevelOfAssurance.requestedClass(EidScheme.DIGID, "loa9")).isNull();
+        // the comparison is unchanged: a stored nl-eid-gdi minimum still ranks either form of the level
+        assertThat(EidLevelOfAssurance.meetsMinimum(EidScheme.DIGID, "urn:nl-eid-gdi:1.0:LoA:Substantial",
+                "urn:nl-eid-gdi:1.0:LoA:Substantial")).isTrue();
+    }
+
+    @Test
+    void theDutchLevelNamesAreDigidOnly() {
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EHERKENNING, "substantieel")).isNull();
+        assertThat(EidLevelOfAssurance.canonicalMinimum(EidScheme.EIDAS, "hoog")).isNull();
     }
 
     @Test

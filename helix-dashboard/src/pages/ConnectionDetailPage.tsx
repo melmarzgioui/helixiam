@@ -356,7 +356,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
               <div className="hx-field__label">{t("connectionDetail.logoPreview")}</div>
               <span className="hx-namecell">
                 {config.logoUrl?.trim()
-                  ? <img src={config.logoUrl} alt="" style={{ height: 26, width: "auto", maxWidth: 120, objectFit: "contain" }} />
+                  ? <img src={config.logoUrl} alt="" className="hx-logopreview" />
                   : <ProviderLogo kind={previewKind} size={28} />}
                 <span>{displayName || alias}</span>
               </span>

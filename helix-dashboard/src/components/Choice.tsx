@@ -17,9 +17,9 @@ export interface CheckProps {
 
 function Row({ disabled, label, children }: { disabled?: boolean; label?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <label style={{ display: "inline-flex", alignItems: "center", gap: ".55rem", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.55 : 1 }}>
+    <label className={`hx-choicerow${disabled ? " hx-choicerow--disabled" : ""}`}>
       {children}
-      {label && <span style={{ color: "var(--fg)", font: "400 .95rem var(--font)" }}>{label}</span>}
+      {label && <span className="hx-choicerow__label">{label}</span>}
     </label>
   );
 }
@@ -43,7 +43,6 @@ export function Checkbox({ checked, defaultChecked, onChange, disabled, label }:
         aria-checked={on}
         disabled={disabled}
         onClick={toggle}
-        style={{ cursor: "inherit" }}
       >
         {on && (
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -74,9 +73,8 @@ export function Radio({ checked, defaultChecked, onChange, disabled, label }: Ch
         aria-checked={on}
         disabled={disabled}
         onClick={select}
-        style={{ cursor: "inherit" }}
       >
-        {on && <span style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--primary)" }} />}
+        {on && <span className="hx-choicerow__dot" />}
       </button>
     </Row>
   );

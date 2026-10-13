@@ -6,6 +6,7 @@
 package io.helixiam.authorization.security.session;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
@@ -13,6 +14,11 @@ import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+
+import java.time.Instant;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * A3: binds an authorization code to the browser SSO session that approved it. When the authorization endpoint
@@ -55,12 +61,44 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
 
     @Override
     public OAuth2Authorization findById(final String id) {
-        return delegate.findById(id);
+        return withDateAuthTime(delegate.findById(id));
     }
 
     @Override
     public OAuth2Authorization findByToken(final String token, final OAuth2TokenType tokenType) {
-        return delegate.findByToken(token, tokenType);
+        return withDateAuthTime(delegate.findByToken(token, tokenType));
+    }
+
+    /**
+     * Spring Boot 4: Spring Security 7's {@code JwtGenerator} copies {@code auth_time} from the previous ID token on a
+     * refresh and reads it as a {@link Date}. HelixIAM's ID tokens carry it as epoch seconds ({@link Long}, see
+     * {@link IdTokenSessionClaims}), and so does every ID token 1.0 stored, so each ID-token refresh failed with a
+     * {@code ClassCastException} (HTTP 500). The loaded authorization is handed out with its ID token's
+     * {@code auth_time} claim as a {@link Date} of the same instant; the token value and the token's claims metadata
+     * keep epoch seconds, and {@link IdTokenSessionClaims} still writes {@code auth_time} into every new ID token as
+     * epoch seconds. Loading itself writes nothing, but whatever Spring Authorization Server saves back is this
+     * authorization: a refresh replaces the ID token, while a revocation or invalidation stores it again, now with the
+     * {@code Date} form, which later loads hand out unchanged ({@code RefreshAuthTimeTest}).
+     */
+    static OAuth2Authorization withDateAuthTime(final OAuth2Authorization authorization) {
+        if (authorization == null) {
+            return null;
+        }
+        final OAuth2Authorization.Token<OidcIdToken> idToken = authorization.getToken(OidcIdToken.class);
+        if (idToken == null || idToken.getToken().getClaims() == null
+                || !(idToken.getToken().getClaims().get(IdTokenSessionClaims.AUTH_TIME) instanceof Number seconds)) {
+            return authorization;
+        }
+        final OidcIdToken token = idToken.getToken();
+        final Map<String, Object> claims = new LinkedHashMap<>(token.getClaims());
+        claims.put(IdTokenSessionClaims.AUTH_TIME, Date.from(Instant.ofEpochSecond(seconds.longValue())));
+        final OidcIdToken withDate = new OidcIdToken(token.getTokenValue(), token.getIssuedAt(), token.getExpiresAt(),
+                claims);
+        final Map<String, Object> metadata = idToken.getMetadata();
+        return OAuth2Authorization.from(authorization).token(withDate, m -> {
+            m.clear();
+            m.putAll(metadata);
+        }).build();
     }
 
     /** The wrapped store. */

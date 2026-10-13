@@ -149,4 +149,62 @@ class FlowControllerPromotionTest {
         assertThat(session.getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE)).isNull();
         assertThat(session.getAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE)).isNull();
     }
+
+    /**
+     * An admin-built flow whose challenge is not TOTP (email OTP, push, QR) completes for a user who has not enrolled
+     * TOTP, in a realm that requires MFA: like {@link FlowLoginSuccessHandler}, no full session — the user goes to
+     * enrolment with the pending sign-in (and the flow state that carries a federated login's commit) kept.
+     */
+    @Test
+    void inAnMfaRequiredRealm_aCompletedFlowOfAUserNotEnrolled_goesToEnrolment_withoutAFullSession() throws Exception {
+        when(executor.submit(any(), any(), anyString(), anyMap())).thenReturn(FlowProgress.completed("ada"));
+        final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement enrolment =
+                mock(io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement.class);
+        when(enrolment.mustEnrol(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("ada")))
+                .thenReturn(true);
+        controller.setMfaEnrolment(enrolment);
+        pendingAs("ada");
+        final MockHttpSession session = pendingFlow("ada");
+        final Object state = session.getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
+        final String before = session.getId();
+
+        final String view = submit(session);
+
+        assertThat(view).endsWith("/mfa/enable");
+        final Authentication now = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(now).isInstanceOf(MfaAuthentication.class);
+        assertThat(now.isAuthenticated()).as("no full session before enrolment").isFalse();
+        assertThat(session.isInvalid()).isFalse();
+        assertThat(session.getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE))
+                .as("the pending state waits for the enrolment").isSameAs(state);
+        assertThat(session.getId()).as("a new session id").isNotEqualTo(before);
+    }
+
+    @Test
+    void theEnrolmentRule_neverHoldsAnotherUsersPendingSignIn() throws Exception {
+        when(executor.submit(any(), any(), anyString(), anyMap())).thenReturn(FlowProgress.completed("ada"));
+        final io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement enrolment =
+                mock(io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement.class);
+        when(enrolment.mustEnrol(any(), anyString())).thenReturn(true);
+        controller.setMfaEnrolment(enrolment);
+        pendingAs("bob");
+        final MockHttpSession session = pendingFlow("ada");
+
+        final String view = submit(session);
+
+        assertThat(view).contains("/login");
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    @Test
+    void anEnrolledUser_inAnMfaRequiredRealm_completesToAFullSession() throws Exception {
+        when(executor.submit(any(), any(), anyString(), anyMap())).thenReturn(FlowProgress.completed("ada"));
+        controller.setMfaEnrolment(mock(io.helixiam.authorization.security.mfa.MfaEnrolmentRequirement.class));
+        pendingAs("ada");
+
+        final String view = submit(pendingFlow("ada"));
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication().isAuthenticated()).isTrue();
+        assertThat(view).doesNotContain("/mfa/");
+    }
 }

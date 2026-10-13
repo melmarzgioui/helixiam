@@ -147,6 +147,23 @@ class AdminRbacServiceTest {
         assertTrue(eff.permissions().isEmpty());
     }
 
+    @Test
+    void effective_aFactorAuthorityIsNeverARoleName_evenIfARealmRoleIsNamedLikeIt() {
+        // Spring Security 7 adds FactorGrantedAuthority "FACTOR_PASSWORD" to every password login. A (legacy) realm
+        // role literally named FACTOR_PASSWORD with a grant must not be granted through it.
+        when(grants.countByRealmId("gov")).thenReturn(1L);
+        when(userRolesRepository.findAllByTenantId("gov")).thenReturn(List.of(role("r-9", "FACTOR_PASSWORD", "gov")));
+        when(grants.findAllByRealmIdAndRoleIdIn(eq("gov"), any())).thenReturn(
+                List.of(grant("gov", "r-9", AdminPermission.REALM_ADMIN)));
+
+        final AdminEffectivePermissionsDto eff = service.effectivePermissions("gov",
+                List.of("FACTOR_PASSWORD", "factor_password", "FACTOR_PASSWORD_gov", "user_gov"));
+
+        assertTrue(eff.modelConfigured());
+        assertTrue(eff.permissions().isEmpty());
+        verify(grants, never()).findAllByRealmIdAndRoleIdIn(eq("gov"), eq(List.of("r-9")));
+    }
+
     private static UserRoles role(final String roleId, final String name, final String tenantId) {
         // Real object (not a mock): mocking here was called inside an outer when(...).thenReturn(List.of(role(...)))
         // which nests stubbing and trips Mockito's UnfinishedStubbing. roleId is generated (no setter) so set it

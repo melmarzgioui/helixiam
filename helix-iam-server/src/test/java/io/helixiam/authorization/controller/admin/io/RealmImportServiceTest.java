@@ -296,6 +296,25 @@ class RealmImportServiceTest {
         assertThat(cap.getValue().config()).containsEntry("clientId", "abc");
     }
 
+    /** Review #9: an imported eID connection's minimum level of assurance is checked like an admin write. */
+    @Test
+    void importedEidConnections_withAnUnknownMinimumLoa_areRefusedLikeAdminWrites() {
+        final IdentityProviderConfig good = new IdentityProviderConfig("src", "digid", "digid", "DigiD", true,
+                java.util.Map.of("minimumLoa", "substantieel"));
+        final IdentityProviderConfig bad = new IdentityProviderConfig("src", "digid-bad", "digid", "DigiD", true,
+                java.util.Map.of("minimumLoa", "urn:nl-eid-gdi:1.0:LoA:Substantieel"));
+
+        final RealmImportResult result = service.importInto("gov",
+                new RealmExportDocument(2, null, null, null, null, null, List.of(good, bad), null, null));
+
+        assertThat(result.slices().get(RealmImportService.SLICE_IDPS).created()).isEqualTo(1);
+        assertThat(result.slices().get(RealmImportService.SLICE_IDPS).failed()).isEqualTo(1);
+        final org.mockito.ArgumentCaptor<IdentityProviderConfig> saved =
+                org.mockito.ArgumentCaptor.forClass(IdentityProviderConfig.class);
+        verify(idps).save(saved.capture());
+        assertThat(saved.getValue().alias()).isEqualTo("digid");
+    }
+
     // Task 19 fix round 1 (ruling 10): imported wallet connections are validated like admin writes.
     private static final io.helixiam.authorization.federation.wallet.testwallet.TestPki WALLET_ACCESS_PKI =
             io.helixiam.authorization.federation.wallet.testwallet.TestPki.create("Import Access");

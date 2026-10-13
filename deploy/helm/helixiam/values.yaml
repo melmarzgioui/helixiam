@@ -2,6 +2,13 @@
 
 replicaCount: 2
 
+# Deployment update strategy (spec.strategy), always rendered in full. Empty = Kubernetes' default: RollingUpdate with
+# maxSurge/maxUnavailable 25%. Set `type: Recreate` for an upgrade whose old and new versions cannot share stored
+# sessions and tokens (the Spring Boot 4 upgrade after 1.0, see docs/UPGRADING.md): every old pod stops before a new
+# one starts. Back to rolling updates: `--set strategy.type=RollingUpdate`. Example:
+#   strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+strategy: {}
+
 image:
   repository: ghcr.io/melmarzgioui/helix-iam-server
   # Defaults to .Chart.appVersion when empty.
@@ -18,6 +25,10 @@ serviceAccount:
   annotations: {}
 # The server does not talk to the Kubernetes API — do not mount a token.
 automountServiceAccountToken: false
+# Kubernetes service links (one <SERVICE>_HOST/_PORT/... variable set per Service in the namespace). Off: with a
+# Service named "redis" they inject REDIS_PORT=tcp://<ip>:<port>, the variable the server reads as the Redis port
+# (the server also understands that form, but the chart sets REDIS_PORT itself). The app needs none of them.
+enableServiceLinks: false
 
 # ---------------------------------------------------------------------------
 # External URLs (REQUIRED). Fail-fast if unset: the app must know its own base URLs.
@@ -57,7 +68,9 @@ config:
   # shared rate-limit bucket). Never list ranges clients can connect from directly.
   trustedProxies: []             # HELIX_TRUSTED_PROXIES
   # Host names the server answers to besides the hosts of idpBaseUrl and spBaseUrl, e.g. the in-cluster service name
-  # (helixiam.<namespace>.svc) when relying parties call it directly. Any other Host gets 400. Probes are unaffected.
+  # (helixiam.<namespace>.svc) when relying parties call it directly; "name" accepts any port, "name:port" only that one.
+  # Any other Host gets 400, and so does a host of idpBaseUrl/spBaseUrl on another port than that URL's.
+  # Probes are unaffected.
   allowedHosts: []               # HELIX_ALLOWED_HOSTS
   extraEnv: []                   # list of {name, value} or {name, valueFrom}
 
@@ -86,7 +99,9 @@ secrets:
   dbPasswordKey: db-password
   dbEncryptionKey: db-encryption  # 16-byte hex; keep stable for the life of the install
   # Bootstrap admin. Username is plain config; the password is a secret key. If adminPasswordKey is
-  # empty, the server generates a strong random password once and logs it.
+  # empty (or the key is missing from the Secret), the server generates a strong random password once and writes
+  # it (0600) to /tmp/helixiam-admin-password in the pod, never to the log:
+  #   kubectl exec deploy/<release> -- cat /tmp/helixiam-admin-password
   adminUsername: admin
   adminPasswordKey: admin-password
   # Bootstrap service account for provisioning (automation such as Terraform or a tenant provisioner). When

@@ -13,29 +13,218 @@ question. Newest first within each phase.
 >    rate-limit bucket. The server logs an ERROR once a minute when an https `IDP_BASE_URL` is reached over http.
 > 2. List every other host name clients use to reach the server in `HELIX_ALLOWED_HOSTS` (Helm:
 >    `config.allowedHosts`), e.g. the in-cluster service name relying parties call for tokens or JWKS. The hosts of
->    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already; any other `Host` gets `400`. Probes are unaffected.
+>    `IDP_BASE_URL` and `SP_BASE_URL` are allowed already, on that URL's port; any other `Host`, or one of those hosts
+>    with another explicit port, gets `400` (write `host:port` in `HELIX_ALLOWED_HOSTS` to allow it). Probes are
+>    unaffected.
 > 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
-> 5. EUDI wallet providers without an explicit `revocationChecking` now check issuer certificates with `HARD_FAIL`
+> 5. **Spring Boot 4 (see below): upgrade without mixing versions; rollback signs users out.** The new version reads
+>    every session and token 1.0 stored, but 1.0 cannot read what the new version writes or rewrites. Follow
+>    `docs/UPGRADING.md`:
+>    1. list roles named `FACTOR_…` (`deploy/scripts/factor-roles-check.sql`): the prefix is now reserved and such a
+>       role is ignored; rename them first;
+>    2. back up PostgreSQL, token store included (`helix_authorization`, `helix_authorization_token`,
+>       `helix_http_session`), and Redis if used;
+>    3. upgrade so that no 1.0 pod runs while a new one serves: `helm upgrade --server-side=false --set
+>       strategy.type=Recreate` (Helm 4 needs the client-side apply once, because the 1.0 chart never rendered
+>       `spec.strategy`), or scale to **0** first and then upgrade. A rolling update, or one replica, still mixes them;
+>    4. a rollback signs out every session the new version wrote and drops every authorization it wrote or rewrote (a
+>       sign-in, code exchange, refresh, revocation, consent). The 1.0 chart has no `strategy` value, so: scale to 0,
+>       delete `spring:session:*` (and `helix:authz:*` with `HELIX_TOKEN_STORE=redis`) with
+>       `deploy/scripts/redis-delete-keys.sh` (on Redis, 1.0 answers HTTP 500 for them), `helm rollback`, scale back
+>       up if needed;
+>    5. sessions: every new sign-in carries Spring Security 7's sign-in factor (`FactorGrantedAuthority`), a class 1.0
+>       does not have, which is why 1.0 cannot read them.
+>
+>    Only if you set Spring properties directly (environment variables `SPRING_*` / `MANAGEMENT_*` or a mounted
+>    `application.properties`; the Helm chart and the `HELIX_*` settings are unchanged): `server.error.*` is now
+>    `spring.web.error.*` (e.g. `SERVER_ERROR_INCLUDE_MESSAGE` → `SPRING_WEB_ERROR_INCLUDE_MESSAGE`; the shipped
+>    configuration is renamed, see below); `spring.session.redis.*` is now `spring.session.data.redis.*`; the
+>    application's JSON mapper is configured by `spring.jackson2.*` (was `spring.jackson.*`, which now configures
+>    Boot's Jackson 3 mapper only); `spring.dao.exceptiontranslation.enabled` is now
+>    `spring.persistence.exceptiontranslation.enabled`.
+> 6. EUDI wallet providers without an explicit `revocationChecking` now check issuer certificates with `HARD_FAIL`
 >    (was `SOFT_FAIL`): an issuer certificate whose CRL / OCSP status cannot be determined, including one that names
 >    no CRL or OCSP endpoint, is refused. Set `revocationChecking` to `SOFT_FAIL` (console: Credentials → Issuer
 >    certificate revocation) for an issuer that publishes neither (see below).
-> 6. An SMTP relay on a private or loopback address (in-cluster mailer, `localhost` relay) must be listed in
+> 7. An SMTP relay on a private or loopback address (in-cluster mailer, `localhost` relay) must be listed in
 >    `HELIX_EGRESS_ALLOWED_PRIVATE_HOSTS` (Helm: `config.egressAllowedPrivateHosts`), and a relay on a port other than
 >    25, 465, 587 or 2525 in `helix.messaging.smtp.allowed-ports` (`HELIX_MESSAGING_SMTP_ALLOWED_PORTS`, ports or ranges
 >    such as `1025,8025-8030`). Until then sends fail with `CONFIGURATION` ("not allowed by the egress policy").
-> 7. An LDAP federation provider pointing at a private or loopback directory (the usual Active Directory setup) must
+> 8. An LDAP federation provider pointing at a private or loopback directory (the usual Active Directory setup) must
 >    be listed in `HELIX_FEDERATION_LDAP_ALLOWED_HOSTS` (Helm: `config.ldapAllowedHosts`) by host name or CIDR range.
 >    Until then LDAP logins for that provider fail (logged as refused by the egress policy). Only `ldap://` and
 >    `ldaps://` URLs are accepted.
-> 8. `helix.outbound.fetch.login.*` is split into `login-admin` (OIDC broker, eID, workload identity) and
+> 9. `helix.outbound.fetch.login.*` is split into `login-admin` (OIDC broker, eID, workload identity) and
 >    `login-client` (client-assertion JWKS, FAPI request-object JWKS). The old `login` names are still read as
 >    `login-admin`.
-> 9. Admin and console client writes need an `https` `jwksUrl` (`http://localhost` / `http://127.0.0.1` in `dev`
+> 10. Admin and console client writes need an `https` `jwksUrl` (`http://localhost` / `http://127.0.0.1` in `dev`
 >    only). Flyway `V80` rewrites DCR-stored lowercase `private_key_jwt` to `PRIVATE_KEY_JWT`, and the server logs a
 >    WARN at startup for every `private_key_jwt` client without a JWKS URL (it cannot authenticate).
 
+- **security** — Token exchange on `/oauth2/token` refuses `actor_token` and `actor_token_type` with
+  `invalid_request` (maintainer ruling; HelixIAM's supported delegation is `/agent/delegation/token`). 1.0 could not
+  complete such an exchange (Spring Authorization Server 1.5 could not store the actor); Spring Security 7 can, and
+  HelixIAM's `act` claim would have named the requesting client rather than the actor, with no `may_act` policy. The
+  refusal happens before any provider runs, so nothing is issued or stored. Exchanges without an actor
+  (impersonation, `audience`/`resource`) are unchanged. Until RFC 8693 actor semantics are implemented there.
+  `ActorTokenRefusingConverter`; `TokenExchangeActorRefusedE2eTest` (queue store) and
+  `TokenExchangeActorRefusedRedisE2eTest` (Redis store).
+- **security** — A sign-in factor is never a role. Spring Security 7 marks every password login with the authority
+  `FACTOR_PASSWORD`, and admin RBAC matched authorities to realm role names, so a realm role named `FACTOR_PASSWORD`
+  with a grant would have been granted to every password login. Roles are now derived without factors everywhere
+  (admin RBAC and its cache, realm-admin checks, `realm_access`/`resource_access` in tokens), every sign-in path
+  carries exactly one factor (password, magic link, federated, impersonation) so the derived roles are identical,
+  and **the `FACTOR_` prefix is reserved** (any case) like `admin_`: the admin API refuses it for realm roles, client
+  roles, service-account roles and agent roles (400), realm import refuses it, and an existing role with that prefix
+  (realm role, client role, agent role) is ignored everywhere a role reaches a token: `realm_access`,
+  `resource_access`, the `USER_ROLE` protocol mapper, and an agent's own roles.
+- **oidc** — `requireProofKey` is pinned on every client HelixIAM builds: Spring Security 7's `ClientSettings` default
+  became `true` (1.x: `false`), which had silently made PKCE mandatory for `HelixClientPolicies.tokenExchangeClient`.
+  Database clients already pinned it (public: required; confidential: optional), unchanged.
+- **security** — The Redis stores now apply the same JEP-290 deserialization allowlists as the queue (PostgreSQL)
+  stores (pre-existing gap, found in the Spring Boot 4 review): the Redis token store and SSO-session reader
+  (`HELIX_TOKEN_STORE=redis`) use the token allowlist, Spring Session's Redis HTTP sessions (the default session
+  store) the session allowlist. A refused or unreadable value is no longer an error: a token entry is absent, and a
+  session with any such attribute is dropped and deleted (the user signs in again; with
+  `spring.session.data.redis.repository-type=indexed` too, where Spring Session would only skip it), each logged once
+  at WARN by class name only. Bytes written are unchanged. `FilteredJdkRedisSerializer`, `RedisSessionSerializationConfig`;
+  `FilteredJdkRedisSerializerTest`, `RedisSessionAllowlistE2eTest` (a gadget planted in a real Redis session).
+- **helm / config** — Kubernetes service links no longer collide with `REDIS_PORT`. In a namespace with a Service
+  named `redis`, Kubernetes injects `REDIS_PORT=tcp://<ip>:<port>`, the variable the server reads as the Redis port
+  (binding failed at start-up, also without Redis in use). The server now takes the port from that form
+  (`RedisServiceLinkEnvironmentPostProcessor`), and the chart sets `enableServiceLinks: false` (new value, default
+  `false`; the server needs none of the injected variables).
+- **helm** — New value `strategy` (the Deployment's `spec.strategy`), always rendered in full: by default Kubernetes'
+  own default (RollingUpdate, 25% / 25%; existing releases see no change), `strategy.type=Recreate` for the Spring Boot 4
+  upgrade. Rendering it in full lets Helm 4's server-side apply switch between the two (a Kubernetes-defaulted
+  `rollingUpdate` belongs to no field manager and would otherwise survive a switch to Recreate, which the API server
+  rejects). An unknown type, or `rollingUpdate` with `Recreate`, is refused at render time. `e2e/helm-template-check.sh`
+  covers the rendering; the new `e2e/monthfold/k3d-helm-upgrade.sh` gate installs v1.0.0-rc.8, upgrades with Recreate,
+  switches the strategy both ways and rolls back, on k3d with Helm 4. New `deploy/scripts/redis-delete-keys.sh`
+  (rollback; checked by `e2e/redis-delete-keys-check.sh` against requirepass, ACL, TLS and a cluster) and
+  `deploy/scripts/factor-roles-check.sql` (pre-upgrade check).
+- **security (platform)** — **Spring Boot 4.1.1** (from 3.5.16): Spring Framework **7.0.9**, Spring Security **7.1.1**
+  with its OAuth2 authorization server (formerly Spring Authorization Server 1.5.8), Spring Session 4.1, Hibernate
+  7.4, Tomcat **11.0.27** (Jakarta EE 11, Servlet 6.1; pinned above Boot's 11.0.24 for CVE-2026-65182 CRITICAL,
+  CVE-2026-65905, CVE-2026-68525), Flyway 12.4, springdoc-openapi 3.1.1, Testcontainers 2.0. Spring Framework 6.2
+  left open-source support on 2026-06-30; this closes **CVE-2026-47884 and CVE-2026-47890** (spring-webmvc,
+  CRITICAL), fixed publicly only in 7.0.9, and puts the server back on a supported line. `trivy fs --scanners vuln
+  --severity HIGH,CRITICAL helix-iam-server` reports 0. Behaviour is unchanged; the full suite passes unmodified
+  except where an API moved:
+  - The authorization server chain applies what `OAuth2AuthorizationServerConfiguration.applyDefaultSecurity` did
+    (removed in Spring Security 7) itself: scoped to the authorization server endpoints, authenticated, those
+    endpoints exempt from CSRF. `AntPathRequestMatcher` (removed) is replaced by `PathPatternRequestMatcher` for the
+    CSP path groups, the admin 401 entry point and the device/PAR public-client converter; the realm routing filter's
+    virtual context path is honoured by both. Filter order, CSRF exemptions, session-fixation rotation, the MFA gates,
+    rate limits, CSP and the `StrictHttpFirewall` (`%`, `;`, `//` refused) are unchanged and covered by the existing
+    tests (`LoginRateLimitPathEncodingE2eTest`, `WalletLimitPathEncodingE2eTest`, `LoginSecurityHeadersTest`, …).
+  - **Stored tokens survive the upgrade.** Spring Authorization Server 1.x gave its serializable classes one shared
+    `serialVersionUID`; Spring Security 7 gives each its own, so every `OAuth2Authorization` 1.0 stored (queue/
+    PostgreSQL and Redis token stores) failed to deserialize and would have been dropped, invalidating every refresh
+    token at the upgrade. `LegacyAuthorizationServerSerialization` accepts the 1.x descriptor only for classes in
+    the authorization server package whose serialized fields are unchanged (all persisted ones); the stores'
+    JEP-290 allowlists still apply. `PersistedStateUpgradeCompatibilityTest` reads an authorization and a sign-in
+    session written by 1.0 (Boot 3.5.16) and checks every token, claim and attribute; sessions needed no change.
+  - **Jackson:** the application stays on Jackson 2 (`com.fasterxml.jackson`, 2.21.7) through Boot's deprecated
+    `spring-boot-jackson2` module, and `spring.http.converters.preferred-json-mapper=jackson2` keeps Spring MVC's
+    JSON exactly as before (controllers return Jackson 2 `JsonNode` trees; Boot 4's Jackson 3 defaults differ).
+    Jackson 3 (3.2.3) is on the classpath for webauthn4j, Flyway 12 and Spring Security's internals, as webauthn4j
+    already brought it in 1.0; `jackson-annotations` 2.22 serves both. Moving the application to Jackson 3 is on
+    the roadmap.
+  - Spring Security 7's `JwtGenerator` copies `auth_time` from the previous ID token on a refresh and reads it as a
+    `java.util.Date`; HelixIAM's ID tokens (and every one 1.0 stored) carry it as epoch seconds, so each ID-token
+    refresh failed with HTTP 500 (`IdTokenSessionClaimsE2eTest`, `BackchannelLogoutE2eTest`, … caught it). The
+    token store's binding layer hands a loaded authorization out with the same instant as a `Date` (in memory; the
+    stored row and the emitted `auth_time`, still epoch seconds, are unchanged).
+  - Log4j 2.25 (with Boot 4): the console appenders now `follow` `System.out`, as Boot's own configuration does.
+    Output and format are unchanged.
+  - Spring Boot 4 ignores `server.error.include-*`; the security review H3 pin (no exception message, binding
+    errors, stack trace or exception class in error bodies) is now set under `spring.web.error.include-*`, where
+    Boot reads it (`spring-boot-properties-migrator` found the four keys; Boot's defaults happened to match, so
+    production answered the same, but the dev profile's `always` was lost). `ErrorDetailPropertiesTest` guards it.
+  - `Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers` is again on every response that
+    passes HelixIAM's CORS filter (discovery, JWKS, token endpoint, pages, …), CORS request or not, as with Spring
+    Framework 6. Spring Framework 7 adds it only when a CORS configuration applies, so a shared cache could have served
+    one origin's response to another. `VaryingCorsProcessor`; `CorsVaryHeaderE2eTest`.
+  - Discovery: the OIDC discovery document and the RFC 8414 metadata carry exactly the same keys and values as in 1.0;
+    only the order differs (key order, and `grant_types_supported` lists token exchange before the device code).
+    Harmless: JSON object keys and these value sets are unordered. `DiscoveryDocumentsE2eTest` pins both documents in
+    full, ignoring order, and passes on 1.0 and on this release.
+  - Flyway's auto-configuration needs `spring-boot-starter-flyway` now; the environment post-processor is
+    registered under Boot 4's `org.springframework.boot.EnvironmentPostProcessor` key; Logback is excluded from the
+    new web starter (Log4j2 only, as before).
+
+- **security** — Replica convergence: see the version-based poller (`feat/wallet-production`). An identity provider
+  disabled, deleted or re-keyed through one replica, or imported with a realm, reaches the other replicas through that
+  branch's `idp_config_version` poll.
+- **security** — A realm import now checks an eID connection's scheme and minimum level of assurance like an admin
+  write (review #9): an unknown one is reported as a failed import with the field error instead of being saved and
+  only skipped, with a WARN, when the registry loads it.
+- **security** — `X-Real-IP` is no longer read, not even from a trusted proxy (review #13). A trusted hop that neither
+  set nor stripped it (an L4 load balancer, an ingress with forwarded headers off) let a client that sent no
+  `X-Forwarded-For` choose its own address for rate limits and the audit log. **Operators:** a trusted proxy must
+  append to `X-Forwarded-For`; one that sets only `X-Real-IP` now makes every client appear as the proxy.
+- **security** — The wallet's fail-open status audit (`WALLET_STATUS_CHECK_FAILED`, written when
+  `FAIL_OPEN_WITH_AUDIT` lets a login through without a revocation check) now carries the wallet `transactionId`, so an
+  operator can tie the fail-open to the login it let through (final review m4).
+- **security** — Wallet review minors: `IdentityProviderConfig.toString()` (both copies) now redacts every secret
+  value, so a future log line of the runtime config cannot leak a client secret, private key, bind password or
+  pepper. An identity-provider update that changes the protocol drops the stored secrets the new protocol does not use
+  (they stayed encrypted and unread). A federated login whose pending commit throws an `Error` no longer stays signed
+  in: `PendingFederatedLogin.finish` catches it around the commit only, clears the context, invalidates the session,
+  reports the failure, and then rethrows it.
+- **security** — L6 done: the generated bootstrap admin password is never logged. It is written (0600) to
+  `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`, `/tmp/helixiam-admin-password` in the image)
+  and only the path is logged; a whole-boot test captures every log line and checks it. `HELIX_ADMIN_USERNAME`,
+  `HELIX_ADMIN_PASSWORD` and `HELIX_ADMIN_PASSWORD_FILE` are now declared in `application.properties`, so they also
+  work as `--HELIX_ADMIN_PASSWORD=…` command-line arguments, as the README shows. The Helm install notes and
+  `values.yaml` no longer say the password is in the logs; the chart README, NOTES, the README and the compose file
+  show how to read it (`kubectl exec deploy/helixiam -- cat /tmp/helixiam-admin-password`,
+  `docker compose exec server cat /tmp/helixiam-admin-password`).
+- **security** — L5 done: the legacy AES/ECB format of secret columns is migrated away. At every startup (Flyway and
+  `schema.sql` paths) `LegacyEncryptionBackfill` re-encrypts every value of every `AttributeEncryption` column (realm
+  keys, TOTP and HOTP secrets, client secrets, SCIM tokens, webhook secrets, identity-provider and messaging secrets,
+  SAML relying-party certificates, verifier keys, wallet peppers) that is still in the legacy format to AES-GCM. It is
+  idempotent, logs table, column and row id only, and skips and names rows it cannot read in a production-readiness
+  WARN. After the run the converter no longer falls back to ECB, so a legacy value fails closed, unless
+  `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true` (default `false`). A legacy decryption must also be valid UTF-8, so a value
+  under another key no longer "decrypts" to garbage about 1 time in 256 (review #10). Each column is migrated in its own
+  transaction: a column that fails (a database error) is logged at ERROR by table and column, reported as a
+  production-readiness WARNING and counted in the gauge `helix_db_encryption_legacy_failed_columns`, the other
+  columns are still migrated, and the ECB fallback then stays on (legacy TOTP secrets and keys keep reading) until a
+  start migrates it. A WARNING, not fatal: the condition comes from a runtime database failure after the startup
+  check, and refusing to serve would also lock out every legacy secret that still reads. The candidate rows are read in
+  id order, so two replicas booting together lock them in the same order. **Upgrade:** nothing to do; the
+  first start rewrites the legacy rows (check its log for the readiness WARN). Only if that WARN names rows, or a
+  database restored from an older backup is attached to a running server, set `HELIX_DB_ENCRYPTION_ALLOW_LEGACY=true`
+  (or restart, which re-runs the job) while you investigate.
+- **security** — The Host allow-list ignored the port, so `Host: localhost:6666` on a server whose `IDP_BASE_URL` is
+  `http://localhost:8080` put `:6666` into the request-derived issuer. Outside `dev`, a host of `IDP_BASE_URL` or
+  `SP_BASE_URL` now accepts only that URL's port (its explicit one, or the scheme's default), plus a `Host` without a
+  port, which no built URL shows. `HELIX_ALLOWED_HOSTS` entries accept any port unless written `host:port` (or
+  `[v6]:port`). A port outside 1–65535 gets `400`. The probe exemptions (the connection's own address, `localhost`
+  from a loopback peer) apply only on the port the connection arrived on or the scheme's default port (which no URL
+  shows); `/actuator/health/**` still answers any host and port. **Operators:** a client that reaches the server by its base URL's host on another port (for example
+  through a port mapping) needs that `host:port` in `HELIX_ALLOWED_HOSTS`.
+- **security** — `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` was checked only at startup, so a server started inside the
+  plaintext-read window kept reading plaintext secret columns after it ended, until its next restart. The end date
+  (its last day included, UTC) is now enforced on every read: after it, a plaintext read fails closed and logs an
+  ERROR naming the date.
+- **security** — `/flow` completion now applies the MFA enrolment rule too. In a realm that requires MFA, a user who
+  had not enrolled TOTP and completed an admin-built flow whose challenge was not TOTP (email OTP, push, QR) got a
+  full session at `/flow`. Like the password and federated completions, the user now goes to `/mfa/enable` with the
+  sign-in still pending (and a federated login's pending commit kept until the enrolment ends), on a new session id.
+- **eID** — Classic DigiD: the AuthnRequest asked for the `urn:nl-eid-gdi:1.0:LoA:*` URN, which a DigiD endpoint
+  does not know. Logius' Koppelvlakspecificatie DigiD SAML Authenticatie v3.5 maps the levels to SAML 2.0 context
+  classes (Basis = `PasswordProtectedTransport`, Midden = `MobileTwoFactorContract`, Substantieel = `Smartcard`, Hoog
+  = `SmartcardPKI`), requested with `RequestedAuthnContext Comparison="minimum"`. The DigiD keywords `loa1`–`loa4`
+  (and `basis`/`midden`/`substantieel`/`hoog`) now resolve to those classes, both in the request and in the
+  comparison. A minimum stored as an `urn:nl-eid-gdi:1.0:LoA:*` URN is compared as before but requested as the oasis
+  class of the same level, and brokers that assert those URNs keep working. No scheme sends an nl-eid-gdi URN in the
+  request any more (see `docs/FEATURES.md`). The
+  earlier "Other (custom)" workaround (storing the oasis class by hand) is no longer needed.
 - **security** — SAML runs on OpenSAML **5.2.3** only (M7 done). The unused `spring-security-saml2-service-provider`,
   whose POM still pulled OpenSAML 4.3.2, is removed; the pom declares OpenSAML 5 (`opensaml-saml-api`/`-impl`,
   `shib-support` 9.2.3, xmlsec 3.0.6, cryptacular 1.3.0, BouncyCastle 1.86) directly. No 4.x is left on the tree.
@@ -88,8 +277,8 @@ question. Newest first within each phase.
 - **eID** — Classic DigiD (Koppelvlak SAML) asserts SAML 2.0 context classes, not the `urn:nl-eid-gdi` levels, so
   with the fail-closed minimum above every classic DigiD sign-in against a set minimum (such as the console's `loa3`)
   would have been refused. The DigiD ladder now also ranks `PasswordProtectedTransport` (Basis),
-  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog). The mapping follows Logius'
-  DigiD koppelvlak documentation and is still to be verified against it; eHerkenning and eIDAS are unchanged.
+  `MobileTwoFactorContract` (Midden), `Smartcard` (Substantieel) and `SmartcardPKI` (Hoog), the mapping of Logius'
+  Koppelvlakspecificatie DigiD SAML Authenticatie v3.5; eHerkenning and eIDAS are unchanged.
 - **security** — `Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` were honoured from any client
   (`server.forward-headers-strategy=framework`). The OIDC issuer is derived from the request, so a single request with
   `X-Forwarded-Host: evil.example` got a discovery document with issuer `https://evil.example/...`; the same headers
@@ -118,11 +307,8 @@ question. Newest first within each phase.
   magic-link and legacy password paths. A federated sign-in also gets a new session id (`changeSessionId`) and drops
   any second-factor pass from an earlier sign-in in that session.
 - **docs** — eID minimum levels of assurance are documented in `docs/FEATURES.md` ("eID minimum level of
-  assurance"): the keywords and URNs each scheme accepts, and the classic DigiD workaround: store the
-  `urn:oasis:names:tc:SAML:2.0:ac:classes:*` class itself as the minimum through the console's "Other (custom)"
-  minimum-level field, since a keyword such as `loa3` is requested as an `urn:nl-eid-gdi` URN that a Koppelvlak
-  endpoint is unlikely to accept. The DigiD mapping (both the oasis classes and the `urn:nl-eid-gdi:1.0:LoA:*` URNs)
-  still has to be confirmed against the current Logius documentation.
+  assurance"): the keywords and URNs each scheme accepts, and the DigiD levels per Logius' Koppelvlakspecificatie
+  DigiD SAML Authenticatie v3.5.
 - **security (checked, no change)** — Re-spelling the sign-in path does not bypass the login rate limit.
   `RateLimitFilter` matches the still-encoded servlet path that `RealmRoutingFilter` passes on, so
   `/realms/{r}/l%6Fgin` is not counted. But Spring Security's `StrictHttpFirewall` then refuses any `%` or `;` in the
@@ -282,10 +468,8 @@ question. Newest first within each phase.
   webauthn4j 0.31.11 (Dependabot's Maven minor/patch group); Jackson 2.21.4 → 2.21.7 (CVE-2026-89407,
   CVE-2026-89425, CVE-2026-68497, CVE-2026-91776, CVE-2026-91777), Netty 4.1.135 → 4.1.139.Final (CVE-2026-59901,
   CVE-2026-75595 CRITICAL), httpcore5/httpcore5-h2 5.3.6 → 5.4.4 (CVE-2026-54399, CVE-2026-54428), Tomcat
-  10.1.55 → 10.1.61 (CVE-2026-65182 CRITICAL, CVE-2026-65905, CVE-2026-68525). **Not fixed:** CVE-2026-47884 /
-  CVE-2026-47890 (spring-webmvc) — the only fixed version the scanner lists is 7.0.9 (Spring Framework 7, ships
-  only with Spring Boot 4); 6.2.19 is the newest 6.2.x release. Neither `XsltView` nor SSE emitters are used in
-  this codebase. Tracked as a post-1.0 framework-major upgrade, not patched here.
+  10.1.55 → 10.1.61 (CVE-2026-65182 CRITICAL, CVE-2026-65905, CVE-2026-68525). CVE-2026-47884 / CVE-2026-47890
+  (spring-webmvc) are closed by the Spring Boot 4 upgrade above.
 - **images and manifests (dependencies)** — console image base bumped nginx 1.29-alpine → 1.31-alpine
   (Dependabot #33); `anchore/sbom-action` 0.24.2 → 0.24.3 in the release workflow (Dependabot #35).
 - **security (dependencies)** — helix-dashboard: `npm audit fix` plus an explicit `vite`/`vitest` bump
@@ -294,7 +478,7 @@ question. Newest first within each phase.
   (347 tests) and `build-storybook` all still pass. One moderate `uuid` finding remains (would need downgrading
   `@storybook/addon-essentials` to 7.0.6, a regression) and is left for a future Storybook major bump.
 - **security (dependencies)** — repo-wide `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (the same scanner
-  CI's `security-scan.yml` runs) is clean across every ecosystem except the one spring-webmvc exception above;
+  CI's `security-scan.yml` runs) is clean across every ecosystem;
   `helix-mcp-demo` has no `package.json`/dependencies (Node built-ins only), so nothing to scan there.
 
 ## v1.0.0-rc.7 (security hotfix)

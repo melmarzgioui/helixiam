@@ -38,9 +38,8 @@ import java.nio.file.Path;
  *       from the request ({@code http://localhost:{port}/realms/{realm}}), as no issuer is configured.</li>
  *   <li><b>One Redis for the whole JVM</b> ({@code redis:7-alpine}, same singleton pattern). It is REQUIRED
  *       for any real HTTP login: Spring Session Data Redis is on the classpath and the project default is
- *       {@code helix.iam.session-store=redis}. {@code spring.session.store-type=none} (copied from the context
- *       tests) is a no-op on Boot 3 — that property was removed — so without a live Redis the context still
- *       boots (MockMvc tests never create a session) but the first request that saves a session 500s with
+ *       {@code helix.iam.session-store=redis} (there is no {@code spring.session.store-type} to switch it off since
+ *       Boot 3), so without a live Redis the context still boots (MockMvc tests never create a session) but the first request that saves a session 500s with
  *       {@code RedisConnectionFailureException}. The OAuth2 authorization store stays the in-process
  *       Postgres adapter. {@code -Dhelix.iam.session-store=queue} (a JVM system property, so the
  *       {@code QueueSessionEnvironmentPostProcessor} sees it like {@code HELIX_SESSION_STORE}) boots the same context
@@ -121,7 +120,6 @@ public abstract class AbstractE2eTest {
         final boolean sqlInit = "sql-init".equals(System.getProperty("helix.e2e.schema", "flyway"));
         registry.add("spring.sql.init.mode", () -> sqlInit ? "always" : "never");
         registry.add("spring.flyway.enabled", () -> sqlInit ? "false" : "true");
-        registry.add("spring.session.store-type", () -> "none");
 
         // --- e2e: a real port + the password-only login path (see class javadoc) ---
         registry.add("server.port", () -> PORT);

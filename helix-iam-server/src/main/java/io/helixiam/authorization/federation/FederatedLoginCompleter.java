@@ -29,7 +29,6 @@ import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
@@ -158,7 +157,8 @@ public class FederatedLoginCompleter {
                                     final java.io.Serializable pendingOutcome) {
         final UserCredentials user = sessionEstablisher.loadUser(userId);
         final Authentication fullAuthentication =
-                UsernamePasswordAuthenticationToken.authenticated(user, null, user.getAuthorities());
+                io.helixiam.authorization.security.SignInAuthorities.authenticated(user,
+                        io.helixiam.authorization.security.SignInAuthorities.FEDERATED);
 
         final String clientId = InFlightClientResolver.clientId(request, response);
         final AuthFlowDefinition definition = resolveFlow(user, clientId);

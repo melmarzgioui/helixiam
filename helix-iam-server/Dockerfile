@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build for helix-iam-server (Spring Boot 3.5 / Java 21).
+# Multi-stage build for helix-iam-server (Spring Boot 4.1 / Java 21).
 # Build context is this module directory: docker build -f helix-iam-server/Dockerfile helix-iam-server
 
 ########## Build stage ##########
@@ -21,6 +21,9 @@ FROM eclipse-temurin:21-jre AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/* \
+ # The Ubuntu base ships Canonical's pebble service manager, which this image never runs; drop it so its
+ # Go runtime CVEs don't ship with the server.
+ && rm -f /usr/bin/pebble \
  && groupadd -r helix && useradd -r -g helix -u 10001 -d /app helix
 WORKDIR /app
 COPY --from=build /build/app.jar /app/app.jar

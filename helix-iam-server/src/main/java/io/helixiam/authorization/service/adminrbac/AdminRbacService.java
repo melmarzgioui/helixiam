@@ -123,9 +123,13 @@ public class AdminRbacService {
         // The authenticated principal's authorities are the tenant-qualified role names (name + "_" + realmId,
         // e.g. "admin_master" — see UserService), but callers/tests may pass the bare role name. Match either so
         // the model actually resolves once a realm is configured (otherwise a configured realm 403s the admin).
-        final List<String> names = roleNames == null ? List.<String>of() : roleNames;
+        // A sign-in factor (Spring Security 7's FACTOR_PASSWORD) is never a role name, nor is a (legacy) role in the
+        // reserved FACTOR_ namespace ever matched.
+        final List<String> names = roleNames == null ? List.<String>of() : roleNames.stream()
+                .filter(n -> !io.helixiam.authorization.security.SignInAuthorities.isFactorName(n)).toList();
         final List<String> roleIds = names.isEmpty() ? List.<String>of()
                 : userRolesRepository.findAllByTenantId(realmId).stream()
+                        .filter(r -> !io.helixiam.authorization.security.SignInAuthorities.isFactorName(r.getName()))
                         .filter(r -> names.contains(r.getName()) || names.contains(r.getTenantRoleName()))
                         .map(UserRoles::getRoleId).toList();
 

@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.security.adminrbac;
 
+import io.helixiam.authorization.security.SignInAuthorities;
 import io.helixiam.authorization.service.role.DefaultRoles;
 import org.springframework.security.core.Authentication;
 
@@ -26,14 +27,22 @@ public final class RealmAdminAuthorities {
     /** Prefix of every realm-admin authority; see {@link #isReservedRoleName}. */
     public static final String RESERVED_ROLE_PREFIX = DefaultRoles.ADMIN + "_";
 
+    /** What a request for a reserved role name is told. */
+    public static final String RESERVED_ROLE_MESSAGE = "Role names starting with 'admin_' or 'FACTOR_' are reserved.";
+
     /**
-     * True for a role name that must never be created: one starting with {@code admin_} (any case). A realm id
-     * may contain {@code _}, so a role {@code admin_prod} in realm {@code acme} would carry the authority
-     * {@code admin_prod_acme} — indistinguishable from "admin of realm {@code prod_acme}" — and would also pass
-     * {@link #isAdminOfAny}. Reserving the prefix keeps {@code admin_<realmId>} unambiguous.
+     * True for a role name that must never be created (any case):
+     * <ul>
+     *   <li>{@code admin_…}: a realm id may contain {@code _}, so a role {@code admin_prod} in realm {@code acme} would
+     *       carry the authority {@code admin_prod_acme}, indistinguishable from "admin of realm {@code prod_acme}", and
+     *       would also pass {@link #isAdminOfAny}. Reserving the prefix keeps {@code admin_<realmId>} unambiguous.</li>
+     *   <li>{@code FACTOR_…}: Spring Security 7's sign-in factor authorities ({@code FACTOR_PASSWORD} on every password
+     *       login, see {@link SignInAuthorities}); a role of that name would be granted by the factor.</li>
+     * </ul>
      */
     public static boolean isReservedRoleName(final String roleName) {
-        return roleName != null && roleName.regionMatches(true, 0, RESERVED_ROLE_PREFIX, 0, RESERVED_ROLE_PREFIX.length());
+        return roleName != null && (roleName.regionMatches(true, 0, RESERVED_ROLE_PREFIX, 0, RESERVED_ROLE_PREFIX.length())
+                || SignInAuthorities.isFactorName(roleName));
     }
 
     private static String realmAdminAuthority(final String realmId) {
@@ -49,9 +58,7 @@ public final class RealmAdminAuthorities {
         // The master realm is the administrative realm (Keycloak model): its admins administer every realm —
         // that is how a new realm is provisioned at all. Admins of any other realm stay confined to it.
         final String master = realmAdminAuthority(io.helixiam.authorization.domain.realm.RealmConfig.ADMIN_REALM_ID);
-        return auth.getAuthorities().stream()
-                .map(a -> a == null ? null : a.getAuthority())
-                .anyMatch(a -> needed.equals(a) || master.equals(a));
+        return SignInAuthorities.roleNames(auth).stream().anyMatch(a -> needed.equals(a) || master.equals(a));
     }
 
     /** True when the principal is an admin of the master (administrative) realm. */
@@ -60,7 +67,7 @@ public final class RealmAdminAuthorities {
             return false;
         }
         final String master = realmAdminAuthority(io.helixiam.authorization.domain.realm.RealmConfig.ADMIN_REALM_ID);
-        return auth.getAuthorities().stream().map(a -> a == null ? null : a.getAuthority()).anyMatch(master::equals);
+        return SignInAuthorities.roleNames(auth).stream().anyMatch(master::equals);
     }
 
     /** True when the principal is an admin of ANY realm (for realm-independent admin routes). */
@@ -68,8 +75,6 @@ public final class RealmAdminAuthorities {
         if (auth == null) {
             return false;
         }
-        return auth.getAuthorities().stream()
-                .map(a -> a == null ? null : a.getAuthority())
-                .anyMatch(a -> a != null && a.startsWith(DefaultRoles.ADMIN + "_"));
+        return SignInAuthorities.roleNames(auth).stream().anyMatch(a -> a.startsWith(DefaultRoles.ADMIN + "_"));
     }
 }

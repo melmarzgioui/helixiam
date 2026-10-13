@@ -16,7 +16,7 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
 import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.util.matcher.AndRequestMatcher;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.MultiValueMap;
@@ -61,13 +61,13 @@ public final class DeviceClientAuthenticationConverter implements Authentication
         final RequestMatcher clientIdParameterMatcher = request ->
                 request.getParameter(OAuth2ParameterNames.CLIENT_ID) != null;
         final RequestMatcher deviceAuthorizationRequest = new AndRequestMatcher(
-                new AntPathRequestMatcher(deviceAuthorizationEndpointUri, HttpMethod.POST.name()),
+                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, deviceAuthorizationEndpointUri),
                 clientIdParameterMatcher);
         // A public client authenticates at the token endpoint with only client_id (no secret, no PKCE
         // code_verifier) for the grants SAS's default converters don't cover: the device-code poll and the
         // refresh-token renewal. (The authorization_code + PKCE exchange IS handled by SAS's own converter.)
         final RequestMatcher publicTokenGrantRequest = new AndRequestMatcher(
-                new AntPathRequestMatcher(tokenEndpointUri, HttpMethod.POST.name()),
+                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, tokenEndpointUri),
                 request -> {
                     final String grant = request.getParameter(OAuth2ParameterNames.GRANT_TYPE);
                     return DEVICE_CODE_GRANT_TYPE.equals(grant) || REFRESH_TOKEN_GRANT_TYPE.equals(grant);
@@ -76,7 +76,7 @@ public final class DeviceClientAuthenticationConverter implements Authentication
         if (StringUtils.hasText(pushedAuthorizationRequestEndpointUri)) {
             // Public-client PAR (RFC 9126 / FAPI2): POST /oauth2/par with only client_id (PKCE-secured, no secret).
             final RequestMatcher pushedAuthorizationRequest = new AndRequestMatcher(
-                    new AntPathRequestMatcher(pushedAuthorizationRequestEndpointUri, HttpMethod.POST.name()),
+                    PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, pushedAuthorizationRequestEndpointUri),
                     clientIdParameterMatcher);
             this.deviceClientRequestMatcher = new OrRequestMatcher(
                     deviceAuthorizationRequest, publicTokenGrantRequest, pushedAuthorizationRequest);

@@ -77,6 +77,8 @@ services:
       MFA_ENABLED: "false"
       USER_REGISTRATION_ENABLED: "true"
       HELIX_ADMIN_USERNAME: admin
+      # Remove to get a generated one-time password instead; it is never logged, read it with
+      #   docker compose exec server cat /tmp/helixiam-admin-password
       HELIX_ADMIN_PASSWORD: admin
       # email -> Mailpit
       HELIX_NOTIFICATION_PROVIDER: smtp

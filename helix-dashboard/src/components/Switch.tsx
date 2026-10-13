@@ -50,9 +50,9 @@ export function Switch({ checked, defaultChecked, onChange, disabled, label, ari
 
   if (!label) return control;
   return (
-    <label style={{ display: "inline-flex", alignItems: "center", gap: ".6rem", cursor: disabled ? "not-allowed" : "pointer" }}>
+    <label className={`hx-switchlabelrow${disabled ? " hx-switchlabelrow--disabled" : ""}`}>
       {control}
-      <span style={{ color: "var(--fg)", font: "500 .95rem var(--font)" }}>{label}</span>
+      <span className="hx-switchlabelrow__text">{label}</span>
     </label>
   );
 }

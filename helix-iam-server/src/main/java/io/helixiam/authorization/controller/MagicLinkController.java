@@ -23,7 +23,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -123,7 +122,8 @@ public class MagicLinkController {
             return "magic/invalid";
         }
         final UserCredentials user = sessions.loadUser(userId);
-        final Authentication auth = UsernamePasswordAuthenticationToken.authenticated(user, null, user.getAuthorities());
+        final Authentication auth = io.helixiam.authorization.security.SignInAuthorities.authenticated(user,
+                        io.helixiam.authorization.security.SignInAuthorities.MAGIC_LINK);
         request.getSession(true);
         request.changeSessionId(); // new sign-in, new session id
         MfaSessionState.clear(request);

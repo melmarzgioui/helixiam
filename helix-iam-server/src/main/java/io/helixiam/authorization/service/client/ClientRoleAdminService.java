@@ -59,6 +59,11 @@ public class ClientRoleAdminService {
         if (write.name() == null || write.name().isBlank()) {
             throw new IllegalArgumentException("Role name is required.");
         }
+        // Spring Security 7's sign-in factor namespace (FACTOR_PASSWORD on every password login): never a role. The
+        // admin API validates the same; this also covers realm import.
+        if (io.helixiam.authorization.security.SignInAuthorities.isFactorName(write.name())) {
+            throw new IllegalArgumentException("Role names starting with 'FACTOR_' are reserved.");
+        }
         if (roles.existsByRealmIdAndClientIdAndName(write.realmId(), write.clientId(), write.name())) {
             return roles.findByRealmIdAndClientIdAndName(write.realmId(), write.clientId(), write.name())
                     .map(this::toDto).orElse(null);
@@ -93,6 +98,9 @@ public class ClientRoleAdminService {
     @Transactional
     public ServiceAccountRoleDto assignServiceAccountRole(final ServiceAccountRoleDto write) {
         final String type = write.roleType() == null || write.roleType().isBlank() ? "REALM" : write.roleType();
+        if (io.helixiam.authorization.security.SignInAuthorities.isFactorName(write.roleName())) {
+            throw new IllegalArgumentException("Role names starting with 'FACTOR_' are reserved.");
+        }
         if (saRoles.findByRealmIdAndClientIdAndRoleNameAndRoleType(write.realmId(), write.clientId(), write.roleName(), type).isPresent()) {
             return write;
         }

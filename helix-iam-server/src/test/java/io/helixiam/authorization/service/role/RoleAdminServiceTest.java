@@ -87,8 +87,18 @@ class RoleAdminServiceTest {
         // "admin_prod" in realm "gov" → authority "admin_prod_gov" == admin of realm "prod_gov".
         final IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.create("gov", "admin_prod"));
-        assertEquals("Role names starting with 'admin_' are reserved.", ex.getMessage());
+        assertEquals("Role names starting with 'admin_' or 'FACTOR_' are reserved.", ex.getMessage());
         assertThrows(IllegalArgumentException.class, () -> service.create("gov", "Admin_Prod"));
+        verify(userRolesRepository, never()).save(any());
+    }
+
+    @Test
+    void create_rejectsAFactorPrefixedName_soItCannotPoseAsASignInFactor() {
+        // Spring Security 7 marks every password login with the authority FACTOR_PASSWORD.
+        final IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.create("gov", "FACTOR_PASSWORD"));
+        assertEquals("Role names starting with 'admin_' or 'FACTOR_' are reserved.", ex.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> service.create("gov", "factor_ott"));
         verify(userRolesRepository, never()).save(any());
     }
 

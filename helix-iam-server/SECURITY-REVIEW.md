@@ -22,7 +22,8 @@
 > - **H3 (HIGH) — FIXED.** Error bodies no longer echo internals. `application.properties` now pins
 >   `server.error.include-message=never`, `include-binding-errors=never`, `include-stacktrace=never`,
 >   `include-exception=false`. `application-dev.properties` re-opens `include-message` /
->   `include-binding-errors` (`always`) for local debugging only.
+>   `include-binding-errors` (`always`) for local debugging only. Since Spring Boot 4 the keys are
+>   `spring.web.error.include-*` (Boot ignores `server.error.*`); `ErrorDetailPropertiesTest` binds them.
 > - **M2 (MEDIUM) — FIXED.** `RealmClientCorsConfigurationSource.corsConfigFor` no longer honours a `*`
 >   web-origin entry: because every config it builds sets `allowCredentials(true)`, a wildcard would mean
 >   reflect-any-origin-with-credentials (a same-origin-policy bypass). A realm configured with `*` is now

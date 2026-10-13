@@ -19,8 +19,8 @@ import java.time.Duration;
 /**
  * Helix IAM (Q3): activates the queue-backed Spring Session {@link FindByIndexNameSessionRepository} when
  * {@code helix.iam.session-store=queue}, so HTTP login sessions persist to the subscriber and the publisher
- * needs no datasource. {@code QueueSessionEnvironmentPostProcessor} sets {@code spring.session.store-type=none}
- * in this mode so Boot's JDBC/Redis session auto-config backs off and only this repository is used.
+ * needs no datasource. Boot's JDBC/Redis session auto-configuration backs off because this repository bean exists
+ * ({@code @ConditionalOnMissingBean(SessionRepository)}), so only this repository is used.
  */
 @Configuration
 @EnableSpringHttpSession

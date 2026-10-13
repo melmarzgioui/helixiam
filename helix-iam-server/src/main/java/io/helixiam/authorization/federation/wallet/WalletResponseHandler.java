@@ -146,7 +146,8 @@ public class WalletResponseHandler {
             return new Result.NotFound();
         }
         try {
-            return verify(provider, tx, parsed);
+            // the status check's fail-open audit names this transaction (WalletStatusAudit)
+            return WalletStatusAudit.duringTransaction(tx.transactionId(), () -> verify(provider, tx, parsed));
         } catch (final WalletVerificationException e) {
             store.fail(tx.transactionId(), e.code());
             audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, e.format(), e.issuerDn(),

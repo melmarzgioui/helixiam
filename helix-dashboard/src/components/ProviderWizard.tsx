@@ -278,9 +278,9 @@ function ConnectionForm({
   const err = (key: string, msg = "This field is required.") => (errors.includes(key) ? msg : undefined);
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: ".7rem", marginBottom: "1.1rem" }}>
+      <div className="hx-wizard__head">
         <ProviderLogo kind={type.kind} size={32} />
-        <strong style={{ font: "600 1.05rem var(--font)" }}>{type.name}</strong>
+        <strong className="hx-wizard__head-title">{type.name}</strong>
       </div>
 
       <FormField label="Alias" required error={err("alias")} hint={lockAlias ? "The connection's stable id — fixed once created." : "Stable id used in the broker callback URL."}>
@@ -315,7 +315,7 @@ function ConnectionForm({
             <Input value={config.metadataUrl ?? ""} onChange={(e) => set("metadataUrl", e.target.value)} placeholder="https://idp.example/metadata" />
           </FormField>
           {type.metadataImport && (
-            <div style={{ marginBottom: "1rem" }}>
+            <div className="hx-wizard__upload">
               <MetadataUpload
                 fileName={config.metadataFileName}
                 onLoaded={(name, xml) => { set("metadataFileName", name); set("metadataXml", xml); }}
@@ -347,11 +347,11 @@ function ConnectionForm({
               />
               {loaCustom && (
                 <Input
-                  style={{ marginTop: ".55rem" }}
+                  className="hx-wizard__loacustom"
                   value={config.minimumLoa ?? ""}
                   onChange={(e) => set("minimumLoa", e.target.value)}
                   aria-label="Custom level of assurance"
-                  placeholder="urn:nl-eid-gdi:1.0:LoA:…"
+                  placeholder="urn:oasis:names:tc:SAML:2.0:ac:classes:…"
                 />
               )}
             </FormField>
@@ -390,11 +390,11 @@ function MappersStep({
 
   return (
     <div>
-      <p style={{ marginTop: 0, color: "var(--fg-muted)" }}>
+      <p className="hx-wizard__intro">
         Map {type.protocol.toUpperCase()} attributes onto the user profile. Tick the common ones, or add your own.
       </p>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: ".7rem" }}>
+      <div className="hx-wizard__presets">
         {DEFAULT_MAPPERS[type.protocol].map((m) => (
           <Checkbox
             key={m.source}
@@ -407,17 +407,17 @@ function MappersStep({
       </div>
 
       {customMappers.length > 0 && (
-        <div style={{ marginTop: "1.1rem", display: "flex", flexDirection: "column", gap: ".55rem" }}>
-          <span style={{ fontWeight: 600, fontSize: ".9rem", color: "var(--fg)" }}>Custom attributes</span>
+        <div className="hx-wizard__custom">
+          <span className="hx-wizard__custom-title">Custom attributes</span>
           {customMappers.map((m, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
+            <div key={i} className="hx-wizard__custom-row">
               <Input
                 value={m.source}
                 onChange={(e) => editCustom(i, { source: e.target.value })}
                 aria-label={`Custom attribute ${i + 1} source`}
                 placeholder="IdP attribute (e.g. department)"
               />
-              <span aria-hidden="true" style={{ color: "var(--fg-faint)", flexShrink: 0 }}>→</span>
+              <span aria-hidden="true" className="hx-wizard__custom-arrow">→</span>
               <Input
                 value={m.target}
                 onChange={(e) => editCustom(i, { target: e.target.value })}
@@ -426,8 +426,7 @@ function MappersStep({
               />
               <button
                 type="button"
-                className="hx-ghosticon"
-                style={{ width: 36, height: 36, flexShrink: 0 }}
+                className="hx-ghosticon hx-ghosticon--36"
                 aria-label={`Remove custom attribute ${i + 1}`}
                 onClick={() => removeCustom(i)}
               >
@@ -440,7 +439,7 @@ function MappersStep({
         </div>
       )}
 
-      <div style={{ marginTop: ".9rem" }}>
+      <div className="hx-wizard__addattr">
         <Button variant="ghost" onClick={addCustom}>+ Add attribute</Button>
       </div>
     </div>
@@ -455,9 +454,9 @@ function ReviewStep({
   enabled: boolean; setEnabled: (v: boolean) => void;
 }) {
   const row = (k: string, v: React.ReactNode) => (
-    <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: "1rem", padding: ".4rem 0", borderBottom: "1px solid var(--border)" }}>
-      <span style={{ color: "var(--fg-faint)" }}>{k}</span>
-      <span style={{ color: "var(--fg)", textAlign: "right", wordBreak: "break-all" }}>{v}</span>
+    <div key={k} className="hx-wizard__kv">
+      <span className="hx-wizard__kv-key">{k}</span>
+      <span className="hx-wizard__kv-val">{v}</span>
     </div>
   );
   const secret = (v?: string) => (v ? "••••••••" : "—");
@@ -468,18 +467,18 @@ function ReviewStep({
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: ".7rem", marginBottom: "1rem" }}>
+      <div className="hx-wizard__head hx-wizard__head--tight">
         <ProviderLogo kind={type.kind} size={36} />
         <div>
-          <strong style={{ font: "600 1.05rem var(--font)" }}>{displayName}</strong>
-          <div style={{ display: "flex", gap: ".4rem", marginTop: ".25rem" }}>
-            <span style={{ fontSize: ".82rem", color: "var(--fg-muted)" }}>{type.protocol.toUpperCase()}</span>
+          <strong className="hx-wizard__head-title">{displayName}</strong>
+          <div className="hx-wizard__head-meta">
+            <span className="hx-wizard__head-proto">{type.protocol.toUpperCase()}</span>
             {loaCustom ? <Badge tone="neutral">LoA · {loaValue}</Badge> : loaBand && <LoaBadge level={loaBand} label={loaOpt?.label} />}
           </div>
         </div>
       </div>
 
-      <div style={{ font: "400 .9rem var(--font)" }}>
+      <div className="hx-wizard__kvlist">
         {row("Alias", alias)}
         {Object.entries(config)
           .filter(([k]) => k !== "metadataXml")
@@ -493,7 +492,7 @@ function ReviewStep({
         {row("Mappers", mappers.map((m) => `${m.source} → ${m.target}`).join(", ") || "—")}
       </div>
 
-      <div style={{ marginTop: "1.1rem" }}>
+      <div className="hx-wizard__enable">
         <Switch checked={enabled} onChange={setEnabled} label="Enable immediately after creation" />
       </div>
     </div>

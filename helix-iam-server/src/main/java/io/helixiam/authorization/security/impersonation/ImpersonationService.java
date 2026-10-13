@@ -17,7 +17,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -64,7 +63,8 @@ public class ImpersonationService {
                               final HttpServletRequest request, final HttpServletResponse response) {
         final UserCredentials user = establisher.loadUser(userId);
         final Authentication auth =
-                UsernamePasswordAuthenticationToken.authenticated(user, null, user.getAuthorities());
+                io.helixiam.authorization.security.SignInAuthorities.authenticated(user,
+                        io.helixiam.authorization.security.SignInAuthorities.IMPERSONATION);
         // Mark the session BEFORE persisting so the impersonation flag rides the same session.
         request.getSession().setAttribute(IMPERSONATOR_ATTR, adminActor);
         establisher.persist(auth, request, response);
