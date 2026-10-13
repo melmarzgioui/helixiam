@@ -73,15 +73,20 @@ class ClientIpResolverTest {
         assertThat(resolver.resolve(from("10.0.0.2", "10.9.9.9, 10.0.0.1"))).isEqualTo("10.9.9.9");
     }
 
+    /**
+     * Review #13: {@code X-Real-IP} is not read at all, not even from a trusted proxy. A trusted hop that neither sets
+     * nor strips it (an L4 load balancer, an ingress with forwarded headers off) would let the client choose its own
+     * address; {@code X-Forwarded-For}, which every supported proxy appends to, is the one source.
+     */
     @Test
-    void xRealIp_isUsedOnlyFromATrustedProxy_withoutXForwardedFor() {
+    void xRealIp_isNeverTheClient_evenFromATrustedProxy() {
         final ClientIpResolver resolver = new ClientIpResolver("10.0.0.1");
         final MockHttpServletRequest trusted = from("10.0.0.1");
         trusted.addHeader("X-Real-IP", "203.0.113.9");
         final MockHttpServletRequest untrusted = from("198.51.100.20");
         untrusted.addHeader("X-Real-IP", "203.0.113.9");
 
-        assertThat(resolver.resolve(trusted)).isEqualTo("203.0.113.9");
+        assertThat(resolver.resolve(trusted)).isEqualTo("10.0.0.1");
         assertThat(resolver.resolve(untrusted)).isEqualTo("198.51.100.20");
     }
 

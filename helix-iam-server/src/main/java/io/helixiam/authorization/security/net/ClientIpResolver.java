@@ -24,11 +24,11 @@ import java.util.regex.Pattern;
 
 /**
  * The one place that decides a request's client IP — for rate limits, audit events, risk signals and the CAPTCHA
- * {@code remoteip}. {@code X-Forwarded-For} and {@code X-Real-IP} are written by whoever sends the request, so they
- * are honoured only when the direct peer (the TCP connection) is a trusted proxy listed in
- * {@code helix.security.trusted-proxies} (comma-separated IPs or CIDR ranges, IPv4 or IPv6; default empty: no proxy
- * is trusted and the peer is the client). From a trusted peer, {@code X-Forwarded-For} is walked from the right and
- * the first address that is not a trusted proxy is the client; what lies to its left was written by the client.
+ * {@code remoteip}. {@code X-Forwarded-For} is written by whoever sends the request, so it is honoured only when the
+ * direct peer (the TCP connection) is a trusted proxy listed in {@code helix.security.trusted-proxies}
+ * (comma-separated IPs or CIDR ranges, IPv4 or IPv6; default empty: no proxy is trusted and the peer is the client).
+ * {@code X-Real-IP} is never read (review #13). From a trusted peer, {@code X-Forwarded-For} is walked from the right
+ * and the first address that is not a trusted proxy is the client; what lies to its left was written by the client.
  *
  * <p>The peer is read from the container's own request, underneath Spring's {@code ForwardedHeaderFilter}
  * ({@code server.forward-headers-strategy=framework}), whose wrapper reports the left-most, client-written
@@ -89,8 +89,9 @@ public class ClientIpResolver {
         }
         final List<String> hops = forwardedFor(raw);
         if (hops.isEmpty()) {
-            final InetAddress realIp = parseLiteral(raw.getHeader("X-Real-IP"));
-            return (realIp == null ? peer : realIp).getHostAddress();
+            // Review #13: X-Real-IP is never read. A trusted hop that neither sets nor strips it would let the client
+            // pick its own address; X-Forwarded-For, which every supported proxy appends to, is the one source.
+            return peer.getHostAddress();
         }
         InetAddress last = peer;
         for (int i = hops.size() - 1; i >= 0; i--) {

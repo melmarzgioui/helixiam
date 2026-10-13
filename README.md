@@ -230,10 +230,11 @@ the limiter off (only behind another rate-limiting layer). The limit is not per 
 ### Client IP behind a reverse proxy
 
 Rate limits, audit events, risk signals and the CAPTCHA check use the client's IP address, and the OIDC issuer, the
-Secure cookie decision and every absolute URL use the request's scheme and host. `X-Forwarded-For`, `X-Real-IP`,
+Secure cookie decision and every absolute URL use the request's scheme and host. `X-Forwarded-For`,
 `Forwarded` and `X-Forwarded-Proto/-Host/-Port/-Prefix` are written by whoever sends the request, so HelixIAM reads
 them **only when the TCP peer is a trusted proxy** (from anyone else they are removed): `HELIX_TRUSTED_PROXIES` (`helix.security.trusted-proxies`) lists those proxies as comma-separated IP
-addresses or CIDR ranges, IPv4 or IPv6, and is empty by default. From a trusted proxy, `X-Forwarded-For` is read from
+addresses or CIDR ranges, IPv4 or IPv6, and is empty by default. `X-Real-IP` is never read: the proxy must append to
+`X-Forwarded-For` (nginx `$proxy_add_x_forwarded_for`, ingress-nginx and cloud load balancers do). From a trusted proxy, `X-Forwarded-For` is read from
 the right, and the first address that is not a trusted proxy is the client.
 
 Behind an ingress controller, a load balancer or the console's nginx, set it to the addresses those proxies connect

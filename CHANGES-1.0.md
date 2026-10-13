@@ -25,6 +25,10 @@ question. Newest first within each phase.
   refreshed the live registry. Every replica now polls the store (`HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60,
   `0` = off) and reloads only the realms whose stored connections changed; a realm import refreshes the imported realm
   at once.
+- **security** — `X-Real-IP` is no longer read, not even from a trusted proxy (review #13). A trusted hop that neither
+  set nor stripped it (an L4 load balancer, an ingress with forwarded headers off) let a client that sent no
+  `X-Forwarded-For` choose its own address for rate limits and the audit log. **Operators:** a trusted proxy must
+  append to `X-Forwarded-For`; one that sets only `X-Real-IP` now makes every client appear as the proxy.
 - **security** — The wallet's fail-open status audit (`WALLET_STATUS_CHECK_FAILED`, written when
   `FAIL_OPEN_WITH_AUDIT` lets a login through without a revocation check) now carries the wallet `transactionId`, so an
   operator can tie the fail-open to the login it let through (final review m4).
