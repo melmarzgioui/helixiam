@@ -8,6 +8,7 @@ package io.helixiam.authorization.federation;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.federation.spi.IdpMetadata;
 import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
+import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,7 +62,8 @@ public class IdentityProviderRegistry {
             }
             staticByAlias.put(alias, provider);
         }
-        LOG.info("Helix federation SPI: discovered {} identity provider(s): {}", staticByAlias.size(), staticByAlias.keySet());
+        LOG.info("Helix federation SPI: discovered {} identity provider(s): {}", staticByAlias.size(),
+                LogSafe.sanitize(staticByAlias.keySet()));
     }
 
     /**
@@ -86,7 +88,7 @@ public class IdentityProviderRegistry {
         final long published = version(realmId);
         if (version < published) {
             LOG.debug("Helix federation: kept realm {} at version {}; a refresh read at version {} came too late",
-                    realmId, published, version);
+                    LogSafe.sanitize(realmId), published, version);
             return false;
         }
         publish(realmId, providers, version);
@@ -116,7 +118,7 @@ public class IdentityProviderRegistry {
             this.versionByRealm = Map.copyOf(versions);
         }
         LOG.info("Helix federation: reloaded {} store-backed identity provider(s) for realm {} at version {}: {}",
-                realm.size(), realmId, version, realm.keySet());
+                realm.size(), LogSafe.sanitize(realmId), version, LogSafe.sanitize(realm.keySet()));
     }
 
     /**

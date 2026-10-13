@@ -192,6 +192,30 @@ like the token. What is logged is the realm id (and exception messages / theme n
   a test-only SMTP server used to exercise STARTTLS/SMTPS against a throw-away self-signed certificate; it is not on
   the production classpath. Production SMTP always verifies certificates (optional custom CA, no trust-all switch).
 
+## rc.9 scan (`845fd29`)
+
+Ten alerts. Nine are fixed in code (table below); one is test-only and dismissed.
+
+### Used in tests
+
+#### #287: `java/insufficient-key-size`: `src/test/java/io/helixiam/authorization/federation/wallet/testwallet/TestPki.java:93`
+`TestPki.KeyType.RSA_1024` generates a 1024-bit RSA key in the throw-away wallet test PKI. It exists so that
+`TrustAnchorsPemTest.anchorWithWeakKeyIsRejected` and `IssuerTrustValidatorTest.rsa1024LeafIsAlgorithmNotAllowed`
+can prove the production rule (EC P-256/P-384/P-521 or RSA >= 2048, `IssuerTrustValidator.MIN_RSA_BITS`) refuses a
+weak key; a key of 2048 bits or more cannot test that. It is not on the production classpath, and no production
+code generates RSA keys.
+
+### Fixed
+
+| Alert(s) | Rule | Fix | Test |
+|---|---|---|---|
+| #294, #295 | log-injection | `IdentityProviderRegistry` logs the realm id and provider aliases through `LogSafe.sanitize` | `IdentityProviderRegistryTest.reloadLogs_neutraliseLineBreaksInTheRealmAndAliases` |
+| #293 | sensitive-log | `OutboundUrlGuard` logs a blocked request as the resolved address and port only, never anything parsed from the URL (sources: an upstream logout's `id_token_hint`, an APNs device token in the path) | `OutboundUrlGuardTest.aBlockedUrl_isLoggedOnlyAsTheResolvedAddressAndPort_neverAsTheUrl` |
+| #296 | user-controlled-bypass | Was a false positive of the #265–#270 kind (`c.tokenEndpointAuthMethod()` matches the "auth" heuristic; the `c == null` skip writes nothing). Restructured anyway: `RealmImportService.clientProblems` runs both client rules (jwksUrl, token endpoint auth method) unconditionally and reports every problem; `clientWrite` maps the document row to the write DTO. No validation step can be skipped by the outcome of another | `RealmImportServiceTest.anImportedClientWithSeveralInvalidFields_isRefusedOnce_withEveryFieldError` |
+| #290, #291 | potentially-weak-cryptographic-algorithm | Not SHA-1 and not a thumbprint: the key/certificate match proof built `"SHA" + "256" + "withECDSA"`. `SoftwareRealmSigningKeys.signatureAlgorithm` maps ES256/384/512 to constant SHA-2 ECDSA names (RFC 7518 §3.4) | `SoftwareRealmSigningKeysSignatureAlgorithmTest` |
+| #288 | insufficient-key-size (test) | `rsaKeys_areRefused_whateverTheirSize` uses 2048- and 3072-bit keys; any RSA key is refused, so 1024 bits proved nothing extra | `SoftwareRealmSigningKeysTest` |
+| #292 | insecure-trustmanager (test) | The mTLS stub ARS uses a trust store built from the SP certificate and reads the client certificate from the TLS session; no trust-all manager | `EidArtifactResolverMutualTlsTest` |
+
 ## `feature/eudi-wallet` branch (Phase 2, Task 23): pending GitHub CodeQL run
 
 The CodeQL CLI is not installed in this environment, so Phase 1-2 of the EUDI Wallet (OpenID4VP verifier) work

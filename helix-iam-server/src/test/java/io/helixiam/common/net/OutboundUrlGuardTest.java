@@ -147,6 +147,20 @@ class OutboundUrlGuardTest {
     }
 
     @Test
+    void aBlockedUrl_isLoggedOnlyAsTheResolvedAddressAndPort_neverAsTheUrl() throws Exception {
+        // a URL may carry a token in its path or query (an APNs device token, an id_token_hint on an upstream
+        // logout URL); the warning names only the blocked address and port, nothing parsed out of the URL
+        final OutboundUrlGuard guard = new OutboundUrlGuard(false, java.util.List.of(),
+                host -> new InetAddress[] {InetAddress.getByAddress(host, new byte[] {10, 0, 0, 5})});
+        try (io.helixiam.testsupport.LogCapture logs = io.helixiam.testsupport.LogCapture.of(OutboundUrlGuard.class)) {
+            assertThatThrownBy(() -> guard.checkAllowed("https://idp.internal.example:8443/logout?id_token_hint=eyJ"))
+                    .isInstanceOf(SsrfBlockedException.class);
+            assertThat(logs.text()).contains("10.0.0.5").contains("8443")
+                    .doesNotContain("idp.internal.example").doesNotContain("logout").doesNotContain("eyJ");
+        }
+    }
+
+    @Test
     void unresolvableHostIsADistinctRefusal() {
         final OutboundUrlGuard guard = new OutboundUrlGuard(false, host -> {
             throw new java.net.UnknownHostException(host);
