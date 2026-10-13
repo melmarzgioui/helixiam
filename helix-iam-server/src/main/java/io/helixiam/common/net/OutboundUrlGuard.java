@@ -29,8 +29,11 @@ import java.util.Locale;
  *   <li>host cannot be resolved; or</li>
  *   <li>any resolved {@link InetAddress} is loopback, wildcard ({@code 0.0.0.0} / {@code ::}), link-local
  *       ({@code 169.254.0.0/16}, {@code fe80::/10} — this covers the {@code 169.254.169.254} cloud-metadata
- *       endpoint), site-local / private ({@code 10/8}, {@code 172.16/12}, {@code 192.168/16}, {@code fc00::/7}),
- *       or multicast.</li>
+ *       endpoint), site-local / private ({@code 10/8}, {@code 172.16/12}, {@code 192.168/16}, {@code fc00::/7},
+ *       which covers the AWS IPv6 metadata address {@code fd00:ec2::254}), multicast, or reserved
+ *       ({@code 0/8}, {@code 100.64/10}, {@code 192.0.0/24}, {@code 198.18/15}, {@code 240/4} including broadcast);
+ *       an IPv6 address that embeds an IPv4 address (IPv4-mapped, IPv4-compatible, NAT64 {@code 64:ff9b::/96},
+ *       6to4 {@code 2002::/16}) is judged by that IPv4 address as well.</li>
  * </ul>
  *
  * <p><b>Private-host allowlist (C6):</b> {@code helix.egress.allowed-private-hosts} (env
@@ -313,23 +316,91 @@ public class OutboundUrlGuard {
         return new ResolvedTarget(uri, host, port, List.of(addresses));
     }
 
-    /** True for any address that must never be reachable via a user-configurable URL. */
-    private static boolean isBlocked(final InetAddress address) {
+    /**
+     * True for any address that must never be reachable via a user-configurable URL. An IPv6 address that embeds an
+     * IPv4 address (IPv4-mapped {@code ::ffff:0:0/96}, IPv4-compatible {@code ::/96}, NAT64 {@code 64:ff9b::/96},
+     * 6to4 {@code 2002::/16}) is blocked when the embedded IPv4 address is: the OS or a translator delivers it there.
+     */
+    static boolean isBlocked(final InetAddress address) {
+        final InetAddress embedded = embeddedIpv4(address);
+        return isBlockedDirect(address) || embedded != null && isBlockedDirect(embedded);
+    }
+
+    private static boolean isBlockedDirect(final InetAddress address) {
         return address.isLoopbackAddress()      // 127.0.0.0/8, ::1
                 || address.isAnyLocalAddress()   // 0.0.0.0, ::
                 || address.isLinkLocalAddress()  // 169.254.0.0/16 (incl. metadata 169.254.169.254), fe80::/10
                 || address.isSiteLocalAddress()  // 10/8, 172.16/12, 192.168/16
                 || address.isMulticastAddress()  // 224/4, ff00::/8
                 || isUniqueLocalIpv6(address)    // fc00::/7 (IPv6 ULA — not covered by isSiteLocalAddress)
-                || isReservedIpv4(address);      // 0.0.0.0/8, 100.64.0.0/10 (carrier-grade NAT)
+                || isReservedIpv4(address)       // 0/8, 100.64/10, 192.0.0/24, 198.18/15, 240/4, broadcast
+                || isAlwaysBlockedDirect(address);
     }
 
-    /** Blocked even for an allowlisted host: cloud metadata / link-local, multicast, wildcard and 0.0.0.0/8. */
-    private static boolean isAlwaysBlocked(final InetAddress address) {
+    /**
+     * Blocked even for an allowlisted host: cloud metadata / link-local (IPv4 and the AWS IPv6 endpoint
+     * {@code fd00:ec2::254}), multicast, wildcard, {@code 0.0.0.0/8} and broadcast, also when embedded in IPv6.
+     */
+    static boolean isAlwaysBlocked(final InetAddress address) {
+        final InetAddress embedded = embeddedIpv4(address);
+        return isAlwaysBlockedDirect(address) || embedded != null && isAlwaysBlockedDirect(embedded);
+    }
+
+    private static boolean isAlwaysBlockedDirect(final InetAddress address) {
+        final byte[] b = address.getAddress();
         return address.isAnyLocalAddress()
                 || address.isLinkLocalAddress()
                 || address.isMulticastAddress()
-                || address instanceof java.net.Inet4Address && (address.getAddress()[0] & 0xff) == 0;
+                || b.length == 4 && ((b[0] & 0xff) == 0 || isBroadcast(b))
+                || java.util.Arrays.equals(b, AWS_IPV6_METADATA);
+    }
+
+    /** {@code fd00:ec2::254}, the AWS Instance Metadata Service over IPv6. */
+    private static final byte[] AWS_IPV6_METADATA = {(byte) 0xfd, 0, 0x0e, (byte) 0xc2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0x02, 0x54};
+
+    private static boolean isBroadcast(final byte[] b) {
+        return (b[0] & 0xff) == 255 && (b[1] & 0xff) == 255 && (b[2] & 0xff) == 255 && (b[3] & 0xff) == 255;
+    }
+
+    /**
+     * The IPv4 address an IPv6 address carries, or null: IPv4-mapped {@code ::ffff:a.b.c.d}, IPv4-compatible
+     * {@code ::a.b.c.d}, NAT64 {@code 64:ff9b::a.b.c.d} (RFC 6052 well-known prefix) and 6to4
+     * {@code 2002:aabb:ccdd::/48}.
+     */
+    static InetAddress embeddedIpv4(final InetAddress address) {
+        final byte[] b = address.getAddress();
+        if (b.length != 16) {
+            return null;
+        }
+        byte[] v4 = null;
+        if (zero(b, 0, 10) && (b[10] & 0xff) == 0xff && (b[11] & 0xff) == 0xff) {
+            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // ::ffff:0:0/96
+        } else if (zero(b, 0, 12)) {
+            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // ::/96 (also :: and ::1, already blocked as such)
+        } else if ((b[0] & 0xff) == 0x00 && (b[1] & 0xff) == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b
+                && zero(b, 4, 12)) {
+            v4 = java.util.Arrays.copyOfRange(b, 12, 16); // 64:ff9b::/96
+        } else if ((b[0] & 0xff) == 0x20 && (b[1] & 0xff) == 0x02) {
+            v4 = java.util.Arrays.copyOfRange(b, 2, 6); // 2002::/16
+        }
+        if (v4 == null) {
+            return null;
+        }
+        try {
+            return InetAddress.getByAddress(v4);
+        } catch (final java.net.UnknownHostException e) {
+            return null; // cannot happen for 4 bytes
+        }
+    }
+
+    private static boolean zero(final byte[] b, final int from, final int to) {
+        for (int i = from; i < to; i++) {
+            if (b[i] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isReservedIpv4(final InetAddress address) {
@@ -339,7 +410,12 @@ public class OutboundUrlGuard {
         final byte[] b = address.getAddress();
         final int first = b[0] & 0xff;
         final int second = b[1] & 0xff;
-        return first == 0 || (first == 100 && second >= 64 && second <= 127);
+        final int third = b[2] & 0xff;
+        return first == 0                                          // 0.0.0.0/8
+                || first == 100 && second >= 64 && second <= 127   // 100.64.0.0/10 carrier-grade NAT
+                || first == 192 && second == 0 && third == 0      // 192.0.0.0/24 IETF protocol assignments
+                || first == 198 && (second == 18 || second == 19)  // 198.18.0.0/15 benchmarking
+                || first >= 240;                                   // 240.0.0.0/4 reserved, 255.255.255.255
     }
 
     /** Largest document {@link #fetch} reads. */
