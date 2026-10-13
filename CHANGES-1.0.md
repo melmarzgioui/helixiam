@@ -25,6 +25,9 @@ question. Newest first within each phase.
   refreshed the live registry. Every replica now polls the store (`HELIX_FEDERATION_STORE_POLL_SECONDS`, default 60,
   `0` = off) and reloads only the realms whose stored connections changed; a realm import refreshes the imported realm
   at once.
+- **security** — The wallet's fail-open status audit (`WALLET_STATUS_CHECK_FAILED`, written when
+  `FAIL_OPEN_WITH_AUDIT` lets a login through without a revocation check) now carries the wallet `transactionId`, so an
+  operator can tie the fail-open to the login it let through (final review m4).
 - **security** — Wallet review minors: `IdentityProviderConfig.toString()` (both copies) now redacts every secret
   value, so a future log line of the runtime config cannot leak a client secret, private key, bind password or
   pepper. An identity-provider update that changes the protocol drops the stored secrets the new protocol does not use
