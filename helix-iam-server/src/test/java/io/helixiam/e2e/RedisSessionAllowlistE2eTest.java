@@ -29,6 +29,9 @@ class RedisSessionAllowlistE2eTest extends AbstractE2eTest {
 
     @Test
     void aSessionHoldingAClassOutsideTheAllowlist_isDroppedAndDeleted_notA500() {
+        // Only where the Redis session store runs (not in the queue-session-store execution).
+        org.junit.jupiter.api.Assumptions.assumeFalse(context.getBeansOfType(
+                org.springframework.session.data.redis.RedisSessionRepository.class).isEmpty(), "Redis session store");
         final String gadget = plantSession(new BadAttributeValueExpException("planted"));
         final String control = plantSession("an ordinary value");
 
