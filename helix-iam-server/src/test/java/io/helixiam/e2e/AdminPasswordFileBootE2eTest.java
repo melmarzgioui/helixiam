@@ -56,20 +56,26 @@ class AdminPasswordFileBootE2eTest {
     static final java.io.ByteArrayOutputStream CONSOLE = new java.io.ByteArrayOutputStream();
 
     static {
+        // The tee holds its own references, never this class's statics: another thread (a poller of an earlier test's
+        // context) can write to System.out while this class is still initialising, and reading a static here would
+        // wait for that initialisation while holding the log appender's lock, which the initialising thread (logging
+        // the container start below) then waits for: a deadlock that hung the build.
+        final java.io.PrintStream original = ORIGINAL_OUT;
+        final java.io.ByteArrayOutputStream console = CONSOLE;
         System.setOut(new java.io.PrintStream(new java.io.OutputStream() {
             @Override
             public void write(final int b) {
-                ORIGINAL_OUT.write(b);
-                synchronized (CONSOLE) {
-                    CONSOLE.write(b);
+                original.write(b);
+                synchronized (console) {
+                    console.write(b);
                 }
             }
 
             @Override
             public void write(final byte[] b, final int off, final int len) {
-                ORIGINAL_OUT.write(b, off, len);
-                synchronized (CONSOLE) {
-                    CONSOLE.write(b, off, len);
+                original.write(b, off, len);
+                synchronized (console) {
+                    console.write(b, off, len);
                 }
             }
         }, true, java.nio.charset.StandardCharsets.UTF_8));

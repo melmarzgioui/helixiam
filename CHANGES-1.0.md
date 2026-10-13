@@ -3,6 +3,38 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## v1.0.0-rc.10 (CodeQL follow-up to rc.9)
+
+Clears the CodeQL alerts raised by the rc.9 scan (`845fd29`). Details and the one dismissed alert are in
+`helix-iam-server/CODEQL-TRIAGE.md` ("rc.9 scan").
+
+- **security (log injection, #294, #295)** — `IdentityProviderRegistry` logged the realm id and the provider aliases
+  of a store-backed reload (both admin input, via the identity-provider and realm import/export APIs) as they were.
+  They now go through `LogSafe.sanitize`, as does the static alias list, so a CR/LF cannot forge a log line.
+  `IdentityProviderRegistryTest.reloadLogs_neutraliseLineBreaksInTheRealmAndAliases`.
+- **security (sensitive log, #293)** — the egress guard's "blocked outbound URL" warning logged the URL's scheme, host
+  and port. Callers pass URLs that carry tokens (an APNs device token in the path, an upstream logout's
+  `id_token_hint` in the query); only scheme, host and port were ever printed, but that guarantee lived in a helper.
+  The warning now names only the resolved address and the port. The exception still names the host.
+  `OutboundUrlGuardTest.aBlockedUrl_isLoggedOnlyAsTheResolvedAddressAndPort_neverAsTheUrl`.
+- **import (user-controlled bypass, #296)** — a false positive (a client refused for its `jwksUrl` was never written,
+  so skipping its auth-method check skipped nothing), restructured anyway: realm import checked a client's `jwksUrl`
+  and then its `tokenEndpointAuthMethod` in two early-exit steps, so a refused client reported only the first problem.
+  Both rules now run in one `clientProblems` step for every client that reaches validation, and the failure lists
+  every invalid field. The document-to-write mapping is a separate method.
+  `RealmImportServiceTest.anImportedClientWithSeveralInvalidFields_isRefusedOnce_withEveryFieldError`.
+- **crypto naming (#290, #291)** — not SHA-1: the imported-key match proof built its JCA algorithm as `"SHA" + "256"
+  + "withECDSA"`. It now maps ES256/ES384/ES512 to the constants `SHA256withECDSA`/`SHA384withECDSA`/`SHA512withECDSA`
+  (RFC 7518 §3.4) and refuses anything else. `SoftwareRealmSigningKeysSignatureAlgorithmTest`.
+- **tests (#288, #292)** — `SoftwareRealmSigningKeysTest` proves RSA keys are refused with 2048- and 3072-bit keys
+  instead of 1024; the eID mutual-TLS test's stub ARS trusts a trust store holding only the SP certificate (no
+  trust-all manager) and reads the presented certificate from the TLS session.
+- **tests (build hang)** — `AdminPasswordFileBootE2eTest`'s stdout tee read the test class's statics while the class was
+  still initialising; a background thread writing to stdout then held the log appender's lock while waiting for the
+  class, and the initialising thread waited for that lock, hanging `mvn verify`. The tee now holds its own references.
+- **dismissed (#287)** — `TestPki.KeyType.RSA_1024` (test code) is the input for the wallet tests that check a
+  1024-bit RSA issuer or anchor key is refused; a small key is the point of those tests.
+
 ## v1.0.0-rc.9 (2026-10-13; also lists what shipped in `v1.0.0-rc.8`)
 
 rc.9 adds the EU Digital Identity Wallet sign-in (OpenID4VP 1.0 / HAIP 1.0 verifier, **experimental**), the

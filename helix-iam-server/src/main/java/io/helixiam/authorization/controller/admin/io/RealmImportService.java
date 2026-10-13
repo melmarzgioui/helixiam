@@ -682,32 +682,15 @@ public class RealmImportService {
             if (blocked(existing.containsKey(c.clientId()), SLICE_CLIENTS, c.clientId(), opts, r)) {
                 continue;
             }
-            // the same jwksUrl rule as the admin API (https; http to localhost only in dev): refused, not saved
-            final String jwksUrlProblem = io.helixiam.authorization.service.client.JwksUrlPolicy.problem(
-                    c.jwksUrl(), new io.helixiam.common.startup.DeploymentProfile(environment).isDev());
-            if (jwksUrlProblem != null) {
+            final Map<String, String> problems = clientProblems(c);
+            if (!problems.isEmpty()) {
                 fieldErrorsFailed(r, SLICE_CLIENTS, realmId, "The client " + c.clientId() + " is not valid: ",
-                        Map.of("jwksUrl", jwksUrlProblem));
-                continue;
-            }
-            final String authMethodProblem = io.helixiam.authorization.service.client.ClientAuthMethods.problem(
-                    c.tokenEndpointAuthMethod());
-            if (authMethodProblem != null) {
-                fieldErrorsFailed(r, SLICE_CLIENTS, realmId, "The client " + c.clientId() + " is not valid: ",
-                        Map.of("tokenEndpointAuthMethod", authMethodProblem));
+                        problems);
                 continue;
             }
             try {
                 final ClientDto current = existing.get(c.clientId());
-                final String id = current == null ? null : current.id();
-                final ClientWriteDto write = new ClientWriteDto(realmId, id, c.clientId(), c.grantTypes(),
-                        c.redirectUris(), c.scopes(), c.subjectClaim(), c.authFlowAlias(), c.name(), c.description(),
-                        c.postLogoutRedirectUris(), c.webOrigins(), c.publicClient(), c.consentRequired(),
-                        c.displayOnConsentScreen(), c.loginTheme(), c.rootUrl(), c.homeUrl(), c.adminUrl(),
-                        c.alwaysDisplayInConsole(), c.accessTokenLifespan(), c.refreshTokenLifespan(),
-                        c.idTokenSignatureAlg(), c.reuseRefreshTokens(), c.tokenEndpointAuthMethod(), c.jwksUrl(),
-                        c.backchannelLogoutUri(), c.frontchannelLogoutUri(), c.applicationId(),
-                        c.x509CertificateBoundAccessTokens(), c.requireSignedRequestObject(), c.jarmResponseMode(),
+                final ClientWriteDto write = clientWrite(realmId, current == null ? null : current.id(), c,
                         importedSecret(c, opts));
                 if (current == null) {
                     clientPublisher.create(write);
@@ -720,6 +703,40 @@ public class RealmImportService {
                 failed(r, SLICE_CLIENTS, realmId, ex);
             }
         }
+    }
+
+    /**
+     * Every field of an imported client the admin API would refuse, by field name (empty when it is valid): the same
+     * jwksUrl rule (https; http to localhost only in dev) and the same token endpoint auth method spellings. Every
+     * rule runs for every client that reaches validation, whatever the document says, and all problems are reported.
+     */
+    private Map<String, String> clientProblems(final ClientDto c) {
+        final Map<String, String> problems = new java.util.LinkedHashMap<>();
+        final String jwksUrlProblem = io.helixiam.authorization.service.client.JwksUrlPolicy.problem(
+                c.jwksUrl(), new io.helixiam.common.startup.DeploymentProfile(environment).isDev());
+        final String authMethodProblem = io.helixiam.authorization.service.client.ClientAuthMethods.problem(
+                c.tokenEndpointAuthMethod());
+        if (jwksUrlProblem != null) {
+            problems.put("jwksUrl", jwksUrlProblem);
+        }
+        if (authMethodProblem != null) {
+            problems.put("tokenEndpointAuthMethod", authMethodProblem);
+        }
+        return problems;
+    }
+
+    /** The admin write for an imported client: its document fields, into {@code realmId}, keeping {@code id}. */
+    private static ClientWriteDto clientWrite(final String realmId, final String id, final ClientDto c,
+                                              final String secret) {
+        return new ClientWriteDto(realmId, id, c.clientId(), c.grantTypes(),
+                c.redirectUris(), c.scopes(), c.subjectClaim(), c.authFlowAlias(), c.name(), c.description(),
+                c.postLogoutRedirectUris(), c.webOrigins(), c.publicClient(), c.consentRequired(),
+                c.displayOnConsentScreen(), c.loginTheme(), c.rootUrl(), c.homeUrl(), c.adminUrl(),
+                c.alwaysDisplayInConsole(), c.accessTokenLifespan(), c.refreshTokenLifespan(),
+                c.idTokenSignatureAlg(), c.reuseRefreshTokens(), c.tokenEndpointAuthMethod(), c.jwksUrl(),
+                c.backchannelLogoutUri(), c.frontchannelLogoutUri(), c.applicationId(),
+                c.x509CertificateBoundAccessTokens(), c.requireSignedRequestObject(), c.jarmResponseMode(),
+                secret);
     }
 
     // --- SAML relying parties: save is upsert by entityId; create/update decided by existing list. ---

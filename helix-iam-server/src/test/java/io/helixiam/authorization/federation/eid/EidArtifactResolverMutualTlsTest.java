@@ -13,9 +13,7 @@ import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
-import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.InetAddress;
@@ -79,25 +77,17 @@ class EidArtifactResolverMutualTlsTest {
         serverStore.setKeyEntry("ars", serverKeys.getPrivate(), new char[0], new X509Certificate[] {serverCert});
         final KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         kmf.init(serverStore, new char[0]);
+        // the ARS trusts exactly the SP certificate (a trust store built from it, no trust-all manager), so a
+        // handshake completes only when the resolver presents that certificate
+        final KeyStore clientTrust = KeyStore.getInstance("PKCS12");
+        clientTrust.load(null, null);
+        clientTrust.setCertificateEntry("sp", spCert);
+        final TrustManagerFactory serverTmf =
+                TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        serverTmf.init(clientTrust);
         final List<String> presented = new CopyOnWriteArrayList<>();
-        final X509TrustManager recordClients = new X509TrustManager() {
-            @Override
-            public void checkClientTrusted(final X509Certificate[] chain, final String authType) {
-                presented.add(chain[0].getSubjectX500Principal().getName());
-            }
-
-            @Override
-            public void checkServerTrusted(final X509Certificate[] chain, final String authType) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
-            }
-        };
         final SSLContext serverContext = SSLContext.getInstance("TLS");
-        serverContext.init(kmf.getKeyManagers(), new TrustManager[] {recordClients}, null);
+        serverContext.init(kmf.getKeyManagers(), serverTmf.getTrustManagers(), null);
         final List<String> requests = new CopyOnWriteArrayList<>();
         try (SSLServerSocket server = (SSLServerSocket) serverContext.getServerSocketFactory().createServerSocket(0, 10,
                 InetAddress.getByAddress(new byte[] {127, 0, 0, 1}))) {
@@ -107,6 +97,8 @@ class EidArtifactResolverMutualTlsTest {
                     try (SSLSocket s = (SSLSocket) server.accept()) {
                         final InputStream in = s.getInputStream();
                         final byte[] head = in.readNBytes(4); // the handshake completed (or failed) on first read
+                        presented.add(((X509Certificate) s.getSession().getPeerCertificates()[0])
+                                .getSubjectX500Principal().getName());
                         requests.add(new String(head, StandardCharsets.US_ASCII));
                         s.getOutputStream().write("HTTP/1.1 500 X\r\nContent-Length: 0\r\n\r\n"
                                 .getBytes(StandardCharsets.US_ASCII));

@@ -322,9 +322,10 @@ public class OutboundUrlGuard {
         if (!allowPrivate) {
             for (final InetAddress address : addresses) {
                 if (allowlisted ? isAlwaysBlocked(address) : isBlocked(address)) {
-                    LOG.warn("Blocked SSRF-risky outbound URL {} → {} (internal/reserved address)",
-                            LogSafe.sanitize(safe(url)),
-                            LogSafe.sanitize(address.getHostAddress()));
+                    // Only the resolved address and the port: a URL can carry a token in its path or query (an APNs
+                    // device token, an upstream logout's id_token_hint). The exception names the host for the caller.
+                    LOG.warn("Blocked SSRF-risky outbound request to {} port {} (internal/reserved address)",
+                            LogSafe.sanitize(address.getHostAddress()), port);
                     throw new SsrfBlockedException("Outbound host " + host + " resolves to a blocked ("
                             + "internal/reserved) address: " + address.getHostAddress());
                 }

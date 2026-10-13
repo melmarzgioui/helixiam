@@ -167,8 +167,8 @@ class SoftwareRealmSigningKeysTest extends AbstractE2eTest {
     }
 
     @Test
-    void rsaKeys_areRefused_1024_and_2048() throws Exception {
-        for (final int bits : new int[] {1024, 2048}) {
+    void rsaKeys_areRefused_whateverTheirSize() throws Exception {
+        for (final int bits : new int[] {2048, 3072}) {
             final KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
             gen.initialize(bits);
             final KeyPair caKey = gen.generateKeyPair();

@@ -646,6 +646,22 @@ class RealmImportServiceTest {
                 .startsWith("The client typo is not valid: tokenEndpointAuthMethod: ");
     }
 
+    @Test
+    void anImportedClientWithSeveralInvalidFields_isRefusedOnce_withEveryFieldError() {
+        final ClientDto both = new ClientDto("source", null, "both", List.of("client_credentials"), List.of(),
+                List.of(), null, "sub", null, "both", null, List.of(), List.of(), false, false, false, null, null, null,
+                null, false, null, null, null, false, "private-key-jwt", "http://keys.example.com/jwks", null, null,
+                null, null, null, null);
+        final RealmImportResult result = service.importInto("gov", clientsOnly(both));
+
+        assertThat(clientStore).isEmpty();
+        assertThat(result.slices().get(RealmImportService.SLICE_CLIENTS).failed()).isEqualTo(1);
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason).singleElement().asString()
+                .startsWith("The client both is not valid: ")
+                .contains("jwksUrl: The JWKS URL must be an https URL.;")
+                .contains("tokenEndpointAuthMethod: ");
+    }
+
     private static ClientDto clientDto(final String clientId) {
         return new ClientDto("gov", "cid-" + clientId, clientId, List.of(), List.of(), List.of(), null, "sub", null,
                 clientId, null, List.of(), List.of(), false, false, false, null, null, null, null, false, null, null,

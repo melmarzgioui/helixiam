@@ -417,12 +417,29 @@ public class SoftwareRealmSigningKeys implements RealmSigningKeys {
                 + "; use P-256, P-384 or P-521");
     }
 
+    /**
+     * The JCA ECDSA algorithm (SHA-2 digest matched to the curve, RFC 7518 §3.4) for an {@code ES*} JWS algorithm. A
+     * constant per algorithm rather than a name built from a {@code "SHA"} prefix, so the digest is visibly SHA-2.
+     */
+    static String signatureAlgorithm(final JWSAlgorithm alg) {
+        if (JWSAlgorithm.ES256.equals(alg)) {
+            return "SHA256withECDSA";
+        }
+        if (JWSAlgorithm.ES384.equals(alg)) {
+            return "SHA384withECDSA";
+        }
+        if (JWSAlgorithm.ES512.equals(alg)) {
+            return "SHA512withECDSA";
+        }
+        throw new IllegalArgumentException("No ECDSA signature algorithm for " + alg);
+    }
+
     /** Sign-and-verify proof that the private key belongs to the certificate's public key. */
     private static boolean matches(final ECPrivateKey privateKey, final PublicKey publicKey, final JWSAlgorithm alg) {
         if (!(publicKey instanceof ECPublicKey)) {
             return false;
         }
-        final String sigAlg = "SHA" + alg.getName().substring(2) + "withECDSA";
+        final String sigAlg = signatureAlgorithm(alg);
         try {
             final Signature signer = Signature.getInstance(sigAlg);
             signer.initSign(privateKey);

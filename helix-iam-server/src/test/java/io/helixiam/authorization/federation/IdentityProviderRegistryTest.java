@@ -258,4 +258,18 @@ class IdentityProviderRegistryTest {
         assertThat(registry.isWallet("realm-c", "corp")).as("not served there: any realm's wallet counts").isTrue();
         assertThat(registry.isWallet("realm-a", null)).isFalse();
     }
+
+    @Test
+    void reloadLogs_neutraliseLineBreaksInTheRealmAndAliases() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        final String realm = "gov\r\nINFO forged realm line";
+        try (io.helixiam.testsupport.LogCapture logs =
+                     io.helixiam.testsupport.LogCapture.of(IdentityProviderRegistry.class)) {
+            registry.reload(realm, List.of(stub("idp\nINFO forged alias line")), 5L);
+            registry.reload(realm, List.of(stub("late")), 3L); // refused as older: the debug line
+
+            assertThat(logs.messages()).hasSize(2).allSatisfy(m -> assertThat(m).doesNotContain("\r", "\n"));
+            assertThat(logs.text()).contains("gov_INFO forged realm line").contains("idp_INFO forged alias line");
+        }
+    }
 }
