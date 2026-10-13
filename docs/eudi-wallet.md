@@ -138,7 +138,7 @@ curl -s -X POST "https://helix.example/admin/realms/$REALM/identity-providers" \
 `limits.maxJwtBytes`, …), lists are JSON arrays of strings. Everything not shown above takes a documented default:
 `clientIdScheme` → `x509_hash`; `invocationScheme` → `haip-vp`; `responseMode` → `direct_post.jwt`;
 `transactionTtlSeconds` → `300` (60–900 allowed); `pid.requestedClaims` → `given_name`, `family_name`, `birthdate`;
-`revocationChecking` → `SOFT_FAIL`; `statusList.required` → `false`; `subject.strategy` →
+`revocationChecking` → `HARD_FAIL` (see §7.2); `statusList.required` → `false`; `subject.strategy` →
 `ADMINISTRATIVE_NUMBER`; `minimumLoa` → `http://eidas.europa.eu/LoA/high`. `WalletConfigValidator` rejects an
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
@@ -200,8 +200,12 @@ The limits match the still-encoded path, but no re-spelled path reaches the wall
 
 Every status-list fetch goes through `OutboundUrlGuard` — a `status_list.uri` must be `https`, must not resolve to
 loopback/private/link-local/metadata addresses, and (optionally) must match `statusList.allowedHosts` if you set
-it. This is the same egress guard every other admin-configurable outbound HTTP call in HelixIAM uses. See
-`helix-iam-server/SECURITY-REVIEW.md` §"SSRF via status lists" for the detail.
+it. This is the same egress guard every other admin-configurable outbound HTTP call in HelixIAM uses. The fetch
+itself (and every redirect hop, at most 3, each vetted again) runs over a pinned connection: the host is resolved
+once, inside the 5 s deadline, and the connection goes to the address the guard checked, so a resolver that answers
+differently a second time (DNS rebinding) cannot redirect it; TLS is still verified against the host name. Connect
+3 s, everything (DNS included) 5 s, body at most 1 MB. See `helix-iam-server/SECURITY-REVIEW.md` Appendix B.5 for
+the detail.
 
 ## 6. The subject: "administrative number, else link"
 
@@ -296,6 +300,15 @@ Token Status List (IETF `draft-ietf-oauth-status-list-21`) semantics are **asymm
   `statusList.required=false` (so a PID that carries no `status` claim at all is still accepted — most short-lived
   PIDs do not bother with one).
 
+- Verified status lists are cached (for `min(ttl, statusList.maxCacheSeconds)`, never past `exp`) in one cache
+  shared by every wallet provider, bounded by entry count and by total decoded list bytes, least recently used
+  evicted first:
+
+  | Setting | Default | Meaning |
+  |---|---|---|
+  | `helix.wallet.status-list.cache-max-entries` | `64` | Most cached status lists |
+  | `helix.wallet.status-list.cache-max-bytes` | `33554432` (32 MB) | Most decoded (inflated) list bytes held; a list larger than this is not cached |
+
 ### 7.1 The §6.5 mdoc status-list-signer rule, and the bypass that was fixed
 
 ISO 18013-5 §6.5 requires that the entity signing an mdoc's status list be verifiably related to the entity that
@@ -313,6 +326,49 @@ certificate share an issuing CA in the strict sense required. This matches how m
 (a single IACA anchor per issuer, used for everything that issuer signs) and is not treated as a defect, but it
 means the rule's protection narrows to "a status list is signed by *something this issuer's own CA vouches for*",
 not "the exact same key that signed this credential."
+
+### 7.2 Issuer certificate revocation (CRL / OCSP): `revocationChecking`
+
+Separate from the credential's status list, the issuer's own X.509 signing certificate (and any intermediate below
+the trust anchor) is checked for revocation, per provider (`revocationChecking`, console: *Credentials → Issuer
+certificate revocation*):
+
+| Mode | A certificate whose status cannot be determined | A revoked certificate |
+|---|---|---|
+| `HARD_FAIL` (**default**) | refused (`ISSUER_UNTRUSTED`, "certificate revocation status unavailable", or "revocation endpoint not allowed" when every source it names is refused by policy) | refused |
+| `SOFT_FAIL` | accepted, with a warning naming its serial and subject DN | refused |
+| `OFF` | not checked, nothing fetched | not checked |
+
+How it works (`IssuerRevocationClient`):
+- Nothing is fetched until the chain validates to one of your trust anchors.
+- Each certificate is checked on its own, against its own issuer: OCSP first (POST), then the CRL distribution
+  points; at most 2 URLs of each kind per certificate. A certificate that is revoked is refused even when another
+  certificate in the path is undeterminable.
+- Every URL passes `OutboundUrlGuard`; only `http` and `https` (CRL and OCSP are commonly plain `http`; their
+  signatures are their integrity), never `ldap:`. The connection goes to the address the guard validated (no DNS
+  rebinding), redirects are not followed, connect 3 s, 5 s per fetch in total including DNS, 10 s per chain.
+- What was fetched is validated by the JDK PKIX revocation checker (signatures, responder, validity window); the
+  JDK itself never fetches.
+- Answers are cached until their `nextUpdate` (at most 24 h; an OCSP response without `nextUpdate` is not cached),
+  shared by every provider.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `helix.wallet.revocation.max-crl-bytes` | `10485760` (10 MB) | Largest CRL downloaded; a larger one is an undeterminable status |
+| `helix.wallet.revocation.cache-max-entries` | `256` | Most cached OCSP responses and CRLs |
+| `helix.wallet.revocation.cache-max-bytes` | `33554432` (32 MB) | Most cached bytes (encoded) |
+
+OCSP responses are capped at 64 KB (not configurable).
+
+**Why `HARD_FAIL` is the default.** Issuer-key revocation is the remedy for a compromised PID issuer key; under
+`SOFT_FAIL` anyone who can make the issuer's CRL or OCSP endpoint unreachable from your server (or an issuer outage)
+turns that remedy off, and credentials signed with the revoked key are accepted. PID document-signer certificates
+carry a CRL distribution point (the EU reference implementation's `PID DS` certificates do), CRLs are valid for
+hours to days, and the answers are cached until `nextUpdate`, so a short endpoint outage does not block logins.
+This is the same choice as the status list's `onUnavailable=FAIL_CLOSED` default. Choose `SOFT_FAIL` for an issuer
+whose certificates name no CRL or OCSP endpoint (they are refused under `HARD_FAIL`) or whose endpoints you cannot
+reach; `OFF` only for testing. Providers stored before this change without a `revocationChecking` value now run
+`HARD_FAIL` (see `CHANGES-1.0.md`).
 
 ## 8. Limitations
 

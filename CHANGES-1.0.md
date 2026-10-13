@@ -17,6 +17,10 @@ question. Newest first within each phase.
 > 3. If the install ran without `DB_ENCRYPTION` and you now set it, plan the time-boxed
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
+> 5. EUDI wallet providers without an explicit `revocationChecking` now check issuer certificates with `HARD_FAIL`
+>    (was `SOFT_FAIL`): an issuer certificate whose CRL / OCSP status cannot be determined, including one that names
+>    no CRL or OCSP endpoint, is refused. Set `revocationChecking` to `SOFT_FAIL` (console: Credentials → Issuer
+>    certificate revocation) for an issuer that publishes neither (see below).
 
 - **security** — SAML runs on OpenSAML **5.2.3** only (M7 done). The unused `spring-security-saml2-service-provider`,
   whose POM still pulled OpenSAML 4.3.2, is removed; the pom declares OpenSAML 5 (`opensaml-saml-api`/`-impl`,
@@ -148,6 +152,26 @@ question. Newest first within each phase.
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
   coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
   same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
+- **security (EUDI wallet)** — **BREAKING default.** Issuer-certificate revocation (CRL / OCSP) no longer uses the
+  JDK's own fetching, which followed redirects, resolved names a second time after the outbound guard, had no CRL size
+  cap and no cache of ours. `IssuerRevocationClient` fetches over a new pinned transport (`PinnedHttpFetcher`): every
+  URL through `OutboundUrlGuard` (http/https only), one DNS resolution and a connection to the validated address (no
+  DNS rebinding), no redirects, connect 3 s and 5 s in total per fetch including DNS, 10 s per chain, OCSP at most
+  64 KB, CRL at most `helix.wallet.revocation.max-crl-bytes` (10 MB). The JDK PKIX checker still validates what was
+  fetched (OCSP through `setOcspResponses`, CRLs through a `CertStore` after a pre-check that keeps its own fallback
+  fetch from ever running). Answers are cached until `nextUpdate` (24 h at most), bounded by
+  `helix.wallet.revocation.cache-max-entries` (256) and `.cache-max-bytes` (32 MB), shared by every provider. Every
+  certificate in the path is now checked on its own, so under `SOFT_FAIL` an undeterminable upper CA no longer hides a
+  revoked lower CA. `revocationChecking` defaults to `HARD_FAIL` (was `SOFT_FAIL`) and is now a console field with
+  warnings for `SOFT_FAIL` and `OFF`. Docs: `docs/eudi-wallet.md` §7.2.
+- **security (EUDI wallet)** — Token Status List fetches use the same pinned transport: the outbound guard's DNS
+  resolution now runs inside the 5 s deadline (a slow resolver could hold a login past it) and the connection goes to
+  the address the guard validated, with TLS still checked against the host name.
+- **security (EUDI wallet)** — The status-list cache is bounded by total decoded list bytes as well as by entry count,
+  and one cache is shared by every wallet provider: `helix.wallet.status-list.cache-max-entries` (64) and
+  `helix.wallet.status-list.cache-max-bytes` (32 MB; the worst case was about 128 MB per provider).
+- **refactor (EUDI wallet)** — The CWT (mdoc) form of a Status List Token is parsed by its own class, `StatusListCwt`;
+  no behaviour change.
 - **security (dependencies)** — Sandbox RP: `proxy-addr` pinned to 2.0.8 via an `overrides` entry (CVE-2026-90711,
   CRITICAL; express pulls it transitively at `~2.0.7`); `npm audit` is otherwise clean.
 - **security (dependencies)** — Terraform provider: `golang.org/x/net` v0.58.0 → v0.60.0 (CVE-2026-78669 HIGH,

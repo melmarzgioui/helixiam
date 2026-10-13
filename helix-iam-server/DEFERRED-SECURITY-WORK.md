@@ -51,26 +51,23 @@ the 5.2.x line carries no Spring compatibility constraint. Validation logic is u
 - **L6**: generated bootstrap admin password is logged (zero-config trade-off; set `HELIX_ADMIN_PASSWORD`).
 
 ## EUDI Wallet: bounded issuer-revocation client (follow-up to Task 7, 2026-10-11)
-**Status: OPEN.** `IssuerTrustValidator` (wallet issuer X.509 trust) lets the JDK `PKIXRevocationChecker` fetch the
-CRL distribution points and OCSP responders named in the presented certificates. Mitigated today:
-- Nothing is fetched until the chain validates to a configured anchor, so only certificates a trusted CA issued can
-  name a URL.
-- Every CRL/OCSP URL passes `OutboundUrlGuard` first. Non-http(s) schemes (incl. `ldap:`), non-URI names, and
-  loopback, private and link-local hosts are never fetched.
-- The JDK timeouts are bounded in `Application.main` (`RevocationTimeouts`: 3 s connect, 5 s read; an operator's
-  `-D` value wins).
-
-Residual limits of the JDK fetch, to be closed by a HelixIAM revocation client (guarded, time-bounded,
-size-capped, CRL/OCSP response cache, plugged into PKIX via a custom `PKIXCertPathChecker` or pre-fetched CRLs in a
-`CertStore`):
-- **DNS rebinding / TOCTOU:** the guard resolves the host, then the JDK resolves it again before connecting.
-- **Redirects:** the JDK's `HttpURLConnection` follows same-protocol redirects, which can lead to an address the
-  guard never saw.
-- **CRL size:** the JDK sets no download cap, so a large CRL is a memory and latency DoS.
-- **No result cache under our control:** each wallet login may re-fetch, depending only on the JDK's internal
-  caching.
-- **SOFT_FAIL with two or more intermediates:** an undeterminable upper CA stops the JDK before it checks a lower
-  CA. The leaf is always checked separately.
+**Status: DONE (363fb26, branch `fix/wallet-network-hardening`).** `IssuerTrustValidator` no longer lets the JDK
+`PKIXRevocationChecker` fetch anything. `IssuerRevocationClient` fetches OCSP and CRLs over `PinnedHttpFetcher` and
+hands them to the JDK checker (OCSP via `setOcspResponses`, OCSP only; CRLs via a `CertStore` after a pre-check that
+mirrors the JDK's CRL approval, so its hard-wired distribution-point fallback is never reached). Each residual limit
+listed here before is closed:
+- **DNS rebinding / TOCTOU — DONE.** `OutboundUrlGuard.resolveAllowed` resolves once and returns the checked
+  addresses; the socket connects to one of them, with the original host as `Host` header and TLS name.
+- **Redirects — DONE.** Never followed.
+- **CRL size — DONE.** `helix.wallet.revocation.max-crl-bytes` (10 MB); OCSP responses at most 64 KB.
+- **Result cache under our control — DONE.** Until `nextUpdate` (24 h cap), bounded by entries and bytes, shared by
+  every provider.
+- **SOFT_FAIL with two or more intermediates — DONE.** Every certificate is checked on its own against its own
+  issuer; a revoked certificate anywhere refuses.
+- Timeouts: connect 3 s, 5 s per fetch including DNS (inside the deadline), 10 s per chain. **Default mode:**
+  `HARD_FAIL` (was `SOFT_FAIL`); configurable per provider, console field added. Rationale in
+  `docs/eudi-wallet.md` §7.2. Residual: a CRL that passes the pre-check but that the JDK would still refuse would make
+  the JDK fetch the same, already guard-approved URL itself; no such case is known.
 
 ## EUDI Wallet: deferred/parked items (Task 26, 2026-10-12)
 
@@ -89,17 +86,16 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
   documentation is this task's deliverable; the pinning test is not added here** — Task 26 is scoped to
   documentation, the security-review write-up and GDPR, not new wallet test coverage for a pre-existing, already
   openly-accepted trust-model case. Add the test alongside any future change that touches `MdocStatusListSigner`.
-- **Status-list cache worst-case memory (~128 MB).** `TokenStatusListClient`'s verified-token cache has no
-  overall byte budget, only a per-entry decompressed-size cap (2 MB) and a count/TTL-driven eviction; a verifier
-  configured with many distinct, long-`maxCacheSeconds` status lists could accumulate a large working set before
-  eviction catches up. Task 10 review finding #5, deferred to final triage.
-- **`OutboundUrlGuard`'s DNS resolution is not itself inside the fetch deadline.** The guard resolves and checks
-  a status-list host before the HTTP client's own connect timeout starts counting, so a slow-to-resolve (or
-  deliberately slow) DNS name can extend a status check beyond the configured 3 s connect / 5 s read bounds.
-  Task 10 review finding #6, deferred to final triage.
-- **`StatusListToken`/CWT status-list parsing could be split into its own class.** Today the CWT (mdoc) status
-  list form's COSE/CBOR handling is inlined alongside the SD-JWT (JWT) form in the same client rather than
-  factored into a dedicated type. Not a defect — a structure/maintainability item. Task 10 review finding #10.
+- **DONE (537289a) — Status-list cache worst-case memory (~128 MB).** `TokenStatusListClient`'s verified-token cache
+  had no overall byte budget. `StatusListCache` now bounds entries and total decoded list bytes (LRU), shared by every
+  provider: `helix.wallet.status-list.cache-max-entries` (64), `helix.wallet.status-list.cache-max-bytes` (32 MB).
+  Task 10 review finding #5.
+- **DONE (a7e55e4) — `OutboundUrlGuard`'s DNS resolution is not itself inside the fetch deadline.** Status-list
+  fetches now go through `PinnedHttpFetcher`: the guard resolves inside the 5 s deadline and the connection goes to
+  the validated address (also closing the rebinding window for status lists). Task 10 review finding #6.
+- **DONE (9d42741) — `StatusListToken`/CWT status-list parsing split into its own class.** `StatusListCwt` holds the
+  CWT (mdoc) form; `StatusListToken` keeps the JWT form and the common checks. No behaviour change, no test edited.
+  Task 10 review finding #10.
 - **mdoc/COSE implementation-detail minors carried from the Task 11/12 reviews**, all accepted-risk or
   test-coverage gaps rather than defects, kept for a future pentest pass: an assumption that an `x5chain` is encoded as a single certificate when only one is present (vs. always an
   array), no explicit CBOR/COSE library version pin test, `byte[]` (non-constant-time) equality on a couple of

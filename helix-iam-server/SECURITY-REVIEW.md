@@ -550,16 +550,21 @@ review before merge (`task-18-review.md`), not something later Task 26 found.
 
 Every Token Status List fetch (`TokenStatusListClient`) goes through the same `OutboundUrlGuard` every other
 admin-configurable outbound HTTP call in HelixIAM uses (webhooks, SCIM, OIDC/eID discovery and JWKS, HIBP, audit
-forwarding): `https` only, no loopback/private/link-local/cloud-metadata destination, DNS-rebinding mitigated by
-resolve-then-check (not eliminated — the same residual TOCTOU noted for every other `OutboundUrlGuard` caller in
-the main review's M6 finding). A `status_list.uri` that fails this check, or that is not in the operator's
-`statusList.allowedHosts` when that allow-list is configured, is refused **by policy, before any fetch** and is
-always treated as "cannot be fetched" rather than "unavailable" — it is never given the fail-open path even under
-`FAIL_OPEN_WITH_AUDIT` (ledger Task 10 ruling), because the URI is issuer-signed content, not something an
-attacker can toggle per-request the way they could an HTTP response code. See also §4/§5 of
-`docs/eudi-wallet.md` — this branch has no `trustedProxies` setting, so `OutboundUrlGuard`'s own egress decisions
-are the only guard in front of these fetches; there is nothing *additional* scoping which proxy the server itself
-may sit behind.
+forwarding): `https` only, no loopback/private/link-local/cloud-metadata destination. Unlike those callers, the
+status-list fetch (and every redirect hop, each re-vetted) runs over `PinnedHttpFetcher`: the guard resolves the host
+once (`OutboundUrlGuard.resolveAllowed`) and the socket connects to one of the addresses it checked, never to the
+name, so a resolver that answers differently the second time (DNS rebinding) cannot move the connection; TLS is still
+verified against the host name. That resolution runs inside the 5 s deadline, so a slow resolver cannot hold a login
+past it. A `status_list.uri` that fails these checks, or that is not in the operator's `statusList.allowedHosts`
+when that allow-list is configured, is refused **by policy, before any connection** and is always treated as
+"cannot be fetched" rather than "unavailable" — it is never given the fail-open path even under
+`FAIL_OPEN_WITH_AUDIT` (ledger Task 10 ruling), because the URI is issuer-signed content, not something an attacker
+can toggle per-request the way they could an HTTP response code. Verified lists are cached in one `StatusListCache`
+shared by every provider, bounded by entry count (`helix.wallet.status-list.cache-max-entries`, 64) and by total
+decoded list bytes (`helix.wallet.status-list.cache-max-bytes`, 32 MB; before, about 128 MB in the worst case). See
+also §4/§5 of `docs/eudi-wallet.md` — this branch has no `trustedProxies` setting, so `OutboundUrlGuard`'s own egress
+decisions are the only guard in front of these fetches; there is nothing *additional* scoping which proxy the
+server itself may sit behind.
 
 ### B.6 The §6.5 mdoc status-list-signer rule, and the appended-anchor bypass that was fixed
 
@@ -612,3 +617,34 @@ either changes observable behaviour for callers this document has not re-verifie
   session already established by the caller a few lines earlier (`FederatedLoginCompleter.complete`,
   `:158-161`). This is accepted as a JVM-level edge case (the project does not catch `Error` anywhere else
   either) and tracked in `DEFERRED-SECURITY-WORK.md` rather than papered over with a `catch (Throwable)`.
+
+### B.10 Issuer certificate revocation (CRL / OCSP)
+
+The CRL distribution point and OCSP responder URLs come from the presented, attacker-supplied issuer certificates,
+so the fetch is an SSRF and DoS surface. The JDK `PKIXRevocationChecker` no longer fetches anything for wallet
+issuer certificates (it followed redirects, re-resolved names, had no CRL size cap and no cache under our control).
+`IssuerRevocationClient` fetches instead, over `PinnedHttpFetcher`:
+- nothing is fetched until the chain has validated to a configured anchor, so only a trusted CA's certificates can
+  name a URL;
+- every URL passes `OutboundUrlGuard` (http and https only — CRLs and OCSP responses are signed, so plain http is
+  normal and their signature is the integrity; `ldap:` and non-URI names are never used), the connection goes to the
+  validated address (no DNS rebinding), no redirect is followed, connect 3 s and 5 s in total per fetch including
+  DNS, 10 s per chain, OCSP response at most 64 KB, CRL at most `helix.wallet.revocation.max-crl-bytes` (10 MB);
+- the JDK still decides: an OCSP response goes in through `setOcspResponses` (OCSP only, no fallback; with a response
+  supplied the JDK never contacts a responder), a CRL through a Collection `CertStore` (CRL only). The JDK's own
+  fallback to a certificate's distribution points is hard-wired on for `PKIXRevocationChecker`, so a CRL is first
+  pre-checked against the conditions the JDK applies when it approves a CRL (issuer name and key identifier,
+  cRLSign, signature algorithm and signature, thisUpdate/nextUpdate, no delta / indirect / partial CRL, no unknown
+  critical extension); a CRL failing them is never handed over, so the fallback is never reached
+  (`IssuerRevocationTest.crlSignedByAnotherKeyIsNotAcceptedAndOnlyOurFetchHappens`);
+- answers are cached until `nextUpdate` (24 h at most; without `nextUpdate`, not at all), bounded by
+  `helix.wallet.revocation.cache-max-entries` (256) and `.cache-max-bytes` (32 MB), shared by every provider.
+
+Each certificate below the anchor is checked on its own, against its own issuer, so an undeterminable upper CA no
+longer stops the check before a lower CA (the former SOFT_FAIL gap with two or more intermediates). A `REVOKED`
+answer anywhere refuses. `revocationChecking` defaults to `HARD_FAIL`: a certificate whose status cannot be
+determined is refused; `SOFT_FAIL` accepts it with a warning (serial and subject DN only); `OFF` checks nothing.
+Residual: a CRL that passes the pre-check but that the JDK would still not approve would make the JDK fetch the same,
+already guard-approved URL itself; no such case is known, and the pre-check is stricter than the JDK on every
+condition it covers.
+
