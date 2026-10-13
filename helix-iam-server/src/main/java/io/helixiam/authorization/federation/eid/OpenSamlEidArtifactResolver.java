@@ -6,6 +6,7 @@
 package io.helixiam.authorization.federation.eid;
 
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.net.PinnedHttpFetcher;
 import net.shibboleth.shared.xml.SerializeSupport;
 import org.opensaml.core.config.InitializationService;
 import org.opensaml.core.xml.XMLObjectBuilderFactory;
@@ -33,10 +34,6 @@ import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.xml.namespace.QName;
 import java.io.ByteArrayInputStream;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.KeyStore;
@@ -47,6 +44,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -62,6 +60,9 @@ import java.util.UUID;
 public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
 
     private static final String SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
+    /** 10 s connect, 15 s in total (as the JDK client's connect and request timeouts), 1 MB answer. */
+    private static final PinnedHttpFetcher.Limits ARS_LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(10),
+            Duration.ofSeconds(15), 1024 * 1024);
 
     private final OutboundUrlGuard egressGuard;
 
@@ -150,23 +151,22 @@ public class OpenSamlEidArtifactResolver implements EidArtifactResolver {
                 + inner + "</soapenv:Body></soapenv:Envelope>";
     }
 
+    /**
+     * POSTs the SOAP ArtifactResolve. M6: through {@link PinnedHttpFetcher} with the (mutual-)TLS context: the guard
+     * resolves the ARS host once, inside the 15 s deadline, and the connection goes to the address it validated (TLS
+     * checked against the host name), without following redirects; the answer is read up to 1 MB.
+     */
     private String post(final EidProviderConfig config, final String soap) throws Exception {
-        final HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .sslContext(clientSslContext(config))
-                .build();
-        final HttpRequest request = HttpRequest.newBuilder(URI.create(config.artifactResolutionServiceUrl()))
-                .timeout(Duration.ofSeconds(15))
-                .header("Content-Type", "text/xml; charset=utf-8")
-                .header("SOAPAction", "http://www.oasis-open.org/committees/security")
-                .POST(HttpRequest.BodyPublishers.ofString(soap, StandardCharsets.UTF_8))
-                .build();
-        final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (response.statusCode() / 100 != 2) {
-            throw new IllegalStateException("eID ARS returned HTTP " + response.statusCode()
+        final PinnedHttpFetcher.Response response = new PinnedHttpFetcher(egressGuard, clientSslContext(config))
+                .exchange(new PinnedHttpFetcher.Request("POST", config.artifactResolutionServiceUrl(), Map.of(
+                        "Content-Type", "text/xml; charset=utf-8",
+                        "SOAPAction", "http://www.oasis-open.org/committees/security"),
+                        soap.getBytes(StandardCharsets.UTF_8), ARS_LIMITS, true));
+        if (response.status() / 100 != 2) {
+            throw new IllegalStateException("eID ARS returned HTTP " + response.status()
                     + " for provider " + config.alias());
         }
-        return response.body();
+        return new String(response.body(), StandardCharsets.UTF_8);
     }
 
     /** Mutual-TLS: present the SP signing cert/key as the client identity (DigiD ARS requires it). */

@@ -107,8 +107,16 @@ public final class RebindingTarget implements AutoCloseable {
 
     /** The guard of the scenario: {@code host} allowlisted on this port, answered as described above. */
     public OutboundUrlGuard guard() {
+        return guard(1);
+    }
+
+    /**
+     * As {@link #guard()}, but the first {@code validated} answers are the server's address (a caller that checks a URL
+     * up front and then resolves once more for the pinned fetch); every answer after them is the metadata address.
+     */
+    public OutboundUrlGuard guard(final int validated) {
         return new OutboundUrlGuard(false, List.of(host + ":" + port()), name -> {
-            final byte[] ip = lookups.getAndIncrement() == 0 ? new byte[] {127, 0, 0, 1}
+            final byte[] ip = lookups.getAndIncrement() < validated ? new byte[] {127, 0, 0, 1}
                     : new byte[] {(byte) 169, (byte) 254, (byte) 169, (byte) 254};
             return new InetAddress[] {InetAddress.getByAddress(name, ip)};
         });
