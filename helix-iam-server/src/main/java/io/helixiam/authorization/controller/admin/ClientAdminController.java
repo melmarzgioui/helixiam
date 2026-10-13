@@ -66,12 +66,15 @@ public class ClientAdminController {
                 request.tokenEndpointAuthMethod());
         if (authMethodProblem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", authMethodProblem, "fieldErrors",
-                    Map.of("tokenEndpointAuthMethod", authMethodProblem)));
+                    Map.of("tokenEndpointAuthMethod", authMethodProblem), "fieldErrorCodes",
+                    Map.of("tokenEndpointAuthMethod", io.helixiam.authorization.service.client.ClientAuthMethods.code(
+                            request.tokenEndpointAuthMethod()))));
         }
         final String jwksUrlProblem = jwksUrlProblem(request.jwksUrl());
         if (jwksUrlProblem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", jwksUrlProblem, "fieldErrors",
-                    Map.of("jwksUrl", jwksUrlProblem)));
+                    Map.of("jwksUrl", jwksUrlProblem), "fieldErrorCodes",
+                    Map.of("jwksUrl", jwksUrlCode(request.jwksUrl()))));
         }
         final ClientDto saved = publisher.create(new ClientWriteDto(realmId, null, request.clientId(),
                 request.grantTypes(), request.redirectUris(), request.scopes(), request.subjectClaim(),
@@ -97,12 +100,15 @@ public class ClientAdminController {
                 request.tokenEndpointAuthMethod());
         if (authMethodProblem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", authMethodProblem, "fieldErrors",
-                    Map.of("tokenEndpointAuthMethod", authMethodProblem)));
+                    Map.of("tokenEndpointAuthMethod", authMethodProblem), "fieldErrorCodes",
+                    Map.of("tokenEndpointAuthMethod", io.helixiam.authorization.service.client.ClientAuthMethods.code(
+                            request.tokenEndpointAuthMethod()))));
         }
         final String jwksUrlProblem = jwksUrlProblem(request.jwksUrl());
         if (jwksUrlProblem != null) {
             return ResponseEntity.badRequest().body(Map.of("message", jwksUrlProblem, "fieldErrors",
-                    Map.of("jwksUrl", jwksUrlProblem)));
+                    Map.of("jwksUrl", jwksUrlProblem), "fieldErrorCodes",
+                    Map.of("jwksUrl", jwksUrlCode(request.jwksUrl()))));
         }
         final ClientDto saved = publisher.update(new ClientWriteDto(realmId, id, request.clientId(),
                 request.grantTypes(), request.redirectUris(), request.scopes(), request.subjectClaim(),
@@ -149,6 +155,11 @@ public class ClientAdminController {
      */
     private String jwksUrlProblem(final String jwksUrl) {
         return io.helixiam.authorization.service.client.JwksUrlPolicy.problem(jwksUrl, profile.isDev());
+    }
+
+    /** The stable code for {@link #jwksUrlProblem}, for the console to map onto its own translated copy. */
+    private String jwksUrlCode(final String jwksUrl) {
+        return io.helixiam.authorization.service.client.JwksUrlPolicy.code(jwksUrl, profile.isDev());
     }
 
     private static ResponseEntity<Map<String, Object>> publicClientHasNoSecret(final String field) {

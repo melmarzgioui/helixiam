@@ -11,7 +11,7 @@ import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { Alert } from "../components/Alert";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { FormField, Input } from "../components/FormField";
 import { Switch } from "../components/Switch";
 import { RowMenu } from "../components/RowMenu";
@@ -39,8 +39,6 @@ export interface WorkloadIdentityPageProps {
   embedded?: boolean;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 /**
  * Helix IAM WIF: per-realm Workload Identity Federation credentials. A credential lets a workload (a
  * Kubernetes pod's projected ServiceAccount token, a CI OIDC token) exchange its issuer-signed JWT for a
@@ -52,7 +50,7 @@ interface Note { tone: ToastTone; title: string; message?: string; }
 export function WorkloadIdentityPage({ api, realmId, boundClientId, serviceAccountEnabled, readOnly, embedded }: WorkloadIdentityPageProps) {
   const { t } = useT();
   const [all, setAll] = React.useState<WorkloadIdentityCredential[] | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [editing, setEditing] = React.useState<WorkloadIdentityCredential | "new" | null>(null);
   const [toDelete, setToDelete] = React.useState<WorkloadIdentityCredential | null>(null);
 
@@ -60,7 +58,7 @@ export function WorkloadIdentityPage({ api, realmId, boundClientId, serviceAccou
     setAll(null);
     api.list(realmId).then(setAll).catch((e) => {
       setAll([]);
-      setNote({ tone: "error", title: t("workloadIdentity.errLoad"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("workloadIdentity.errLoad"), message: String(e.message ?? e) });
     });
   }, [api, realmId]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(reload, [reload]);
@@ -71,18 +69,18 @@ export function WorkloadIdentityPage({ api, realmId, boundClientId, serviceAccou
     try {
       if (id) await api.update(realmId, id, body); else await api.create(realmId, body);
       setEditing(null);
-      setNote({ tone: "success", title: id ? t("workloadIdentity.toastUpdated") : t("workloadIdentity.toastCreated") });
+      toast.show({ tone: "success", title: id ? t("workloadIdentity.toastUpdated") : t("workloadIdentity.toastCreated") });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("workloadIdentity.errSave"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("workloadIdentity.errSave"), message: String((e as Error).message ?? e) });
     }
   };
 
   const confirmDelete = async () => {
     const c = toDelete; setToDelete(null);
     if (!c) return;
-    try { await api.remove(realmId, c.id); setNote({ tone: "success", title: t("workloadIdentity.toastDeleted") }); reload(); }
-    catch (e: unknown) { setNote({ tone: "error", title: t("workloadIdentity.errDelete"), message: String((e as Error).message ?? e) }); }
+    try { await api.remove(realmId, c.id); toast.show({ tone: "success", title: t("workloadIdentity.toastDeleted") }); reload(); }
+    catch (e: unknown) { toast.show({ tone: "error", title: t("workloadIdentity.errDelete"), message: String((e as Error).message ?? e) }); }
   };
 
   const canAdd = !readOnly && (!boundClientId || serviceAccountEnabled);
@@ -235,11 +233,6 @@ export function WorkloadIdentityPage({ api, realmId, boundClientId, serviceAccou
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

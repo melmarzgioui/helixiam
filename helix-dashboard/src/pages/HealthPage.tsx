@@ -10,7 +10,6 @@ import { Button } from "../components/Button";
 import { Alert } from "../components/Alert";
 import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
-import { Toast, ToastTone } from "../components/Toast";
 import { HealthApi, HealthSnapshot, MetricsSummary } from "../api/health";
 import { useT } from "../i18n/LocaleContext";
 
@@ -28,7 +27,6 @@ export function HealthPage({ api, realmId }: HealthPageProps) {
   const [metrics, setMetrics] = React.useState<MetricsSummary | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [note, setNote] = React.useState<{ tone: ToastTone; title: string; message?: string } | null>(null);
 
   const reload = React.useCallback(() => {
     setLoading(true);
@@ -110,12 +108,6 @@ export function HealthPage({ api, realmId }: HealthPageProps) {
           </>
         )}
       </PageBody>
-
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

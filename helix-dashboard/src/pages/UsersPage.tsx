@@ -8,7 +8,7 @@ import { Page, PageHeader, PageBody, PageToolbar } from "../components/Page";
 import { Button } from "../components/Button";
 import { RowMenu } from "../components/RowMenu";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast, ToastInput } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -30,7 +30,7 @@ export interface UsersPageProps {
   onOpen?: (userId: string) => void;
 }
 
-export interface Note { tone: ToastTone; title: string; message?: string; }
+export type Note = ToastInput;
 
 /** E8.5-S1: the live Users screen — realm-scoped user management backed by the admin API. */
 export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
@@ -44,7 +44,7 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
   const [toDelete, setToDelete] = React.useState<UserSummary | null>(null);
   const [importOpen, setImportOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const submitImport = async (payload: string) => {
     setBusy(true);
@@ -55,7 +55,7 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
         t("users.import.result.skipped", { count: result.skipped }),
       ];
       if (result.failed.length) parts.push(t("users.import.result.failed", { count: result.failed.length }));
-      setNote({
+      toast.show({
         tone: result.failed.length ? "info" : "success",
         title: t("users.import.done"),
         message: parts.join(" · ") + (result.failed.length ? t("users.import.result.firstError", { username: result.failed[0].username || "—", error: result.failed[0].error }) : ""),
@@ -63,7 +63,7 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
       setImportOpen(false);
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.import.failed"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.import.failed"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -73,7 +73,7 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
     setRows(null);
     api.list(realmId).then(setRows).catch((e) => {
       setRows([]);
-      setNote({ tone: "error", title: t("users.load.error"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("users.load.error"), message: String(e.message ?? e) });
     });
   }, [api, realmId, t]);
 
@@ -93,15 +93,15 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
     try {
       if (editing) {
         await api.update(realmId, editing.userId, write);
-        setNote({ tone: "success", title: t("users.updated"), message: t("users.updated.msg", { name: write.username }) });
+        toast.show({ tone: "success", title: t("users.updated"), message: t("users.updated.msg", { name: write.username }) });
       } else {
         await api.create(realmId, write);
-        setNote({ tone: "success", title: t("users.created"), message: t("users.created.msg", { name: write.username, realm: realmId }) });
+        toast.show({ tone: "success", title: t("users.created"), message: t("users.created.msg", { name: write.username, realm: realmId }) });
       }
       closeEditor();
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.save.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.save.error"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -110,10 +110,10 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
   const toggleEnabled = async (u: UserSummary) => {
     try {
       await api.update(realmId, u.userId, { username: u.username, email: u.email ?? undefined, enabled: !u.enabled, locked: u.locked, attributes: u.attributes });
-      setNote({ tone: "info", title: u.enabled ? t("users.disabled") : t("users.enabled"), message: u.username });
+      toast.show({ tone: "info", title: u.enabled ? t("users.disabled") : t("users.enabled"), message: u.username });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.update.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.update.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -123,9 +123,9 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
     setResetting(null);
     try {
       await api.resetPassword(realmId, target.userId, newPassword);
-      setNote({ tone: "success", title: t("users.password.reset"), message: t("users.password.reset.msg", { name: target.username }) });
+      toast.show({ tone: "success", title: t("users.password.reset"), message: t("users.password.reset.msg", { name: target.username }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.password.reset.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.password.reset.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -135,10 +135,10 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
     setToDelete(null);
     try {
       await api.remove(realmId, target.userId);
-      setNote({ tone: "info", title: t("users.removed"), message: t("users.removed.msg", { name: target.username, realm: realmId }) });
+      toast.show({ tone: "info", title: t("users.removed"), message: t("users.removed.msg", { name: target.username, realm: realmId }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.remove.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.remove.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -251,7 +251,7 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
       </Modal>
 
       <Modal open={managing !== null} title={t("users.modal.roles", { name: managing?.username ?? "" })} onClose={() => { setManaging(null); reload(); }} width={460}>
-        {managing && <RolesManager roleApi={roleApi} realmId={realmId} user={managing} onNote={setNote} />}
+        {managing && <RolesManager roleApi={roleApi} realmId={realmId} user={managing} onNote={toast.show} />}
       </Modal>
 
       <Modal open={importOpen} title={t("users.import.title")} onClose={() => setImportOpen(false)} width={620}>
@@ -266,11 +266,6 @@ export function UsersPage({ api, roleApi, realmId, onOpen }: UsersPageProps) {
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

@@ -6,7 +6,7 @@
 import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast, ToastInput } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { Switch } from "../components/Switch";
 import { Checkbox } from "../components/Choice";
@@ -29,7 +29,7 @@ export interface ProvisioningPageProps {
   scimApi?: ScimTargetApi;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
+type Note = ToastInput;
 
 /**
  * E11: the Provisioning screen — SCIM 2.0 inbound provisioning and OIDC Dynamic Client Registration for
@@ -41,14 +41,14 @@ export function ProvisioningPage({ api, realmId, scimApi }: ProvisioningPageProp
   const scim = React.useMemo(() => scimApi ?? createScimTargetHttpClient(), [scimApi]);
   const [config, setConfig] = React.useState<ProvisioningConfig | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [revealedToken, setRevealedToken] = React.useState<string | null>(null);
   const [revealedIat, setRevealedIat] = React.useState<string | null>(null);
 
   const reload = React.useCallback(() => {
     setConfig(null);
     api.get(realmId).then(setConfig).catch((e) => {
-      setNote({ tone: "error", title: t("provisioning.errLoad"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("provisioning.errLoad"), message: String(e.message ?? e) });
     });
   }, [api, realmId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -61,12 +61,12 @@ export function ProvisioningPage({ api, realmId, scimApi }: ProvisioningPageProp
       setConfig(result.config);
       if (result.newScimToken) {
         setRevealedToken(result.newScimToken);
-        setNote({ tone: "success", title: t("provisioning.toastScimTokenGenerated"), message: t("provisioning.toastScimTokenMsg") });
+        toast.show({ tone: "success", title: t("provisioning.toastScimTokenGenerated"), message: t("provisioning.toastScimTokenMsg") });
       } else {
-        setNote({ tone: "success", title: t("provisioning.toastSaved") });
+        toast.show({ tone: "success", title: t("provisioning.toastSaved") });
       }
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("provisioning.errSave"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("provisioning.errSave"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -77,9 +77,9 @@ export function ProvisioningPage({ api, realmId, scimApi }: ProvisioningPageProp
     try {
       const result = await api.issueInitialAccessToken(realmId);
       setRevealedIat(result.initialAccessToken);
-      setNote({ tone: "success", title: t("provisioning.toastIatMinted"), message: t("provisioning.toastIatMsg") });
+      toast.show({ tone: "success", title: t("provisioning.toastIatMinted"), message: t("provisioning.toastIatMsg") });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("provisioning.errMintToken"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("provisioning.errMintToken"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -164,14 +164,9 @@ export function ProvisioningPage({ api, realmId, scimApi }: ProvisioningPageProp
         )}
 
         {/* B7: outbound SCIM provisioning — push local user lifecycle to downstream service providers. */}
-        <OutboundScimSection scim={scim} realmId={realmId} onNote={setNote} />
+        <OutboundScimSection scim={scim} realmId={realmId} onNote={toast.show} />
       </PageBody>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

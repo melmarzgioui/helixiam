@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Card } from "../components/Card";
 import { Button } from "../components/Button";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
 import { FormField, Input, Select } from "../components/FormField";
@@ -21,8 +21,6 @@ export interface GdprPrivacyPageProps {
   userApi: UserApi;
   realmId: string;
 }
-
-interface Note { tone: ToastTone; title: string; message?: string; }
 
 /**
  * Helix IAM GDPR / Privacy (admin): exercise data-subject rights for any user in the realm — export their
@@ -38,7 +36,7 @@ export function GdprPrivacyPage({ api, userApi, realmId }: GdprPrivacyPageProps)
   const [exportData, setExportData] = React.useState<GdprExport | null>(null);
   const [consents, setConsents] = React.useState<GdprConsentRecord[] | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [eraseMode, setEraseMode] = React.useState<GdprEraseMode>("anonymize");
   const [confirmErase, setConfirmErase] = React.useState(false);
 
@@ -49,7 +47,7 @@ export function GdprPrivacyPage({ api, userApi, realmId }: GdprPrivacyPageProps)
     setConsents(null);
     userApi.list(realmId)
       .then(setUsers)
-      .catch((e) => { setUsers([]); setNote({ tone: "error", title: t("gdpr.toast.loadUsersError"), message: String(e.message ?? e) }); });
+      .catch((e) => { setUsers([]); toast.show({ tone: "error", title: t("gdpr.toast.loadUsersError"), message: String(e.message ?? e) }); });
   }, [userApi, realmId]);
 
   const selectedUser = (users ?? []).find((u) => u.userId === selected) ?? null;
@@ -58,7 +56,7 @@ export function GdprPrivacyPage({ api, userApi, realmId }: GdprPrivacyPageProps)
     setConsents(null);
     api.consents(realmId, userId)
       .then(setConsents)
-      .catch((e) => { setConsents([]); setNote({ tone: "error", title: t("gdpr.toast.loadConsentsError"), message: String(e.message ?? e) }); });
+      .catch((e) => { setConsents([]); toast.show({ tone: "error", title: t("gdpr.toast.loadConsentsError"), message: String(e.message ?? e) }); });
   }, [api, realmId]);
 
   const onPick = (userId: string) => {
@@ -72,8 +70,8 @@ export function GdprPrivacyPage({ api, userApi, realmId }: GdprPrivacyPageProps)
     if (!selected) return;
     setBusy(true);
     api.export(realmId, selected)
-      .then((data) => { setExportData(data); setNote({ tone: "success", title: t("gdpr.toast.exportAssembled") }); })
-      .catch((e) => setNote({ tone: "error", title: t("gdpr.toast.exportError"), message: String(e.message ?? e) }))
+      .then((data) => { setExportData(data); toast.show({ tone: "success", title: t("gdpr.toast.exportAssembled") }); })
+      .catch((e) => toast.show({ tone: "error", title: t("gdpr.toast.exportError"), message: String(e.message ?? e) }))
       .finally(() => setBusy(false));
   };
 
@@ -95,14 +93,14 @@ export function GdprPrivacyPage({ api, userApi, realmId }: GdprPrivacyPageProps)
     setBusy(true);
     api.erase(realmId, selected, eraseMode)
       .then((result) => {
-        setNote({ tone: "success", title: eraseMode === "hard" ? t("gdpr.toast.erased") : t("gdpr.toast.anonymized"), message: result.userId });
+        toast.show({ tone: "success", title: eraseMode === "hard" ? t("gdpr.toast.erased") : t("gdpr.toast.anonymized"), message: result.userId });
         // Refresh the user list (a hard-deleted user disappears; an anonymized one is renamed + disabled).
         userApi.list(realmId).then(setUsers).catch(() => undefined);
         setSelected("");
         setExportData(null);
         setConsents(null);
       })
-      .catch((e) => setNote({ tone: "error", title: t("gdpr.toast.eraseError"), message: String(e.message ?? e) }))
+      .catch((e) => toast.show({ tone: "error", title: t("gdpr.toast.eraseError"), message: String(e.message ?? e) }))
       .finally(() => { setBusy(false); setConfirmErase(false); });
   };
 
@@ -237,11 +235,6 @@ export function GdprPrivacyPage({ api, userApi, realmId }: GdprPrivacyPageProps)
         onCancel={() => setConfirmErase(false)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

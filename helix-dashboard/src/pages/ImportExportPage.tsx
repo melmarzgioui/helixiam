@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { Alert } from "../components/Alert";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
 import { FormField, Textarea, Select } from "../components/FormField";
@@ -17,12 +17,6 @@ import { useT } from "../i18n/LocaleContext";
 export interface ImportExportPageProps {
   api: RealmIoApi;
   realmId: string;
-}
-
-interface Note {
-  tone: ToastTone;
-  title: string;
-  message?: string;
 }
 
 /** Every slice the document can carry, in display order, with friendly labels (mirrors the backend's
@@ -101,7 +95,7 @@ function previewKeycloakCounts(doc: RealmExportDocument): { key: string; label: 
 export function ImportExportPage({ api, realmId }: ImportExportPageProps) {
   const { t } = useT();
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   // Import workflow state.
   const [format, setFormat] = React.useState<ImportFormat>("helix");
@@ -157,9 +151,9 @@ export function ImportExportPage({ api, realmId }: ImportExportPageProps) {
       a.download = `${realmId}-realm-export.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setNote({ tone: "success", title: t("importExport.toast.exported"), message: t("importExport.toast.exportedMsg") });
+      toast.show({ tone: "success", title: t("importExport.toast.exported"), message: t("importExport.toast.exportedMsg") });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("importExport.error.export"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("importExport.error.export"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -174,11 +168,11 @@ export function ImportExportPage({ api, realmId }: ImportExportPageProps) {
         : await api.importRealm(realmId, parsed, onConflict);
       setResult(summary);
       const conflicts = (summary as { conflicts?: string[] }).conflicts;
-      setNote(conflicts && conflicts.length
+      toast.show(conflicts && conflicts.length
         ? { tone: "error", title: t("importExport.toast.conflicts"), message: `${conflicts.length} existing entr${conflicts.length === 1 ? "y" : "ies"}: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? "…" : ""}` }
         : { tone: "success", title: t("importExport.toast.imported"), message: t("importExport.toast.importedMsg", { realm: realmId }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("importExport.error.import"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("importExport.error.import"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -337,11 +331,6 @@ export function ImportExportPage({ api, realmId }: ImportExportPageProps) {
         )}
       </PageBody>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

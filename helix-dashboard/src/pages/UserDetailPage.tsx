@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { Spinner } from "../components/Spinner";
-import { Toast } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Badge } from "../components/Badge";
 import { Tabs } from "../components/Tabs";
 import { Modal, ConfirmDialog } from "../components/Modal";
@@ -51,7 +51,7 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
   const [tab, setTab] = React.useState("details");
   const [resetOpen, setResetOpen] = React.useState(false);
   const [toDelete, setToDelete] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const reload = React.useCallback(() => {
     api.get(realmId, userId)
@@ -64,9 +64,9 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
     try {
       const saved = await api.update(realmId, userId, write);
       setUser(saved);
-      setNote({ tone: "success", title: t("users.updated"), message: t("users.updated.msg", { name: saved.username }) });
+      toast.show({ tone: "success", title: t("users.updated"), message: t("users.updated.msg", { name: saved.username }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.save.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.save.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -74,19 +74,19 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
     setResetOpen(false);
     try {
       await api.resetPassword(realmId, userId, pw);
-      setNote({ tone: "success", title: t("users.password.reset"), message: t("users.password.reset.msg", { name: user?.username ?? "" }) });
+      toast.show({ tone: "success", title: t("users.password.reset"), message: t("users.password.reset.msg", { name: user?.username ?? "" }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.password.reset.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.password.reset.error"), message: String((e as Error).message ?? e) });
     }
   };
 
   const impersonate = async () => {
     try {
       const res = await api.impersonate(realmId, userId);
-      setNote({ tone: "success", title: t("userDetail.impersonating", { name: res.impersonating }), message: t("userDetail.impersonating.msg") });
+      toast.show({ tone: "success", title: t("userDetail.impersonating", { name: res.impersonating }), message: t("userDetail.impersonating.msg") });
       window.open(res.redirectUrl, "_blank", "noopener");
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("userDetail.impersonate.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("userDetail.impersonate.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -96,7 +96,7 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
       await api.remove(realmId, userId);
       onBack();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("users.remove.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("users.remove.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -160,22 +160,22 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
                 </span>
               </div>
             </Section>
-            <RequiredActionsManager api={api} realmId={realmId} userId={user.userId} onNote={setNote} />
+            <RequiredActionsManager api={api} realmId={realmId} userId={user.userId} onNote={toast.show} />
           </>
         )}
 
         {tab === "roles" && (
           <Section title={t("userDetail.section.roles")}>
-            <RolesManager roleApi={roleApi} realmId={realmId} user={user} onNote={setNote} />
+            <RolesManager roleApi={roleApi} realmId={realmId} user={user} onNote={toast.show} />
           </Section>
         )}
 
         {tab === "credentials" && (
-          <UserCredentials api={credentialApi} realmId={realmId} userId={user.userId} username={user.username} onNote={setNote} />
+          <UserCredentials api={credentialApi} realmId={realmId} userId={user.userId} username={user.username} onNote={toast.show} />
         )}
 
         {tab === "sessions" && (
-          <UserSessions sessionApi={sessionApi} realmId={realmId} username={user.username} userId={user.userId} onNote={setNote} />
+          <UserSessions sessionApi={sessionApi} realmId={realmId} username={user.username} userId={user.userId} onNote={toast.show} />
         )}
       </PageBody>
 
@@ -190,12 +190,6 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
         onConfirm={confirmDelete}
         onCancel={() => setToDelete(false)}
       />
-
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

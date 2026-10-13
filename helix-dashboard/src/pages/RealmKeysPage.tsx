@@ -10,7 +10,7 @@ import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { RealmKey, RealmKeyApi } from "../api/keys";
 import { useT } from "../i18n/LocaleContext";
 
@@ -18,8 +18,6 @@ export interface RealmKeysPageProps {
   api: RealmKeyApi;
   realmId: string;
 }
-
-interface Note { tone: ToastTone; title: string; message?: string; }
 
 const STATUS_TONE: Record<string, "success" | "warning" | "neutral"> = {
   ACTIVE: "success",
@@ -36,7 +34,7 @@ const STATUS_TONE: Record<string, "success" | "warning" | "neutral"> = {
 export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
   const { t } = useT();
   const [keys, setKeys] = React.useState<RealmKey[] | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [rotating, setRotating] = React.useState(false);
   const [confirmRotate, setConfirmRotate] = React.useState(false);
   const [toRetire, setToRetire] = React.useState<RealmKey | null>(null);
@@ -46,7 +44,7 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
     setKeys(null);
     api.list(realmId)
       .then(setKeys)
-      .catch((e) => { setKeys([]); setNote({ tone: "error", title: t("realmKeys.toast.loadError"), message: String(e.message ?? e) }); });
+      .catch((e) => { setKeys([]); toast.show({ tone: "error", title: t("realmKeys.toast.loadError"), message: String(e.message ?? e) }); });
   }, [api, realmId]);
 
   React.useEffect(reload, [reload]);
@@ -55,8 +53,8 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
     setConfirmRotate(false);
     setRotating(true);
     api.rotate(realmId)
-      .then((k) => { setNote({ tone: "success", title: t("realmKeys.toast.rotated"), message: t("realmKeys.toast.rotated.message", { kid: k.keyId.slice(0, 12) }) }); reload(); })
-      .catch((e) => setNote({ tone: "error", title: t("realmKeys.toast.rotateFailed"), message: String(e.message ?? e) }))
+      .then((k) => { toast.show({ tone: "success", title: t("realmKeys.toast.rotated"), message: t("realmKeys.toast.rotated.message", { kid: k.keyId.slice(0, 12) }) }); reload(); })
+      .catch((e) => toast.show({ tone: "error", title: t("realmKeys.toast.rotateFailed"), message: String(e.message ?? e) }))
       .finally(() => setRotating(false));
   };
 
@@ -65,8 +63,8 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
     setToRetire(null);
     if (!key) return;
     api.retire(realmId, key.keyId)
-      .then(() => { setNote({ tone: "success", title: t("realmKeys.toast.retired"), message: t("realmKeys.toast.retired.message") }); reload(); })
-      .catch((e) => setNote({ tone: "error", title: t("realmKeys.toast.retireFailed"), message: String(e.message ?? e) }));
+      .then(() => { toast.show({ tone: "success", title: t("realmKeys.toast.retired"), message: t("realmKeys.toast.retired.message") }); reload(); })
+      .catch((e) => toast.show({ tone: "error", title: t("realmKeys.toast.retireFailed"), message: String(e.message ?? e) }));
   };
 
   const fmt = (ms: number | null) => (ms ? new Date(ms).toISOString().replace("T", " ").replace(/\..*$/, "") : "—");
@@ -178,11 +176,6 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
         <pre className="hx-codeblock">{viewKey?.publicKey}</pre>
       </Modal>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

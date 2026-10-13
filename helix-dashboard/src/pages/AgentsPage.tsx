@@ -13,7 +13,7 @@ import { EmptyState } from "../components/EmptyState";
 import { Modal, ConfirmDialog } from "../components/Modal";
 import { Drawer } from "../components/Drawer";
 import { DetailList, Detail } from "../components/DetailList";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { FormField, Input, Select } from "../components/FormField";
 import { Combobox, ComboOption } from "../components/Combobox";
 import { MultiCombobox } from "../components/MultiCombobox";
@@ -41,8 +41,6 @@ export interface AgentsPageProps {
   /** Optional — populates the Roles multi-select with the bound client's client-roles. */
   clientRoleApi?: { listRoles(realmId: string, clientId: string): Promise<ClientRole[]> };
 }
-
-interface Note { tone: ToastTone; title: string; message?: string; }
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   ACTIVE: "success", SUSPENDED: "warning", EXPIRED: "danger", REVOKED: "danger",
@@ -91,7 +89,7 @@ function tokenClaims(a: Agent): Array<[string, string]> {
 export function AgentsPage({ api, realmId, boundClientId, embedded, userApi, clientApi, roleApi, clientRoleApi }: AgentsPageProps) {
   const { t } = useT();
   const [rows, setRows] = React.useState<Agent[] | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [editing, setEditing] = React.useState<Agent | "new" | null>(null);
   const [selected, setSelected] = React.useState<Agent | null>(null);
   const [toDelete, setToDelete] = React.useState<Agent | null>(null);
@@ -124,7 +122,7 @@ export function AgentsPage({ api, realmId, boundClientId, embedded, userApi, cli
 
   const reload = React.useCallback(() => {
     setRows(null);
-    api.list(realmId).then(setRows).catch((e) => { setRows([]); setNote({ tone: "error", title: t("agents.load.error"), message: String(e.message ?? e) }); });
+    api.list(realmId).then(setRows).catch((e) => { setRows([]); toast.show({ tone: "error", title: t("agents.load.error"), message: String(e.message ?? e) }); });
     // Owner-integrity review runs alongside the list; a failure here just hides the governance signals.
     api.ownerReview(realmId).then(setOwnerReviews).catch(() => setOwnerReviews([]));
   }, [api, realmId, t]);
@@ -134,28 +132,28 @@ export function AgentsPage({ api, realmId, boundClientId, embedded, userApi, cli
     try {
       if (id) await api.update(realmId, id, body); else await api.create(realmId, body);
       setEditing(null);
-      setNote({ tone: "success", title: id ? t("agents.updated") : t("agents.registered") });
+      toast.show({ tone: "success", title: id ? t("agents.updated") : t("agents.registered") });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("agents.save.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("agents.save.error"), message: String((e as Error).message ?? e) });
     }
   };
 
   const lifecycle = async (a: Agent, action: "suspend" | "activate" | "revoke") => {
     try {
       await api[action](realmId, a.id);
-      setNote({ tone: "success", title: action === "activate" ? t("agents.activated") : action === "suspend" ? t("agents.suspended") : t("agents.revoked") });
+      toast.show({ tone: "success", title: action === "activate" ? t("agents.activated") : action === "suspend" ? t("agents.suspended") : t("agents.revoked") });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: action === "activate" ? t("agents.activate.error") : action === "suspend" ? t("agents.suspend.error") : t("agents.revoke.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: action === "activate" ? t("agents.activate.error") : action === "suspend" ? t("agents.suspend.error") : t("agents.revoke.error"), message: String((e as Error).message ?? e) });
     }
   };
 
   const confirmDelete = async () => {
     const a = toDelete; setToDelete(null);
     if (!a) return;
-    try { await api.remove(realmId, a.id); setNote({ tone: "success", title: t("agents.deleted") }); reload(); }
-    catch (e: unknown) { setNote({ tone: "error", title: t("agents.delete.error"), message: String((e as Error).message ?? e) }); }
+    try { await api.remove(realmId, a.id); toast.show({ tone: "success", title: t("agents.deleted") }); reload(); }
+    catch (e: unknown) { toast.show({ tone: "error", title: t("agents.delete.error"), message: String((e as Error).message ?? e) }); }
   };
 
   // When embedded in an Application tab, scope the list to that app's client.
@@ -384,11 +382,6 @@ export function AgentsPage({ api, realmId, boundClientId, embedded, userApi, cli
         {selectedLive && <AgentDetail agent={selectedLive} ownerStatus={ownerMap[selectedLive.id]} t={t} />}
       </Drawer>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

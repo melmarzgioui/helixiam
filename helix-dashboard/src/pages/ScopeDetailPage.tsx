@@ -6,7 +6,7 @@
 import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast, ToastInput } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
 import { RowMenu } from "../components/RowMenu";
@@ -22,7 +22,7 @@ export interface ScopeDetailPageProps {
   onBack: () => void;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
+type Note = ToastInput;
 
 /** E8.5: a single client scope — see its claims and add/remove claims from the catalogue. */
 export function ScopeDetailPage({ api, claimApi, realmId, scopeId, onBack }: ScopeDetailPageProps) {
@@ -30,7 +30,7 @@ export function ScopeDetailPage({ api, claimApi, realmId, scopeId, onBack }: Sco
   const [scope, setScope] = React.useState<ScopeDetail | null>(null);
   const [catalogue, setCatalogue] = React.useState<Claim[]>([]);
   const [addClaimId, setAddClaimId] = React.useState("");
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [notFound, setNotFound] = React.useState(false);
 
   const load = React.useCallback(() => {
@@ -46,7 +46,7 @@ export function ScopeDetailPage({ api, claimApi, realmId, scopeId, onBack }: Sco
   const mappedIds = new Set((scope?.claims ?? []).map((c) => c.claimId));
   const available = catalogue.filter((c) => !mappedIds.has(c.claimId));
 
-  const wrap = (p: Promise<unknown>, ok: Note) => p.then(() => { load(); setNote(ok); }).catch((e: Error) => setNote({ tone: "error", title: t("scopeDetail.actionFailed"), message: String(e.message ?? e) }));
+  const wrap = (p: Promise<unknown>, ok: Note) => p.then(() => { load(); toast.show(ok); }).catch((e: Error) => toast.show({ tone: "error", title: t("scopeDetail.actionFailed"), message: String(e.message ?? e) }));
 
   if (notFound) {
     return (
@@ -126,11 +126,6 @@ export function ScopeDetailPage({ api, claimApi, realmId, scopeId, onBack }: Sco
         )}
       </PageBody>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

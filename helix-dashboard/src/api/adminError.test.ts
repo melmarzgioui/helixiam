@@ -39,4 +39,19 @@ describe("adminJson", () => {
     expect(err.message).toBe("500 Server Error");
     expect(err.fieldErrors).toEqual({});
   });
+
+  it("carries fieldErrorCodes when the server sends stable per-field codes", async () => {
+    const err = await failure(adminJson(response(400, {
+      message: "The JWKS URL must be an https URL.",
+      fieldErrors: { jwksUrl: "The JWKS URL must be an https URL." },
+      fieldErrorCodes: { jwksUrl: "notHttps" },
+    })));
+    expect(err.fieldErrors).toEqual({ jwksUrl: "The JWKS URL must be an https URL." });
+    expect(err.fieldErrorCodes).toEqual({ jwksUrl: "notHttps" });
+  });
+
+  it("defaults fieldErrorCodes to {} when the server doesn't send any (older/other endpoints)", async () => {
+    const err = await failure(adminJson(response(400, { message: "Bad host", fieldErrors: { name: "Bad host" } })));
+    expect(err.fieldErrorCodes).toEqual({});
+  });
 });

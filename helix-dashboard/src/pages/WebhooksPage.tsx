@@ -10,7 +10,7 @@ import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { FormField, Input } from "../components/FormField";
 import { Switch } from "../components/Switch";
 import { RowMenu } from "../components/RowMenu";
@@ -22,8 +22,6 @@ export interface WebhooksPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 /**
  * Helix IAM B6: per-realm outbound webhooks (event-listener SPI). Each matching audit event is POSTed to
  * the endpoint with an HMAC-SHA256 signature (X-Helix-Signature) derived from the shared secret. The
@@ -32,13 +30,13 @@ interface Note { tone: ToastTone; title: string; message?: string; }
 export function WebhooksPage({ api, realmId }: WebhooksPageProps) {
   const { t } = useT();
   const [rows, setRows] = React.useState<Webhook[] | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [editing, setEditing] = React.useState<Webhook | "new" | null>(null);
   const [toDelete, setToDelete] = React.useState<Webhook | null>(null);
 
   const reload = React.useCallback(() => {
     setRows(null);
-    api.list(realmId).then(setRows).catch((e) => { setRows([]); setNote({ tone: "error", title: t("webhooks.error.load"), message: String(e.message ?? e) }); });
+    api.list(realmId).then(setRows).catch((e) => { setRows([]); toast.show({ tone: "error", title: t("webhooks.error.load"), message: String(e.message ?? e) }); });
   }, [api, realmId, t]);
   React.useEffect(reload, [reload]);
 
@@ -46,18 +44,18 @@ export function WebhooksPage({ api, realmId }: WebhooksPageProps) {
     try {
       if (id) await api.update(realmId, id, body); else await api.create(realmId, body);
       setEditing(null);
-      setNote({ tone: "success", title: id ? t("webhooks.toast.updated") : t("webhooks.toast.created") });
+      toast.show({ tone: "success", title: id ? t("webhooks.toast.updated") : t("webhooks.toast.created") });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("webhooks.error.save"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("webhooks.error.save"), message: String((e as Error).message ?? e) });
     }
   };
 
   const confirmDelete = async () => {
     const w = toDelete; setToDelete(null);
     if (!w) return;
-    try { await api.remove(realmId, w.id); setNote({ tone: "success", title: t("webhooks.toast.deleted") }); reload(); }
-    catch (e: unknown) { setNote({ tone: "error", title: t("webhooks.error.delete"), message: String((e as Error).message ?? e) }); }
+    try { await api.remove(realmId, w.id); toast.show({ tone: "success", title: t("webhooks.toast.deleted") }); reload(); }
+    catch (e: unknown) { toast.show({ tone: "error", title: t("webhooks.error.delete"), message: String((e as Error).message ?? e) }); }
   };
 
   const menuItems = (w: Webhook) => [
@@ -158,11 +156,6 @@ export function WebhooksPage({ api, realmId }: WebhooksPageProps) {
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

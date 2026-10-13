@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody } from "../components/Page";
 import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -25,7 +25,6 @@ export interface ApplicationsPageProps {
   onOpen: (name: string) => void;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
 interface Row { app: Application; oidc: boolean; saml: boolean; }
 
 /**
@@ -37,7 +36,7 @@ export function ApplicationsPage({ api, clientApi, samlClientApi, realmId, onOpe
   const [rows, setRows] = React.useState<Row[] | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const reload = React.useCallback(() => {
     setRows(null);
@@ -56,7 +55,7 @@ export function ApplicationsPage({ api, clientApi, samlClientApi, realmId, onOpe
       })
       .catch((e) => {
         setRows([]);
-        setNote({ tone: "error", title: t("applications.loadError"), message: String(e.message ?? e) });
+        toast.show({ tone: "error", title: t("applications.loadError"), message: String(e.message ?? e) });
       });
   }, [api, clientApi, samlClientApi, realmId, t]);
   React.useEffect(reload, [reload]);
@@ -66,11 +65,11 @@ export function ApplicationsPage({ api, clientApi, samlClientApi, realmId, onOpe
     try {
       const created = await api.create(realmId, write);
       setCreating(false);
-      setNote({ tone: "success", title: t("applications.createSuccess"), message: t("applications.createSuccessMessage", { name: applicationLabel(created) }) });
+      toast.show({ tone: "success", title: t("applications.createSuccess"), message: t("applications.createSuccessMessage", { name: applicationLabel(created) }) });
       reload();
       onOpen(created.name);
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("applications.createError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("applications.createError"), message: String((e as Error).message ?? e) });
     } finally { setBusy(false); }
   };
 
@@ -177,11 +176,6 @@ export function ApplicationsPage({ api, clientApi, samlClientApi, realmId, onOpe
         )}
       </Modal>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

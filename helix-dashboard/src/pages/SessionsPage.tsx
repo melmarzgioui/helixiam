@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody } from "../components/Page";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -25,8 +25,6 @@ export interface SessionsPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 type BadgeTone = "neutral" | "success" | "warning" | "danger" | "accent";
 
 /** Sessions v2: unified "Active identities" — user / agent / service-account rows, filtered server-side,
@@ -38,7 +36,7 @@ export function SessionsPage({ api, realmId }: SessionsPageProps) {
   const [typeFilter, setTypeFilter] = React.useState("");
   const [selected, setSelected] = React.useState<IdentitySession | null>(null);
   const [toRevoke, setToRevoke] = React.useState<IdentitySession | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const TYPE_META: Record<IdentityType, { label: string; tone: BadgeTone }> = React.useMemo(() => ({
     USER: { label: t("sessions.type.user"), tone: "neutral" },
@@ -80,7 +78,7 @@ export function SessionsPage({ api, realmId }: SessionsPageProps) {
     setRows(null);
     api.list(realmId, { q, type }).then(setRows).catch((e) => {
       setRows([]);
-      setNote({ tone: "error", title: t("sessions.error.load"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("sessions.error.load"), message: String(e.message ?? e) });
     });
   }, [api, realmId, t]);
 
@@ -103,10 +101,10 @@ export function SessionsPage({ api, realmId }: SessionsPageProps) {
         window.location.assign("/realms/master/login");
         return;
       }
-      setNote({ tone: "info", title: t("sessions.revoked.title"), message: t("sessions.revoked.msg", { name: target.displayName }) });
+      toast.show({ tone: "info", title: t("sessions.revoked.title"), message: t("sessions.revoked.msg", { name: target.displayName }) });
       load(query, typeFilter);
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("sessions.error.revoke"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("sessions.error.revoke"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -234,11 +232,6 @@ export function SessionsPage({ api, realmId }: SessionsPageProps) {
         onCancel={() => setToRevoke(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

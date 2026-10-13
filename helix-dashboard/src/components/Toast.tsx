@@ -21,11 +21,17 @@ const glyph: Record<ToastTone, React.ReactNode> = {
   info: <path d="M12 11v6M12 7.5v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />,
 };
 
-/** Single toast notification. Compose a stack in your app's toast region (ToastHost / .hx-toasthost). Class-based. */
+/**
+ * Single toast notification. Compose a stack in your app's toast region — prefer `useToast()` (ToastProvider), which
+ * renders one shared `.hx-toasthost` for the whole app so toasts from different parts of the page never hide each
+ * other. An error toast is `role="alert"` + `aria-live="assertive"` (announced immediately, interrupting); success
+ * and info are `role="status"` + `aria-live="polite"` (announced when the screen reader is next idle).
+ */
 export function Toast({ tone = "info", title, message, onDismiss }: ToastProps) {
   const { t } = useT();
+  const isError = tone === "error";
   return (
-    <div role="status" className={`hx-toast hx-toast--${tone}`}>
+    <div role={isError ? "alert" : "status"} aria-live={isError ? "assertive" : "polite"} className={`hx-toast hx-toast--${tone}`}>
       <svg className="hx-toast__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         {glyph[tone]}
       </svg>

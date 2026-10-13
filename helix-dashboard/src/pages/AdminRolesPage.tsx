@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody } from "../components/Page";
 import { Button } from "../components/Button";
 import { Switch } from "../components/Switch";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import {
@@ -24,8 +24,6 @@ export interface AdminRolesPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 /**
  * Fine-grained admin RBAC — the "Admin roles" permission matrix. Each realm role (row) can be granted a
  * composable set of admin permissions (columns). Holding "Full realm administration" (realm-admin) implies
@@ -37,7 +35,7 @@ export function AdminRolesPage({ api, realmId }: AdminRolesPageProps) {
   const [rows, setRows] = React.useState<AdminRoleGrants[] | null>(null);
   const [draft, setDraft] = React.useState<Record<string, string[]>>({});
   const [saving, setSaving] = React.useState<string | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const reload = React.useCallback(() => {
     setRows(null);
@@ -49,7 +47,7 @@ export function AdminRolesPage({ api, realmId }: AdminRolesPageProps) {
       })
       .catch((e) => {
         setRows([]);
-        setNote({ tone: "error", title: t("adminRoles.error.load"), message: String(e.message ?? e) });
+        toast.show({ tone: "error", title: t("adminRoles.error.load"), message: String(e.message ?? e) });
       });
   }, [api, realmId, t]);
 
@@ -72,9 +70,9 @@ export function AdminRolesPage({ api, realmId }: AdminRolesPageProps) {
       const saved = await api.setPermissions(realmId, roleId, draft[roleId] ?? []);
       setRows((rs) => (rs ?? []).map((r) => (r.roleId === roleId ? saved : r)));
       setDraft((d) => ({ ...d, [roleId]: [...saved.permissions] }));
-      setNote({ tone: "success", title: t("adminRoles.perms.saved.title"), message: t("adminRoles.perms.saved.msg", { name: roleName }) });
+      toast.show({ tone: "success", title: t("adminRoles.perms.saved.title"), message: t("adminRoles.perms.saved.msg", { name: roleName }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("adminRoles.error.save"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("adminRoles.error.save"), message: String((e as Error).message ?? e) });
     } finally {
       setSaving(null);
     }
@@ -152,11 +150,6 @@ export function AdminRolesPage({ api, realmId }: AdminRolesPageProps) {
       )}
       </PageBody>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

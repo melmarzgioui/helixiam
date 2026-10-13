@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { Alert } from "../components/Alert";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { FormField, Input, Textarea, Select } from "../components/FormField";
 import { Switch } from "../components/Switch";
@@ -21,8 +21,6 @@ export interface RealmSettingsPageProps {
   api: RealmApi;
   realmId: string;
 }
-
-interface Note { tone: ToastTone; title: string; message?: string; }
 
 /** Render a TTL in seconds as a friendly "1h 30m" / "14d" hint. */
 function humanize(seconds: number): string {
@@ -51,7 +49,7 @@ export function RealmSettingsPage({ api, realmId }: RealmSettingsPageProps) {
   const [form, setForm] = React.useState<RealmSettings | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [attempted, setAttempted] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [endpoints, setEndpoints] = React.useState<OidcEndpoints | null>(null);
   const [tab, setTab] = React.useState("general");
 
@@ -59,7 +57,7 @@ export function RealmSettingsPage({ api, realmId }: RealmSettingsPageProps) {
     setLoaded(null);
     setForm(null);
     api.get(realmId).then((s) => { setLoaded(s); setForm(s); }).catch((e) => {
-      setNote({ tone: "error", title: t("realmSettings.toast.loadError"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("realmSettings.toast.loadError"), message: String(e.message ?? e) });
     });
     fetchOidcEndpoints(realmId).then(setEndpoints).catch(() => undefined);
   }, [api, realmId]);
@@ -135,9 +133,9 @@ export function RealmSettingsPage({ api, realmId }: RealmSettingsPageProps) {
       setLoaded(saved);
       setForm(saved);
       setAttempted(false);
-      setNote({ tone: "success", title: t("realmSettings.toast.saved"), message: t("realmSettings.toast.saved.message", { realmId }) });
+      toast.show({ tone: "success", title: t("realmSettings.toast.saved"), message: t("realmSettings.toast.saved.message", { realmId }) });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("realmSettings.toast.saveError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("realmSettings.toast.saveError"), message: String((e as Error).message ?? e) });
     } finally {
       setBusy(false);
     }
@@ -454,11 +452,6 @@ export function RealmSettingsPage({ api, realmId }: RealmSettingsPageProps) {
       )}
       </PageBody>
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

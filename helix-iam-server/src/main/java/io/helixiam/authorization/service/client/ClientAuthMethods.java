@@ -18,6 +18,9 @@ public final class ClientAuthMethods {
     public static final String PRIVATE_KEY_JWT = "PRIVATE_KEY_JWT";
     public static final String UNKNOWN = "Unknown token endpoint auth method (use private_key_jwt, client_secret_basic"
             + " or none).";
+    /** Stable machine-readable code for {@link #UNKNOWN}, so a client can map it to its own translated copy
+     * instead of matching the (English-only) {@link #problem} message text. */
+    public static final String CODE_UNKNOWN = "unknown";
 
     private ClientAuthMethods() {
     }
@@ -42,6 +45,16 @@ public final class ClientAuthMethods {
             return null;
         } catch (final IllegalArgumentException e) {
             return UNKNOWN;
+        }
+    }
+
+    /** The stable code for {@code tokenEndpointAuthMethod}'s problem ({@link #CODE_UNKNOWN}), or null. */
+    public static String code(final String raw) {
+        try {
+            normalize(raw);
+            return null;
+        } catch (final IllegalArgumentException e) {
+            return CODE_UNKNOWN;
         }
     }
 

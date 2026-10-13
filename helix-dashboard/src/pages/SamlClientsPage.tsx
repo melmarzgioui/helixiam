@@ -10,7 +10,7 @@ import { CopyRow } from "../components/CopyRow";
 import { fetchOidcEndpoints } from "../api/endpoints";
 import { Modal, ConfirmDialog } from "../components/Modal";
 import { Alert } from "../components/Alert";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -26,8 +26,6 @@ export interface SamlClientsPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 const DEFAULT_AUTHN_CTX = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
 
 /** SAML relying parties (service providers) that trust this realm as their SAML 2.0 IdP. */
@@ -36,14 +34,14 @@ export function SamlClientsPage({ api, realmId }: SamlClientsPageProps) {
   const [rows, setRows] = React.useState<SamlClient[] | null>(null);
   const [editing, setEditing] = React.useState<SamlClient | "new" | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [toDelete, setToDelete] = React.useState<SamlClient | null>(null);
 
   const reload = React.useCallback(() => {
     setRows(null);
     api.list(realmId).then(setRows).catch((e) => {
       setRows([]);
-      setNote({ tone: "error", title: t("samlClients.loadError"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("samlClients.loadError"), message: String(e.message ?? e) });
     });
   }, [api, realmId, t]);
   React.useEffect(reload, [reload]);
@@ -54,10 +52,10 @@ export function SamlClientsPage({ api, realmId }: SamlClientsPageProps) {
       if (isNew) await api.create(realmId, write);
       else await api.update(realmId, write.entityId, write);
       setEditing(null);
-      setNote({ tone: "success", title: isNew ? t("samlClients.registeredSuccess") : t("samlClients.updatedSuccess"), message: t("samlClients.savedMsg", { entityId: write.entityId, realm: realmId }) });
+      toast.show({ tone: "success", title: isNew ? t("samlClients.registeredSuccess") : t("samlClients.updatedSuccess"), message: t("samlClients.savedMsg", { entityId: write.entityId, realm: realmId }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("samlClients.saveError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("samlClients.saveError"), message: String((e as Error).message ?? e) });
     } finally { setBusy(false); }
   };
 
@@ -67,10 +65,10 @@ export function SamlClientsPage({ api, realmId }: SamlClientsPageProps) {
     setToDelete(null);
     try {
       await api.remove(realmId, rp.entityId);
-      setNote({ tone: "success", title: t("samlClients.deleteSuccess"), message: rp.entityId });
+      toast.show({ tone: "success", title: t("samlClients.deleteSuccess"), message: rp.entityId });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("samlClients.deleteError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("samlClients.deleteError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -173,11 +171,6 @@ export function SamlClientsPage({ api, realmId }: SamlClientsPageProps) {
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

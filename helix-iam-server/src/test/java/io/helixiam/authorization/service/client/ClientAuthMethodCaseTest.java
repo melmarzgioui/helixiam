@@ -83,8 +83,26 @@ class ClientAuthMethodCaseTest {
                 null, null, null, "private-key-jwt", "https://keys.example.com/jwks", null, null, null, null, null,
                 null, null));
         assertThat(r.getStatusCode().value()).isEqualTo(400);
-        assertThat(((Map<?, ?>) ((Map<?, ?>) r.getBody()).get("fieldErrors")).containsKey("tokenEndpointAuthMethod"))
-                .isTrue();
+        final Map<?, ?> body = (Map<?, ?>) r.getBody();
+        assertThat(((Map<?, ?>) body.get("fieldErrors")).containsKey("tokenEndpointAuthMethod")).isTrue();
+        // Stable code alongside the English message, so the console can show its own translated copy (B4b).
+        assertThat(((Map<?, ?>) body.get("fieldErrorCodes")).get("tokenEndpointAuthMethod"))
+                .isEqualTo(ClientAuthMethods.CODE_UNKNOWN);
+        verify(publisher, never()).create(any());
+    }
+
+    @Test
+    void theAdminApiRefusesABadJwksUrlWithAFieldErrorCode() {
+        final ClientAdminPublisher publisher = mock(ClientAdminPublisher.class);
+        final ClientAdminController controller = new ClientAdminController(publisher, DeploymentProfile.production());
+        final ResponseEntity<?> r = controller.create("acme", new ClientRequest("svc", List.of("client_credentials"),
+                null, null, null, null, null, null, null, null, false, null, null, null, null, null, null, null, null,
+                null, null, null, "PRIVATE_KEY_JWT", "http://localhost:8094/jwks", null, null, null, null, null,
+                null, null));
+        assertThat(r.getStatusCode().value()).isEqualTo(400);
+        final Map<?, ?> body = (Map<?, ?>) r.getBody();
+        assertThat(((Map<?, ?>) body.get("fieldErrors")).containsKey("jwksUrl")).isTrue();
+        assertThat(((Map<?, ?>) body.get("fieldErrorCodes")).get("jwksUrl")).isEqualTo(JwksUrlPolicy.CODE_NOT_HTTPS);
         verify(publisher, never()).create(any());
     }
 }

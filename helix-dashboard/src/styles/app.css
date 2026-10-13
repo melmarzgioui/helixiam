@@ -502,7 +502,10 @@
 /* ── Shared page primitives ──────────────────────────────────────────────
    Reusable across screens so pages stay visually consistent instead of each
    re-inlining its own toast host / spinner frame / badge row / toggle list. */
-.hx-toasthost { position: fixed; right: 20px; bottom: 20px; z-index: 80; max-width: calc(100vw - 40px); }
+/* ONE shared host per app (ToastProvider) — stacked, newest last (closest to the corner), capped at 3 visible. */
+.hx-toasthost { position: fixed; right: 20px; bottom: 20px; z-index: 80; max-width: calc(100vw - 40px);
+  display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-end; pointer-events: none; }
+.hx-toasthost .hx-toast { pointer-events: auto; }
 .hx-loadwrap { padding: 4rem; display: flex; justify-content: center; }
 .hx-badges { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
 .hx-namecell { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
@@ -522,8 +525,20 @@
   .hx-conncard > .hx-rowcard__actions { flex-basis: 100%; justify-content: flex-end; }
   .hx-conncard .hx-conn__name { overflow-wrap: anywhere; }
 }
-/* Toasts on a page with a sticky save bar appear top-right, under the top bar, so they never cover the Save button
-   or the test result near the bottom of the page. */
+/* Toasts on a page with a sticky save bar (useAvoidBottomToast) appear top-right, under the top bar, so they never
+   cover the Save button or the test result near the bottom of the page. */
 .hx-toasthost--savebar { bottom: auto; top: 80px; z-index: 50; } /* under dialogs (z 60) */
+
+/* Phones: a fixed bottom-right toast sits over the keyboard-adjacent bottom of the screen, where it can cover an
+   inline field error or a save bar. Move it below the 64px topbar instead, full width minus the page's own side
+   gutters (matches .hx-content__inner at this width), with a capped height + internal scroll so even the (rare)
+   maximum of 3 stacked toasts can never grow past the viewport and block the page below. */
+@media (max-width: 640px) {
+  .hx-toasthost, .hx-toasthost--savebar {
+    left: 1rem; right: 1rem; top: calc(64px + var(--sp-3)); bottom: auto;
+    max-width: none; width: auto; align-items: stretch;
+    max-height: calc(100vh - 64px - 2 * var(--sp-3)); overflow-y: auto;
+  }
+}
 /* "No email address" in a user row: an empty state, not data, so the UI font rather than the mono alias font. */
 .hx-conn__alias--empty { font-family: var(--font); color: var(--fg-faint); }

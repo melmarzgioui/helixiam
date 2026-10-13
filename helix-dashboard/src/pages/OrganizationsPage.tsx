@@ -9,7 +9,7 @@ import { Card } from "../components/Card";
 import { Button } from "../components/Button";
 import { RowMenu } from "../components/RowMenu";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -33,8 +33,6 @@ export interface OrganizationsPageProps {
   realmId: string;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 const ORG_ROLES = ["member", "admin"];
 
 /** Helix IAM Organizations: the live Organizations screen — B2B tenants (list/create/edit/delete + members). */
@@ -44,7 +42,7 @@ export function OrganizationsPage({ api, userApi, realmId }: OrganizationsPagePr
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<Organization | "new" | null>(null);
   const [toDelete, setToDelete] = React.useState<Organization | null>(null);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const reload = React.useCallback(() => {
     setOrgs(null);
@@ -53,7 +51,7 @@ export function OrganizationsPage({ api, userApi, realmId }: OrganizationsPagePr
       setSelectedId((cur) => (cur && os.some((o) => o.orgId === cur) ? cur : os[0]?.orgId ?? null));
     }).catch((e) => {
       setOrgs([]);
-      setNote({ tone: "error", title: t("organizations.load.error"), message: String(e.message ?? e) });
+      toast.show({ tone: "error", title: t("organizations.load.error"), message: String(e.message ?? e) });
     });
   }, [api, realmId, t]);
 
@@ -65,18 +63,18 @@ export function OrganizationsPage({ api, userApi, realmId }: OrganizationsPagePr
     try {
       if (editing === "new") {
         const created = await api.create(realmId, body);
-        setNote({ tone: "success", title: t("organizations.created"), message: t("organizations.created.msg", { name: organizationLabel(created) }) });
+        toast.show({ tone: "success", title: t("organizations.created"), message: t("organizations.created.msg", { name: organizationLabel(created) }) });
         setEditing(null);
         reload();
         setSelectedId(created.orgId);
       } else if (editing) {
         await api.update(realmId, editing.orgId, body);
-        setNote({ tone: "success", title: t("organizations.saved") });
+        toast.show({ tone: "success", title: t("organizations.saved") });
         setEditing(null);
         reload();
       }
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("organizations.save.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("organizations.save.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -86,10 +84,10 @@ export function OrganizationsPage({ api, userApi, realmId }: OrganizationsPagePr
     setToDelete(null);
     try {
       await api.remove(realmId, target.orgId);
-      setNote({ tone: "info", title: t("organizations.deleted"), message: t("organizations.deleted.msg", { name: organizationLabel(target) }) });
+      toast.show({ tone: "info", title: t("organizations.deleted"), message: t("organizations.deleted.msg", { name: organizationLabel(target) }) });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("organizations.delete.error"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("organizations.delete.error"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -151,7 +149,7 @@ export function OrganizationsPage({ api, userApi, realmId }: OrganizationsPagePr
                 org={selected}
                 onEdit={() => setEditing(selected)}
                 onChanged={reload}
-                onError={(m) => setNote({ tone: "error", title: t("organizations.actionFailed"), message: m })}
+                onError={(m) => toast.show({ tone: "error", title: t("organizations.actionFailed"), message: m })}
               />
             ) : (
               <Card><p className="hx-muted">{t("organizations.select.hint")}</p></Card>
@@ -178,11 +176,6 @@ export function OrganizationsPage({ api, userApi, realmId }: OrganizationsPagePr
         onCancel={() => setToDelete(null)}
       />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

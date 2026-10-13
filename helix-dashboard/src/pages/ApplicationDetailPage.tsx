@@ -7,7 +7,7 @@ import React from "react";
 import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { Tabs } from "../components/Tabs";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
 import { FormField, Input, Select } from "../components/FormField";
@@ -51,8 +51,6 @@ export interface ApplicationDetailPageProps {
   onBack: () => void;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
-
 /**
  * One Application, every facet: protocol tabs (OIDC / SAML) where each protocol's full config lives, plus
  * the SHARED Claims + Login-flow tabs that apply to whichever protocol the app uses. WSO2/Okta model.
@@ -75,7 +73,7 @@ export function ApplicationDetailPage(props: ApplicationDetailPageProps) {
   const [optionAliases, setOptionAliases] = React.useState<string[]>([]); // OPTION: providers shown as alternatives
   const [ssoBusy, setSsoBusy] = React.useState(false);
   const [tab, setTab] = React.useState("oidc");
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
 
   const reload = React.useCallback(() => {
     Promise.all([api.get(realmId, name), clientApi.list(realmId), samlClientApi.list(realmId)])
@@ -84,7 +82,7 @@ export function ApplicationDetailPage(props: ApplicationDetailPageProps) {
         setOidc(clients.find((c) => c.applicationId === appId) ?? null);
         setSaml(sps.find((s) => s.applicationId === appId) ?? null);
       })
-      .catch((e) => setNote({ tone: "error", title: t("appDetail.loadError"), message: String(e.message ?? e) }));
+      .catch((e) => toast.show({ tone: "error", title: t("appDetail.loadError"), message: String(e.message ?? e) }));
   }, [api, clientApi, samlClientApi, realmId, name, appId, t]);
   React.useEffect(reload, [reload]);
   React.useEffect(() => { claimApi.list(realmId).then(setCatalogue).catch(() => {}); flowApi.list(realmId).then(setFlows).catch(() => {}); }, [claimApi, flowApi, realmId]);
@@ -114,9 +112,9 @@ export function ApplicationDetailPage(props: ApplicationDetailPageProps) {
     try {
       const next = await api.update(realmId, name, { name, displayName: app.displayName, description: app.description, subjectClaim: app.subjectClaim, authFlowAlias: app.authFlowAlias, enabled: app.enabled, ...patch });
       setApp(next);
-      setNote({ tone: "success", title: t("appDetail.updateSuccess") });
+      toast.show({ tone: "success", title: t("appDetail.updateSuccess") });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("appDetail.saveError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("appDetail.saveError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -151,9 +149,9 @@ export function ApplicationDetailPage(props: ApplicationDetailPageProps) {
         ? upsertIdpRedirect(def.executions, setting.mode, setting.aliases)
         : upsertIdpRedirect(def.executions, MODE_REDIRECT, []); // no aliases + non-local ⇒ removes the step
       await flowApi.saveByAlias(realmId, target!, execs);
-      setNote({ tone: "success", title: t("appDetail.ssoSaved") });
+      toast.show({ tone: "success", title: t("appDetail.ssoSaved") });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("appDetail.ssoError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("appDetail.ssoError"), message: String((e as Error).message ?? e) });
     } finally {
       setSsoBusy(false);
     }
@@ -185,10 +183,10 @@ export function ApplicationDetailPage(props: ApplicationDetailPageProps) {
       const body = { ...w, applicationId: appId }; // always keep the link to this app
       if (isNew) await samlClientApi.create(realmId, body);
       else await samlClientApi.update(realmId, w.entityId, body);
-      setNote({ tone: "success", title: isNew ? t("appDetail.samlAttached") : t("appDetail.samlUpdated") });
+      toast.show({ tone: "success", title: isNew ? t("appDetail.samlAttached") : t("appDetail.samlUpdated") });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("appDetail.samlSaveError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("appDetail.samlSaveError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -198,10 +196,10 @@ export function ApplicationDetailPage(props: ApplicationDetailPageProps) {
         clientId, grantTypes: ["authorization_code", "refresh_token"], redirectUris: ["https://"], scopes: ["openid"],
         publicClient: false, tokenEndpointAuthMethod: "client_secret_basic", applicationId: appId,
       });
-      setNote({ tone: "success", title: t("appDetail.oidcAttached"), message: t("appDetail.oidcAttachedMessage") });
+      toast.show({ tone: "success", title: t("appDetail.oidcAttached"), message: t("appDetail.oidcAttachedMessage") });
       reload();
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("appDetail.oidcAttachError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("appDetail.oidcAttachError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -341,17 +339,11 @@ export function ApplicationDetailPage(props: ApplicationDetailPageProps) {
             <div className="hx-field"><Checkbox label={t("appDetail.enabledLabel")} checked={app.enabled} onChange={(on) => saveApp({ enabled: on })} /></div>
             <div className="hx-formactions"><Button variant="danger" onClick={async () => {
               if (!window.confirm(t("appDetail.deleteConfirm", { name: applicationLabel(app) }))) return;
-              try { await api.remove(realmId, name); onBack(); } catch (e: unknown) { setNote({ tone: "error", title: t("appDetail.deleteError"), message: String((e as Error).message ?? e) }); }
+              try { await api.remove(realmId, name); onBack(); } catch (e: unknown) { toast.show({ tone: "error", title: t("appDetail.deleteError"), message: String((e as Error).message ?? e) }); }
             }}>{t("appDetail.deleteButton")}</Button></div>
           </Section>
         )}
       </PageBody>
-
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }

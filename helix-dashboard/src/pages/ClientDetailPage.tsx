@@ -8,7 +8,6 @@ import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { CopyButton } from "../components/CopyButton";
 import { Modal, ConfirmDialog } from "../components/Modal";
-import { Toast, ToastTone } from "../components/Toast";
 import { Alert } from "../components/Alert";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
@@ -28,6 +27,8 @@ import { MapperApi, ProtocolMapper, MapperWrite } from "../api/mappers";
 import { ClientRoleApi, ClientRole, ServiceAccountRole } from "../api/clientRoles";
 import { RoleApi, Role } from "../api/roles";
 import { AuthzApi } from "../api/authz";
+import { useFocusInvalid } from "../hooks/useFocusInvalid";
+import { useToast, ToastInput } from "../components/ToastProvider";
 import { AuthorizationTab } from "./AuthorizationTab";
 import { GRANT_TYPES, SCOPES } from "./clientConstants";
 import { WorkloadIdentityPage } from "./WorkloadIdentityPage";
@@ -56,7 +57,6 @@ export interface ClientDetailPageProps {
   agentsApi?: AgentApi;
 }
 
-interface Note { tone: ToastTone; title: string; message?: string; }
 type TabId = "settings" | "credentials" | "login" | "scopes" | "mappers" | "keys" | "roles" | "serviceaccount" | "workloadidentity" | "agents" | "authorization" | "advanced";
 
 /** full-page client editor — tabbed: Settings · Credentials · Client scopes · Advanced. */
@@ -68,7 +68,8 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
   const [scopeCatalog, setScopeCatalog] = React.useState<ClientScope[]>([]);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
+  const triggerFocusInvalid = useFocusInvalid();
   const [newSecret, setNewSecret] = React.useState<string | null>(null);
   const [revealed, setRevealed] = React.useState<string | null>(null);
   const [confirmDel, setConfirmDel] = React.useState(false);
@@ -163,6 +164,10 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
   // the field is shown for private_key_jwt only, so only then can it block the save
   const jwksProblem = tokenAuthMethod === "PRIVATE_KEY_JWT" ? jwksUrlError(jwksUrl, tokenAuthMethod, devConsole) : null;
   if (jwksProblem) missing.push("jwksUrl");
+  // A refused save's field error, translated: splitClientServerErrors maps known server errors onto the console's
+  // own i18n keys (t() resolves those); an error it doesn't recognize is the server's raw text, which t() returns
+  // unchanged (it falls back to the key itself when there's no matching translation).
+  const sErr = (key: string): string | undefined => serverErrors[key] ? t(serverErrors[key]) : undefined;
 
   const cleaned = (xs: string[]) => xs.map((u) => u.trim()).filter(Boolean);
   const dirty = loaded !== null && (
@@ -239,17 +244,20 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
     try {
       const saved = await api.update(realmId, loaded.id, body);
       hydrate(saved);
-      setNote({ tone: "success", title: t("clientDetail.saveSuccess"), message: t("clientDetail.saveSuccessMsg", { clientId: loaded.clientId }) });
+      toast.show({ tone: "success", title: t("clientDetail.saveSuccess"), message: t("clientDetail.saveSuccessMsg", { clientId: loaded.clientId }) });
     } catch (e: unknown) {
       if (e instanceof AdminApiError && Object.keys(e.fieldErrors).length) {
-        const split = splitClientServerErrors(e.fieldErrors);
+        const split = splitClientServerErrors(e.fieldErrors, e.fieldErrorCodes);
         setServerErrors(split.fields);
         if (split.tab) setTab(split.tab);
-        setNote({ tone: "error", title: t("clientDetail.saveError"),
-          message: split.other.length ? split.other.join(" ") : e.message });
+        toast.show({ tone: "error", title: t("clientDetail.saveError"),
+          // Every error landed on a field already shown inline — point at it instead of repeating it in the toast.
+          message: split.allMapped ? t("clientDetail.saveErrorFixHighlighted") : split.other.length ? split.other.map((m) => t(m)).join(" ") : e.message });
       } else {
-        setNote({ tone: "error", title: t("clientDetail.saveError"), message: String((e as Error).message ?? e) });
+        toast.show({ tone: "error", title: t("clientDetail.saveError"), message: String((e as Error).message ?? e) });
       }
+      // Move focus to the first invalid field once the tab switch above has rendered it.
+      triggerFocusInvalid();
     } finally { setBusy(false); }
   };
 
@@ -259,7 +267,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
       const rotated = await api.regenerate(realmId, loaded.id);
       if (rotated.secret) { setNewSecret(rotated.secret); setRevealed(rotated.secret); }
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("clientDetail.regenerateError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("clientDetail.regenerateError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -269,7 +277,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
       const full = await api.reveal(realmId, loaded.id);
       setRevealed(full.secret ?? "");
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("clientDetail.revealError"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("clientDetail.revealError"), message: String((e as Error).message ?? e) });
     }
   };
 
@@ -290,7 +298,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
     if (!loaded) return;
     setConfirmDel(false);
     try { await api.remove(realmId, loaded.id); onDeleted(); }
-    catch (e: unknown) { setNote({ tone: "error", title: t("clientDetail.deleteError"), message: String((e as Error).message ?? e) }); }
+    catch (e: unknown) { toast.show({ tone: "error", title: t("clientDetail.deleteError"), message: String((e as Error).message ?? e) }); }
   };
 
   const TABS = [
@@ -436,20 +444,20 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
               <div className="hx-clientgrid">
                 {browserFlow ? (
                   <Section title={t("clientDetail.loginSettingsTitle")} description={t("clientDetail.loginSettingsDesc")}>
-                    <FormField label={t("clientDetail.redirectUris")} required error={attempted && missing.includes("redirectUris") ? t("clientDetail.redirectUrisError") : serverErrors.redirectUris}>
+                    <FormField label={t("clientDetail.redirectUris")} required error={attempted && missing.includes("redirectUris") ? t("clientDetail.redirectUrisError") : sErr("redirectUris")}>
                       <UriList uris={uris} setUris={setUris} placeholder="https://app.example/callback" label={t("clientDetail.redirectUriLabel")} />
                     </FormField>
-                    <FormField label={t("clientDetail.postLogoutUris")} hint={t("clientDetail.postLogoutUrisHint")} error={serverErrors.postLogoutRedirectUris}>
+                    <FormField label={t("clientDetail.postLogoutUris")} hint={t("clientDetail.postLogoutUrisHint")} error={sErr("postLogoutRedirectUris")}>
                       <UriList uris={logoutUris} setUris={setLogoutUris} placeholder="https://app.example/" label={t("clientDetail.postLogoutUriLabel")} />
                     </FormField>
-                    <FormField label={t("clientDetail.webOrigins")} hint={t("clientDetail.webOriginsHint")} error={serverErrors.webOrigins}>
+                    <FormField label={t("clientDetail.webOrigins")} hint={t("clientDetail.webOriginsHint")} error={sErr("webOrigins")}>
                       <UriList uris={webOrigins} setUris={setWebOrigins} placeholder="https://app.example" label={t("clientDetail.webOriginLabel")} />
                     </FormField>
                     <Divider />
-                    <FormField label={t("clientDetail.backchannelLogout")} hint={t("clientDetail.backchannelLogoutHint")} error={serverErrors.backchannelLogoutUri}>
+                    <FormField label={t("clientDetail.backchannelLogout")} hint={t("clientDetail.backchannelLogoutHint")} error={sErr("backchannelLogoutUri")}>
                       <Input value={backchannelLogoutUri} onChange={(e) => setBackchannelLogoutUri(e.target.value)} placeholder="https://app.example/backchannel-logout" />
                     </FormField>
-                    <FormField label={t("clientDetail.frontchannelLogout")} hint={t("clientDetail.frontchannelLogoutHint")} error={serverErrors.frontchannelLogoutUri}>
+                    <FormField label={t("clientDetail.frontchannelLogout")} hint={t("clientDetail.frontchannelLogoutHint")} error={sErr("frontchannelLogoutUri")}>
                       <Input value={frontchannelLogoutUri} onChange={(e) => setFrontchannelLogoutUri(e.target.value)} placeholder="https://app.example/frontchannel-logout" />
                     </FormField>
                     <Divider />
@@ -522,14 +530,14 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
             {tab === "mappers" && (
               <div className="hx-clientgrid">
                 <MappersTab mapperApi={mapperApi} realmId={realmId} clientId={loaded.clientId} catalogue={catalogue}
-                  onError={(m) => setNote({ tone: "error", title: t("clientDetail.mapperError"), message: m })} />
+                  onError={(m) => toast.show({ tone: "error", title: t("clientDetail.mapperError"), message: m })} />
               </div>
             )}
 
             {tab === "keys" && (
               <div className="hx-clientgrid">
                 <Section title={t("clientDetail.tokenAuthTitle")} description={t("clientDetail.tokenAuthDesc")} layout={tokenAuthMethod === "PRIVATE_KEY_JWT" ? "cols" : "single"}>
-                  <FormField label={t("clientDetail.authenticator")} hint={t("clientDetail.authenticatorHint")} error={serverErrors.tokenEndpointAuthMethod}>
+                  <FormField label={t("clientDetail.authenticator")} hint={t("clientDetail.authenticatorHint")} error={sErr("tokenEndpointAuthMethod")}>
                     <Select aria-label={t("clientDetail.authenticator")} value={tokenAuthMethod} onChange={setTokenAuthMethod}
                       options={[
                         { value: "", label: t("clientDetail.clientSecretDefault") },
@@ -540,7 +548,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
                     <FormField label={t("clientDetail.jwksUrl")} required={tokenAuthMethod === "PRIVATE_KEY_JWT"}
                       hint={t("clientDetail.jwksUrlHint")}
                       error={attempted && jwksProblem ? t(jwksProblem === "required" ? "clientDetail.jwksUrlError"
-                        : jwksProblem === "notUrl" ? "clientDetail.jwksUrlInvalid" : "clientDetail.jwksUrlHttps") : serverErrors.jwksUrl}>
+                        : jwksProblem === "notUrl" ? "clientDetail.jwksUrlInvalid" : "clientDetail.jwksUrlHttps") : sErr("jwksUrl")}>
                       <Input className="hx-full" value={jwksUrl} onChange={(e) => setJwksUrl(e.target.value)} placeholder="https://app.example/.well-known/jwks.json" />
                     </FormField>
                   )}
@@ -556,14 +564,14 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
             {tab === "roles" && (
               <div className="hx-clientgrid">
                 <ClientRolesTab clientRoleApi={clientRoleApi} realmId={realmId} clientId={loaded.clientId}
-                  onError={(m) => setNote({ tone: "error", title: t("clientDetail.roleError"), message: m })} />
+                  onError={(m) => toast.show({ tone: "error", title: t("clientDetail.roleError"), message: m })} />
               </div>
             )}
 
             {tab === "serviceaccount" && (
               <div className="hx-clientgrid">
                 <ServiceAccountTab clientRoleApi={clientRoleApi} roleApi={roleApi} realmId={realmId} clientId={loaded.clientId}
-                  onError={(m) => setNote({ tone: "error", title: t("clientDetail.saError"), message: m })} />
+                  onError={(m) => toast.show({ tone: "error", title: t("clientDetail.saError"), message: m })} />
               </div>
             )}
 
@@ -579,7 +587,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
             {tab === "authorization" && (
               <div className="hx-clientgrid">
                 <AuthorizationTab authzApi={authzApi} roleApi={roleApi} clientRoleApi={clientRoleApi} realmId={realmId} clientId={loaded.clientId}
-                  onError={(m) => setNote({ tone: "error", title: t("clientDetail.authzError"), message: m })} />
+                  onError={(m) => toast.show({ tone: "error", title: t("clientDetail.authzError"), message: m })} />
               </div>
             )}
 
@@ -593,7 +601,7 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
                 </Section>
                 {loaded && (
                   <Section title={t("clientDetail.resourceIndicatorsTitle")} description={t("clientDetail.resourceIndicatorsDesc")}>
-                    <ResourceIndicatorEditor api={api} realmId={realmId} clientId={loaded.clientId} onNote={setNote} />
+                    <ResourceIndicatorEditor api={api} realmId={realmId} clientId={loaded.clientId} onNote={toast.show} />
                   </Section>
                 )}
                 <Section title={t("clientDetail.fapiTitle")} description={t("clientDetail.fapiDesc")}>
@@ -629,19 +637,13 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
       <ConfirmDialog open={confirmDel} title={t("clientDetail.deleteTitle")}
         message={t("clientDetail.deleteMessage", { clientId: loaded?.clientId ?? "" })}
         onConfirm={remove} onCancel={() => setConfirmDel(false)} />
-
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }
 
 /** RFC 8707 per-client allow-list editor (Advanced tab). One absolute resource URI per line; empty = any. */
 function ResourceIndicatorEditor({ api, realmId, clientId, onNote }: {
-  api: ClientApi; realmId: string; clientId: string; onNote: (n: Note) => void;
+  api: ClientApi; realmId: string; clientId: string; onNote: (n: ToastInput) => void;
 }) {
   const { t } = useT();
   const [text, setText] = React.useState<string | null>(null);

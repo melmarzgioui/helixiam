@@ -8,7 +8,7 @@ import { Page, PageHeader, PageBody, Section } from "../components/Page";
 import { Button } from "../components/Button";
 import { RowMenu } from "../components/RowMenu";
 import { Tabs } from "../components/Tabs";
-import { Toast, ToastTone } from "../components/Toast";
+import { useToast } from "../components/ToastProvider";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/Badge";
 import { Alert } from "../components/Alert";
@@ -46,8 +46,6 @@ export interface ConnectionDetailPageProps {
   /** The EUDI wallet provider's admin API (access keys, claim catalogue); defaults to HTTP on this origin. */
   walletApi?: WalletAdminApi;
 }
-
-interface Note { tone: ToastTone; title: string; message?: string; }
 
 /** Which protocol family a stored connection belongs to (eID schemes are SAML under the hood). */
 function familyOf(protocol: string): ProtocolFamily | "eid" {
@@ -103,7 +101,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
   const [tab, setTab] = React.useState("settings");
   const [busy, setBusy] = React.useState(false);
   const [confirmDel, setConfirmDel] = React.useState(false);
-  const [note, setNote] = React.useState<Note | null>(null);
+  const toast = useToast();
   const [attempted, setAttempted] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
   // Write-only secrets: which ones are stored, and which ones the admin is replacing.
@@ -118,13 +116,13 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
     setSyncing(true);
     try {
       const r = await api.syncUsers(realmId, alias);
-      setNote({
+      toast.show({
         tone: r.failed && !r.synced ? "error" : "success",
         title: t("connectionDetail.ldapSyncComplete"),
         message: t("connectionDetail.syncResult", { synced: r.synced, failed: r.failed }) + (r.errors.length ? ` — ${r.errors[0]}` : ""),
       });
     } catch (e: unknown) {
-      setNote({ tone: "error", title: t("connectionDetail.errSync"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("connectionDetail.errSync"), message: String((e as Error).message ?? e) });
     } finally {
       setSyncing(false);
     }
@@ -230,7 +228,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
       const serial = serializeMappers(mappers);
       const body = isWallet ? walletConfigFromForm(walletForm, config) : { ...config, ...(serial ? { mappers: serial } : {}) };
       await api.update(realmId, alias, { alias, protocol: loaded.protocol, displayName, enabled, config: body });
-      setNote({ tone: "success", title: t("connectionDetail.toastSaved"), message: t("connectionDetail.toastSavedMsg", { name: displayName || alias }) });
+      toast.show({ tone: "success", title: t("connectionDetail.toastSaved"), message: t("connectionDetail.toastSavedMsg", { name: displayName || alias }) });
       reload();
     } catch (e: unknown) {
       if (isWallet && e instanceof AdminApiError && Object.keys(e.fieldErrors).length) {
@@ -240,14 +238,14 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
         const section = firstErrorSection(split.fields);
         if (section) setTab(WALLET_TAB[section]);
       }
-      setNote({ tone: "error", title: t("connectionDetail.errSave"), message: String((e as Error).message ?? e) });
+      toast.show({ tone: "error", title: t("connectionDetail.errSave"), message: String((e as Error).message ?? e) });
     } finally { setBusy(false); }
   };
 
   const remove = async () => {
     setConfirmDel(false);
     try { await api.remove(realmId, alias); onDeleted?.(); onBack(); }
-    catch (e: unknown) { setNote({ tone: "error", title: t("connectionDetail.errDelete"), message: String((e as Error).message ?? e) }); }
+    catch (e: unknown) { toast.show({ tone: "error", title: t("connectionDetail.errDelete"), message: String((e as Error).message ?? e) }); }
   };
 
   const applyEidDefaults = () => {
@@ -259,7 +257,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
       for (const [k, v] of Object.entries(defaults)) if (v && !(next[k] ?? "").trim()) next[k] = v;
       return next;
     });
-    setNote({ tone: "info", title: t("connectionDetail.toastDefaultsApplied"), message: t("connectionDetail.toastDefaultsAppliedMsg") });
+    toast.show({ tone: "info", title: t("connectionDetail.toastDefaultsApplied"), message: t("connectionDetail.toastDefaultsAppliedMsg") });
   };
 
   if (err) return (
@@ -530,11 +528,6 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
         message={t("connectionDetail.confirmDeleteMsg", { name: displayName || alias })}
         onConfirm={remove} onCancel={() => setConfirmDel(false)} />
 
-      {note && (
-        <div className="hx-toasthost">
-          <Toast tone={note.tone} title={note.title} message={note.message} onDismiss={() => setNote(null)} />
-        </div>
-      )}
     </Page>
   );
 }
