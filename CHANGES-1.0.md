@@ -55,7 +55,9 @@ question. Newest first within each phase.
   (admin RBAC and its cache, realm-admin checks, `realm_access`/`resource_access` in tokens), every sign-in path
   carries exactly one factor (password, magic link, federated, impersonation) so the derived roles are identical,
   and **the `FACTOR_` prefix is reserved** (any case) like `admin_`: the admin API refuses it for realm roles, client
-  roles and service-account roles (400), realm import refuses it, and an existing role with that prefix is ignored.
+  roles, service-account roles and agent roles (400), realm import refuses it, and an existing role with that prefix
+  (realm role, client role, agent role) is ignored everywhere a role reaches a token: `realm_access`,
+  `resource_access`, the `USER_ROLE` protocol mapper, and an agent's own roles.
 - **oidc** — `requireProofKey` is pinned on every client HelixIAM builds: Spring Security 7's `ClientSettings` default
   became `true` (1.x: `false`), which had silently made PKCE mandatory for `HelixClientPolicies.tokenExchangeClient`.
   Database clients already pinned it (public: required; confidential: optional), unchanged.

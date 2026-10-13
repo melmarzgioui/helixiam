@@ -86,6 +86,19 @@ class UserServiceTest {
     }
 
     @Test
+    void userInRoles_dropALegacyFactorNamedRole() {
+        // The roles a token's realm_access and a USER_ROLE protocol mapper carry. FACTOR_ is Spring Security 7's sign-in
+        // factor namespace; a role of that name created before it was reserved never reaches a token.
+        final UserCredentials user = new UserCredentials();
+        user.setUserId("u-9");
+        user.getUserRoles().add(new io.helixiam.authorization.domain.user.UserRoles("user", "gov"));
+        user.getUserRoles().add(new io.helixiam.authorization.domain.user.UserRoles("FACTOR_PASSWORD", "gov"));
+        when(userCredentialsRepository.findByUserId("u-9")).thenReturn(Optional.of(user));
+
+        assertEquals(java.util.Set.of("user_gov"), service.getUserInRoles("u-9"));
+    }
+
+    @Test
     void userClaims_includesEmailAndUsername_alongsideAttributes() {
         final UserCredentials user = new UserCredentials();
         user.setUserId("u-1");

@@ -93,6 +93,12 @@ public class AgentIdentityAdminService {
         entity.setAuthMethod(defaulted(dto.authMethod(), "SECRET", AUTH_METHODS));
         entity.setClientId(blankToNull(dto.clientId()));
         entity.setScopes(blankToNull(dto.scopes()));
+        // FACTOR_ is Spring Security 7's sign-in factor namespace: never a role, realm or client (clientId/role).
+        for (final String role : io.helixiam.authorization.security.agent.AgentTokenEnricher.rawRolesFrom(dto.roles())) {
+            if (io.helixiam.authorization.security.SignInAuthorities.isFactorName(role.substring(role.indexOf('/') + 1))) {
+                throw new IllegalArgumentException("Role names starting with 'FACTOR_' are reserved: " + role);
+            }
+        }
         entity.setRoles(blankToNull(dto.roles()));
         entity.setEnabled(dto.enabled());
         entity.setExpiresAt(dto.expiresAt() == null ? null : new Date(dto.expiresAt()));

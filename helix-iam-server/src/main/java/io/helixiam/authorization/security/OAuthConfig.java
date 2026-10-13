@@ -325,10 +325,8 @@ public class OAuthConfig {
         }
 
         final Map<String, Object> claims = RoleClaimAssembler.assemble(realmBase, typed);
-        // Flat union (realm + every client's roles) for the USER_ROLE protocol mapper only.
-        final Set<String> flat = new java.util.HashSet<>(realmBase);
-        typed.forEach(r -> flat.add(r.name()));
-        return new ResolvedRoles(claims, Collections.unmodifiableSet(flat));
+        // Flat union (realm + every client's roles) for the USER_ROLE protocol mapper only; never a FACTOR_* name.
+        return new ResolvedRoles(claims, Collections.unmodifiableSet(RoleClaimAssembler.flat(realmBase, typed)));
     }
 
     /**

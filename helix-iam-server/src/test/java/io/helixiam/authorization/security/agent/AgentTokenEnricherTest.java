@@ -131,4 +131,20 @@ class AgentTokenEnricherTest {
         assertEquals("alice@gov.example", c.get("agent_owner"));
         assertEquals("reconciles invoices", c.get("agent_purpose"));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void factorNamedAgentRoles_neverReachTheToken_evenFromAStoredLegacyValue() {
+        assertEquals(java.util.List.of("reader"), AgentTokenEnricher.realmRolesFrom("reader FACTOR_PASSWORD factor_ott"));
+        assertEquals(java.util.Map.of("billing", java.util.List.of("writer")),
+                AgentTokenEnricher.clientRolesFrom("billing/writer billing/FACTOR_X"));
+
+        final java.util.Map<String, Object> claims = new java.util.HashMap<>();
+        AgentTokenEnricher.mergeRealmRoles(claims, java.util.List.of("reader", "FACTOR_PASSWORD"));
+        AgentTokenEnricher.mergeClientRoles(claims, java.util.Map.of("billing", java.util.List.of("writer", "FACTOR_X")));
+        assertEquals(java.util.List.of("reader"),
+                ((java.util.Map<String, Object>) claims.get("realm_access")).get("roles"));
+        assertEquals(java.util.List.of("writer"), ((java.util.Map<String, Object>) ((java.util.Map<String, Object>)
+                claims.get("resource_access")).get("billing")).get("roles"));
+    }
 }

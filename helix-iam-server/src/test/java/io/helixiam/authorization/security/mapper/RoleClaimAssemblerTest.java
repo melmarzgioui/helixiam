@@ -103,4 +103,13 @@ class RoleClaimAssemblerTest {
         final Map<String, Object> web = (Map<String, Object>) ((Map<String, Object>) claims.get("resource_access")).get("web");
         assertEquals(List.of("reader"), web.get("roles"));
     }
+
+    @Test
+    void theFlatUserRoleSet_dropsFactorNamedRoles() {
+        // The set the USER_ROLE protocol mapper emits: realm roles plus every typed (service-account) role.
+        final Set<String> flat = RoleClaimAssembler.flat(Set.of("user_gov", "FACTOR_PASSWORD_gov"),
+                List.of(new RoleClaimAssembler.TypedRole("reader", "CLIENT", "web"),
+                        new RoleClaimAssembler.TypedRole("factor_ott", "REALM", null)));
+        assertEquals(Set.of("user_gov", "reader"), flat);
+    }
 }
