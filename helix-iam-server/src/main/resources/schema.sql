@@ -1093,3 +1093,36 @@ CREATE TABLE IF NOT EXISTS realm_wallet_pepper (
     pepper     text                   NOT NULL,
     created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+-- Production readiness (same as Flyway V78): the per-realm identity-provider config version every replica polls.
+CREATE TABLE IF NOT EXISTS idp_config_version (
+    realm_id   character varying(255) NOT NULL PRIMARY KEY,
+    version    bigint                 NOT NULL,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+-- Production readiness (same as Flyway V79): the PostgreSQL wallet transaction store; secrets hashed or encrypted.
+CREATE TABLE IF NOT EXISTS wallet_transaction (
+    transaction_id            character varying(64)  NOT NULL PRIMARY KEY,
+    same_device_request_hash  character varying(64)  NOT NULL UNIQUE,
+    cross_device_request_hash character varying(64)  NOT NULL UNIQUE,
+    response_hash             character varying(64)  NOT NULL UNIQUE,
+    code_hash                 character varying(64)  UNIQUE,
+    same_device_request       text                   NOT NULL,
+    cross_device_request      text                   NOT NULL,
+    response                  text                   NOT NULL,
+    realm_id                  character varying(255) NOT NULL,
+    provider_alias            character varying(255),
+    helix_state               text,
+    browser_binding           character varying(255),
+    nonce                     text,
+    encryption_jwk            text,
+    dcql_query                text,
+    flow                      character varying(16),
+    status                    character varying(24)  NOT NULL,
+    verified_identity         text,
+    failure_code              character varying(64),
+    purpose                   character varying(8)   NOT NULL,
+    initiating_user_id        character varying(255),
+    created_at                bigint,
+    expires_at                bigint                 NOT NULL
+);
+CREATE INDEX IF NOT EXISTS wallet_transaction_expires_idx ON wallet_transaction (expires_at);

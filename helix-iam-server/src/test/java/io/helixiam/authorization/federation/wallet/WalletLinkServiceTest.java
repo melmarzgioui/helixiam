@@ -462,4 +462,42 @@ class WalletLinkServiceTest extends AbstractE2eTest {
                     .doesNotContain("Erika").doesNotContain("Mustermann").doesNotContain("123");
         }
     }
+
+    // ---- production readiness item 4: the upgrade path sends the "wallet linked" notice when it adds the link ----
+
+    @Test
+    void upgrade_aCommittedNumberLink_sendsTheWalletLinkedNotice_once() {
+        final WalletLinkedNotice notice = org.mockito.Mockito.mock(WalletLinkedNotice.class);
+        final WalletLinkService service = new WalletLinkService(
+                context.getBean(io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher.class));
+        service.setLinkedNotice(notice);
+        final String erika = user("erika");
+        service.link(realm, erika, alias, subject("Erika", "Mustermann", null));
+        final WalletLinkService.PendingLink pending = ((WalletLinkService.Decision.Existing) service.decide(realm,
+                alias, subject("Erika", "Mustermann", "123"), JIT)).pendingNumberLink();
+
+        assertThat(service.commitPendingLink(pending)).contains(erika);
+        assertThat(service.commitPendingLink(pending)).contains(erika); // idempotent: no second notice
+
+        org.mockito.Mockito.verify(notice, org.mockito.Mockito.times(1)).send(realm, erika);
+    }
+
+    @Test
+    void upgrade_aNumberThatAnotherUserWon_sendsNoNotice() {
+        final WalletLinkedNotice notice = org.mockito.Mockito.mock(WalletLinkedNotice.class);
+        final WalletLinkService service = new WalletLinkService(
+                context.getBean(io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher.class));
+        service.setLinkedNotice(notice);
+        final String erika = user("erika");
+        final String bert = user("bert");
+        service.link(realm, erika, alias, subject("Erika", "Mustermann", null));
+        final WalletSubject number = subject("Erika", "Mustermann", "123");
+        final WalletLinkService.PendingLink pending =
+                ((WalletLinkService.Decision.Existing) service.decide(realm, alias, number, JIT)).pendingNumberLink();
+        service.link(realm, bert, alias, new WalletSubject.AdminNumber(value(number), null));
+
+        assertThat(service.commitPendingLink(pending)).contains(bert);
+
+        org.mockito.Mockito.verifyNoInteractions(notice);
+    }
 }

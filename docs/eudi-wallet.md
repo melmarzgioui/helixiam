@@ -69,9 +69,21 @@ not specific to the wallet; every admin-API-managed connection (OIDC, SAML, eID,
   realm cannot be started there.
 - A stored connection whose secrets cannot be read (for example after `DB_ENCRYPTION` changed) is skipped with a
   `WARN` naming its id; the realm's other connections still load.
-- Limits: a refresh after a write reaches the replica that handled the write; other replicas pick the change up at
-  their next restart. A realm **import** (`/admin/realms/{realm}/import`) saves its connections without refreshing
-  the registry either; they go live at the next restart or the next admin write in that realm.
+- **Every replica converges without a restart.** Each write (admin API, console, realm import) bumps the realm's
+  row in `idp_config_version` in the same transaction. The replica that handled the write (or ran the import)
+  reloads that realm at once; every replica polls the versions every
+  `helix.federation.store.poll-interval-seconds` (default **10**, env `HELIX_FEDERATION_STORE_POLL_INTERVAL_SECONDS`;
+  `0` turns polling off) and reloads the realms whose version moved. This is plain PostgreSQL, so it works on the
+  `queue` (PostgreSQL-only) deployment as well as with Redis. A change therefore reaches every replica within one
+  interval.
+- Publication is **version-ordered**: a refresh labels what it publishes with the version it read before loading,
+  and a set older than the one already published is dropped. Two concurrent writes can no longer leave the older
+  set live.
+- **After a database restore, restart every replica.** A replica only reloads a realm whose version went *up*. A
+  restore to an earlier backup can lower `idp_config_version` below what the replicas already published, and they
+  would keep serving the newer (now gone) connections until a later write passes the old number. A restart loads every
+  realm from the restored database. A transport that reports no versions at all (a custom
+  `IdentityProviderConfigSource`) disables convergence; the poller logs a `WARN` at startup when that is the case.
 
 ### 2.3 Through the console
 
@@ -131,29 +143,37 @@ curl -s -X POST "https://helix.example/admin/realms/$REALM/identity-providers" \
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
 
-## 3. Transaction store: Redis vs in-memory
+## 3. Transaction store: PostgreSQL or Redis
 
 Each wallet login's in-flight state (nonce, decryption key, bound-browser hash, DCQL query, TTL) lives in a
-`WalletTransactionStore`, chosen automatically at boot
-(`FederationConfig.WalletTransactionStores`,
-`helix-iam-server/src/main/java/io/helixiam/authorization/federation/FederationConfig.java:143-180`):
+`WalletTransactionStore`, chosen at boot (`FederationConfig.WalletTransactionStores`). Every choice except the
+explicit development one is shared by all replicas, so a cross-device (QR) login whose wallet requests land on a
+different pod from the one that started it still works. **No sticky sessions are needed.**
 
-- **Redis-backed**, when either `helix.iam.session-store=redis` or `helix.iam.token-store=redis` — shared by every
-  replica, so a cross-device (QR) login that lands on a different pod from the one that started it still works.
-- **In process memory**, otherwise (the `@ConditionalOnMissingBean` default).
+- **PostgreSQL** (`JdbcWalletTransactionStore`, table `wallet_transaction`, Flyway V79) whenever
+  `helix.iam.session-store=queue`, and whenever neither the session nor the token store is Redis.
+- **Redis** (`RedisWalletTransactionStore`) when `helix.iam.session-store=redis`, or when
+  `helix.iam.token-store=redis` and the session store is not `queue`.
+- **In process memory** (`InMemoryWalletTransactionStore`) only when you ask for it with
+  `helix.wallet.transaction-store=memory` (env `HELIX_WALLET_TRANSACTION_STORE`). It works with **one replica only**
+  and is meant for development and tests; outside the `dev` profile startup logs a `WARN`.
 
-**Multi-replica warning:** the in-memory store only works correctly with exactly one replica. If neither the
-session nor the token store is Redis and the process is not running under the `dev` profile, startup logs a
-`WARN`:
+`helix.wallet.transaction-store` (`jdbc`, `redis` or `memory`) overrides the automatic choice. A server with neither
+Redis nor a database that was not asked for `memory` refuses to start rather than fall back silently.
 
-> EUDI wallet logins keep their transactions in process memory (neither `HELIX_SESSION_STORE` nor
-> `HELIX_TOKEN_STORE` is redis). With more than one replica a wallet login fails whenever the wallet's requests
-> reach another replica: run one replica, or use Redis for the session or token store.
+Both shared stores keep the same guarantees:
 
-This is specifically checked against `helix.iam.session-store=queue` (the PostgreSQL session store, the project's
-other multi-replica setup) outside `dev`
-(`FederationConfig.java:174-179`, `warnsAboutReplicas`). If you run more than one HelixIAM replica, put the wallet
-transaction store on Redis (by putting the session or token store on Redis) — there is no separate knob for it.
+- **Atomic, single-use transitions.** Redis runs one Lua script per transition; PostgreSQL runs one conditional
+  statement (`UPDATE … WHERE … AND status = ? AND expires_at > ? RETURNING …`), so exactly one of any number of
+  racing claims, completions, code issues or redeems wins. The same contract suite, including the 20-thread races,
+  runs against both.
+- **Secrets at rest.** The request ids, the response id and the response code are looked up by their SHA-256 only;
+  the response code is stored only as its hash. The request ids, the response id, the private decryption key and the
+  verified identity are encrypted with `DB_ENCRYPTION` (`AttributeEncryption`, which fails closed). Outside `dev`,
+  creating a transaction without `DB_ENCRYPTION` is refused.
+- **Expiry.** An expired transaction reads as absent at once. Redis evicts it by TTL; PostgreSQL deletes expired rows
+  every `helix.wallet.transaction-sweep-seconds` (default 60). Expiry is checked against the application clock, so
+  keep the replicas' clocks in sync (NTP), as you already must for token lifetimes.
 
 ## 4. Trusted proxies / allowed hosts
 
@@ -247,6 +267,14 @@ new account being created and without any explicit admin action.
   "Link wallet" starts that originate from your own account console, and treat this as an inherent limit of
   cross-device presentation protocols (also true for same-device QR scanning via an arbitrary camera app) rather
   than something this release can fully close.
+- **"Wallet linked" notice.** Because neither limit can be closed in the protocol, the user is told: whenever a
+  wallet is linked to an account (the account console's "Link wallet" flow, or a sign-in that adds the
+  administrative-number link to an account found by the tuple), the account's email address gets "An EU Digital
+  Identity Wallet was linked to your account. If this wasn't you, unlink it and change your password." It goes
+  through the realm's email provider and the `wallet-linked-notice` message template (English and Dutch defaults;
+  reword it in the console under Messaging → Templates). It carries the realm name only: never the wallet subject or
+  its hash, never a PID value. No email address on file, or no email provider configured, means no notice (the
+  latter is logged as a warning). An existing link, or a wallet another account owns, sends none.
 
 ## 7. Credential status (revocation): fail-open vs fail-closed
 
@@ -301,10 +329,19 @@ not "the exact same key that signed this credential."
   `MdocPresentationVerifier.java:469-470`) — only `deviceSignature` (asymmetric holder binding) is accepted for
   mdoc. This is deliberate: MAC-based device authentication needs a reader key the redirect-based flow here has
   no way to establish (the spec notes call out why in their mdoc section), not an oversight.
-- **The mdoc/CBOR interop test vector is self-made, not from a certified source.** The ISO 18013-5 2021 edition is
-  paywalled and was not read; the mdoc/COSE structures used here come from OpenID4VP's Annex B and the public
-  2nd-edition working draft only. A Phase 4 interop run against real wallets/issuers is the place this would be
-  caught if something is subtly wrong.
+- **mdoc interop: one third-party check, no certified source.** Besides the in-repo test wallet, the mdoc decoding
+  path (StrictCbor, IssuerAuth COSE_Sign1 with its own `x5chain`, MSO, IssuerSignedItem digests) is checked against
+  DeviceResponses produced by the EU Digital Identity Wallet reference implementation (Apache-2.0; see
+  `helix-iam-server/src/test/resources/wallet/vectors/SOURCES.md`). Their DeviceAuth cannot be checked (their
+  SessionTranscript is not published), so the DeviceAuthentication construction is still covered only by the
+  OpenID4VP B.2.6.1 transcript vector and our own wallet. The ISO 18013-5 text was not read and its Annex D vectors are
+  not reproduced (ISO copyright). One reference credential carries a 31-byte device-key coordinate (a leading zero
+  octet dropped; RFC 9053 asks for the full length): a coordinate shorter than the curve's field is left-padded with
+  zero octets and accepted, as the same point, still checked to be on the curve; a longer or empty one is refused. A Phase 4 run against real wallets and issuers remains the real
+  interop test.
+- **Several realms in one browser.** The broker keeps its per-login state (state, browser binding, wallet
+  transaction) per realm and alias, so logins in two realms that use the same alias (the console's default
+  `eudi-wallet`) can run side by side in one browser.
 - **No HSM/KMS key provider.** The verifier access key lives in `RealmSigningKeys`' software (DB-encrypted)
   implementation only; a PKCS#11/KMS provider is an unimplemented SPI seam, not a config option today.
 - **DigiD-style eID caveats apply by analogy, not directly.** This feature is not DigiD/eHerkenning/eIDAS SAML

@@ -187,6 +187,63 @@ class GdprAdminServiceTest {
         verify(consents).withdraw(any());
     }
 
+    // ---- production readiness item 5: an alias is resolved in the user's own realm first ----
+
+    /** Realm gov has an OIDC connection "corp"; realm other has a wallet connection of the same alias. */
+    private void corpIsOidcInGov_andAWalletInOther() {
+        final io.helixiam.authorization.federation.spi.IdentityProvider oidc =
+                mock(io.helixiam.authorization.federation.spi.IdentityProvider.class);
+        when(oidc.metadata()).thenReturn(io.helixiam.authorization.federation.spi.IdpMetadata.of("corp",
+                io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.OIDC, "Corp SSO"));
+        final io.helixiam.authorization.federation.wallet.WalletIdentityProvider wallet =
+                mock(io.helixiam.authorization.federation.wallet.WalletIdentityProvider.class);
+        when(wallet.metadata()).thenReturn(io.helixiam.authorization.federation.spi.IdpMetadata.of("corp",
+                io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.OIDC, "Other's wallet"));
+        when(wallet.servesRealm(any())).thenAnswer(inv -> "other".equals(inv.getArgument(0)));
+        registry.reload("gov", List.of(oidc));
+        registry.reload("other", List.of(wallet));
+    }
+
+    @Test
+    void export_aRealmsOwnOidcLink_keepsItsSubject_evenWhenAnotherRealmHasAWalletOfThatAlias() {
+        corpIsOidcInGov_andAWalletInOther();
+        final UserCredentials user = user("u-1", "alice", "alice@example.com");
+        when(tenantUsers.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(tenantUser("gov", "u-1")));
+        when(users.findByUserId("u-1")).thenReturn(Optional.of(user));
+        when(federatedLinks.findAllByUserId("u-1")).thenReturn(List.of(new FederatedLinkEntity("corp", "ext-123", "u-1")));
+
+        final GdprExportDto export = service.export("gov", "u-1");
+
+        assertEquals("ext-123", export.federatedLinks().get(0).externalSubject());
+        assertEquals("Corp SSO", export.federatedLinks().get(0).displayName());
+    }
+
+    @Test
+    void erase_anonymize_keepsARealmsOwnOidcLink_evenWhenAnotherRealmHasAWalletOfThatAlias() {
+        corpIsOidcInGov_andAWalletInOther();
+        final UserCredentials user = user("u-1", "alice", "alice@example.com");
+        when(tenantUsers.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(tenantUser("gov", "u-1")));
+        when(users.findByUserId("u-1")).thenReturn(Optional.of(user));
+        final FederatedLinkEntity corp = new FederatedLinkEntity("corp", "ext-123", "u-1");
+        when(federatedLinks.findAllByUserId("u-1")).thenReturn(List.of(corp));
+
+        service.erase(new GdprEraseDto("gov", "u-1", "anonymize"));
+
+        verify(federatedLinks, never()).delete(corp);
+    }
+
+    @Test
+    void anAliasWithNoProviderInTheUsersRealm_fallsBackToEveryRealm() {
+        corpIsOidcInGov_andAWalletInOther();
+        final UserCredentials user = user("u-1", "alice", "alice@example.com");
+        when(tenantUsers.findByTenantIdAndUserId("third", "u-1")).thenReturn(Optional.of(tenantUser("third", "u-1")));
+        when(users.findByUserId("u-1")).thenReturn(Optional.of(user));
+        when(federatedLinks.findAllByUserId("u-1")).thenReturn(List.of(new FederatedLinkEntity("corp", "ext-123", "u-1")));
+
+        // Realm "third" has no "corp": any realm's wallet of that alias still keeps the subject out (fail safe).
+        assertNull(service.export("third", "u-1").federatedLinks().get(0).externalSubject());
+    }
+
     private static UserCredentials user(final String id, final String username, final String email) {
         final UserCredentials u = new UserCredentials();
         u.setUserId(id);

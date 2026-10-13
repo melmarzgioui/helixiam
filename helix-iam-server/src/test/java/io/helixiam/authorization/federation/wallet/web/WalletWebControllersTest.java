@@ -83,7 +83,7 @@ class WalletWebControllersTest {
 
     private ResponseEntity<Map<String, Object>> status(final WalletTransaction.Status status) {
         final MockHttpSession session = new MockHttpSession();
-        final String binding = BrowserBinding.begin(session, ALIAS);
+        final String binding = BrowserBinding.begin(session, REALM, ALIAS);
         when(store.byTransactionId("tx-1")).thenReturn(Optional.of(tx(status, binding)));
         final MockHttpServletRequest request = new MockHttpServletRequest();
         request.setSession(session);
@@ -105,7 +105,7 @@ class WalletWebControllersTest {
     @Test
     void status_ofAFailedLogin_namesItsFailureClass_only() {
         final MockHttpSession session = new MockHttpSession();
-        final String binding = BrowserBinding.begin(session, ALIAS);
+        final String binding = BrowserBinding.begin(session, REALM, ALIAS);
         final MockHttpServletRequest request = new MockHttpServletRequest();
         request.setSession(session);
         final WalletPageController controller = new WalletPageController(registry, "https://helix.example");
@@ -155,7 +155,7 @@ class WalletWebControllersTest {
     @Test
     void status_ofAVerifiedLink_sendsTheBrowserToTheAccountConsoleCallback() {
         final MockHttpSession session = new MockHttpSession();
-        final String binding = BrowserBinding.begin(session, ALIAS);
+        final String binding = BrowserBinding.begin(session, REALM, ALIAS);
         when(store.byTransactionId("tx-1")).thenReturn(Optional.of(linkTx(WalletTransaction.Status.VERIFIED, binding)));
         when(store.issueResponseCode("tx-1", binding)).thenReturn(Optional.of("the-code"));
         final MockHttpServletRequest request = new MockHttpServletRequest();
@@ -172,7 +172,7 @@ class WalletWebControllersTest {
     @Test
     void thePage_ofALink_saysLink_andLeadsBackToTheAccount() {
         final MockHttpSession session = new MockHttpSession();
-        final String binding = BrowserBinding.begin(session, ALIAS);
+        final String binding = BrowserBinding.begin(session, REALM, ALIAS);
         when(store.byTransactionId("tx-1")).thenReturn(Optional.of(linkTx(WalletTransaction.Status.FAILED, binding)));
         when(provider.metadata()).thenReturn(io.helixiam.authorization.federation.spi.IdpMetadata.of(ALIAS,
                 io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.WALLET, "Wallet", "eudi-wallet", null));

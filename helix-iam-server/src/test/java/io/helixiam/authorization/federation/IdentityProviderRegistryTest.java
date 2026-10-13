@@ -197,4 +197,65 @@ class IdentityProviderRegistryTest {
         assertThat(registry.aliases(null)).containsExactly("google");
         assertThatThrownBy(() -> registry.get(null, "corp")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    // ---- production readiness item 1: version-ordered publication ----
+
+    @Test
+    void aVersionedReload_neverPublishesAnOlderVersionOverANewerOne() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        assertThat(registry.reload("realm-a", List.of(stub("newer")), 2)).isTrue();
+
+        assertThat(registry.reload("realm-a", List.of(stub("older")), 1)).isFalse();
+
+        assertThat(registry.aliases("realm-a")).containsExactly("newer");
+        assertThat(registry.version("realm-a")).isEqualTo(2);
+    }
+
+    @Test
+    void aVersionedReload_ofTheSameOrANewerVersion_isPublished() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        registry.reload("realm-a", List.of(stub("one")), 3);
+
+        assertThat(registry.reload("realm-a", List.of(stub("same")), 3)).isTrue();
+        assertThat(registry.aliases("realm-a")).containsExactly("same");
+        assertThat(registry.reload("realm-a", List.of(), 4)).isTrue();
+        assertThat(registry.aliases("realm-a")).isEmpty();
+        assertThat(registry.version("realm-a")).as("an emptied realm keeps its version").isEqualTo(4);
+    }
+
+    @Test
+    void replaceAll_setsEveryRealmsVersion_andAnUnknownRealmIsAtVersionZero() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        registry.reload("stale", List.of(stub("gone")), 9);
+
+        registry.replaceAll(Map.of("realm-a", List.of(stub("a"))), Map.of("realm-a", 5L, "realm-b", 2L));
+
+        assertThat(registry.version("realm-a")).isEqualTo(5);
+        assertThat(registry.version("realm-b")).isEqualTo(2);
+        assertThat(registry.version("stale")).isZero();
+        assertThat(registry.reload("realm-a", List.of(stub("old")), 4)).isFalse();
+    }
+
+    @Test
+    void replaceAll_keepsARealmPublishedAtANewerVersionThanTheSnapshot() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        registry.reload("realm-a", List.of(stub("newer")), 7); // a refresh that overtook the startup load
+
+        registry.replaceAll(Map.of("realm-a", List.of(stub("snapshot"))), Map.of("realm-a", 5L));
+
+        assertThat(registry.aliases("realm-a")).containsExactly("newer");
+        assertThat(registry.version("realm-a")).isEqualTo(7);
+    }
+
+    @Test
+    void isWallet_asksTheRealmsOwnProviderFirst_andOtherwiseEveryRealm() {
+        final IdentityProviderRegistry registry = new IdentityProviderRegistry(List.of());
+        registry.reload("realm-a", List.of(stub("corp")));
+        registry.reload("realm-b", List.of(wallet("corp", "realm-b")));
+
+        assertThat(registry.isWallet("realm-a", "corp")).as("realm A's own OIDC connection decides").isFalse();
+        assertThat(registry.isWallet("realm-b", "corp")).isTrue();
+        assertThat(registry.isWallet("realm-c", "corp")).as("not served there: any realm's wallet counts").isTrue();
+        assertThat(registry.isWallet("realm-a", null)).isFalse();
+    }
 }

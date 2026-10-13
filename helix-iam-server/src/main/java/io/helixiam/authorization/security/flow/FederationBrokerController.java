@@ -146,38 +146,38 @@ public class FederationBrokerController {
         // Task 18 fix round 1: one live wallet login per browser and provider: starting again discards the previous
         // transaction, so one session can never pile transactions up in the store.
         final WalletIdentityProvider wallet = WalletIdentityProvider.from(provider).orElse(null);
-        if (wallet != null && session.getAttribute(WALLET_TX_ATTR + alias) instanceof String previous) {
+        if (wallet != null && session.getAttribute(key(WALLET_TX_ATTR, alias)) instanceof String previous) {
             wallet.transactions().discard(previous);
-            session.removeAttribute(WALLET_TX_ATTR + alias);
+            session.removeAttribute(key(WALLET_TX_ATTR, alias));
         }
         // Ties this login to this browser (a session secret, not the session id, which rotates); the EUDI wallet
         // provider stores the hash in its transaction and the callback must present the same one.
-        final String browserBindingHash = BrowserBinding.begin(session, alias);
+        final String browserBindingHash = BrowserBinding.begin(session, RealmContextHolder.get(), alias);
         final IdentityProvider.RedirectResponse redirect;
         try {
             redirect = provider.start(new IdentityProvider.AuthnRequestContext(
                     RealmContextHolder.get(), state, callbackUri(alias), browserBindingHash));
         } catch (final RuntimeException e) {
             // e.g. a stored wallet provider asked to start in another realm: the browser only sees error=federation
-            BrowserBinding.clear(session, alias);
+            BrowserBinding.clear(session, RealmContextHolder.get(), alias);
             LOG.warn("Federation: provider {} refused to start: {}", LogSafe.sanitize(alias),
                     LogSafe.sanitize(e.getMessage()));
             return LOGIN_ERROR;
         }
 
-        session.setAttribute(STATE_ATTR + alias, state);
+        session.setAttribute(key(STATE_ATTR, alias), state);
         if (wallet != null && redirect.parameters() != null
                 && redirect.parameters().get(WalletIdentityProvider.TRANSACTION_PARAM) != null) {
-            session.setAttribute(WALLET_TX_ATTR + alias, redirect.parameters().get(WalletIdentityProvider.TRANSACTION_PARAM));
+            session.setAttribute(key(WALLET_TX_ATTR, alias), redirect.parameters().get(WalletIdentityProvider.TRANSACTION_PARAM));
         }
         if (redirect.parameters() != null && redirect.parameters().get("nonce") != null) {
-            session.setAttribute(NONCE_ATTR + alias, redirect.parameters().get("nonce"));
+            session.setAttribute(key(NONCE_ATTR, alias), redirect.parameters().get("nonce"));
         }
         // SAML-1 (S-H1): persist the SAML AuthnRequest id server-side so the callback can require the
         // assertion's InResponseTo to match this session's request (single-use, replay-proof).
         if (redirect.parameters() != null
                 && redirect.parameters().get(Saml2IdentityProvider.REQUEST_ID_PARAM) != null) {
-            session.setAttribute(REQUEST_ID_ATTR + alias, redirect.parameters().get(Saml2IdentityProvider.REQUEST_ID_PARAM));
+            session.setAttribute(key(REQUEST_ID_ATTR, alias), redirect.parameters().get(Saml2IdentityProvider.REQUEST_ID_PARAM));
         }
         LOG.info("Federation: starting login at provider {} ({})",
                 LogSafe.sanitize(alias), LogSafe.sanitize(redirect.binding()));
@@ -206,14 +206,14 @@ public class FederationBrokerController {
     private String handleCallback(final String alias, final HttpServletRequest request,
                                   final HttpServletResponse response) {
         final HttpSession session = request.getSession();
-        final String expectedState = (String) session.getAttribute(STATE_ATTR + alias);
-        final String expectedNonce = (String) session.getAttribute(NONCE_ATTR + alias);
-        final String expectedRequestId = (String) session.getAttribute(REQUEST_ID_ATTR + alias);
+        final String expectedState = (String) session.getAttribute(key(STATE_ATTR, alias));
+        final String expectedNonce = (String) session.getAttribute(key(NONCE_ATTR, alias));
+        final String expectedRequestId = (String) session.getAttribute(key(REQUEST_ID_ATTR, alias));
         // Single-use: consume the anti-forgery values + the pending SAML request id regardless of outcome
         // (a replayed response then finds no pending request id → InResponseTo binding rejects it).
-        session.removeAttribute(STATE_ATTR + alias);
-        session.removeAttribute(NONCE_ATTR + alias);
-        session.removeAttribute(REQUEST_ID_ATTR + alias);
+        session.removeAttribute(key(STATE_ATTR, alias));
+        session.removeAttribute(key(NONCE_ATTR, alias));
+        session.removeAttribute(key(REQUEST_ID_ATTR, alias));
 
         final BrokeredIdentity identity;
         VerifiedIdentityJson.StoredLogin walletLogin = null;
@@ -221,7 +221,8 @@ public class FederationBrokerController {
             final IdentityProvider provider = registry.get(RealmContextHolder.get(), alias);
             final IdentityProvider.CallbackContext context = new IdentityProvider.CallbackContext(
                     RealmContextHolder.get(), parameters(request), expectedState, expectedNonce,
-                    callbackUri(alias), expectedRequestId, BrowserBinding.current(session, alias));
+                    callbackUri(alias), expectedRequestId,
+                    BrowserBinding.current(session, RealmContextHolder.get(), alias));
             final WalletIdentityProvider walletProvider = WalletIdentityProvider.from(provider).orElse(null);
             if (walletProvider != null) {
                 // Task 18: a wallet login carries the account decision made when the presentation was verified; it
@@ -244,10 +245,10 @@ public class FederationBrokerController {
                     LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
             return LOGIN_ERROR;
         }
-        BrowserBinding.clear(session, alias);
+        BrowserBinding.clear(session, RealmContextHolder.get(), alias);
 
         if (walletLogin != null) {
-            session.removeAttribute(WALLET_TX_ATTR + alias); // redeemed: nothing left to discard
+            session.removeAttribute(key(WALLET_TX_ATTR, alias)); // redeemed: nothing left to discard
             if (!(walletLogin.decision() instanceof WalletLinkService.Decision.Refused)) {
                 session.setAttribute(IDP_SOURCE_ATTR, alias);
                 session.setAttribute(IDP_SUBJECT_ATTR, identity.externalSubject());
@@ -300,6 +301,14 @@ public class FederationBrokerController {
                     LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
             return null;
         }
+    }
+
+    /**
+     * The session attribute of a per-login value of {@code alias} in the request's realm (production readiness item 2):
+     * keyed by (realm, alias), so two realms using one alias in one browser do not clobber each other.
+     */
+    private static String key(final String prefix, final String alias) {
+        return BrowserBinding.sessionKey(prefix, RealmContextHolder.get(), alias);
     }
 
     /** Realm-prefixed external callback the IdP redirects back to: {@code {idpBase}/realms/{realm}/broker/{alias}/callback}. */

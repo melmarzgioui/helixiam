@@ -35,4 +35,17 @@ public interface IdentityProviderConfigPublisher {
 
     /** Remove a config; {@code false} if it did not exist. */
     Boolean delete(final IdentityProviderRef ref);
+
+    /**
+     * Every realm's identity-provider config version (bumped by every save and delete), for the registry's
+     * cross-replica poll. A transport that cannot report versions answers none, and the poll then never reloads.
+     */
+    default java.util.Map<String, Long> versions() {
+        return java.util.Map.of();
+    }
+
+    /** Whether {@link #versions()} is implemented (the default answers none, which disables the cross-replica poll). */
+    default boolean reportsVersions() {
+        return false;
+    }
 }

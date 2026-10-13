@@ -157,6 +157,19 @@ public class RealmImportService {
         this.walletValidator = walletValidator;
     }
 
+    private io.helixiam.authorization.federation.FederationStoreRefresher federationRefresher;
+
+    /**
+     * Production readiness item 1: after the identity-provider slice wrote anything, the live registry of this replica
+     * is reloaded at once (the save already bumped the realm's version, so the other replicas follow within their poll
+     * interval). Absent when {@code helix.federation.store.enabled=false}.
+     */
+    @Autowired(required = false)
+    public void setFederationStoreRefresher(
+            final io.helixiam.authorization.federation.FederationStoreRefresher federationRefresher) {
+        this.federationRefresher = federationRefresher;
+    }
+
     private io.helixiam.authorization.service.account.AccountConsoleSettingsService accountConsoleSettings;
 
     /** B1: the {@code accountConsole} slice (what the realm's account console allows) is imported when present. */
@@ -734,6 +747,7 @@ public class RealmImportService {
         }
         final Map<String, IdentityProviderConfig> existing = byKey(idpPublisher.list(realmId),
                 IdentityProviderConfig::alias);
+        boolean wrote = false;
         for (final IdentityProviderConfig idp : doc.identityProviders()) {
             if (idp == null || isBlank(idp.alias())) {
                 r.skipped(SLICE_IDPS);
@@ -755,6 +769,7 @@ public class RealmImportService {
                 }
                 idpPublisher.save(new IdentityProviderConfig(realmId, idp.alias(), idp.protocol(),
                         idp.displayName(), idp.enabled(), config));
+                wrote = true;
                 if (update) {
                     r.updated(SLICE_IDPS);
                 } else {
@@ -763,6 +778,22 @@ public class RealmImportService {
             } catch (final RuntimeException ex) {
                 failed(r, SLICE_IDPS, realmId, ex);
             }
+        }
+        if (wrote) {
+            refreshRegistry(realmId);
+        }
+    }
+
+    /** Reloads this replica's live identity-provider registry for the realm (best effort: the write is persisted). */
+    private void refreshRegistry(final String realmId) {
+        if (federationRefresher == null) {
+            return;
+        }
+        try {
+            federationRefresher.refresh(realmId);
+        } catch (final RuntimeException e) {
+            LOG.warn("Identity-provider registry refresh after the import of realm {} failed (the import is saved; "
+                    + "the poll retries): {}", LogSafe.sanitize(realmId), e.getClass().getSimpleName());
         }
     }
 

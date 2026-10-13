@@ -106,9 +106,6 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
   internal comparisons that are not on a secret-comparison path, no dedicated negative test for a malformed
   `DeviceSignature`, and reliance on an internal Nimbus ECDSA helper rather than a public API for one signature
   check. Full detail in `task-11-review.md` (items #2, #4, #5, #7, #8, #9) and `task-12-review.md`.
-- **Resolved (final review F1): `isWallet`/`isWalletAlias` caught only `IllegalArgumentException`.**
-  `AccountIdentityController.isWallet` and `GdprAdminService.isWalletAlias` now ask
-  `IdentityProviderRegistry#named`, which does not throw (it lists every realm's provider of that alias).
 - **The fail-open status audit carries no transaction id.** `WALLET_STATUS_CHECK_FAILED` (decision `accepted`,
   emitted by `TokenStatusListClient` when an issuer's status list is transiently unavailable under
   `FAIL_OPEN_WITH_AUDIT`) has `{reason, statusListHost, decision}` but not the wallet transaction id, so an operator
@@ -127,6 +124,42 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
   `FederatedLoginCompleter.complete`. `RuntimeException` is caught and correctly refuses the login
   (`FederatedLoginCommit.java:44-55`); `Error` is not, and is not expected to be. See `SECURITY-REVIEW.md`
   Appendix B.9.
+
+### Wallet items done (production readiness, 2026-10-13)
+
+Moved here from the lists above and from the final review's parked items; each landed with tests on
+`feat/wallet-production`. Details in `CHANGES-1.0.md` (next release) and `docs/eudi-wallet.md`.
+
+- **DONE — identity-provider changes on every replica.** Final review F1 left: "a write refreshes only the replica that
+  handled it, and a realm import does not refresh the registry (both go live at the next restart)". Every save and
+  delete now bumps the realm's `idp_config_version` row (V78) in its transaction; every replica polls it
+  (`helix.federation.store.poll-interval-seconds`, default 10) and reloads the realms that moved; a realm import
+  reloads the importing replica at once. `IdentityProviderRegistryReplicasE2eTest` runs a second replica on the same
+  database.
+- **DONE — `FederationStoreRefresher.refresh` built outside the registry lock** (final re-review, parked minor): two
+  concurrent writes could publish the older set. Publication is version-ordered: the realm's version is read before its
+  configs and the registry refuses a set older than the one it holds
+  (`FederationStoreRefresherTest.twoConcurrentRefreshes_neverPublishTheOlderSetOverTheNewer`).
+- **DONE — broker session attributes keyed by alias only** (final fix ruling, deferred): two realms using alias
+  `eudi-wallet` in one browser clobbered each other's state, binding and `HELIX_WALLET_TX_<alias>`. Now keyed by
+  (realm, alias) (`BrowserBinding.sessionKey`); `WalletTwoRealmsOneBrowserE2eTest`.
+- **DONE — no PostgreSQL wallet transaction store** (T16-a): a multi-replica `queue` deployment needed sticky sessions.
+  `JdbcWalletTransactionStore` (V79) is the store on the `queue` session store and whenever no Redis is configured; it
+  passes the shared contract suite including the 20-thread races. The in-memory store needs
+  `helix.wallet.transaction-store=memory`.
+- **DONE — "wallet linked" notification** (T21b M1/M2): the QR-relay and reverse linking-CSRF residuals stay
+  inherent to cross-device flows, but the account owner is now emailed when a wallet is linked
+  (`WalletLinkedNotice`, template `wallet-linked-notice`; no subject hash, no PID value).
+- **DONE — cross-realm alias lookups** (final re-review, parked minor; and the F1 note that `isWallet`/`isWalletAlias`
+  now ask `named`): `AccountIdentityController.isWallet` and `GdprAdminService.isWalletAlias` resolve the alias in the
+  user's own realm first (`IdentityProviderRegistry#isWallet`) and fall back to every realm only for an alias that realm
+  does not serve.
+- **DONE — recovery-codes page after a refused pending commit** (final re-review, parked minor):
+  `MfaAuthController.processEnableMfaFactor` now shows the federation error and issues no codes.
+- **PARTLY DONE — third-party mdoc vector** (T6-c): IssuerAuth, MSO and digests are checked against EU reference wallet
+  DeviceResponses (Apache-2.0). Still open: a third-party DeviceAuth with its SessionTranscript (see `ROADMAP.md`).
+  Decided (maintainer ruling): a short device-key coordinate (one reference credential has a 31-byte `x`) is
+  left-padded and accepted; longer or empty is refused, and the on-curve check is unchanged.
 
 ### Pre-existing findings outside the wallet, surfaced while building it — resolved by the merge of `fix/pre-1.0-security`
 
@@ -156,12 +189,6 @@ is merged into this branch; the wallet-specific consequences were resolved in th
   `/%6Fid4vp/...` would not be counted — but StrictHttpFirewall refuses any `%`, `;`, `//` or `/./` with 400 (Tomcat
   refuses `%2F`), so no such spelling is served. Guarded by `WalletLimitPathEncodingE2eTest` (wallet start, `/oid4vp`,
   body limit) and `LoginRateLimitPathEncodingE2eTest` (sign-in). Relaxing the firewall would reopen it.
-- **Resolved (final review F1):** admin-API/console-managed identity providers used to reach the live registry only
-  with `helix.federation.store.enabled=true` (default `false`), only `master` was loaded at startup, and each write
-  replaced every realm's store-backed providers with the written realm's. The store refresher is now on by default,
-  loads every realm at startup, refreshes only the written realm, and keys stored providers by (realm, alias);
-  see `docs/eudi-wallet.md` §2.2. Remaining: a write refreshes only the replica that handled it, and a realm import
-  does not refresh the registry (both go live at the next restart).
 
 ## Deep SAML pentest (2026-09-17, issue #1) — outcome
 Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md`](../docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-17.md)). Result: 0 critical / 0 high / 1 medium / 2 low.

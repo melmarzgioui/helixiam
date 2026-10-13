@@ -14,6 +14,7 @@ import io.helixiam.authorization.federation.saml.SamlAssertionReplayCache;
 import io.helixiam.authorization.federation.spi.AttributeMapper;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.federation.wallet.transaction.InMemoryWalletTransactionStore;
+import io.helixiam.authorization.federation.wallet.transaction.JdbcWalletTransactionStore;
 import io.helixiam.authorization.federation.wallet.transaction.RedisWalletTransactionStore;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
 import io.helixiam.common.startup.DeploymentProfile;
@@ -23,16 +24,17 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.autoconfigure.condition.AnyNestedCondition;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -141,59 +143,107 @@ public class FederationConfig {
     }
 
     /**
-     * EUDI wallet logins: the transaction store. Redis (shared by every replica) when the session or the token store is
-     * Redis, on the same connection factory; otherwise in process memory, which only works with one replica.
+     * Production readiness item 1: polls the per-realm identity-provider config versions so a write or a realm import
+     * on another replica reaches this one within {@code helix.federation.store.poll-interval-seconds} (default 10;
+     * 0 turns polling off). Plain PostgreSQL, so it works on every deployment.
+     */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnProperty(prefix = "helix.federation.store", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public FederationStoreVersionPoller federationStoreVersionPoller(
+            final FederationStoreRefresher refresher,
+            @Value("${helix.federation.store.poll-interval-seconds:10}") final long intervalSeconds) {
+        return new FederationStoreVersionPoller(refresher, Duration.ofSeconds(Math.max(0, intervalSeconds)));
+    }
+
+    /**
+     * EUDI wallet logins: the transaction store (production readiness item 3), shared by every replica.
+     * <ul>
+     *   <li><b>PostgreSQL</b> ({@link JdbcWalletTransactionStore}) whenever the HTTP session store is {@code queue}
+     *       (PostgreSQL), and whenever neither the session nor the token store is Redis;</li>
+     *   <li><b>Redis</b> ({@link RedisWalletTransactionStore}, on the session/token store's connection factory) when the
+     *       session store is Redis, or the token store is Redis and the session store is not {@code queue};</li>
+     *   <li><b>in process memory</b> ({@link InMemoryWalletTransactionStore}, one replica only) for development and
+     *       tests, and only when asked for: {@code helix.wallet.transaction-store=memory}.</li>
+     * </ul>
+     * {@code helix.wallet.transaction-store} ({@code jdbc}, {@code redis} or {@code memory}) overrides the choice. A
+     * server that has neither Redis nor a database, and was not asked for memory, refuses to start: it never falls back
+     * to a store that silently breaks with a second replica.
      */
     @Configuration(proxyBeanMethods = false)
     public static class WalletTransactionStores {
 
-        // Redis is declared FIRST so the in-memory default's @ConditionalOnMissingBean sees it.
-        @Bean
-        @Conditional(RedisBackedStores.class)
-        public WalletTransactionStore redisWalletTransactionStore(
-                final RedisConnectionFactory redisConnectionFactory,
-                @Value("${database.encryption:#{null}}") final String encryptionKey,
-                final DeploymentProfile profile) {
-            return new RedisWalletTransactionStore(redisConnectionFactory, new AttributeEncryption(encryptionKey),
-                    profile, Clock.systemUTC());
-        }
+        static final String PROPERTY = "helix.wallet.transaction-store";
 
-        @Bean
+        @Bean // destroy: inferred close() stops the PostgreSQL store's sweep
         @ConditionalOnMissingBean(WalletTransactionStore.class)
-        public WalletTransactionStore inMemoryWalletTransactionStore(
-                @Value("${helix.iam.session-store:}") final String sessionStore, final DeploymentProfile profile) {
-            if (warnsAboutReplicas(sessionStore, profile)) {
-                LOG.warn("EUDI wallet logins keep their transactions in process memory (neither HELIX_SESSION_STORE "
-                        + "nor HELIX_TOKEN_STORE is redis). With more than one replica a wallet login fails whenever "
-                        + "the wallet's requests reach another replica: run one replica, or use Redis for the "
-                        + "session or token store.");
+        public WalletTransactionStore walletTransactionStore(
+                @Value("${" + PROPERTY + ":}") final String explicit,
+                @Value("${helix.iam.session-store:}") final String sessionStore,
+                @Value("${helix.iam.token-store:}") final String tokenStore,
+                @Value("${database.encryption:#{null}}") final String encryptionKey,
+                @Value("${helix.wallet.transaction-sweep-seconds:60}") final long sweepSeconds,
+                final DeploymentProfile profile,
+                final ObjectProvider<RedisConnectionFactory> redis,
+                final ObjectProvider<JdbcTemplate> jdbc,
+                final ObjectProvider<PlatformTransactionManager> transactions) {
+            final String store = choose(explicit, sessionStore, tokenStore);
+            switch (store) {
+                case "memory" -> {
+                    if (!profile.isDev()) {
+                        LOG.warn("EUDI wallet logins keep their transactions in process memory ({}=memory): this "
+                                + "works with ONE replica only and is meant for development and tests", PROPERTY);
+                    }
+                    return new InMemoryWalletTransactionStore();
+                }
+                case "redis" -> {
+                    final RedisConnectionFactory factory = redis.getIfAvailable();
+                    if (factory == null) {
+                        throw new IllegalStateException("The EUDI wallet transaction store is Redis, but no Redis "
+                                + "connection is configured (set " + PROPERTY + " or configure Redis)");
+                    }
+                    return new RedisWalletTransactionStore(factory, new AttributeEncryption(encryptionKey), profile,
+                            Clock.systemUTC());
+                }
+                default -> {
+                    final JdbcTemplate template = jdbc.getIfAvailable();
+                    final PlatformTransactionManager manager = transactions.getIfAvailable();
+                    if (template == null || manager == null) {
+                        throw new IllegalStateException("The EUDI wallet transaction store needs the database or "
+                                + "Redis; neither is available. Set " + PROPERTY + "=memory for a single-process "
+                                + "development or test run.");
+                    }
+                    final JdbcWalletTransactionStore jdbcStore = new JdbcWalletTransactionStore(template, manager,
+                            new AttributeEncryption(encryptionKey), profile, Clock.systemUTC(),
+                            Duration.ofSeconds(Math.max(0, sweepSeconds)));
+                    jdbcStore.start();
+                    return jdbcStore;
+                }
             }
-            return new InMemoryWalletTransactionStore();
         }
 
-        /**
-         * No replica count reaches the server (the Helm chart sets {@code replicas} on the Deployment only), so the
-         * PostgreSQL session store ({@code queue}), the one other multi-replica setup, is taken as the signal. Never
-         * under the {@code dev} profile, which defaults to {@code queue} and runs one process.
-         */
-        static boolean warnsAboutReplicas(final String sessionStore, final DeploymentProfile profile) {
-            return !profile.isDev() && sessionStore != null && "queue".equals(sessionStore.trim().toLowerCase(Locale.ROOT));
+        /** Which store: {@code jdbc}, {@code redis} or {@code memory} (see the class javadoc). */
+        static String choose(final String explicit, final String sessionStore, final String tokenStore) {
+            final String forced = normalise(explicit);
+            if (!forced.isEmpty()) {
+                if (!List.of("jdbc", "redis", "memory").contains(forced)) {
+                    throw new IllegalStateException(PROPERTY + " must be jdbc, redis or memory, not '" + explicit
+                            + "'");
+                }
+                return forced;
+            }
+            final String session = normalise(sessionStore);
+            if ("queue".equals(session)) {
+                return "jdbc";
+            }
+            if ("redis".equals(session) || "redis".equals(normalise(tokenStore))) {
+                return "redis";
+            }
+            return "jdbc";
         }
-    }
 
-    /** {@code helix.iam.session-store=redis} or {@code helix.iam.token-store=redis}. */
-    static class RedisBackedStores extends AnyNestedCondition {
-
-        RedisBackedStores() {
-            super(ConfigurationPhase.REGISTER_BEAN);
-        }
-
-        @ConditionalOnProperty(name = "helix.iam.session-store", havingValue = "redis")
-        static class SessionStoreRedis {
-        }
-
-        @ConditionalOnProperty(name = "helix.iam.token-store", havingValue = "redis")
-        static class TokenStoreRedis {
+        private static String normalise(final String value) {
+            return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
         }
     }
+
 }

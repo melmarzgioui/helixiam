@@ -50,6 +50,8 @@ public class MfaAuthController {
     /** Wrong second-factor codes allowed in one sign-in; the next one ends it (the password is needed again). */
     static final int MAX_FAILURES_PER_SIGN_IN = 5;
     private static final String LOCKED_REDIRECT = "redirect:/login?error=mfaLocked";
+    /** A federated login's pending commit was refused: the login ended with the federation error. */
+    private static final String FEDERATION_REFUSED = REDIRECT_PREFIX + "/login?error=federation";
     private final QrCode qrCode;
     private final MfaService mfaService;
     private final TotpService totp;
@@ -129,8 +131,15 @@ public class MfaAuthController {
             return requestEnableMfaFactor(user, model, request);
         }
         request.getSession().removeAttribute(PENDING_SECRET);
+        final String completed = complete(user, request, response);
+        if (FEDERATION_REFUSED.equals(completed)) {
+            // Item 6: the federated login's pending commit was refused and the sign-in has ended (session gone).
+            // Show that error, not the recovery-codes page with a "continue" leading to it, and issue no codes for a
+            // sign-in that did not happen (the enrolment stands; codes can be made in the account console).
+            return completed;
+        }
         final List<String> codes = recoveryCodes.generate(user.getUsername());
-        final String next = complete(user, request, response).substring(REDIRECT_PREFIX.length());
+        final String next = completed.substring(REDIRECT_PREFIX.length());
         model.addAttribute("recoveryCodes", codes);
         model.addAttribute("continueUrl", next);
         brand(model);
@@ -233,7 +242,7 @@ public class MfaAuthController {
         MfaSessionState.markVerified(request, user.getUsername());
         final FlowExecutionState pending = PendingFederatedLogin.of(request.getSession(false), user.getUserId());
         if (!PendingFederatedLogin.finish(request, pending, loginCommits, loginOutcomes, authTimeStamper)) {
-            return REDIRECT_PREFIX + "/login?error=federation";
+            return FEDERATION_REFUSED;
         }
         sessionPolicyApplier.applyOnLogin(request, RealmContextHolder.get()); // SSO P3
         return savedRequestRedirect.redirectView(request, response, spBaseUrl);

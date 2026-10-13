@@ -7,6 +7,7 @@ package io.helixiam.authorization.repository.federation;
 
 import io.helixiam.authorization.domain.federation.IdentityProviderEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -35,4 +36,18 @@ public interface IdentityProviderConfigRepository extends JpaRepository<Identity
     boolean existsByRealmIdAndAlias(String realmId, String alias);
 
     void deleteByRealmIdAndAlias(String realmId, String alias);
+
+    /**
+     * Bumps {@code realmId}'s identity-provider config version ({@code idp_config_version}, V78): called in the
+     * transaction of every write, so a replica that sees the new version also sees the write.
+     */
+    @Modifying
+    @Query(value = "INSERT INTO idp_config_version (realm_id, version, updated_at) VALUES (:realmId, 1, CURRENT_TIMESTAMP)"
+            + " ON CONFLICT (realm_id) DO UPDATE SET version = idp_config_version.version + 1,"
+            + " updated_at = CURRENT_TIMESTAMP", nativeQuery = true)
+    int bumpVersion(@Param("realmId") String realmId);
+
+    /** Every realm's identity-provider config version, as {@code [realm_id, version]} rows. */
+    @Query(value = "SELECT realm_id, version FROM idp_config_version", nativeQuery = true)
+    List<Object[]> findAllVersions();
 }

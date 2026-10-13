@@ -22,7 +22,6 @@ import io.helixiam.authorization.domain.user.UserCredentials;
 import io.helixiam.authorization.domain.user.UserRoles;
 import io.helixiam.authorization.domain.user.admin.CredentialSummary;
 import io.helixiam.authorization.federation.IdentityProviderRegistry;
-import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
 import io.helixiam.authorization.repository.UserCredentialsRepository;
 import io.helixiam.authorization.repository.federation.FederatedLinkRepository;
 import io.helixiam.authorization.repository.gdpr.GdprUserMutationRepository;
@@ -193,7 +192,7 @@ public class GdprAdminService {
         // would keep a live route from "the wallet holder" to the now-anonymized account. Non-wallet links (OIDC,
         // SAML, eID) are untouched, matching anonymize's existing scope (roles/org memberships also survive).
         federatedLinks.findAllByUserId(erase.userId()).stream()
-                .filter(row -> isWalletAlias(row.getIdpAlias()))
+                .filter(row -> isWalletAlias(erase.realmId(), row.getIdpAlias()))
                 .forEach(federatedLinks::delete);
 
         // Strip every enrolled factor (each delete is store-scoped + ownership-guarded inside the service).
@@ -225,7 +224,7 @@ public class GdprAdminService {
      */
     private GdprFederatedLink toFederatedLink(final String realmId, final FederatedLinkEntity link) {
         final String displayName = displayNameOf(realmId, link.getIdpAlias());
-        final String externalSubject = isWalletAlias(link.getIdpAlias()) ? null : link.getExternalSubject();
+        final String externalSubject = isWalletAlias(realmId, link.getIdpAlias()) ? null : link.getExternalSubject();
         return new GdprFederatedLink(link.getIdpAlias(), externalSubject, displayName);
     }
 
@@ -243,12 +242,12 @@ public class GdprAdminService {
         return registry.named(alias).stream().findFirst().map(p -> p.metadata().displayName()).orElse(null);
     }
 
-    /** Whether {@code alias} names an EU Digital Identity Wallet provider — same check as the account console's
-     * {@code AccountIdentityController} (its external subjects are HMAC hashes, never a real IdP subject). */
-    private boolean isWalletAlias(final String alias) {
-        if (alias == null) {
-            return false;
-        }
-        return registry.named(alias).stream().anyMatch(p -> WalletIdentityProvider.from(p).isPresent());
+    /**
+     * Whether {@code alias} names an EU Digital Identity Wallet provider — same check as the account console's
+     * {@code AccountIdentityController} (its external subjects are HMAC hashes, never a real IdP subject). Item 5:
+     * resolved in {@code realmId} first, every realm only for an alias that realm does not serve.
+     */
+    private boolean isWalletAlias(final String realmId, final String alias) {
+        return registry.isWallet(realmId, alias);
     }
 }

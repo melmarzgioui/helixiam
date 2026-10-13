@@ -80,8 +80,8 @@ class FederationBrokerControllerTest {
         assertThat(ctx.getValue().callbackUri()).isEqualTo(SP + "/realms/gov/broker/" + ALIAS + "/callback");
         assertThat(ctx.getValue().realmId()).isEqualTo("gov");
         // State + nonce are stashed in the session for the callback to replay.
-        assertThat(request.getSession().getAttribute("HELIX_FED_STATE_" + ALIAS)).isEqualTo("fixed-state");
-        assertThat(request.getSession().getAttribute("HELIX_FED_NONCE_" + ALIAS)).isEqualTo("n-123");
+        assertThat(request.getSession().getAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS))).isEqualTo("fixed-state");
+        assertThat(request.getSession().getAttribute(BrowserBinding.sessionKey("HELIX_FED_NONCE_", "gov", ALIAS))).isEqualTo("n-123");
     }
 
     @Test
@@ -97,7 +97,7 @@ class FederationBrokerControllerTest {
         assertThat(view).isEqualTo("flow/saml-post"); // auto-submit form, not a 302
         assertThat(model.getAttribute("action")).isEqualTo("https://digid/sso");
         assertThat(model.getAttribute("fields")).isEqualTo(Map.of("SAMLRequest", "deflated", "RelayState", "fixed-state"));
-        assertThat(request.getSession().getAttribute("HELIX_FED_STATE_" + ALIAS)).isEqualTo("fixed-state");
+        assertThat(request.getSession().getAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS))).isEqualTo("fixed-state");
     }
 
     @Test
@@ -108,8 +108,8 @@ class FederationBrokerControllerTest {
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
 
         final MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession().setAttribute("HELIX_FED_STATE_" + ALIAS, "fixed-state");
-        request.getSession().setAttribute("HELIX_FED_NONCE_" + ALIAS, "n-123");
+        request.getSession().setAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS), "fixed-state");
+        request.getSession().setAttribute(BrowserBinding.sessionKey("HELIX_FED_NONCE_", "gov", ALIAS), "n-123");
         request.setParameter("state", "fixed-state");
         request.setParameter("code", "auth-code");
         final MockHttpServletResponse response = new MockHttpServletResponse();
@@ -130,7 +130,7 @@ class FederationBrokerControllerTest {
         assertThat(ctx.getValue().realmId()).isEqualTo("gov");
         assertThat(ctx.getValue().parameters()).containsEntry("code", "auth-code");
         // Anti-forgery values are consumed (single-use).
-        assertThat(request.getSession().getAttribute("HELIX_FED_STATE_" + ALIAS)).isNull();
+        assertThat(request.getSession().getAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS))).isNull();
     }
 
     /**
@@ -148,7 +148,7 @@ class FederationBrokerControllerTest {
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
 
         final MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession().setAttribute("HELIX_FED_STATE_" + ALIAS, "fixed-state");
+        request.getSession().setAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS), "fixed-state");
         request.setParameter("state", "fixed-state");
         final MockHttpServletResponse response = new MockHttpServletResponse();
         when(loginCompleter.complete("user-9", "http://eidas.europa.eu/LoA/substantial", request, response))
@@ -177,7 +177,7 @@ class FederationBrokerControllerTest {
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
 
         final MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession().setAttribute("HELIX_FED_STATE_" + ALIAS, "fixed-state");
+        request.getSession().setAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS), "fixed-state");
         request.setParameter("state", "fixed-state");
         final MockHttpServletResponse response = new MockHttpServletResponse();
         when(loginCompleter.complete("user-9", null, request, response)).thenReturn("redirect:" + SP);
@@ -202,7 +202,7 @@ class FederationBrokerControllerTest {
         final MockHttpServletRequest request = new MockHttpServletRequest();
         controller.start(ALIAS, request, new org.springframework.ui.ConcurrentModel());
         // Persisted server-side, keyed by alias.
-        assertThat(request.getSession().getAttribute("HELIX_FED_SAML_REQ_ID_" + ALIAS)).isEqualTo("_req-1");
+        assertThat(request.getSession().getAttribute(BrowserBinding.sessionKey("HELIX_FED_SAML_REQ_ID_", "gov", ALIAS))).isEqualTo("_req-1");
 
         final MockHttpServletResponse response = new MockHttpServletResponse();
         when(loginCompleter.complete("user-9", null, request, response)).thenReturn("redirect:" + SP);
@@ -214,7 +214,7 @@ class FederationBrokerControllerTest {
         verify(provider).callback(ctx.capture());
         assertThat(ctx.getValue().expectedRequestId()).isEqualTo("_req-1");
         // ...and consumed (single-use): a replayed callback now presents no pending request id.
-        assertThat(request.getSession().getAttribute("HELIX_FED_SAML_REQ_ID_" + ALIAS)).isNull();
+        assertThat(request.getSession().getAttribute(BrowserBinding.sessionKey("HELIX_FED_SAML_REQ_ID_", "gov", ALIAS))).isNull();
     }
 
     @Test
@@ -224,7 +224,7 @@ class FederationBrokerControllerTest {
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.unresolved());
 
         final MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession().setAttribute("HELIX_FED_STATE_" + ALIAS, "fixed-state");
+        request.getSession().setAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS), "fixed-state");
         request.setParameter("state", "fixed-state");
         final MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -241,7 +241,7 @@ class FederationBrokerControllerTest {
         when(provider.callback(any())).thenThrow(new IllegalStateException("state mismatch (possible CSRF)"));
 
         final MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession().setAttribute("HELIX_FED_STATE_" + ALIAS, "fixed-state");
+        request.getSession().setAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS), "fixed-state");
         request.setParameter("state", "attacker");
         final MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -268,7 +268,7 @@ class FederationBrokerControllerTest {
                 ArgumentCaptor.forClass(IdentityProvider.AuthnRequestContext.class);
         verify(provider).start(ctx.capture());
         assertThat(ctx.getValue().browserBindingHash()).isNotBlank()
-                .isEqualTo(BrowserBinding.current(request.getSession(), ALIAS))
+                .isEqualTo(BrowserBinding.current(request.getSession(), "gov", ALIAS))
                 .isNotEqualTo(request.getSession().getId());
     }
 
@@ -280,7 +280,7 @@ class FederationBrokerControllerTest {
         when(broker.broker(any(), any(), any())).thenReturn(BrokerResult.existingLink("user-9"));
         final MockHttpServletRequest request = new MockHttpServletRequest();
         controller.start(ALIAS, request, new org.springframework.ui.ConcurrentModel());
-        final String bound = BrowserBinding.current(request.getSession(), ALIAS);
+        final String bound = BrowserBinding.current(request.getSession(), "gov", ALIAS);
         request.changeSessionId(); // Task 2 rotates ids; the binding must not depend on them
         final MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -290,7 +290,7 @@ class FederationBrokerControllerTest {
                 ArgumentCaptor.forClass(IdentityProvider.CallbackContext.class);
         verify(provider).callback(ctx.capture());
         assertThat(ctx.getValue().browserBindingHash()).isEqualTo(bound);
-        assertThat(BrowserBinding.current(request.getSession(), ALIAS)).as("cleared after success").isNull();
+        assertThat(BrowserBinding.current(request.getSession(), "gov", ALIAS)).as("cleared after success").isNull();
     }
 
     @Test
@@ -298,12 +298,12 @@ class FederationBrokerControllerTest {
         when(registry.get(any(), eq(ALIAS))).thenReturn(provider);
         when(provider.callback(any())).thenThrow(new IllegalStateException("refused"));
         final MockHttpServletRequest request = new MockHttpServletRequest();
-        final String bound = BrowserBinding.begin(request.getSession(), ALIAS);
+        final String bound = BrowserBinding.begin(request.getSession(), "gov", ALIAS);
 
         final String view = controller.callback(ALIAS, request, new MockHttpServletResponse());
 
         assertThat(view).isEqualTo("redirect:/login?error=federation");
-        assertThat(BrowserBinding.current(request.getSession(), ALIAS)).isEqualTo(bound);
+        assertThat(BrowserBinding.current(request.getSession(), "gov", ALIAS)).isEqualTo(bound);
     }
 
     // ------------------------------------------------------------------ fix round 1
@@ -335,6 +335,6 @@ class FederationBrokerControllerTest {
         final String view = controller.start(ALIAS, request, new org.springframework.ui.ConcurrentModel());
 
         assertThat(view).isEqualTo("redirect:/login?error=federation");
-        assertThat(request.getSession().getAttribute("HELIX_FED_STATE_" + ALIAS)).isNull();
+        assertThat(request.getSession().getAttribute(BrowserBinding.sessionKey("HELIX_FED_STATE_", "gov", ALIAS))).isNull();
     }
 }

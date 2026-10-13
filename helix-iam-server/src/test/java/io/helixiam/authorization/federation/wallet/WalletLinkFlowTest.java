@@ -46,7 +46,8 @@ class WalletLinkFlowTest {
     private final InMemoryWalletTransactionStore store = new InMemoryWalletTransactionStore(Clock.systemUTC(), 100);
     private final TestAccessKeys keys = new TestAccessKeys(ACCESS, "eudi-access", REALM);
     private final WalletLinkService links = mock(WalletLinkService.class);
-    private final WalletLinkFlow flow = new WalletLinkFlow(links);
+    private final WalletLinkedNotice notice = mock(WalletLinkedNotice.class);
+    private final WalletLinkFlow flow = new WalletLinkFlow(links, notice);
     private final MockHttpSession session = new MockHttpSession();
 
     private WalletIdentityProvider provider() {
@@ -78,7 +79,7 @@ class WalletLinkFlowTest {
         final WalletTransaction tx = store.byTransactionId(page.substring(page.indexOf("tx=") + 3)).orElseThrow();
         assertThat(tx.purpose()).isEqualTo(WalletTransaction.Purpose.LINK);
         assertThat(tx.initiatingUserId()).isEqualTo(USER);
-        assertThat(tx.browserBindingHash()).isEqualTo(BrowserBinding.current(session, ALIAS));
+        assertThat(tx.browserBindingHash()).isEqualTo(BrowserBinding.current(session, REALM, ALIAS));
         assertThat(tx.helixState()).isNotBlank();
     }
 
@@ -102,7 +103,7 @@ class WalletLinkFlowTest {
 
         verify(links).link(REALM, USER, ALIAS, new WalletSubject.AdminNumber("aa11", null));
         verify(links).link(REALM, USER, ALIAS, new WalletSubject.Tuple("bb22"));
-        assertThat(BrowserBinding.current(session, ALIAS)).as("the binding is spent").isNull();
+        assertThat(BrowserBinding.current(session, REALM, ALIAS)).as("the binding is spent").isNull();
     }
 
     @Test
@@ -211,7 +212,7 @@ class WalletLinkFlowTest {
     @Test
     void aLoginTransactionsCode_isNeverALink() {
         final WalletIdentityProvider provider = provider();
-        final String binding = BrowserBinding.begin(session, ALIAS);
+        final String binding = BrowserBinding.begin(session, REALM, ALIAS);
         final var redirect = provider.start(new io.helixiam.authorization.federation.spi.IdentityProvider
                 .AuthnRequestContext(REALM, "login-state", null, binding));
         final String txId = redirect.location().substring(redirect.location().indexOf("tx=") + 3);
@@ -229,5 +230,29 @@ class WalletLinkFlowTest {
     void aBlankCode_isRefused() {
         assertThat(flow.complete(provider(), REALM, USER, " ", session)).isEqualTo(WalletLinkFlow.Outcome.REFUSED);
         assertThat(flow.complete(provider(), REALM, USER, null, session)).isEqualTo(WalletLinkFlow.Outcome.REFUSED);
+    }
+
+    // ---- production readiness item 4: the "wallet linked" security notice ----
+
+    @Test
+    void aNewLink_emailsTheWalletLinkedNotice_once() {
+        final WalletIdentityProvider provider = provider();
+        when(links.link(any(), any(), any(), any())).thenReturn(WalletLinkService.LinkResult.LINKED);
+        final String code = verified(provider, new WalletSubject.AdminNumber("aa11", "bb22")); // number + tuple
+
+        flow.complete(provider, REALM, USER, code, session);
+
+        verify(notice).send(REALM, USER);
+    }
+
+    @Test
+    void anExistingLink_aRefusalOrAnotherUsersWallet_sendNoNotice() {
+        final WalletIdentityProvider provider = provider();
+        when(links.link(any(), any(), any(), any())).thenReturn(WalletLinkService.LinkResult.ALREADY_LINKED);
+        flow.complete(provider, REALM, USER, verified(provider, new WalletSubject.Tuple("cc33")), session);
+        when(links.link(any(), any(), any(), any())).thenReturn(WalletLinkService.LinkResult.LINKED_TO_ANOTHER_USER);
+        flow.complete(provider, REALM, USER, verified(provider, new WalletSubject.Tuple("dd44")), session);
+
+        verify(notice, never()).send(any(), any());
     }
 }

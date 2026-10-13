@@ -52,10 +52,18 @@ public class WalletLinkFlow {
     private static final int STATE_BYTES = 32;
 
     private final WalletLinkService links;
+    /** Item 4: emails the "wallet linked" notice after a new link; null sends none (tests of other behaviour). */
+    private final WalletLinkedNotice notice;
     private final SecureRandom random = new SecureRandom();
 
     public WalletLinkFlow(final WalletLinkService links) {
+        this(links, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WalletLinkFlow(final WalletLinkService links, final WalletLinkedNotice notice) {
         this.links = links;
+        this.notice = notice;
     }
 
     /** How a link ended; the console shows each one. */
@@ -85,18 +93,20 @@ public class WalletLinkFlow {
                         final HttpSession session) {
         Objects.requireNonNull(session, "session");
         final String alias = provider.config().alias();
-        if (session.getAttribute(TX_ATTR + alias) instanceof String previous) {
+        final String txKey = BrowserBinding.sessionKey(TX_ATTR, realmId, alias); // per (realm, alias): item 2
+        final String stateKey = BrowserBinding.sessionKey(STATE_ATTR, realmId, alias);
+        if (session.getAttribute(txKey) instanceof String previous) {
             provider.transactions().discard(previous);
-            session.removeAttribute(TX_ATTR + alias);
+            session.removeAttribute(txKey);
         }
         final String state = token();
-        final String binding = BrowserBinding.begin(session, alias);
+        final String binding = BrowserBinding.begin(session, realmId, alias);
         final IdentityProvider.RedirectResponse redirect = provider.startLink(
                 new IdentityProvider.AuthnRequestContext(realmId, state, null, binding), userId);
-        session.setAttribute(STATE_ATTR + alias, state);
+        session.setAttribute(stateKey, state);
         final Map<String, String> parameters = redirect.parameters();
         if (parameters != null && parameters.get(WalletIdentityProvider.TRANSACTION_PARAM) != null) {
-            session.setAttribute(TX_ATTR + alias, parameters.get(WalletIdentityProvider.TRANSACTION_PARAM));
+            session.setAttribute(txKey, parameters.get(WalletIdentityProvider.TRANSACTION_PARAM));
         }
         return redirect.location();
     }
@@ -111,27 +121,33 @@ public class WalletLinkFlow {
         if (session == null || blank(responseCode) || blank(userId)) {
             return Outcome.REFUSED;
         }
-        final String state = session.getAttribute(STATE_ATTR + alias) instanceof String s ? s : null;
+        final String txKey = BrowserBinding.sessionKey(TX_ATTR, realmId, alias);
+        final String stateKey = BrowserBinding.sessionKey(STATE_ATTR, realmId, alias);
+        final String state = session.getAttribute(stateKey) instanceof String s ? s : null;
         final WalletIdentityProvider.LinkRedemption redeemed;
         try {
             redeemed = provider.redeemLink(new IdentityProvider.CallbackContext(realmId,
                     Map.of(WalletIdentityProvider.RESPONSE_CODE_PARAM, responseCode), state, null, null, null,
-                    BrowserBinding.current(session, alias)));
+                    BrowserBinding.current(session, realmId, alias)));
         } catch (final WalletVerificationException e) {
             LOG.warn("wallet: link callback refused, realm={} alias={} reason={}", LogSafe.sanitize(realmId),
                     LogSafe.sanitize(alias), e.code().reason());
             return Outcome.REFUSED;
         }
         // Redeemed: this browser's link is over, whatever follows.
-        session.removeAttribute(STATE_ATTR + alias);
-        session.removeAttribute(TX_ATTR + alias);
-        BrowserBinding.clear(session, alias);
+        session.removeAttribute(stateKey);
+        session.removeAttribute(txKey);
+        BrowserBinding.clear(session, realmId, alias);
         if (!userId.equals(redeemed.initiatingUserId())) {
             LOG.warn("wallet: link callback refused, the signed-in user did not start it: realm={} alias={} user={}",
                     LogSafe.sanitize(realmId), LogSafe.sanitize(alias), LogSafe.sanitize(userId));
             return Outcome.REFUSED;
         }
-        return link(realmId, userId, alias, redeemed.subject());
+        final Outcome outcome = link(realmId, userId, alias, redeemed.subject());
+        if (outcome == Outcome.LINKED && notice != null) {
+            notice.send(realmId, userId); // item 4: the user learns of a link they may not have made
+        }
+        return outcome;
     }
 
     private Outcome link(final String realmId, final String userId, final String alias, final WalletSubject subject) {

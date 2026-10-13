@@ -75,6 +75,7 @@ public class IdentityProviderConfigService {
         entity.setConfigJson(writeConfig(split.plain()));
         entity.setSecretJson(secrets.isEmpty() ? null : writeConfig(secrets));
         final IdentityProviderEntity saved = repository.save(entity);
+        repository.bumpVersion(config.realmId());
         LOG.debug("Saved identity-provider config {} for realm {}",
                 LogSafe.sanitize(config.alias()), LogSafe.sanitize(config.realmId()));
         return toDto(saved);
@@ -129,6 +130,19 @@ public class IdentityProviderConfigService {
                 + "delete it.", LogSafe.sanitize(id), e.getClass().getSimpleName());
     }
 
+    /**
+     * Every realm's identity-provider config version ({@code idp_config_version}): bumped by every save and delete, in
+     * the same transaction, and polled by each replica's registry (production readiness item 1). A realm that was
+     * never written has no entry (version 0).
+     */
+    public Map<String, Long> versions() {
+        final Map<String, Long> versions = new LinkedHashMap<>();
+        for (final Object[] row : repository.findAllVersions()) {
+            versions.put((String) row[0], ((Number) row[1]).longValue());
+        }
+        return versions;
+    }
+
     /** A single config by realm + alias, when present. */
     public Optional<IdentityProviderConfig> get(final String realmId, final String alias) {
         return repository.findByRealmIdAndAlias(realmId, alias).map(this::toDto);
@@ -141,6 +155,7 @@ public class IdentityProviderConfigService {
             return false;
         }
         repository.deleteByRealmIdAndAlias(realmId, alias);
+        repository.bumpVersion(realmId);
         LOG.debug("Deleted identity-provider config {} for realm {}",
                 LogSafe.sanitize(alias), LogSafe.sanitize(realmId));
         return true;

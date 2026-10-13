@@ -10,7 +10,7 @@ import io.helixiam.authorization.amqp.account.AccountUnlinkRef;
 import io.helixiam.authorization.amqp.account.FederatedLinkDto;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.federation.IdentityProviderRegistry;
-import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
+import io.helixiam.authorization.security.realm.RealmContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -75,11 +75,13 @@ public class AccountIdentityController {
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
-    /** Whether {@code alias} names an EU Digital Identity Wallet provider (any realm's: links are per user). */
+    /**
+     * Whether {@code alias} names an EU Digital Identity Wallet provider. Production readiness item 5: resolved in the
+     * caller's own realm first ({@link IdentityProviderRegistry#isWallet}), so another realm's wallet that happens to
+     * share the alias of this realm's OIDC connection never hides or locks the user's OIDC link; only an alias this
+     * realm does not serve falls back to every realm's providers (links are per user).
+     */
     private boolean isWallet(final String alias) {
-        if (alias == null) {
-            return false;
-        }
-        return registry.named(alias).stream().anyMatch(p -> WalletIdentityProvider.from(p).isPresent());
+        return registry.isWallet(RealmContextHolder.get(), alias);
     }
 }

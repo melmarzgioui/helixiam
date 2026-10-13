@@ -110,6 +110,44 @@ question. Newest first within each phase.
   `/realms/{r}/l%6Fgin` is not counted. But Spring Security's `StrictHttpFirewall` then refuses any `%` or `;` in the
   URL (400), Tomcat refuses `%2F`, `/./` and `//` are refused, and a different case or a trailing slash is not the
   login endpoint (401), so no sign-in attempt is processed. `LoginRateLimitPathEncodingE2eTest` keeps it that way.
+- **feat (EUDI wallet, production readiness)** — Identity-provider changes reach every replica without a restart.
+  Every save and delete (admin API, console, realm import) bumps the realm's row in the new `idp_config_version` table
+  (Flyway V78, `schema.sql`) in the same transaction; each replica polls it every
+  `helix.federation.store.poll-interval-seconds` (default 10, 0 = off) and reloads the realms that moved. Plain
+  PostgreSQL, so the `queue` deployment converges as well. A realm import now also reloads the importing replica at
+  once (it used to refresh nothing). Publication is version-ordered: a refresh reads the realm's version before its
+  configs and an older set is never published over a newer one (two concurrent writes could leave the older set live).
+- **feat (EUDI wallet)** — A PostgreSQL wallet transaction store (`JdbcWalletTransactionStore`, table
+  `wallet_transaction`, Flyway V79): a multi-replica deployment without Redis needs no sticky sessions any more. It is
+  the store whenever the session store is `queue`, and whenever no Redis is configured; Redis stays the store with the
+  Redis session store. Same semantics as the Redis store (one conditional `UPDATE … RETURNING` per transition, the
+  shared 20-thread race suite passes), secrets hashed (SHA-256 lookups) or encrypted (`DB_ENCRYPTION`, fails closed),
+  expired rows swept every `helix.wallet.transaction-sweep-seconds` (default 60). **Behaviour change:** the in-memory
+  store is now used only with `helix.wallet.transaction-store=memory` (development and tests); a server with neither
+  Redis nor a database refuses to start instead of falling back to it.
+- **feat (EUDI wallet, security)** — "Wallet linked" notice: when a wallet is linked to an account (the account
+  console, or the sign-in upgrade path that adds the administrative-number link), the account's email address is told
+  so and asked to unlink it and change the password if it was not them. New default message template
+  `wallet-linked-notice` (English, Dutch); no wallet or PID data in it; nothing is sent without an email address.
+  Mitigates the documented QR-relay and reverse linking-CSRF limits.
+- **fix (EUDI wallet)** — The broker's per-login session attributes (state, nonce, SAML request id, browser binding,
+  wallet transaction) and the account console's wallet-link state are keyed by (realm, alias) instead of alias only:
+  wallet logins in two realms that both use the alias `eudi-wallet`, from one browser at the same time, no longer
+  clobber each other. **Upgrade note:** the session keys were renamed, so a federated or wallet login (or a wallet
+  link) that is in flight while the deploy rolls out, started on the old version and finished on the new one, ends
+  with `error=federation` (or a refused link); starting it again works. Transient, no data is affected.
+- **fix (EUDI wallet)** — Another realm's wallet connection whose alias matched this realm's OIDC connection made the
+  user's OIDC link look like a wallet link: hidden from `/account/identities`, its delete answered 409, its subject
+  left out of the GDPR export, and an anonymizing erasure deleted it. The alias is now resolved in the user's own realm
+  first.
+- **fix (mfa)** — A federated sign-in that had to enrol in MFA first, and whose pending commit was then refused, showed
+  the recovery-codes page (whose "continue" led to the federation error) and issued codes for a sign-in that did not
+  happen. It now shows the federation error and issues no codes.
+- **test (EUDI wallet)** — The mdoc decoding path is checked against DeviceResponses from the EU Digital Identity
+  Wallet reference implementation (Apache-2.0, source recorded in `wallet/vectors/SOURCES.md`): IssuerAuth signatures
+  with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
+  coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
+  same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
 - **security (dependencies)** — Sandbox RP: `proxy-addr` pinned to 2.0.8 via an `overrides` entry (CVE-2026-90711,
   CRITICAL; express pulls it transitively at `~2.0.7`); `npm audit` is otherwise clean.
 - **security (dependencies)** — Terraform provider: `golang.org/x/net` v0.58.0 → v0.60.0 (CVE-2026-78669 HIGH,

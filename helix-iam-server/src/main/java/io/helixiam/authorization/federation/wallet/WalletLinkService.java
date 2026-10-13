@@ -71,6 +71,14 @@ public class WalletLinkService {
         this.identities = identities;
     }
 
+    /** Item 4: emails the "wallet linked" notice when the upgrade path adds a link; absent sends none. */
+    private WalletLinkedNotice notice;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLinkedNotice(final WalletLinkedNotice notice) {
+        this.notice = notice;
+    }
+
     /** The outcome of {@link #link}. */
     public enum LinkResult {
         /** The subject is now linked to the user (also when it replaced a stale link). */
@@ -120,6 +128,10 @@ public class WalletLinkService {
         LOG.info("wallet: committed number link, realm={} alias={} user={} status={}",
                 LogSafe.sanitize(pending.realmId()), LogSafe.sanitize(pending.alias()),
                 LogSafe.sanitize(claimed.ownerUserId()), claimed.status());
+        if (claimed.status() == FederatedLinkClaimResult.Status.CREATED && notice != null
+                && pending.userId().equals(claimed.ownerUserId())) {
+            notice.send(pending.realmId(), pending.userId()); // a new link on the account: tell its owner
+        }
         return Optional.ofNullable(claimed.ownerUserId());
     }
 

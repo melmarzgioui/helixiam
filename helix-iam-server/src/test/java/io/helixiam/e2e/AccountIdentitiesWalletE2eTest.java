@@ -85,6 +85,39 @@ class AccountIdentitiesWalletE2eTest extends AbstractE2eTest {
                 .doesNotContain(oidcAlias);
     }
 
+    /**
+     * Production readiness item 5: the alias is resolved in the user's own realm first. Realm A has an OIDC connection
+     * with the alias of the user's OIDC link, and another realm has a WALLET connection of that same alias; the user's
+     * OIDC link is still listed and can still be disconnected.
+     */
+    @Test
+    void anotherRealmsWalletWithTheSameAlias_doesNotHideOrLockThisRealmsOidcLink() {
+        final Map<String, String> oidc = new java.util.LinkedHashMap<>();
+        oidc.put("clientId", "helix");
+        oidc.put("clientSecret", "account-identities-" + "secret");
+        oidc.put("issuer", "https://upstream.example");
+        oidc.put("authorizationEndpoint", "https://upstream.example/authorize");
+        oidc.put("tokenEndpoint", "https://upstream.example/token");
+        oidc.put("jwksUri", "https://upstream.example/jwks");
+        final Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("alias", oidcAlias);
+        body.put("protocol", "oidc");
+        body.put("displayName", "Corp SSO");
+        body.put("enabled", true);
+        body.put("config", oidc);
+        final E2eHttp.Response created = adminSession().post("/admin/realms/" + realm + "/identity-providers", body);
+        assertThat(created.status()).as(created.toString()).isEqualTo(201);
+        final String otherRealm = E2eSeed.unique("ident-other");
+        seed().realm(otherRealm);
+        final WalletE2eFixture wallet = new WalletE2eFixture(context);
+        wallet.install(otherRealm, wallet.storedProvider(otherRealm, oidcAlias, Map.of()));
+
+        assertThat(session.get("/realms/" + realm + "/account/identities").json().findValuesAsText("idpAlias"))
+                .contains(oidcAlias);
+        final E2eHttp.Response delete = session.delete("/realms/" + realm + "/account/identities/" + oidcAlias);
+        assertThat(delete.status()).as(delete.toString()).isEqualTo(204);
+    }
+
     private static String hex() {
         final byte[] bytes = new byte[32];
         new java.security.SecureRandom().nextBytes(bytes);
