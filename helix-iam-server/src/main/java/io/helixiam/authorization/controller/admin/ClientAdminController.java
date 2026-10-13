@@ -136,23 +136,7 @@ public class ClientAdminController {
      * must be https; {@code http://localhost} / {@code http://127.0.0.1} only in the dev profile.
      */
     private String jwksUrlProblem(final String jwksUrl) {
-        if (jwksUrl == null || jwksUrl.isBlank()) {
-            return null;
-        }
-        final java.net.URI uri;
-        try {
-            uri = new java.net.URI(jwksUrl.trim());
-        } catch (final java.net.URISyntaxException e) {
-            return "The JWKS URL is not a valid URL.";
-        }
-        if ("https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null) {
-            return null;
-        }
-        if (profile.isDev() && "http".equalsIgnoreCase(uri.getScheme())
-                && ("localhost".equalsIgnoreCase(uri.getHost()) || "127.0.0.1".equals(uri.getHost()))) {
-            return null;
-        }
-        return "The JWKS URL must be an https URL.";
+        return io.helixiam.authorization.service.client.JwksUrlPolicy.problem(jwksUrl, profile.isDev());
     }
 
     private static ResponseEntity<Map<String, Object>> publicClientHasNoSecret(final String field) {

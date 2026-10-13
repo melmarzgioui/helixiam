@@ -579,6 +579,57 @@ class RealmImportServiceTest {
                 mappers, clientRoles, saRoles, resourceIndicators, authz, null, null);
     }
 
+    private static ClientDto keyJwtClient(final String clientId, final String jwksUrl) {
+        return new ClientDto("source", null, clientId, List.of("client_credentials"), List.of(), List.of(), null, "sub",
+                null, clientId, null, List.of(), List.of(), false, false, false, null, null, null, null, false, null,
+                null, null, false, "PRIVATE_KEY_JWT", jwksUrl, null, null, null, null, null, null);
+    }
+
+    private static RealmExportDocument clientsOnly(final ClientDto... clients) {
+        return new RealmExportDocument(1, null, List.of(clients), null, null, null, null, null, null);
+    }
+
+    @Test
+    void importedClientJwksUrl_isValidatedLikeTheAdminApi_withTheSameFieldError() {
+        final RealmImportResult result = service.importInto("gov", clientsOnly(
+                keyJwtClient("good", "https://keys.example.com/jwks"),
+                keyJwtClient("plain-http", "http://keys.example.com/jwks"),
+                keyJwtClient("dev-only-localhost", "http://localhost:8080/jwks"),
+                keyJwtClient("no-host", "https:///jwks"),
+                keyJwtClient("not-a-url", "https://exa mple.com/jwks")));
+
+        assertThat(result.slices().get(RealmImportService.SLICE_CLIENTS).created()).isEqualTo(1);
+        assertThat(result.slices().get(RealmImportService.SLICE_CLIENTS).failed()).isEqualTo(4);
+        assertThat(clientStore).extracting(ClientDto::clientId).containsExactly("good");
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason).containsExactlyInAnyOrder(
+                "The client plain-http is not valid: jwksUrl: The JWKS URL must be an https URL.;",
+                "The client dev-only-localhost is not valid: jwksUrl: The JWKS URL must be an https URL.;",
+                "The client no-host is not valid: jwksUrl: The JWKS URL must be an https URL.;",
+                "The client not-a-url is not valid: jwksUrl: The JWKS URL is not a valid URL.;");
+    }
+
+    @Test
+    void importedClientJwksUrl_onLocalhostOverHttp_isAcceptedInDevOnly() {
+        environment.setActiveProfiles("dev");
+        final RealmImportResult result = service.importInto("gov", clientsOnly(
+                keyJwtClient("local", "http://localhost:8080/jwks"),
+                keyJwtClient("loopback", "http://127.0.0.1:8080/jwks"),
+                keyJwtClient("other-http", "http://keys.internal/jwks")));
+
+        assertThat(clientStore).extracting(ClientDto::clientId).containsExactlyInAnyOrder("local", "loopback");
+        assertThat(result.failed()).extracting(RealmImportResult.Failure::reason)
+                .containsExactly("The client other-http is not valid: jwksUrl: The JWKS URL must be an https URL.;");
+    }
+
+    @Test
+    void anUpdateWithAnInvalidJwksUrl_leavesTheExistingClientUntouched() {
+        service.importInto("gov", clientsOnly(keyJwtClient("svc", "https://keys.example.com/jwks")));
+        final RealmImportResult second = service.importInto("gov",
+                clientsOnly(keyJwtClient("svc", "http://169.254.169.254/jwks")));
+        assertThat(second.slices().get(RealmImportService.SLICE_CLIENTS).updated()).isZero();
+        verify(clients, never()).update(any());
+    }
+
     private static ClientDto clientDto(final String clientId) {
         return new ClientDto("gov", "cid-" + clientId, clientId, List.of(), List.of(), List.of(), null, "sub", null,
                 clientId, null, List.of(), List.of(), false, false, false, null, null, null, null, false, null, null,
