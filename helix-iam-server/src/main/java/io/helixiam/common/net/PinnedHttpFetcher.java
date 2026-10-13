@@ -506,10 +506,15 @@ public final class PinnedHttpFetcher {
                 if (status >= 100 && status < 200) {
                     continue; // interim answer (100 Continue): the real one follows
                 }
+                final java.util.List<String> locations = fields.get("Location");
+                if (locations != null && locations.size() > 1) {
+                    throw malformed("duplicate Location headers"); // which one would a client follow?
+                }
                 final String location = first(fields, "Location");
                 final String contentType = first(fields, "Content-Type");
-                // no body: HEAD, 204, 304 (RFC 9112 6.3); otherwise only a 200's unless every body is wanted
-                final boolean noBody = "HEAD".equals(method) || status == 204 || status == 304;
+                // no body: HEAD, 204, 304 (RFC 9112 6.3), and a redirect's body is never read (only Location is used);
+                // otherwise only a 200's unless every body is wanted
+                final boolean noBody = "HEAD".equals(method) || status == 204 || status == 304 || status / 100 == 3;
                 if (noBody || status != 200 && !readBodyOfAnyStatus) {
                     return new Response(status, location, contentType, new byte[0], fields);
                 }

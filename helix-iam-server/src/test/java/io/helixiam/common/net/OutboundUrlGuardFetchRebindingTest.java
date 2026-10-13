@@ -68,4 +68,17 @@ class OutboundUrlGuardFetchRebindingTest {
         assertThatThrownBy(() -> blocking.fetch("https://internal.example/md", "text/xml", true))
                 .isInstanceOf(SsrfBlockedException.class).hasMessageNotContaining("Connection");
     }
+
+    @Test
+    void aRedirectWithALargeBodyIsStillFollowed() {
+        final TestTls tls = TestTls.createFor("metadata-rebind", "md.rebind.test");
+        try (RebindingTarget target = RebindingTarget.https("md.rebind.test", tls)) {
+            target.respond(s -> s.path().equals("/old")
+                    ? new RebindingTarget.Answer(302, "text/html", "x".repeat(2 * 1024 * 1024),
+                            java.util.Map.of("Location", "/new"))
+                    : new RebindingTarget.Answer(200, "text/xml", "<x/>"));
+            final OutboundUrlGuard guard = withTrust(target.guard(2), tls);
+            assertThat(guard.fetch(target.url("https", "/old"), "text/xml", true)).isEqualTo("<x/>");
+        }
+    }
 }

@@ -485,4 +485,24 @@ class PinnedHttpFetcherTest {
             }
         }
     }
+
+    @Test
+    void aRedirectsBodyIsNeverRead() throws Exception {
+        final int p = raw("HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 5000000\r\n\r\nxxxx");
+        final Response r = PinnedHttpFetcher.plain(OutboundUrlGuard.permissive()).exchange(new PinnedHttpFetcher.Request(
+                "GET", "http://127.0.0.1:" + p + "/x", Map.of(), null, LIMITS, true));
+        assertThat(r.status()).isEqualTo(302);
+        assertThat(r.location()).isEqualTo("/next");
+        assertThat(r.body()).isEmpty();
+    }
+
+    @Test
+    void duplicateLocationHeadersAreAProtocolFailure() throws Exception {
+        final int p = raw("HTTP/1.1 302 Found\r\nLocation: /a\r\nLocation: http://169.254.169.254/\r\n"
+                + "Content-Length: 0\r\n\r\n");
+        assertThatThrownBy(() -> PinnedHttpFetcher.plain(OutboundUrlGuard.permissive())
+                .get("http://127.0.0.1:" + p + "/x", Map.of(), LIMITS))
+                .isInstanceOfSatisfying(FetchException.class,
+                        e -> assertThat(e.kind()).isEqualTo(FetchException.Kind.PROTOCOL));
+    }
 }
