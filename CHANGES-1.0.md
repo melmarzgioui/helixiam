@@ -110,6 +110,30 @@ question. Newest first within each phase.
   `/realms/{r}/l%6Fgin` is not counted. But Spring Security's `StrictHttpFirewall` then refuses any `%` or `;` in the
   URL (400), Tomcat refuses `%2F`, `/./` and `//` are refused, and a different case or a trailing slash is not the
   login endpoint (401), so no sign-in attempt is processed. `LoginRateLimitPathEncodingE2eTest` keeps it that way.
+- **security (dependencies)** — Sandbox RP: `proxy-addr` pinned to 2.0.8 via an `overrides` entry (CVE-2026-90711,
+  CRITICAL; express pulls it transitively at `~2.0.7`); `npm audit` is otherwise clean.
+- **security (dependencies)** — Terraform provider: `golang.org/x/net` v0.58.0 → v0.60.0 (CVE-2026-78669 HIGH,
+  CVE-2026-78663/CVE-2026-78660/CVE-2026-78659; all four trace to the same module/fix), pulling `golang.org/x/sys`
+  and `golang.org/x/text` along via `go mod tidy`; `govulncheck` now reports no module-level vulnerabilities (only
+  unrelated Go-toolchain/stdlib findings that need a newer local `go` binary, not a `go.mod` change).
+- **security (dependencies)** — helix-iam-server (patch-level only, no framework major): Guava 33.7.2-jre,
+  webauthn4j 0.31.11 (Dependabot's Maven minor/patch group); Jackson 2.21.4 → 2.21.7 (CVE-2026-89407,
+  CVE-2026-89425, CVE-2026-68497, CVE-2026-91776, CVE-2026-91777), Netty 4.1.135 → 4.1.139.Final (CVE-2026-59901,
+  CVE-2026-75595 CRITICAL), httpcore5/httpcore5-h2 5.3.6 → 5.4.4 (CVE-2026-54399, CVE-2026-54428), Tomcat
+  10.1.55 → 10.1.61 (CVE-2026-65182 CRITICAL, CVE-2026-65905, CVE-2026-68525). **Not fixed:** CVE-2026-47884 /
+  CVE-2026-47890 (spring-webmvc) — the only fixed version the scanner lists is 7.0.9 (Spring Framework 7, ships
+  only with Spring Boot 4); 6.2.19 is the newest 6.2.x release. Neither `XsltView` nor SSE emitters are used in
+  this codebase. Tracked as a post-1.0 framework-major upgrade, not patched here.
+- **images and manifests (dependencies)** — console image base bumped nginx 1.29-alpine → 1.31-alpine
+  (Dependabot #33); `anchore/sbom-action` 0.24.2 → 0.24.3 in the release workflow (Dependabot #35).
+- **security (dependencies)** — helix-dashboard: `npm audit fix` plus an explicit `vite`/`vitest` bump
+  (5.4.8/2.1.2 → 8.3.4/5.0.4, dev-only tooling, not shipped in the nginx image) clears the critical `tinypool`
+  RCE-via-prototype-pollution finding and the high `vite`/`esbuild` dev-server finding; build, `vitest run`
+  (347 tests) and `build-storybook` all still pass. One moderate `uuid` finding remains (would need downgrading
+  `@storybook/addon-essentials` to 7.0.6, a regression) and is left for a future Storybook major bump.
+- **security (dependencies)** — repo-wide `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (the same scanner
+  CI's `security-scan.yml` runs) is clean across every ecosystem except the one spring-webmvc exception above;
+  `helix-mcp-demo` has no `package.json`/dependencies (Node built-ins only), so nothing to scan there.
 
 ## v1.0.0-rc.7 (security hotfix)
 
