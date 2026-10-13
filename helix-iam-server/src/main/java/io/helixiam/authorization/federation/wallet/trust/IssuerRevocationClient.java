@@ -75,16 +75,18 @@ import java.util.concurrent.TimeUnit;
  * that signature (checked below) is their integrity. One certificate tries at most {@value #MAX_URLS_PER_KIND} OCSP
  * and {@value #MAX_URLS_PER_KIND} CRL URLs, and one chain spends at most {@link #CHAIN_BUDGET} on fetching.
  *
- * <p><b>Validation.</b> A fetched OCSP response is handed to the JDK PKIX revocation checker with
- * {@link PKIXRevocationChecker#setOcspResponses} and {@code NO_FALLBACK} (OCSP only): with a response supplied for the
- * one certificate checked, the JDK never contacts a responder. A fetched CRL is handed over in a {@link CertStore}
- * with {@code PREFER_CRLS, NO_FALLBACK} (CRL only). The JDK's own fallback to the certificate's distribution points
- * cannot be switched off (it is hard-wired for {@code PKIXRevocationChecker}), so a CRL reaches the JDK only after it
- * passed {@link #crlUsable} (issuer name and key identifier, cRLSign, signature algorithm and signature,
- * thisUpdate / nextUpdate around the validation time, no unknown critical extension, no delta / indirect / partial
- * CRL), which are the conditions under which the JDK approves a CRL from a {@code CertStore}; the JDK therefore never
- * needs to fetch. Each check runs on a one-certificate path whose trust anchor is that certificate's issuer (the path
- * was already validated end to end), so every certificate gets its own answer.
+ * <p><b>Validation.</b> The JDK validates what was fetched and never fetches anything itself. A fetched OCSP response
+ * is handed to the JDK PKIX revocation checker with {@link PKIXRevocationChecker#setOcspResponses} and
+ * {@code NO_FALLBACK} (OCSP only): with a response supplied for the one certificate checked, the JDK never contacts a
+ * responder. A fetched CRL is first checked by {@link #crlUsable} (issuer name and key identifier, cRLSign, signature
+ * algorithm and signature, thisUpdate / nextUpdate within the JDK's 15-minute skew, no unknown critical extension,
+ * no delta / indirect / partial CRL) and then handed to the JDK's legacy CRL checker in a {@link CertStore}. Not
+ * {@code PKIXRevocationChecker}: its fallback to fetching every distribution point of the certificate (unpinned,
+ * unbounded) is hard-wired on whenever it cannot approve a CRL, whereas the legacy checker fetches nothing while
+ * {@code com.sun.security.enableCRLDP} is off (forced off at startup) and the other JVM settings in
+ * {@link #jdkCannotFetch} are at their defaults; if an operator changes them, CRLs are not evaluated at all (logged).
+ * Each check runs on a one-certificate path whose trust anchor is that certificate's issuer (the path was already
+ * validated end to end), so every certificate gets its own answer.
  *
  * <p><b>Concurrency.</b> Concurrent logins needing the same CRL or OCSP answer share one download ({@link SingleFlight});
  * all fetches together are capped by the transport's {@link io.helixiam.common.net.FetchLimiter}. A URL that served
@@ -163,7 +165,7 @@ public final class IssuerRevocationClient {
     }
 
     /** One source's answer. */
-    private enum Answer { GOOD, REVOKED, UNDETERMINED, BLOCKED }
+    enum Answer { GOOD, REVOKED, UNDETERMINED, BLOCKED }
 
     private record Cached(Object value, long bytes, Instant until) {
     }
@@ -304,7 +306,7 @@ public final class IssuerRevocationClient {
     }
 
     /** The JDK's verdict on {@code response} for {@code cert} (signature, responder, CertID, validity window). */
-    private static Answer jdkOcsp(final X509Certificate cert, final TrustAnchor issuer, final byte[] response,
+    static Answer jdkOcsp(final X509Certificate cert, final TrustAnchor issuer, final byte[] response,
             final Instant at) {
         return jdk(cert, issuer, at, checker -> {
             checker.setOptions(EnumSet.of(PKIXRevocationChecker.Option.NO_FALLBACK)); // OCSP only
@@ -403,16 +405,38 @@ public final class IssuerRevocationClient {
         }
     }
 
-    private static Answer jdkCrl(final X509Certificate cert, final TrustAnchor issuer, final X509CRL crl,
+    /**
+     * The JDK's verdict on {@code crl} for {@code cert}, through its legacy CRL checker (revocation enabled, no
+     * {@code PKIXRevocationChecker} given): unlike {@code PKIXRevocationChecker}, whose fallback to the
+     * certificate's distribution points is hard-wired on, the legacy checker fetches nothing unless the JVM-wide
+     * settings in {@link #jdkCannotFetch} say so, and those are checked first. So a CRL the JDK does not approve is an
+     * undetermined status, never a JDK download.
+     */
+    static Answer jdkCrl(final X509Certificate cert, final TrustAnchor issuer, final X509CRL crl,
             final Instant at) {
-        final CertStore store;
-        try {
-            store = CertStore.getInstance("Collection", new CollectionCertStoreParameters(List.of(crl)));
-        } catch (final GeneralSecurityException e) {
+        if (!jdkCannotFetch()) {
+            if (FETCH_SETTINGS_LOGGED.compareAndSet(false, true)) {
+                LOG.error("Wallet issuer CRLs are not evaluated: a JVM setting (com.sun.security.enableCRLDP, "
+                        + "com.sun.security.enableAIAcaIssuers, ocsp.enable or "
+                        + "com.sun.security.onlyCheckRevocationOfEECert) would let the JDK fetch or skip revocation "
+                        + "data itself; remove it");
+            }
             return Answer.UNDETERMINED;
         }
-        return jdk(cert, issuer, at, checker -> checker.setOptions(EnumSet.of(PKIXRevocationChecker.Option.PREFER_CRLS,
-                PKIXRevocationChecker.Option.NO_FALLBACK)), store); // CRL only
+        try {
+            final CertPathValidator validator = CertPathValidator.getInstance("PKIX");
+            final PKIXParameters params = new PKIXParameters(Set.of(issuer));
+            params.setDate(Date.from(at));
+            params.setRevocationEnabled(true); // the legacy checker: CRLs from the CertStores only
+            params.addCertStore(CertStore.getInstance("Collection", new CollectionCertStoreParameters(List.of(crl))));
+            validator.validate(CertificateFactory.getInstance("X.509").generateCertPath(List.of(cert)), params);
+            return Answer.GOOD;
+        } catch (final CertPathValidatorException e) {
+            return e.getReason() == CertPathValidatorException.BasicReason.REVOKED ? Answer.REVOKED
+                    : Answer.UNDETERMINED;
+        } catch (final GeneralSecurityException | RuntimeException e) {
+            return Answer.UNDETERMINED;
+        }
     }
 
     /**
@@ -518,6 +542,26 @@ public final class IssuerRevocationClient {
     }
 
     // ------------------------------------------------------------------------------------------- JDK
+
+    private static final org.apache.logging.log4j.Logger LOG =
+            org.apache.logging.log4j.LogManager.getLogger(IssuerRevocationClient.class);
+    private static final java.util.concurrent.atomic.AtomicBoolean FETCH_SETTINGS_LOGGED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * True when the JDK's legacy CRL checker, which {@link #jdkCrl} uses, cannot open a connection of its own: its
+     * distribution-point fetching ({@code com.sun.security.enableCRLDP}, forced to {@code false} at startup by
+     * {@code RevocationTimeouts}), OCSP ({@code ocsp.enable}) and AIA certificate fetching
+     * ({@code com.sun.security.enableAIAcaIssuers}) are off, and it checks CA certificates too
+     * ({@code com.sun.security.onlyCheckRevocationOfEECert}). These are JVM-wide settings an operator could change.
+     */
+    static boolean jdkCannotFetch() {
+        return !Boolean.getBoolean("com.sun.security.enableCRLDP")
+                && !Boolean.getBoolean("com.sun.security.enableAIAcaIssuers")
+                && !"true".equalsIgnoreCase(java.security.Security.getProperty("ocsp.enable"))
+                && !"true".equalsIgnoreCase(java.security.Security.getProperty(
+                        "com.sun.security.onlyCheckRevocationOfEECert"));
+    }
 
     @FunctionalInterface
     private interface CheckerSetup {

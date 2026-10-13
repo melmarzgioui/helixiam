@@ -28,8 +28,14 @@ public final class RevocationTimeouts {
     private RevocationTimeouts() {
     }
 
-    /** Sets each default in {@code props} (normally {@link System#getProperties()}) only when it is absent. */
+    /**
+     * Sets each default in {@code props} (normally {@link System#getProperties()}) only when it is absent, and turns
+     * the JDK's own CRL distribution-point fetching off ({@code com.sun.security.enableCRLDP=false}, overriding any
+     * value): the wallet's issuer revocation hands the JDK the CRLs it fetched itself and must never let the JDK
+     * download one (see {@code IssuerRevocationClient#jdkCrl}).
+     */
     public static void applyDefaults(final Properties props) {
         DEFAULTS.forEach(props::putIfAbsent);
+        props.setProperty("com.sun.security.enableCRLDP", "false");
     }
 }
