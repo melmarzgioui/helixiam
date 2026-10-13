@@ -158,7 +158,8 @@ fictitious test data.
 leaf of its own `x5chain`, decodes every MSO (`MobileSecurityObject`) and checks every IssuerSignedItem digest. The
 DeviceAuth signatures cannot be verified: the SessionTranscript they were made over is not published.
 **Interop finding:** the third document's MSO device key has a 31-byte `x` coordinate (a leading zero octet dropped),
-which RFC 9053 §7.1.1 forbids; `MobileSecurityObject` refuses it (fail closed), and the test pins that.
+which RFC 9053 §7.1.1 asks to keep; by maintainer ruling `MobileSecurityObject` left-pads a short coordinate to the
+field size and accepts it (the same point, still checked to be on the curve), and the test pins that.
 
 **ISO/IEC 18013-5 Annex D vectors are not reproduced.** Copies exist in Apache-2.0 projects (for example
 openwallet-foundation/multipaz `TestVectors.kt`, which also has the Annex D SessionTranscript and keys, so its

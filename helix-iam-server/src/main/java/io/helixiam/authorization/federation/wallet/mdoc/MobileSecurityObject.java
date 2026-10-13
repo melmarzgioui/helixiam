@@ -244,16 +244,20 @@ public record MobileSecurityObject(String version, String digestAlgorithm, Strin
             }
             default -> throw invalid("deviceKey crv is not P-256, P-384 or P-521");
         }
-        if (!(key.get(COSE_KEY_X).orElse(null) instanceof CborValue.Bytes x)
-                || !(key.get(COSE_KEY_Y).orElse(null) instanceof CborValue.Bytes y)
-                || x.value().length != size || y.value().length != size) {
+        if (!(key.get(COSE_KEY_X).orElse(null) instanceof CborValue.Bytes xBytes)
+                || !(key.get(COSE_KEY_Y).orElse(null) instanceof CborValue.Bytes yBytes)) {
             throw invalid("deviceKey coordinates do not match its crv");
         }
+        // Maintainer ruling: a coordinate shorter than the field (leading zero octets dropped, as at least one EU
+        // reference issuer writes them; RFC 9053 §7.1.1 asks for the full length) is left-padded: it is the same
+        // integer, and the point is still checked to be on the curve below. Longer or empty is refused, never cut.
+        final byte[] x = leftPadded(xBytes.value(), size);
+        final byte[] y = leftPadded(yBytes.value(), size);
         try {
             final AlgorithmParameters parameters = AlgorithmParameters.getInstance("EC");
             parameters.init(new ECGenParameterSpec(curveName));
             final ECParameterSpec spec = parameters.getParameterSpec(ECParameterSpec.class);
-            final ECPoint point = new ECPoint(new BigInteger(1, x.value()), new BigInteger(1, y.value()));
+            final ECPoint point = new ECPoint(new BigInteger(1, x), new BigInteger(1, y));
             if (!onCurve(spec.getCurve(), point)) {
                 throw invalid("deviceKey point is not on its curve");
             }
@@ -261,6 +265,16 @@ public record MobileSecurityObject(String version, String digestAlgorithm, Strin
         } catch (final GeneralSecurityException e) {
             throw invalid("deviceKey cannot be built");
         }
+    }
+
+    /** {@code coordinate} left-padded with zero octets to {@code size}; refused when empty or longer than {@code size}. */
+    private static byte[] leftPadded(final byte[] coordinate, final int size) {
+        if (coordinate.length == 0 || coordinate.length > size) {
+            throw invalid("deviceKey coordinates do not match its crv");
+        }
+        final byte[] padded = new byte[size];
+        System.arraycopy(coordinate, 0, padded, size - coordinate.length, coordinate.length);
+        return padded;
     }
 
     /** {@code y² = x³ + ax + b (mod p)} with {@code 0 <= x, y < p} (prime-field curves only). */

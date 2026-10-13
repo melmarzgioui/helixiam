@@ -330,8 +330,9 @@ not "the exact same key that signed this credential."
   `helix-iam-server/src/test/resources/wallet/vectors/SOURCES.md`). Their DeviceAuth cannot be checked (their
   SessionTranscript is not published), so the DeviceAuthentication construction is still covered only by the
   OpenID4VP B.2.6.1 transcript vector and our own wallet. The ISO 18013-5 text was not read and its Annex D vectors are
-  not reproduced (ISO copyright). One reference credential carries a 31-byte device-key coordinate, which RFC 9053
-  forbids: such a credential is refused (fail closed). A Phase 4 run against real wallets and issuers remains the real
+  not reproduced (ISO copyright). One reference credential carries a 31-byte device-key coordinate (a leading zero
+  octet dropped; RFC 9053 asks for the full length): a coordinate shorter than the curve's field is left-padded with
+  zero octets and accepted, as the same point, still checked to be on the curve; a longer or empty one is refused. A Phase 4 run against real wallets and issuers remains the real
   interop test.
 - **Several realms in one browser.** The broker keeps its per-login state (state, browser binding, wallet
   transaction) per realm and alias, so logins in two realms that use the same alias (the console's default

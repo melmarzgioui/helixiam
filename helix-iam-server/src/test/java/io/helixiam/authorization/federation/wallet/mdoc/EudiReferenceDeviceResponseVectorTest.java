@@ -47,8 +47,6 @@ class EudiReferenceDeviceResponseVectorTest {
     private static final String MDL = "org.iso.18013.5.1.mDL";
     private static final String PID = "eu.europa.ec.eudi.pid.1";
 
-    /** The mDL in the three-document response: its MSO device key's x is 31 bytes (an interop finding, below). */
-    private static final String SHORT_X = "eudi-ref-three-document-device-response.b64u#2";
 
     static Stream<Arguments> documents() throws IOException {
         final List<Arguments> all = new ArrayList<>();
@@ -115,12 +113,8 @@ class EudiReferenceDeviceResponseVectorTest {
         assertThat(tampered.verify(chain.get(0).getPublicKey(), null)).isFalse();
     }
 
-    static Stream<Arguments> conformingDocuments() throws IOException {
-        return documents().filter(a -> !SHORT_X.equals(a.get()[0]));
-    }
-
     @ParameterizedTest(name = "{0}")
-    @MethodSource("conformingDocuments")
+    @MethodSource("documents")
     void theMso_decodes_andEveryIssuerSignedItemMatchesItsDigest(final String name, final CborValue document)
             throws Exception {
         final CborValue.Dict doc = (CborValue.Dict) document;
@@ -180,38 +174,29 @@ class EudiReferenceDeviceResponseVectorTest {
     }
 
     /**
-     * Interop finding: the reference issuer wrote this mDL's device key with a 31-byte {@code x} (a leading zero octet
-     * dropped). RFC 9053 §7.1.1 requires the full field length, so {@link MobileSecurityObject} refuses the MSO (fail
-     * closed: such a credential cannot sign in). Its issuer signature still verifies (above), and its item digests match
-     * the MSO read as plain CBOR.
+     * Interop finding, accepted by maintainer ruling: the reference issuer wrote this mDL's device key with a 31-byte
+     * {@code x} (a leading zero octet dropped; RFC 9053 §7.1.1 asks for the full field length). {@link MobileSecurityObject}
+     * left-pads it to 32 bytes, so it is the same point, still checked to be on the curve; its digests are checked with
+     * every other document above.
      */
     @Test
-    void aDeviceKey_withA31ByteX_isRefused_butTheRestOfThatDocumentChecksOut() throws Exception {
+    void aDeviceKey_withA31ByteX_isAcceptedAfterLeftPadding() throws Exception {
         final CborValue.Dict doc = (CborValue.Dict) documentsOf(
                 deviceResponse("eudi-ref-three-document-device-response.b64u")).get(2);
         final byte[] payload = issuerAuth(doc).payload();
-
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> MobileSecurityObject.decode(payload))
-                .isInstanceOf(io.helixiam.authorization.federation.wallet.WalletVerificationException.class)
-                .hasMessageContaining("deviceKey coordinates");
-
-        final CborValue.Dict mso = (CborValue.Dict) StrictCbor.decode(
+        final CborValue.Dict raw = (CborValue.Dict) StrictCbor.decode(
                 ((CborValue.Embedded) StrictCbor.decode(payload)).content());
-        final CborValue.Dict deviceKey = (CborValue.Dict) ((CborValue.Dict) mso.get("deviceKeyInfo").orElseThrow())
+        final CborValue.Dict deviceKey = (CborValue.Dict) ((CborValue.Dict) raw.get("deviceKeyInfo").orElseThrow())
                 .get("deviceKey").orElseThrow();
-        assertThat(((CborValue.Bytes) deviceKey.get(-2).orElseThrow()).value()).hasSize(31);
-        assertThat(((CborValue.Bytes) deviceKey.get(-3).orElseThrow()).value()).hasSize(32);
-        final CborValue.Dict digests = (CborValue.Dict) ((CborValue.Dict) mso.get("valueDigests").orElseThrow())
-                .get("org.iso.18013.5.1").orElseThrow();
-        final CborValue.Dict nameSpaces = (CborValue.Dict) ((CborValue.Dict) doc.get("issuerSigned").orElseThrow())
-                .get("nameSpaces").orElseThrow();
-        for (final CborValue value : ((CborValue.Array) nameSpaces.get("org.iso.18013.5.1").orElseThrow()).items()) {
-            final CborValue.Embedded item = (CborValue.Embedded) value;
-            final long digestId = ((CborValue.Int) ((CborValue.Dict) StrictCbor.decode(item.content()))
-                    .get("digestID").orElseThrow()).value();
-            assertThat(MessageDigest.getInstance("SHA-256").digest(item.encoded()))
-                    .isEqualTo(((CborValue.Bytes) digests.get(digestId).orElseThrow()).value());
-        }
+        final byte[] shortX = ((CborValue.Bytes) deviceKey.get(-2).orElseThrow()).value();
+        assertThat(shortX).hasSize(31);
+
+        final java.security.interfaces.ECPublicKey key =
+                (java.security.interfaces.ECPublicKey) MobileSecurityObject.decode(payload).deviceKey();
+
+        assertThat(key.getW().getAffineX()).isEqualTo(new java.math.BigInteger(1, shortX));
+        assertThat(key.getW().getAffineY())
+                .isEqualTo(new java.math.BigInteger(1, ((CborValue.Bytes) deviceKey.get(-3).orElseThrow()).value()));
     }
 
     private static CoseSign1 issuerAuth(final CborValue.Dict document) {

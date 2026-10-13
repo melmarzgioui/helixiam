@@ -39,9 +39,7 @@ paths are hardened and tested."
     path is now checked against EU reference wallet DeviceResponses (IssuerAuth, MSO, digests), but no third-party
     vector with its SessionTranscript was available under a usable licence (ISO 18013-5 Annex D is ISO copyright and
     uses `deviceMac`), so DeviceAuthentication is still checked only against the OpenID4VP B.2.6.1 transcript and the
-    in-repo test wallet. A capture from a real EU wallet against this verifier (Phase 4) closes it. Also decide whether
-    to accept a short (leading-zero-stripped) device-key coordinate, which one reference credential has; today it is
-    refused, as RFC 9053 requires.
+    in-repo test wallet. A capture from a real EU wallet against this verifier (Phase 4) closes it.
   - Done: a PostgreSQL wallet transaction store, cross-replica identity-provider refresh, and the "wallet linked"
     notification (see `CHANGES-1.0.md`, next release).
   - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys

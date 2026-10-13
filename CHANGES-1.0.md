@@ -144,7 +144,8 @@ question. Newest first within each phase.
 - **test (EUDI wallet)** — The mdoc decoding path is checked against DeviceResponses from the EU Digital Identity
   Wallet reference implementation (Apache-2.0, source recorded in `wallet/vectors/SOURCES.md`): IssuerAuth signatures
   with their own `x5chain`, MSOs, item digests. Interop finding: one reference credential carries a 31-byte device-key
-  coordinate (RFC 9053 forbids it) and is refused, fail closed.
+  coordinate (a leading zero octet dropped). By maintainer ruling a short coordinate is left-padded and accepted (the
+  same point, on-curve check unchanged); longer or empty is still refused, nothing is truncated.
 - **security (dependencies)** — Sandbox RP: `proxy-addr` pinned to 2.0.8 via an `overrides` entry (CVE-2026-90711,
   CRITICAL; express pulls it transitively at `~2.0.7`); `npm audit` is otherwise clean.
 - **security (dependencies)** — Terraform provider: `golang.org/x/net` v0.58.0 → v0.60.0 (CVE-2026-78669 HIGH,

@@ -137,6 +137,55 @@ class MobileSecurityObjectTest {
         }
     }
 
+    /**
+     * Maintainer ruling (production readiness fix round): a coordinate shorter than the field (a leading zero octet
+     * dropped, as one EU reference issuer does) is left-padded and accepted; it is the same point, and the on-curve
+     * check still runs. A longer one, or an empty one, is refused; nothing is ever truncated.
+     */
+    @Test
+    void aShortCoordinate_isLeftPaddedAndAccepted_asTheSamePoint() throws Exception {
+        ECKey key;
+        do {
+            key = TestWallet.ecKey(Curve.P_256);
+        } while (key.getX().decode()[0] != 0 && key.getY().decode()[0] != 0);
+        final Map<Object, Object> cose = TestWallet.coseKey(key);
+        for (final int label : List.of(-2, -3)) {
+            final byte[] full = (byte[]) cose.get(label);
+            if (full[0] == 0) {
+                cose.put(label, java.util.Arrays.copyOfRange(full, 1, full.length)); // 31 bytes
+            }
+        }
+        final MobileSecurityObject mso = decode(m -> m.put("deviceKeyInfo", Map.of("deviceKey", cose)));
+
+        assertThat(mso.deviceKey()).isEqualTo(key.toECPublicKey());
+    }
+
+    @Test
+    void aShortCoordinate_thatIsNotOnTheCurveAfterPadding_isStillRefused() {
+        assertCode(mso -> {
+            final byte[] x = new byte[31];
+            java.util.Arrays.fill(x, (byte) 0x01); // padded to 32 bytes: not this key's x, so not on the curve with y
+            deviceKey(mso).put(-2, x);
+        }, WalletErrorCode.INVALID_RESPONSE);
+    }
+
+    @Test
+    void aLongOrEmptyCoordinate_isRefused_neverTruncated() {
+        assertCode(mso -> {
+            final byte[] x = (byte[]) deviceKey(mso).get(-2);
+            final byte[] longer = new byte[33];
+            System.arraycopy(x, 0, longer, 1, 32); // a leading zero: truncating would give the valid point
+            deviceKey(mso).put(-2, longer);
+        }, WalletErrorCode.INVALID_RESPONSE);
+        assertCode(mso -> {
+            final byte[] y = (byte[]) deviceKey(mso).get(-3);
+            final byte[] longer = new byte[33];
+            System.arraycopy(y, 0, longer, 1, 32);
+            deviceKey(mso).put(-3, longer);
+        }, WalletErrorCode.INVALID_RESPONSE);
+        assertCode(mso -> deviceKey(mso).put(-2, new byte[0]), WalletErrorCode.INVALID_RESPONSE);
+    }
+
     // ------------------------------------------------------------------------------------------- digest algorithm
 
     @ParameterizedTest

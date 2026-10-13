@@ -157,9 +157,9 @@ Moved here from the lists above and from the final review's parked items; each l
 - **DONE — recovery-codes page after a refused pending commit** (final re-review, parked minor):
   `MfaAuthController.processEnableMfaFactor` now shows the federation error and issues no codes.
 - **PARTLY DONE — third-party mdoc vector** (T6-c): IssuerAuth, MSO and digests are checked against EU reference wallet
-  DeviceResponses (Apache-2.0). Still open: a third-party DeviceAuth with its SessionTranscript (see `ROADMAP.md`), and
-  the decision on short device-key coordinates (one reference credential has a 31-byte `x`; refused, as RFC 9053
-  requires).
+  DeviceResponses (Apache-2.0). Still open: a third-party DeviceAuth with its SessionTranscript (see `ROADMAP.md`).
+  Decided (maintainer ruling): a short device-key coordinate (one reference credential has a 31-byte `x`) is
+  left-padded and accepted; longer or empty is refused, and the on-curve check is unchanged.
 
 ### Pre-existing findings outside the wallet, surfaced while building it — resolved by the merge of `fix/pre-1.0-security`
 
