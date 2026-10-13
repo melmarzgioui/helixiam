@@ -77,6 +77,14 @@ public class ScimProvisioningDispatcher {
         this.queue = new RealmBoundedExecutor("scim-provisioner", RealmBoundedExecutor.DEFAULT_MAX_PENDING_PER_REALM);
     }
 
+    /** The ceiling on pending deliveries across all realms ({@code helix.outbound.deliveries.max-pending}). */
+    @Autowired(required = false)
+    void setMaxPendingTotal(
+            @org.springframework.beans.factory.annotation.Value("${helix.outbound.deliveries.max-pending:20000}")
+            final int maxPendingTotal) {
+        queue.setMaxPendingTotal(maxPendingTotal);
+    }
+
     /** Fan a user lifecycle change out to every matching, enabled SCIM target for the realm (best-effort). */
     public void provision(final String realm, final Operation operation, final ScimUserView user) {
         if (realm == null || realm.isBlank() || operation == null || user == null || user.userId() == null) {

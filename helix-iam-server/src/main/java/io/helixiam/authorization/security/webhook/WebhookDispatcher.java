@@ -73,6 +73,14 @@ public class WebhookDispatcher {
         this.queue = new RealmBoundedExecutor("webhook-dispatcher", RealmBoundedExecutor.DEFAULT_MAX_PENDING_PER_REALM);
     }
 
+    /** The ceiling on pending deliveries across all realms ({@code helix.outbound.deliveries.max-pending}). */
+    @Autowired(required = false)
+    void setMaxPendingTotal(
+            @org.springframework.beans.factory.annotation.Value("${helix.outbound.deliveries.max-pending:20000}")
+            final int maxPendingTotal) {
+        queue.setMaxPendingTotal(maxPendingTotal);
+    }
+
     /** Deliver one event (already serialized to {@code json}) to every matching, enabled webhook. */
     public void dispatch(final AuditEvent event, final String json) {
         if (event == null || event.realm() == null || event.realm().isBlank() || json == null) {
