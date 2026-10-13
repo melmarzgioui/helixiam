@@ -8,6 +8,7 @@ import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
+import { EmptyState } from "../components/EmptyState";
 import { ConfirmDialog } from "../components/Modal";
 import { AccountApi, AccountIdentity } from "./api";
 import type { Note } from "./AccountApp";
@@ -44,30 +45,30 @@ export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: No
   };
 
   if (identities === null) {
-    return <div style={{ padding: "3rem", display: "flex", justifyContent: "center" }}><Spinner size={24} label={t("account.identities.loading")} /></div>;
+    return <div className="hx-loadwrap"><Spinner size={24} label={t("account.identities.loading")} /></div>;
   }
 
   return (
     <Card title={t("account.identities.card.title")} subtitle={t("account.identities.card.subtitle")}>
       {identities.length === 0 ? (
-        <p style={{ color: "var(--fg-muted)", fontSize: ".9rem" }}>{t("account.identities.empty")}</p>
+        <EmptyState title={t("account.identities.empty")} />
       ) : (
-        <div style={{ display: "grid", gap: ".7rem" }}>
+        <div className="hx-acctlist">
           {identities.map((i) => (
-            <div key={i.idpAlias} className="hx-card" style={{ padding: ".9rem 1.1rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <div key={i.idpAlias} className="hx-card hx-acctrow">
+              <div className="hx-acctrow__body hx-acctrow__body--center">
+                <div className="hx-acctrow__main">
+                  <div className="hx-acctrow__title hx-acctrow__title--row">
                     {i.idpAlias}<Badge tone="accent">{t("account.identities.connectedBadge")}</Badge>
                   </div>
-                  <div style={{ color: "var(--fg-muted)", fontSize: ".8rem", marginTop: ".15rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div className="hx-acctrow__meta hx-acctrow__meta--ellipsis">
                     {i.externalSubject}
                   </div>
-                  <div style={{ color: "var(--fg-faint)", fontSize: ".76rem", marginTop: ".15rem" }}>
+                  <div className="hx-acctrow__sub">
                     {i.linkedAt ? t("account.identities.connectedAt", { date: new Date(i.linkedAt).toLocaleString() }) : t("account.identities.connected")}
                   </div>
                 </div>
-                <Button variant="ghost" onClick={() => setConfirm(i)} style={{ padding: ".4rem .85rem", flexShrink: 0 }}>{t("account.identities.disconnect")}</Button>
+                <Button variant="ghost" onClick={() => setConfirm(i)} className="hx-acctrow__action">{t("account.identities.disconnect")}</Button>
               </div>
             </div>
           ))}

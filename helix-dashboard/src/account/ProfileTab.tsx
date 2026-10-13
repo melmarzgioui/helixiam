@@ -31,7 +31,7 @@ export function ProfileTab({ api, onNote, onUsername }: { api: AccountApi; onNot
   }, [api, onNote, onUsername]); // t omitted: error string is secondary to load logic
 
   if (!profile) {
-    return <div style={{ padding: "3rem", display: "flex", justifyContent: "center" }}><Spinner size={24} label={t("account.profile.loading")} /></div>;
+    return <div className="hx-loadwrap"><Spinner size={24} label={t("account.profile.loading")} /></div>;
   }
 
   const save = () => {
@@ -46,7 +46,7 @@ export function ProfileTab({ api, onNote, onUsername }: { api: AccountApi; onNot
   };
 
   return (
-    <div style={{ display: "grid", gap: "1rem" }}>
+    <div className="hx-acctstack">
       <Card title={t("account.profile.card.title")} subtitle={t("account.profile.card.subtitle")}>
         <FormField label={t("account.profile.username")}>
           <Input value={profile.username} readOnly disabled aria-label={t("account.profile.username")} />
@@ -55,7 +55,7 @@ export function ProfileTab({ api, onNote, onUsername }: { api: AccountApi; onNot
           <Input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setEmailError(undefined); }}
                  placeholder={t("account.profile.emailPlaceholder")} aria-label={t("account.profile.email")} />
         </FormField>
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <div className="hx-acctform-actions">
           <Button onClick={save} disabled={busy}>{busy ? t("account.profile.saving") : t("account.profile.saveChanges")}</Button>
         </div>
       </Card>

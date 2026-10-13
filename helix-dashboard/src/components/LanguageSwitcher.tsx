@@ -45,7 +45,7 @@ export function LanguageSwitcher() {
   };
 
   return (
-    <div ref={rootRef} style={{ position: "relative" }}>
+    <div ref={rootRef} className="hx-langswitch-root">
       <button
         type="button"
         className="hx-iconbtn"
@@ -64,10 +64,7 @@ export function LanguageSwitcher() {
             strokeLinecap="round"
           />
         </svg>
-        <span
-          aria-hidden="true"
-          style={{ marginLeft: 4, font: "600 .72rem var(--font)", textTransform: "uppercase" }}
-        >
+        <span aria-hidden="true" className="hx-langswitch-code">
           {locale}
         </span>
       </button>
@@ -76,8 +73,7 @@ export function LanguageSwitcher() {
         <ul
           role="listbox"
           aria-label={t("shell.language")}
-          className="hx-select-panel"
-          style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, minWidth: 160, zIndex: 95 }}
+          className="hx-select-panel hx-langswitch-panel"
         >
           {LOCALES.map((l) => {
             const isSelected = l.value === locale;
@@ -89,7 +85,7 @@ export function LanguageSwitcher() {
                 className={`hx-option${isSelected ? " hx-option--active" : ""}`}
                 onClick={() => choose(l.value)}
               >
-                <span style={{ fontWeight: isSelected ? 600 : 400 }}>{l.label}</span>
+                <span className={isSelected ? "hx-langswitch-opt--selected" : "hx-langswitch-opt"}>{l.label}</span>
               </li>
             );
           })}

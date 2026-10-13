@@ -32,19 +32,21 @@ export function Modal({ open, title, onClose, children, footer, width = 520 }: M
         aria-modal="true"
         className="hx-dialog"
         onMouseDown={(e) => e.stopPropagation()}
-        style={{ maxWidth: width }}
+        // Each dialog picks its own width (an open-ended author-supplied number across dozens of call
+        // sites, not a fixed set a class could enumerate) — carried as a custom property.
+        style={{ "--modal-maxw": `${width}px` } as React.CSSProperties}
       >
-        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", padding: "1.1rem 1.3rem", borderBottom: "1px solid var(--border)" }}>
-          <h3 style={{ margin: 0, fontSize: "1.1rem", color: "var(--fg)" }}>{title}</h3>
-          <button type="button" aria-label="Close" className="hx-ghosticon" onClick={onClose} style={{ width: 32, height: 32 }}>
+        <header className="hx-modal__head">
+          <h3 className="hx-modal__title">{title}</h3>
+          <button type="button" aria-label="Close" className="hx-ghosticon hx-modal__close" onClick={onClose}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </button>
         </header>
-        <div style={{ padding: "1.3rem", color: "var(--fg-muted)", overflowY: "auto", flex: 1 }}>{children}</div>
+        <div className="hx-modal__body">{children}</div>
         {footer && (
-          <footer style={{ display: "flex", justifyContent: "flex-end", gap: ".6rem", padding: "1rem 1.3rem", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+          <footer className="hx-modal__foot">
             {footer}
           </footer>
         )}

@@ -64,28 +64,24 @@ export function AccountApp({ api, realm }: AccountAppProps) {
   }, []);
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--surface)", color: "var(--fg)", fontFamily: "var(--font)" }}>
-      <header
-        style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem",
-          padding: "1rem 1.4rem", background: "var(--bg)", borderBottom: "1px solid var(--border)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: ".7rem" }}>
-          <span style={{ fontWeight: 700, fontSize: "1.05rem" }}>{t("account.header.title")}</span>
+    <div className="hx-acct">
+      <header className="hx-acct__header">
+        <div className="hx-acct__brand">
+          <span className="hx-acct__brand-title">{t("account.header.title")}</span>
           <Badge tone="accent">{activeRealm}</Badge>
         </div>
         {username && (
-          <div style={{ display: "flex", alignItems: "center", gap: ".6rem", color: "var(--fg-muted)", fontSize: ".9rem" }}>
+          <div className="hx-acct__user">
             <span>{username}</span>
-            <a className="hx-btn hx-btn--ghost" href={`/realms/${encodeURIComponent(activeRealm)}/connect/logout`}
-               style={{ textDecoration: "none", padding: ".4rem .85rem" }}>{t("account.header.signOut")}</a>
+            <a className="hx-btn hx-btn--ghost hx-acct__signout" href={`/realms/${encodeURIComponent(activeRealm)}/connect/logout`}>
+              {t("account.header.signOut")}
+            </a>
           </div>
         )}
       </header>
 
-      <main style={{ maxWidth: 880, margin: "0 auto", padding: "1.6rem 1.4rem 4rem", width: "100%", boxSizing: "border-box" }}>
-        <div style={{ marginBottom: "1.2rem" }}>
+      <main className="hx-acct__main">
+        <div className="hx-acct__tabs">
           <Tabs tabs={tabs} value={tab} onChange={setTab} />
         </div>
 
@@ -98,7 +94,7 @@ export function AccountApp({ api, realm }: AccountAppProps) {
       </main>
 
       {note && (
-        <div style={{ position: "fixed", right: "1.2rem", bottom: "1.2rem", zIndex: 80 }}>
+        <div className="hx-acct__toast">
           <Toast tone={note.tone === "success" ? "success" : "error"} title={note.title} message={note.message}
                  onDismiss={() => setNote(null)} />
         </div>

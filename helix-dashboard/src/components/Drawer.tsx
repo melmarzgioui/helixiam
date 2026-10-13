@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export interface DrawerProps {
@@ -48,7 +48,8 @@ export function Drawer({ open, onClose, title, children, footer, width }: Drawer
       <div
         ref={panelRef}
         className="hx-drawer-panel"
-        style={width ? { width } : undefined}
+        // `width` is an open CSS-length override; carried as a custom property, never a literal style.
+        style={width ? ({ "--drawer-w": width } as CSSProperties) : undefined}
         role="dialog"
         aria-modal="true"
         aria-labelledby="hx-drawer-title"

@@ -40,21 +40,13 @@ export function Logo({ variant = "lockup", size = "md" }: LogoProps) {
     );
   }
   return (
-    <span
-      style={{
-        font: `800 ${s.word} var(--font)`,
-        letterSpacing: "-0.02em",
-        color: "var(--fg)",
-        whiteSpace: "nowrap",
-        lineHeight: 1,
-      }}
-    >
-      Helix<span style={{ color: "var(--wordmark-accent)" }}>IAM</span>
+    <span className={`hx-logo${size !== "md" ? ` hx-logo--${size}` : ""}`}>
+      Helix<span className="hx-logo__accent">IAM</span>
       {/* trailing spark — cap-height, on the baseline, like the brand mark */}
       <svg
         viewBox="0 0 125 125"
         aria-hidden="true"
-        style={{ height: "0.72em", width: "0.72em", marginLeft: "0.03em", verticalAlign: "baseline" }}
+        className="hx-logo__spark"
       >
         <path d={SPARK} fill="var(--wordmark-accent)" />
       </svg>
