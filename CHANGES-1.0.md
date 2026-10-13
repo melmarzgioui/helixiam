@@ -41,6 +41,13 @@ question. Newest first within each phase.
 >    Boot's Jackson 3 mapper only); `spring.dao.exceptiontranslation.enabled` is now
 >    `spring.persistence.exceptiontranslation.enabled`.
 
+- **security** — The Redis stores now apply the same JEP-290 deserialization allowlists as the queue (PostgreSQL)
+  stores (pre-existing gap, found in the Spring Boot 4 review): the Redis token store and SSO-session reader
+  (`HELIX_TOKEN_STORE=redis`) use the token allowlist, Spring Session's Redis HTTP sessions (the default session
+  store) the session allowlist. A refused or unreadable value is no longer an error: a token entry is absent, and a
+  session with any such attribute is dropped and deleted (the user signs in again), each logged at WARN by class name
+  only. Bytes written are unchanged. `FilteredJdkRedisSerializer`, `RedisSessionSerializationConfig`;
+  `FilteredJdkRedisSerializerTest`, `RedisSessionAllowlistE2eTest` (a gadget planted in a real Redis session).
 - **helm** — New value `strategy` (the Deployment's `spec.strategy`; empty = Kubernetes' default RollingUpdate,
   rendered output unchanged), so the Spring Boot 4 upgrade can run with `strategy.type=Recreate`. An unknown type, or
   `rollingUpdate` with `Recreate`, is refused at render time; `e2e/helm-template-check.sh` covers it.

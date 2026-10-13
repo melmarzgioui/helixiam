@@ -55,6 +55,11 @@ public final class SessionBlobs {
     private SessionBlobs() {
     }
 
+    /** The allowlist, also applied to Spring Session's Redis store ({@link FilteredJdkRedisSerializer}). */
+    public static ObjectInputFilter filter() {
+        return FILTER;
+    }
+
     /** Serialize a (serializable) attribute map to a base64 blob. */
     public static String serialize(final Map<String, Object> attributes) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();

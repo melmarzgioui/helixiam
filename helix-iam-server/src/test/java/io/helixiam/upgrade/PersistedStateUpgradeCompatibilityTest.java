@@ -13,7 +13,6 @@ import io.helixiam.testsupport.LogCapture;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializer;
-import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
@@ -112,7 +111,7 @@ class PersistedStateUpgradeCompatibilityTest {
     void theRedisTokenStore_readsAnAuthorizationWrittenByTheBoot3Line() throws IOException {
         // RedisOAuth2AuthorizationService stores the same Java serialization (JdkSerializationRedisSerializer).
         final byte[] bytes = Base64.getDecoder().decode(blob("authorization.b64"));
-        final RedisSerializer<Object> serializer = LegacyAuthorizationServerSerialization.redisSerializer();
+        final RedisSerializer<Object> serializer = io.helixiam.authorization.security.FilteredJdkRedisSerializer.forAuthorizations();
 
         final OAuth2Authorization stored = (OAuth2Authorization) serializer.deserialize(bytes);
 
@@ -141,8 +140,9 @@ class PersistedStateUpgradeCompatibilityTest {
             assertThatThrownBy(compatible::readObject).isInstanceOf(InvalidClassException.class)
                     .hasMessageContaining("OidcClientRegistration");
         }
-        assertThatThrownBy(() -> LegacyAuthorizationServerSerialization.redisSerializer().deserialize(bytes))
-                .isInstanceOf(SerializationException.class);
+        // The Redis stores treat it as absent (FilteredJdkRedisSerializer), as the queue stores do.
+        assertThat(io.helixiam.authorization.security.FilteredJdkRedisSerializer.forAuthorizations().deserialize(bytes))
+                .isNull();
     }
 
     @Test

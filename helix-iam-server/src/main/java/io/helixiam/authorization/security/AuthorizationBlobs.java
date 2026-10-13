@@ -36,6 +36,11 @@ public final class AuthorizationBlobs {
     private AuthorizationBlobs() {
     }
 
+    /** The allowlist, also applied to the Redis token store ({@link FilteredJdkRedisSerializer}). */
+    public static ObjectInputFilter filter() {
+        return FILTER;
+    }
+
     /** Serialize an authorization to a base64 blob. */
     public static String serialize(final OAuth2Authorization authorization) {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();

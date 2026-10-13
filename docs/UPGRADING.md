@@ -15,6 +15,9 @@ signs users out.
 | A browser session (any sign-in; it carries Spring Security 7's sign-in factor, a class 1.0 does not have) | dropped with a `HTTP session dropped` WARN: the user is signed out | **HTTP 500** on every request carrying that session cookie, until the session expires or is deleted |
 | An OAuth2 authorization the new version created **or rewrote**: a new sign-in or authorization code, a code exchange, a refresh (rotation), a revocation, a consent, a device-flow step | treated as absent: refresh fails (`invalid_grant`), introspection answers `active: false`, the user signs in again | **HTTP 500** for that token (refresh, introspection, revocation, logout), until the entry expires or is deleted |
 
+(The new version itself never answers 500 for a Redis entry it cannot read: it treats it as absent and drops such a
+session, as the PostgreSQL stores do.)
+
 Access tokens are JWTs and stay valid for their lifetime on either version: their signature does not depend on the
 store. Store locations: PostgreSQL tables `helix_authorization`, `helix_authorization_token` (tokens) and
 `helix_http_session` (sessions with `HELIX_SESSION_STORE=queue`); Redis keys `spring:session:*` (sessions, the default

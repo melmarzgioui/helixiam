@@ -5,9 +5,6 @@
 
 package io.helixiam.authorization.security;
 
-import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
-import org.springframework.data.redis.serializer.RedisSerializer;
-import org.springframework.data.redis.serializer.SerializationException;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -102,14 +99,6 @@ public final class LegacyAuthorizationServerSerialization {
     /** An {@link ObjectInputStream} over {@code data} that accepts Spring Authorization Server 1.x descriptors. */
     public static ObjectInputStream objectInputStream(final byte[] data) throws IOException {
         return new CompatibleObjectInputStream(new PositionedInput(data), data);
-    }
-
-    /**
-     * A drop-in for {@link JdkSerializationRedisSerializer}: writes the same bytes, and reads them back accepting
-     * Spring Authorization Server 1.x class descriptors.
-     */
-    public static RedisSerializer<Object> redisSerializer() {
-        return new UpgradeCompatibleRedisSerializer();
     }
 
     private static final class PositionedInput extends ByteArrayInputStream {
@@ -240,27 +229,5 @@ public final class LegacyAuthorizationServerSerialization {
             }
         }
         return out.toByteArray();
-    }
-
-    private static final class UpgradeCompatibleRedisSerializer implements RedisSerializer<Object> {
-
-        private final JdkSerializationRedisSerializer writer = new JdkSerializationRedisSerializer();
-
-        @Override
-        public byte[] serialize(final Object value) {
-            return writer.serialize(value);
-        }
-
-        @Override
-        public Object deserialize(final byte[] bytes) {
-            if (bytes == null || bytes.length == 0) {
-                return null;
-            }
-            try (ObjectInputStream in = objectInputStream(bytes)) {
-                return in.readObject();
-            } catch (final Exception e) {
-                throw new SerializationException("Cannot deserialize", e);
-            }
-        }
     }
 }
