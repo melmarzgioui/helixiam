@@ -159,13 +159,37 @@ class PinnedHttpExchangeTest {
     }
 
     @Test
-    void anOversizedBodyReportsItsStatus() {
+    void anOversizedErrorBodyIsTruncatedAndTheStatusKept() throws Exception {
         status = 502;
+        answer = new byte[40_000];
+        final Response r = fetcher().exchange(new Request("POST", url("/x"), Map.of(), new byte[0],
+                new Limits(Duration.ofSeconds(3), Duration.ofSeconds(5), 1024 * 1024), true));
+        assertThat(r.status()).isEqualTo(502);
+        assertThat(r.truncated()).isTrue();
+        assertThat(r.body()).hasSize(PinnedHttpFetcher.ERROR_BODY_BYTES);
+    }
+
+    @Test
+    void anErrorBodyIsCappedAtTheSmallerOfTheLimitAnd16Kb() throws Exception {
+        status = 400;
         answer = new byte[4096];
-        assertThatThrownBy(() -> fetcher().exchange(new Request("POST", url("/x"), Map.of(), new byte[0], LIMITS,
-                true))).isInstanceOfSatisfying(FetchException.class, e -> {
+        final Response r = fetcher().exchange(new Request("POST", url("/x"), Map.of(), new byte[0], LIMITS, true));
+        assertThat(r.status()).isEqualTo(400);
+        assertThat(r.truncated()).isTrue();
+        assertThat(r.body()).hasSize(1024);
+        answer = new byte[100];
+        final Response small = fetcher().exchange(new Request("POST", url("/x"), Map.of(), new byte[0], LIMITS, true));
+        assertThat(small.truncated()).isFalse();
+        assertThat(small.body()).hasSize(100);
+    }
+
+    @Test
+    void anOversizedSuccessBodyIsStillTooLarge() {
+        answer = new byte[4096];
+        assertThatThrownBy(() -> fetcher().exchange(new Request("GET", url("/x"), Map.of(), null, LIMITS, true)))
+                .isInstanceOfSatisfying(FetchException.class, e -> {
                     assertThat(e.kind()).isEqualTo(FetchException.Kind.TOO_LARGE);
-                    assertThat(e.status()).isEqualTo(502);
+                    assertThat(e.status()).isEqualTo(200);
                 });
     }
 

@@ -124,8 +124,8 @@ public class CloudflareEmailDriver implements EmailTransport {
             final PinnedHttpFetcher.Response res = fetcher(settings).exchange(new PinnedHttpFetcher.Request("POST", url,
                     headers, body.getBytes(StandardCharsets.UTF_8), limits, true));
             status = res.status();
-            response = res.body();
-            truncated = false;
+            truncated = res.truncated(); // an error body over 16 KB: the status counts, the body is not used
+            response = truncated ? new byte[0] : res.body();
         } catch (final SsrfBlockedException e) {
             return DeliveryResult.permanent(Reason.CONFIGURATION, "The Cloudflare API URL is not allowed by the egress policy");
         } catch (final IllegalArgumentException e) {

@@ -63,6 +63,12 @@ public final class PinnedHttpFetcher {
     /** Largest response head (status line and headers) read. */
     static final int MAX_HEADER_BYTES = 32 * 1024;
     private static final int MAX_INTERIM_RESPONSES = 5;
+    /** Most bytes of an error (non-2xx) body read; more is truncated, never a failure. */
+    static final int ERROR_BODY_BYTES = 16 * 1024;
+
+    /** A body and whether it was cut short. */
+    private record Body(byte[] bytes, boolean truncated) {
+    }
     private static final java.util.Set<String> METHODS = java.util.Set.of("GET", "HEAD", "POST", "PUT", "PATCH",
             "DELETE", "OPTIONS");
     private static final java.util.Set<String> BODY_METHODS = java.util.Set.of("POST", "PUT", "PATCH");
@@ -112,7 +118,13 @@ public final class PinnedHttpFetcher {
      * only; empty otherwise).
      */
     public record Response(int status, String location, String contentType, byte[] body,
-            Map<String, java.util.List<String>> headers) {
+            Map<String, java.util.List<String>> headers, boolean truncated) {
+
+        /** A complete body. */
+        public Response(final int status, final String location, final String contentType, final byte[] body,
+                final Map<String, java.util.List<String>> headers) {
+            this(status, location, contentType, body, headers, false);
+        }
 
         public Response {
             final Map<String, java.util.List<String>> copy = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -518,14 +530,23 @@ public final class PinnedHttpFetcher {
                 if (noBody || status != 200 && !readBodyOfAnyStatus) {
                     return new Response(status, location, contentType, new byte[0], fields);
                 }
-                return new Response(status, location, contentType, readBody(in, fields, status), fields);
+                if (status / 100 != 2) {
+                    // an error body is only diagnostic: at most ERROR_BODY_BYTES, truncated, so the status is kept
+                    final Body b = readBody(in, fields, status, Math.min(limits.maxBodyBytes(), ERROR_BODY_BYTES), true);
+                    return new Response(status, location, contentType, b.bytes(), fields, b.truncated());
+                }
+                return new Response(status, location, contentType,
+                        readBody(in, fields, status, limits.maxBodyBytes(), false).bytes(), fields);
             }
             throw malformed("too many interim responses");
         }
 
-        private byte[] readBody(final InputStream in, final Map<String, java.util.List<String>> fields,
-                final int status) throws IOException {
-            final long max = limits.maxBodyBytes();
+        /**
+         * The body within {@code max}: over it, {@code truncate} keeps the first {@code max} bytes (and stops reading),
+         * otherwise it is {@code TOO_LARGE}.
+         */
+        private Body readBody(final InputStream in, final Map<String, java.util.List<String>> fields,
+                final int status, final long max, final boolean truncate) throws IOException {
             final java.util.List<String> te = fields.get("Transfer-Encoding");
             final java.util.List<String> cl = fields.get("Content-Length");
             if (te != null && cl != null) {
@@ -535,7 +556,7 @@ public final class PinnedHttpFetcher {
                 if (te.size() != 1 || !"chunked".equalsIgnoreCase(te.get(0))) {
                     throw malformed("unsupported transfer encoding");
                 }
-                return readChunked(in, max, status);
+                return readChunked(in, max, status, truncate);
             }
             if (cl != null) {
                 long declared = -1;
@@ -551,22 +572,29 @@ public final class PinnedHttpFetcher {
                     declared = value;
                 }
                 if (declared > max) {
-                    throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
+                    if (!truncate) {
+                        throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
+                    }
+                    return new Body(in.readNBytes((int) max), true);
                 }
                 final byte[] out = in.readNBytes((int) declared);
                 if (out.length != declared) {
                     throw new FetchException(FetchException.Kind.IO, "response body truncated");
                 }
-                return out;
+                return new Body(out, false);
             }
             final byte[] out = in.readNBytes((int) Math.min(Integer.MAX_VALUE - 8, max + 1));
             if (out.length > max) {
-                throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
+                if (!truncate) {
+                    throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
+                }
+                return new Body(java.util.Arrays.copyOf(out, (int) max), true);
             }
-            return out;
+            return new Body(out, false);
         }
 
-        private byte[] readChunked(final InputStream in, final long max, final int status) throws IOException {
+        private Body readChunked(final InputStream in, final long max, final int status, final boolean truncate)
+                throws IOException {
             final ByteArrayOutputStream out = new ByteArrayOutputStream();
             while (true) {
                 final String sizeLine = readLine(in);
@@ -585,10 +613,14 @@ public final class PinnedHttpFetcher {
                             throw malformed("too many trailers");
                         }
                     }
-                    return out.toByteArray();
+                    return new Body(out.toByteArray(), false);
                 }
                 if (out.size() + size > max) {
-                    throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
+                    if (!truncate) {
+                        throw new FetchException(FetchException.Kind.TOO_LARGE, "response body too large", status);
+                    }
+                    out.write(in.readNBytes((int) (max - out.size())));
+                    return new Body(out.toByteArray(), true);
                 }
                 final byte[] chunk = in.readNBytes((int) size);
                 if (chunk.length != size) {
