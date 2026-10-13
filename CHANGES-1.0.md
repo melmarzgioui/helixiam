@@ -41,6 +41,14 @@ question. Newest first within each phase.
 >    Boot's Jackson 3 mapper only); `spring.dao.exceptiontranslation.enabled` is now
 >    `spring.persistence.exceptiontranslation.enabled`.
 
+- **security** — Token exchange on `/oauth2/token` refuses `actor_token` and `actor_token_type` with
+  `invalid_request` (maintainer ruling; HelixIAM's supported delegation is `/agent/delegation/token`). 1.0 could not
+  complete such an exchange (Spring Authorization Server 1.5 could not store the actor); Spring Security 7 can, and
+  HelixIAM's `act` claim would have named the requesting client rather than the actor, with no `may_act` policy. The
+  refusal happens before any provider runs, so nothing is issued or stored. Exchanges without an actor
+  (impersonation, `audience`/`resource`) are unchanged. Until RFC 8693 actor semantics are implemented there.
+  `ActorTokenRefusingConverter`; `TokenExchangeActorRefusedE2eTest` (queue store) and
+  `TokenExchangeActorRefusedRedisE2eTest` (Redis store).
 - **security** — A sign-in factor is never a role. Spring Security 7 marks every password login with the authority
   `FACTOR_PASSWORD`, and admin RBAC matched authorities to realm role names, so a realm role named `FACTOR_PASSWORD`
   with a grant would have been granted to every password login. Roles are now derived without factors everywhere

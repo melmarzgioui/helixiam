@@ -216,6 +216,12 @@ public class SecurityConfig {
         http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
                 .pushedAuthorizationRequestEndpoint(Customizer.withDefaults());
 
+        // RFC 8693 delegation (actor_token) is not supported on /oauth2/token: refused with invalid_request before any
+        // provider runs, so nothing is issued or stored. Delegation is /agent/delegation/token.
+        http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
+                .tokenEndpoint(tokenEndpoint -> tokenEndpoint.accessTokenRequestConverters(converters ->
+                        converters.add(0, new io.helixiam.authorization.security.tokenexchange.ActorTokenRefusingConverter())));
+
         // Helix IAM Agent (NHI) kill-switch, introspection side (Phase 1: gap 7). The lifecycle gate runs at
         // issuance; this re-checks live agent status on the RFC 7662 introspection response so a token minted
         // just before an agent was revoked/suspended introspects as active:false ahead of its (short) expiry.
