@@ -27,7 +27,10 @@ class WalletTransactionStoreSelectionTest {
             .withUserConfiguration(FederationConfig.WalletTransactionStores.class)
             .withBean(RedisConnectionFactory.class, () -> mock(RedisConnectionFactory.class))
             .withBean(DeploymentProfile.class, DeploymentProfile::production)
-            .withPropertyValues("database.encryption=0123456789abcdef0123456789abcdef");
+            // Pinned (empty unless a test sets them): a -Dhelix.iam.session-store=... JVM system property (the pom's
+            // queue-session-store run sets one) must never decide a test's outcome; test property values win over it.
+            .withPropertyValues("database.encryption=0123456789abcdef0123456789abcdef",
+                    "helix.iam.session-store=", "helix.iam.token-store=");
 
     /** The server: it always has its PostgreSQL datasource. */
     private final ApplicationContextRunner runner = withoutDatabase
