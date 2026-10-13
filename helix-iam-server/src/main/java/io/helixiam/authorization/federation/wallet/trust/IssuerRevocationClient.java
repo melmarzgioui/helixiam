@@ -86,7 +86,8 @@ import java.util.concurrent.TimeUnit;
  * was already validated end to end), so every certificate gets its own answer.
  *
  * <p><b>Cache.</b> OCSP responses and CRLs that gave a definite answer (good or revoked) are cached until their
- * {@code nextUpdate} (never longer than {@link #MAX_CACHE_TTL}; without {@code nextUpdate}: not cached), bounded by
+ * {@code nextUpdate} (a CRL until {@code nextUpdate} plus the {@link #CRL_CLOCK_SKEW} it is still accepted for; never
+ * longer than {@link #MAX_CACHE_TTL}; without {@code nextUpdate}: not cached), bounded by
  * {@link Settings#cacheMaxEntries()} and {@link Settings#cacheMaxBytes()} (encoded bytes), least recently used
  * evicted first. A cached answer is validated again at every use.
  */
@@ -105,6 +106,11 @@ public final class IssuerRevocationClient {
     private static final Set<String> CRL_SIGNATURE_ALGORITHMS = Set.of("SHA256withECDSA", "SHA384withECDSA",
             "SHA512withECDSA", "SHA256withRSA", "SHA384withRSA", "SHA512withRSA", "RSASSA-PSS", "Ed25519", "Ed448");
     private static final int CRL_SIGN = 6;
+    /**
+     * Clock skew tolerated on a CRL's thisUpdate / nextUpdate: exactly the JDK's ({@code RevocationChecker
+     * .MAX_CLOCK_SKEW}, 900 000 ms) and no more, so the JDK's CRL selector never drops a CRL accepted here.
+     */
+    static final Duration CRL_CLOCK_SKEW = Duration.ofMillis(900_000);
 
     /**
      * Operator settings ({@code helix.wallet.revocation.*}).
@@ -342,7 +348,8 @@ public final class IssuerRevocationClient {
         }
         final Answer a = jdkCrl(cert, issuer, crl, at);
         if (a == Answer.GOOD || a == Answer.REVOKED) {
-            remember(key, crl, size, crl.getNextUpdate() == null ? null : crl.getNextUpdate().toInstant());
+            remember(key, crl, size, crl.getNextUpdate() == null ? null
+                    : crl.getNextUpdate().toInstant().plus(CRL_CLOCK_SKEW)); // usable until then (see crlUsable)
         }
         return a;
     }
@@ -372,8 +379,9 @@ public final class IssuerRevocationClient {
             }
             final Date thisUpdate = crl.getThisUpdate();
             final Date nextUpdate = crl.getNextUpdate();
-            if (thisUpdate == null || nextUpdate == null || thisUpdate.toInstant().isAfter(at)
-                    || !at.isBefore(nextUpdate.toInstant())) {
+            // the JDK's own window, no wider: thisUpdate <= at + skew and nextUpdate >= at - skew (inclusive)
+            if (thisUpdate == null || nextUpdate == null || thisUpdate.toInstant().isAfter(at.plus(CRL_CLOCK_SKEW))
+                    || nextUpdate.toInstant().isBefore(at.minus(CRL_CLOCK_SKEW))) {
                 return false;
             }
             final Set<String> critical = crl.getCriticalExtensionOIDs();

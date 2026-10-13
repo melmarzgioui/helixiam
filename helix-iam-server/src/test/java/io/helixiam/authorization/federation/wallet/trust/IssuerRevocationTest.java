@@ -158,10 +158,72 @@ class IssuerRevocationTest {
     @Test
     void staleCrlIsNotAStatus() {
         final TwoLevel pki = twoLevel(stub.url("/issuing.crl"), null);
-        stub.serve("/issuing.crl", pki.issuing().crl(Instant.now().minus(Duration.ofMinutes(1))));
+        // past nextUpdate by more than the 15-minute clock skew
+        stub.serve("/issuing.crl", pki.issuing().crlAt(Instant.now().minus(Duration.ofHours(2)),
+                Instant.now().minus(Duration.ofMinutes(16))));
 
         assertRejected(() -> validator().validate(pki.chain(), pki.root().anchors(RevocationMode.HARD_FAIL),
                 Instant.now()), "certificate revocation status unavailable");
+    }
+
+    // ------------------------------------------------------------------------------------------- clock skew
+
+    /** The JDK's CRL clock skew (RevocationChecker.MAX_CLOCK_SKEW, 900 000 ms). */
+    private static final Duration SKEW = Duration.ofMillis(900_000);
+
+    private void assertCrlWindow(final Instant thisUpdate, final Instant nextUpdate, final Instant at,
+            final boolean accepted) {
+        final TwoLevel pki = twoLevel(stub.url("/issuing.crl"), null);
+        stub.serve("/issuing.crl", pki.issuing().crlAt(thisUpdate, nextUpdate));
+        final Runnable call = () -> validator().validate(pki.chain(), pki.root().anchors(RevocationMode.HARD_FAIL), at);
+        if (accepted) {
+            call.run();
+        } else {
+            assertRejected(call, "certificate revocation status unavailable");
+        }
+    }
+
+    @Test
+    void aCrlWhoseNextUpdatePassedExactlyFifteenMinutesAgoIsStillUsed() {
+        final Instant at = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        assertCrlWindow(at.minus(Duration.ofHours(2)), at.minus(SKEW), at, true);
+    }
+
+    @Test
+    void aCrlWhoseNextUpdatePassedMoreThanFifteenMinutesAgoIsNot() {
+        final Instant at = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        assertCrlWindow(at.minus(Duration.ofHours(2)), at.minus(SKEW).minusSeconds(1), at, false);
+    }
+
+    @Test
+    void aCrlIssuedExactlyFifteenMinutesInTheFutureIsUsed() {
+        final Instant at = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        assertCrlWindow(at.plus(SKEW), at.plus(Duration.ofDays(1)), at, true);
+    }
+
+    @Test
+    void aCrlIssuedMoreThanFifteenMinutesInTheFutureIsNot() {
+        final Instant at = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        assertCrlWindow(at.plus(SKEW).plusSeconds(1), at.plus(Duration.ofDays(1)), at, false);
+    }
+
+    @Test
+    void aCachedCrlLivesUntilNextUpdatePlusTheSkew() {
+        final Instant start = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        final TwoLevel pki = twoLevel(stub.url("/issuing.crl"), null);
+        stub.serve("/issuing.crl", pki.issuing().crlAt(start.minus(Duration.ofMinutes(5)),
+                start.plus(Duration.ofHours(1))));
+        final IssuerTrustValidator v = validator();
+        final TrustAnchors anchors = pki.root().anchors(RevocationMode.HARD_FAIL);
+        v.validate(pki.chain(), anchors, start);
+        clock.advance(Duration.ofHours(1).plus(SKEW).minusSeconds(5));
+        v.validate(pki.chain(), anchors, clock.instant());
+        assertThat(stub.count("/issuing.crl")).isEqualTo(1);
+        clock.advance(Duration.ofSeconds(10));
+        stub.serve("/issuing.crl", pki.issuing().crlAt(clock.instant().minus(Duration.ofMinutes(1)),
+                clock.instant().plus(Duration.ofHours(1))));
+        v.validate(pki.chain(), anchors, clock.instant());
+        assertThat(stub.count("/issuing.crl")).isEqualTo(2);
     }
 
     // ------------------------------------------------------------------------------------------- availability
@@ -275,7 +337,7 @@ class IssuerRevocationTest {
         assertThat(stub.count("/ocsp")).isEqualTo(1);
         assertThat(stub.count("/root.crl")).isEqualTo(1);
 
-        clock.advance(Duration.ofHours(2).plusSeconds(1));
+        clock.advance(Duration.ofHours(2).plus(SKEW).plusSeconds(1)); // past nextUpdate (+ the CRL skew)
         stub.serve("/root.crl", root.crl(clock.instant().plus(Duration.ofHours(2))));
         stub.ocsp("/ocsp", issuing.ocspResponder(Map.of(), clock.instant().plus(Duration.ofHours(2))));
         v.validate(List.of(leaf, issuing.cert), anchors, Instant.now());

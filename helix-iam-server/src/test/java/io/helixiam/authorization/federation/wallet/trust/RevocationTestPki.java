@@ -105,8 +105,18 @@ final class RevocationTestPki {
 
         /** As {@link #crl}, but signed with another key (same issuer name): never acceptable. */
         byte[] crlSignedBy(final KeyPair signer, final Instant nextUpdate, final BigInteger... serials) {
+            return crlSignedBy(signer, Instant.now().minus(Duration.ofMinutes(5)), nextUpdate, serials);
+        }
+
+        /** A DER CRL of this CA with the given thisUpdate / nextUpdate. */
+        byte[] crlAt(final Instant thisUpdate, final Instant nextUpdate, final BigInteger... serials) {
+            return crlSignedBy(keys, thisUpdate, nextUpdate, serials);
+        }
+
+        byte[] crlSignedBy(final KeyPair signer, final Instant thisUpdate, final Instant nextUpdate,
+                final BigInteger... serials) {
             final Instant now = Instant.now();
-            final X509v2CRLBuilder b = new X509v2CRLBuilder(name(cert), Date.from(now.minus(Duration.ofMinutes(5))));
+            final X509v2CRLBuilder b = new X509v2CRLBuilder(name(cert), Date.from(thisUpdate));
             if (nextUpdate != null) {
                 b.setNextUpdate(Date.from(nextUpdate));
             }
