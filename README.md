@@ -101,7 +101,10 @@ self-generated RSA signing keypair (no external key mount required to start). Th
 docker-compose stack and the command above set it to `admin` for convenience); **when it is left
 unset, a strong random password is generated once and written (0600) to
 `HELIX_ADMIN_PASSWORD_FILE`, default `$TMPDIR/helixiam-admin-password`; only the path is logged** — sign in, change it,
-and set `HELIX_ADMIN_PASSWORD` for any non-local use (see [Bootstrap admin](#configuration)).
+and set `HELIX_ADMIN_PASSWORD` for any non-local use (see [Bootstrap admin](#configuration)). To read it:
+`cat /tmp/helixiam-admin-password` (a local run), `docker compose exec server cat /tmp/helixiam-admin-password`
+(after removing `HELIX_ADMIN_PASSWORD` from the compose file), or
+`kubectl exec deploy/helixiam -- cat /tmp/helixiam-admin-password` (Helm, see the chart README).
 
 To run only the console separately, see [`helix-dashboard`](helix-dashboard/).
 

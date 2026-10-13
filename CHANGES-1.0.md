@@ -20,6 +20,14 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — L6 done: the generated bootstrap admin password is never logged. It is written (0600) to
+  `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`, `/tmp/helixiam-admin-password` in the image)
+  and only the path is logged; a whole-boot test captures every log line and checks it. `HELIX_ADMIN_USERNAME`,
+  `HELIX_ADMIN_PASSWORD` and `HELIX_ADMIN_PASSWORD_FILE` are now declared in `application.properties`, so they also
+  work as `--HELIX_ADMIN_PASSWORD=…` command-line arguments, as the README shows. The Helm install notes and
+  `values.yaml` no longer say the password is in the logs; the chart README, NOTES, the README and the compose file
+  show how to read it (`kubectl exec deploy/helixiam -- cat /tmp/helixiam-admin-password`,
+  `docker compose exec server cat /tmp/helixiam-admin-password`).
 - **security** — L5 done: the legacy AES/ECB format of secret columns is migrated away. At every startup (Flyway and
   `schema.sql` paths) `LegacyEncryptionBackfill` re-encrypts every value of every `AttributeEncryption` column (realm
   keys, TOTP and HOTP secrets, client secrets, SCIM tokens, webhook secrets, identity-provider and messaging secrets,
