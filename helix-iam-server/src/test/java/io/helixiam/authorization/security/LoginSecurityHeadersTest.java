@@ -57,7 +57,6 @@ class LoginSecurityHeadersTest {
         registry.add("sp.base.url", () -> "http://localhost:8090");
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("spring.flyway.enabled", () -> "false");
-        registry.add("spring.session.store-type", () -> "none");
         registry.add("helix.iam.session-store", () -> "queue"); // no Redis in this test: PostgreSQL sessions
     }
 

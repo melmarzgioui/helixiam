@@ -26,9 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * via {@code spring.sql.init}. The read-only URL is pointed at the same container so the routing
  * datasource's fallback pool is reachable.
  *
- * <p>Redis: kept in the main config, but HTTP-session persistence is switched off FOR THIS TEST
- * only ({@code spring.session.store-type=none}) so context load does not need a live Redis — the
- * OAuth2 token store defaults to the in-process, Postgres-backed adapter path, which needs no Redis.
+ * <p>Redis: kept in the main config. Context load does not need a live Redis: Spring Session connects on the first
+ * saved session only, and the OAuth2 token store defaults to the Postgres-backed queue path, which needs no Redis.
  */
 @SpringBootTest
 @Testcontainers
@@ -64,7 +63,6 @@ class ContextLoadsTest {
         registry.add("spring.flyway.enabled", () -> "false");
 
         // Do not require a live Redis for a context-load test (Redis stays in the main config).
-        registry.add("spring.session.store-type", () -> "none");
         registry.add("helix.iam.session-store", () -> "queue"); // no Redis in this test: PostgreSQL sessions
     }
 

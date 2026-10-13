@@ -14,11 +14,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Helix IAM (Q3): when the HTTP session store is the queue ({@code HELIX_SESSION_STORE=queue}), force
- * {@code spring.session.store-type=none} so Boot's JDBC/Redis session auto-configuration backs off and the
- * queue-backed {@code QueueIndexedSessionRepository} ({@link QueueHttpSessionConfig}) is the only session
- * store. (Boot's {@code StoreType} enum has no "queue" value, so it cannot be set there directly.) Reads the
- * raw {@code HELIX_SESSION_STORE} env var so it is reliable regardless of property-source ordering.
+ * Helix IAM (Q3): when the HTTP session store is the queue ({@code HELIX_SESSION_STORE=queue}), sets
+ * {@code helix.iam.session-store=queue}, which selects the queue-backed {@code QueueIndexedSessionRepository}
+ * ({@link QueueHttpSessionConfig}). That bean alone keeps Boot's Redis session auto-configuration out
+ * ({@code @ConditionalOnMissingBean(SessionRepository)}); the former {@code spring.session.store-type=none} override was
+ * dead (Boot 3 removed the property) and is gone. Reads the raw {@code HELIX_SESSION_STORE} env var so it is reliable
+ * regardless of property-source ordering.
  *
  * <p>C4: when Redis is neither the session store nor the token store ({@code HELIX_TOKEN_STORE=redis}), the Redis
  * health indicators — the imperative and the reactive one, both keyed {@code management.health.redis.enabled} — are
@@ -38,7 +39,6 @@ public class QueueSessionEnvironmentPostProcessor implements EnvironmentPostProc
                 environment.getProperty("helix.iam.token-store", "queue"));
         final Map<String, Object> overrides = new HashMap<>();
         if ("queue".equalsIgnoreCase(store)) {
-            overrides.put("spring.session.store-type", "none");
             overrides.put("helix.iam.session-store", "queue");
         }
         final boolean redisUsed = "redis".equalsIgnoreCase(store) || "redis".equalsIgnoreCase(tokenStore);

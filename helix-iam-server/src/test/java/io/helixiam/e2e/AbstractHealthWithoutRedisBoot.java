@@ -33,6 +33,18 @@ abstract class AbstractHealthWithoutRedisBoot extends IsolatedBoot {
     @Autowired
     private HealthEndpoint healthEndpoint;
 
+    @Autowired
+    private org.springframework.context.ApplicationContext context;
+
+    @Test
+    void theQueueRepositoryIsTheOnlySessionStore() {
+        // What keeps Spring Session's Redis configuration out: the queue repository bean, not a property.
+        assertThat(context.getBeansOfType(org.springframework.session.SessionRepository.class).values())
+                .singleElement().isInstanceOf(io.helixiam.authorization.session.QueueIndexedSessionRepository.class);
+        assertThat(context.getBeansOfType(org.springframework.session.data.redis.RedisSessionRepository.class)).isEmpty();
+        assertThat(context.getEnvironment().getProperty("spring.session.store-type")).isNull();
+    }
+
     @Test
     void aggregateHealthIsUp_withoutAnyRedisContributor() throws Exception {
         final HealthDescriptor health = healthEndpoint.health();
