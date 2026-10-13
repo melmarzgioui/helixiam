@@ -17,4 +17,16 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record IdentityProviderConfig(String realmId, String alias, String protocol, String displayName,
                                      boolean enabled, Map<String, String> config) {
+
+    /**
+     * The runtime {@code config} map holds the decrypted secrets ({@link
+     * io.helixiam.authorization.federation.ProviderSecretKeys}); the generated record {@code toString} would print them,
+     * so a secret's value is redacted here (any protocol's secret key, whatever this record's protocol).
+     */
+    @Override
+    public String toString() {
+        return "IdentityProviderConfig[realmId=" + realmId + ", alias=" + alias + ", protocol=" + protocol
+                + ", displayName=" + displayName + ", enabled=" + enabled + ", config="
+                + io.helixiam.authorization.federation.ProviderSecretKeys.redacted(protocol, config) + "]";
+    }
 }

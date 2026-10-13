@@ -185,6 +185,57 @@ class IdentityProviderConfigServiceTest {
         assertEquals(List.of("a/one", "b/two"), all.stream().map(c -> c.realmId() + "/" + c.alias()).toList());
     }
 
+    /**
+     * A PUT that changes the protocol drops the stored secrets the new protocol does not use: an OIDC client secret
+     * must not linger (encrypted, never read again) on what is now an LDAP or SAML connection.
+     */
+    @Test
+    void changingTheProtocol_dropsTheOldProtocolsSecrets_keepsTheNewOnes() {
+        final IdentityProviderEntity stored = entity("gov", "corp", "oidc", "Corp", true, "{\"issuer\":\"https://idp\"}");
+        stored.setSecretJson("{\"clientSecret\":\"old-oidc-secret\"}");
+        when(repository.findById("gov|corp")).thenReturn(Optional.of(stored));
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "corp", "ldap", "Corp", true,
+                Map.of("url", "ldaps://dc.example:636", "bindPassword", "new-bind-secret")));
+
+        final ArgumentCaptor<IdentityProviderEntity> captor = ArgumentCaptor.forClass(IdentityProviderEntity.class);
+        verify(repository).save(captor.capture());
+        final String secrets = captor.getValue().getSecretJson();
+        assertFalse(secrets.contains("clientSecret"), "the OIDC secret is dropped: " + secrets);
+        assertTrue(secrets.contains("new-bind-secret"), "the new protocol's secret is kept");
+    }
+
+    @Test
+    void changingToAProtocolWithoutSecrets_dropsThemAll() {
+        final IdentityProviderEntity stored = entity("gov", "corp", "oidc", "Corp", true, "{}");
+        stored.setSecretJson("{\"clientSecret\":\"old-oidc-secret\"}");
+        when(repository.findById("gov|corp")).thenReturn(Optional.of(stored));
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "corp", "saml", "Corp", true,
+                Map.of("ssoUrl", "https://idp/sso")));
+
+        final ArgumentCaptor<IdentityProviderEntity> captor = ArgumentCaptor.forClass(IdentityProviderEntity.class);
+        verify(repository).save(captor.capture());
+        assertEquals(null, captor.getValue().getSecretJson());
+    }
+
+    @Test
+    void theSameProtocol_keepsAStoredSecretTheWriteLeavesOut() {
+        final IdentityProviderEntity stored = entity("gov", "corp", "OIDC", "Corp", true, "{}");
+        stored.setSecretJson("{\"clientSecret\":\"kept\"}");
+        when(repository.findById("gov|corp")).thenReturn(Optional.of(stored));
+        when(repository.save(any(IdentityProviderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveOrUpdate(new IdentityProviderConfig("gov", "corp", "oidc", "Corp", true,
+                Map.of("issuer", "https://idp")));
+
+        final ArgumentCaptor<IdentityProviderEntity> captor = ArgumentCaptor.forClass(IdentityProviderEntity.class);
+        verify(repository).save(captor.capture());
+        assertTrue(captor.getValue().getSecretJson().contains("kept"));
+    }
+
     private static IdentityProviderEntity entity(final String realm, final String alias, final String protocol,
                                                  final String displayName, final boolean enabled, final String json) {
         final IdentityProviderEntity e = new IdentityProviderEntity();

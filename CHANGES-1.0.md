@@ -20,6 +20,12 @@ question. Newest first within each phase.
 >    `HELIX_DB_ENCRYPTION_MIGRATE_PLAINTEXT` / `HELIX_DB_ENCRYPTION_MIGRATE_UNTIL` window (see below).
 > 4. eID connections must name a minimum level of assurance the server knows (see below).
 
+- **security** — Wallet review minors: `IdentityProviderConfig.toString()` (both copies) now redacts every secret
+  value, so a future log line of the runtime config cannot leak a client secret, private key, bind password or
+  pepper. An identity-provider update that changes the protocol drops the stored secrets the new protocol does not use
+  (they stayed encrypted and unread). A federated login whose pending commit throws an `Error` no longer stays signed
+  in: `PendingFederatedLogin.finish` catches it around the commit only, clears the context, invalidates the session,
+  reports the failure, and then rethrows it.
 - **security** — L6 done: the generated bootstrap admin password is never logged. It is written (0600) to
   `HELIX_ADMIN_PASSWORD_FILE` (default `$TMPDIR/helixiam-admin-password`, `/tmp/helixiam-admin-password` in the image)
   and only the path is logged; a whole-boot test captures every log line and checks it. `HELIX_ADMIN_USERNAME`,

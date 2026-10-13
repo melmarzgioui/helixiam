@@ -57,6 +57,9 @@ public class IdentityProviderConfigService {
                 .findById(IdentityProviderEntity.key(config.realmId(), config.alias()))
                 .orElseGet(IdentityProviderEntity::new);
         final Map<String, String> secrets = new LinkedHashMap<>(storedSecrets(entity));
+        // A protocol change drops the stored secrets the new protocol does not use (they would stay, encrypted, unread).
+        final String previousProtocol = entity.getProtocol();
+        secrets.keySet().removeIf(key -> !ProviderSecretKeys.keepsStoredSecret(previousProtocol, config.protocol(), key));
         entity.setId(IdentityProviderEntity.key(config.realmId(), config.alias()));
         entity.setRealmId(config.realmId());
         entity.setAlias(config.alias());
