@@ -18,7 +18,7 @@ import java.util.UUID;
 /**
  * 1.0 item 8: every error response carries a {@code correlationId}; a server error (5xx) is logged once with that
  * id and its stack trace, so an operator can find it. Clients never see the exception, message or stack trace
- * ({@code server.error.include-*} stay at never/false).
+ * ({@code spring.web.error.include-*}, formerly {@code server.error.include-*}, stay at never/false).
  */
 @Component
 public class CorrelatedErrorAttributes extends DefaultErrorAttributes {
