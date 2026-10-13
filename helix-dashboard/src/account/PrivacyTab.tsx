@@ -82,7 +82,7 @@ export function PrivacyTab({ api, onNote }: { api: AccountApi; onNote: (n: Note)
             <Spinner size={24} label={t("account.privacy.loadingHistory")} />
           </div>
         ) : consents.length === 0 ? (
-          <EmptyState title={t("account.privacy.historyEmpty")} />
+          <EmptyState title={t("account.privacy.historyEmpty")} message={t("account.privacy.historyEmpty.msg")} />
         ) : (
           <div className="hx-acctlist">
             {consents.map((c) => {

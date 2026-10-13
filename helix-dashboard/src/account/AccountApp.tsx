@@ -73,7 +73,7 @@ export function AccountApp({ api, realm }: AccountAppProps) {
         {username && (
           <div className="hx-acct__user">
             <span>{username}</span>
-            <a className="hx-btn hx-btn--ghost hx-acct__signout" href={`/realms/${encodeURIComponent(activeRealm)}/connect/logout`}>
+            <a className="hx-btn hx-btn--ghost hx-btn--compact" href={`/realms/${encodeURIComponent(activeRealm)}/connect/logout`}>
               {t("account.header.signOut")}
             </a>
           </div>

@@ -51,7 +51,7 @@ export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: No
   return (
     <Card title={t("account.identities.card.title")} subtitle={t("account.identities.card.subtitle")}>
       {identities.length === 0 ? (
-        <EmptyState title={t("account.identities.empty")} />
+        <EmptyState title={t("account.identities.empty")} message={t("account.identities.empty.msg")} />
       ) : (
         <div className="hx-acctlist">
           {identities.map((i) => (

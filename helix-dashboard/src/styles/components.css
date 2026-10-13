@@ -9,10 +9,13 @@
   font: 600 .95rem var(--font); letter-spacing: -.01em; cursor: pointer;
   padding: .68rem 1.4rem;
   white-space: nowrap; /* never wrap a button label (e.g. "Delete" must not break per-character) */
+  text-decoration: none; /* .hx-btn is also used on <a> (sign out, docs links, …) — never underlined */
   transition: transform .12s var(--ease), box-shadow .16s var(--ease), background .16s var(--ease), border-color .16s var(--ease), filter .16s var(--ease);
 }
 .hx-btn--lg { padding: 1.05rem 2.1rem; font-size: 1.02rem; }
 .hx-btn--block { width: 100%; }
+/* A tighter ghost button inline with body text/header chrome (sign out, "Add" next to a factor row). */
+.hx-btn--compact { padding: .4rem .85rem; }
 .hx-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .hx-btn:active:not(:disabled) { transform: translateY(0); }
 .hx-btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -755,7 +758,6 @@ td.hx-col-sticky { background: var(--bg); }
 .hx-acct__brand { display: flex; align-items: center; gap: .7rem; }
 .hx-acct__brand-title { font-weight: 700; font-size: 1.05rem; }
 .hx-acct__user { display: flex; align-items: center; gap: .6rem; color: var(--fg-muted); font-size: .9rem; }
-.hx-acct__signout { text-decoration: none; padding: .4rem .85rem; }
 .hx-acct__main { max-width: var(--acct-maxw); margin: 0 auto; padding: 1.6rem 1.4rem 4rem; width: 100%; box-sizing: border-box; }
 .hx-acct__tabs { margin-bottom: 1.2rem; }
 .hx-acct__toast { position: fixed; right: 1.2rem; bottom: 1.2rem; z-index: 80; }

@@ -51,7 +51,7 @@ export function ConsentsTab({ api, onNote }: { api: AccountApi; onNote: (n: Note
   return (
     <Card title={t("account.consents.card.title")} subtitle={t("account.consents.card.subtitle")}>
       {consents.length === 0 ? (
-        <EmptyState title={t("account.consents.empty")} />
+        <EmptyState title={t("account.consents.empty")} message={t("account.consents.empty.msg")} />
       ) : (
         <div className="hx-acctlist">
           {consents.map((c) => (

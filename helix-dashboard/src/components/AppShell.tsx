@@ -124,7 +124,7 @@ export function AppShell({ sections, activeId, onNavigate, realms, activeRealm, 
               </button>
             )}
             {realms && realms.length > 0 && (
-              <div className="hx-topbar__realm hx-topbar__realm--select">
+              <div className="hx-topbar__realm hx-topbar__realm--select" title={activeRealm}>
                 <Select options={realms} value={activeRealm} onChange={onRealmChange} aria-label={t("shell.realm")} />
               </div>
             )}

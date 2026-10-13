@@ -51,7 +51,7 @@ export function SessionsTab({ api, onNote }: { api: AccountApi; onNote: (n: Note
   return (
     <Card title={t("account.sessions.card.title")} subtitle={t("account.sessions.card.subtitle")}>
       {sessions.length === 0 ? (
-        <EmptyState title={t("account.sessions.empty")} />
+        <EmptyState title={t("account.sessions.empty")} message={t("account.sessions.empty.msg")} />
       ) : (
         <div className="hx-acctlist">
           {sessions.map((s) => (

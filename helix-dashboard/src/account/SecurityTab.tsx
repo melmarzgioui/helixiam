@@ -133,7 +133,7 @@ function FactorsCard({ api, onNote }: { api: AccountApi; onNote: (n: Note) => vo
                   {enrolled ? <Badge tone="success">{t("account.security.factor.activeCount", { count: items.length })}</Badge>
                     : <span className="hx-faint">{t("account.security.factor.notSetUp")}</span>}
                   {k.canEnroll === "passkey" && (
-                    <a className="hx-btn hx-btn--ghost" href="/webauthn/register">{t("account.security.factor.add")}</a>
+                    <a className="hx-btn hx-btn--ghost hx-btn--compact" href="/webauthn/register">{t("account.security.factor.add")}</a>
                   )}
                 </div>
               </div>
