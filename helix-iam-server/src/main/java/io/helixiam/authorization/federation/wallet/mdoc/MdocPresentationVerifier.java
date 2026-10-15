@@ -76,7 +76,9 @@ import java.util.regex.Pattern;
  *       otherwise, notes §6.3). The {@code deviceSignature} must be detached and verify with the MSO
  *       {@code deviceKey} over DeviceAuthenticationBytes built from this verifier's own SessionTranscript
  *       ({@link SessionTranscripts#openId4VpRedirect} of {@code clientId}, {@code nonce},
- *       {@code encryptionJwkThumbprint}, {@code responseUri}) and the received DeviceNameSpacesBytes. Any failure is
+ *       {@code encryptionJwkThumbprint}, {@code responseUri}; over the DC API {@link SessionTranscripts#openId4VpDcApi}
+ *       of one of the context's expected origins, {@code nonce} and {@code encryptionJwkThumbprint}) and the received
+ *       DeviceNameSpacesBytes. Any failure is
  *       {@code HOLDER_BINDING_INVALID}, including a {@code deviceSignature} {@code alg} that is missing, outside
  *       ES256/384/512 or does not fit the device key (as on the SD-JWT KB-JWT path; IssuerAuth keeps
  *       {@code ALGORITHM_NOT_ALLOWED}). The transcript is only hashed inside the signature, so a wrong nonce cannot be
@@ -158,7 +160,9 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(context.clientId(), "clientId");
         Objects.requireNonNull(context.nonce(), "nonce");
-        Objects.requireNonNull(context.responseUri(), "responseUri");
+        if (!context.dcApi()) {
+            Objects.requireNonNull(context.responseUri(), "responseUri");
+        }
         Objects.requireNonNull(context.now(), "now");
         Objects.requireNonNull(context.anchors(), "anchors");
         Objects.requireNonNull(context.acceptedDoctype(), "acceptedDoctype");
@@ -483,13 +487,26 @@ public final class MdocPresentationVerifier implements PresentationVerifier {
         if (deviceSignature.payload() != null) {
             throw fail(WalletErrorCode.HOLDER_BINDING_INVALID, "deviceSignature payload is not detached");
         }
-        final byte[] transcript = SessionTranscripts.openId4VpRedirect(ctx.clientId(), ctx.nonce(),
-                ctx.encryptionJwkThumbprint(), ctx.responseUri());
-        final byte[] deviceAuthentication = SessionTranscripts.deviceAuthenticationBytes(transcript, docType,
-                deviceNameSpaces.encoded());
-        final boolean valid;
+        // Over the DC API the transcript names the origin (B.2.6.2): any one of the verifier's own expected origins
+        // (a short, configured list; never a value from the response) may be the one the wallet was given.
+        final List<byte[]> transcripts = new java.util.ArrayList<>();
+        if (ctx.dcApi()) {
+            for (final String origin : ctx.dcApiOrigins()) {
+                transcripts.add(SessionTranscripts.openId4VpDcApi(origin, ctx.nonce(), ctx.encryptionJwkThumbprint()));
+            }
+        } else {
+            transcripts.add(SessionTranscripts.openId4VpRedirect(ctx.clientId(), ctx.nonce(),
+                    ctx.encryptionJwkThumbprint(), ctx.responseUri()));
+        }
+        boolean valid = false;
         try {
-            valid = deviceSignature.verify(deviceKey, deviceAuthentication);
+            for (final byte[] transcript : transcripts) {
+                if (deviceSignature.verify(deviceKey, SessionTranscripts.deviceAuthenticationBytes(transcript, docType,
+                        deviceNameSpaces.encoded()))) {
+                    valid = true;
+                    break;
+                }
+            }
         } catch (final WalletVerificationException e) {
             if (e.code() != WalletErrorCode.ALGORITHM_NOT_ALLOWED) {
                 throw e;
