@@ -84,12 +84,80 @@ public class WalletConfigValidator {
     private static final String KEY_REF = "accessKeyRef";
     private static final String DEV_KEY = "accessCertificatePrivateKey";
 
+    private static final int MAX_DC_API_ORIGINS = 10;
+    private static final String DC_API_ORIGINS = "dcApi.expectedOrigins";
+
     private final RealmSigningKeys keys;
     private final DeploymentProfile profile;
+    /** Lower-case host names this server answers for; null when unknown (then the DC API host rule is skipped). */
+    private final Set<String> servedHosts;
 
+    /** Without the served hosts: a DC API expected origin is checked for its form only. */
     public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile) {
+        this(keys, profile, (Set<String>) null);
+    }
+
+    /**
+     * @param servedHosts the host names this server answers for ({@link #servedHosts(String, String)}); a DC API
+     *                    expected origin on any other host is refused. Null skips that rule.
+     */
+    public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile,
+                                 final Set<String> servedHosts) {
         this.keys = keys;
         this.profile = profile;
+        this.servedHosts = servedHosts == null ? null : Set.copyOf(servedHosts);
+    }
+
+    /** The Spring bean: the served hosts are the host of {@code idp.base.url} plus {@code HELIX_ALLOWED_HOSTS}. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile,
+                                 @org.springframework.beans.factory.annotation.Value("${idp.base.url}")
+                                 final String idpBaseUrl,
+                                 @org.springframework.beans.factory.annotation.Value("${helix.security.allowed-hosts:}")
+                                 final String allowedHosts) {
+        this(keys, profile, servedHosts(idpBaseUrl, allowedHosts));
+    }
+
+    /**
+     * The lower-case host names of {@code idpBaseUrl} and of each comma-separated {@code HELIX_ALLOWED_HOSTS} entry
+     * ({@code host}, {@code host:port}, {@code [v6]} or {@code [v6]:port}; the port is ignored, as the host
+     * allow-list does). A base URL without a host contributes nothing.
+     */
+    public static Set<String> servedHosts(final String idpBaseUrl, final String allowedHosts) {
+        final Set<String> hosts = new HashSet<>();
+        if (idpBaseUrl != null && !idpBaseUrl.isBlank()) {
+            try {
+                final String host = new java.net.URI(idpBaseUrl.trim()).getHost();
+                if (host != null) {
+                    hosts.add(bareHost(host));
+                }
+            } catch (final java.net.URISyntaxException ignored) {
+                // not a URI: the server's own startup checks report it
+            }
+        }
+        if (allowedHosts != null) {
+            for (final String raw : allowedHosts.split(",")) {
+                final String entry = raw.trim();
+                if (entry.isEmpty()) {
+                    continue;
+                }
+                if (entry.startsWith("[")) {
+                    final int close = entry.indexOf(']');
+                    hosts.add(bareHost(close > 0 ? entry.substring(1, close) : entry.substring(1)));
+                } else if (entry.indexOf(':') == entry.lastIndexOf(':')) {
+                    final int colon = entry.indexOf(':');
+                    hosts.add(bareHost(colon < 0 ? entry : entry.substring(0, colon)));
+                } else {
+                    hosts.add(bareHost(entry)); // a bare IPv6 address
+                }
+            }
+        }
+        return hosts;
+    }
+
+    private static String bareHost(final String host) {
+        final String h = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+        return h.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -228,6 +296,7 @@ public class WalletConfigValidator {
         positive(e, "limits.cborMaxDepth", c.limits().cborMaxDepth());
         positive(e, "limits.cborMaxItems", c.limits().cborMaxItems());
         positive(e, "limits.cborMaxBytes", c.limits().cborMaxBytes());
+        checkDcApi(c.dcApi(), e);
         return e.fields;
     }
 
@@ -247,6 +316,65 @@ public class WalletConfigValidator {
             errors.forEach((field, message) -> sb.append(field).append(": ").append(message).append("; "));
             throw new IllegalArgumentException(sb.substring(0, sb.length() - 2));
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------ DC API
+
+    /**
+     * {@code dcApi.expectedOrigins}: at most {@value #MAX_DC_API_ORIGINS}, no repeats, each a serialised origin exactly
+     * as a browser reports it ({@code https://host[:port]}: lower case, no default port, no path, query, fragment or
+     * user info; plain {@code http} only for a loopback host in the dev profile), on a host this server answers for.
+     * Checked whether or not the API is on, so a stored list is always usable.
+     */
+    private void checkDcApi(final WalletProviderConfig.DcApi dcApi, final Errors e) {
+        final List<String> origins = dcApi.expectedOrigins();
+        if (origins.size() > MAX_DC_API_ORIGINS) {
+            e.add(DC_API_ORIGINS, DC_API_ORIGINS + " may list at most " + MAX_DC_API_ORIGINS + " origins");
+            return;
+        }
+        if (origins.stream().anyMatch(o -> o == null || o.isBlank())) {
+            e.add(DC_API_ORIGINS, DC_API_ORIGINS + " must not contain empty entries");
+            return;
+        }
+        if (new HashSet<>(origins).size() != origins.size()) {
+            e.add(DC_API_ORIGINS, DC_API_ORIGINS + " must not repeat an origin");
+            return;
+        }
+        for (final String origin : origins) {
+            final String host = originHost(origin);
+            if (host == null) {
+                e.add(DC_API_ORIGINS, "Each expected origin must be written as a browser reports it, e.g. "
+                        + "https://login.example.eu (lower case, no path, no default port"
+                        + (profile.isDev() ? "; http only for localhost" : "") + ")");
+                return;
+            }
+            if (servedHosts != null && !servedHosts.contains(host)) {
+                e.add(DC_API_ORIGINS, origin + " is not a host this server answers for (the host of IDP_BASE_URL or "
+                        + "one in HELIX_ALLOWED_HOSTS)");
+                return;
+            }
+        }
+    }
+
+    private static final Pattern ORIGIN = Pattern.compile(
+            "(https|http)://([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?|\\[[0-9a-f:.]+\\])(?::([1-9][0-9]{0,4}))?");
+
+    /** The host of a serialised origin, or null when {@code origin} is not one this verifier accepts. */
+    private String originHost(final String origin) {
+        final java.util.regex.Matcher m = ORIGIN.matcher(origin);
+        if (!m.matches()) {
+            return null;
+        }
+        final String scheme = m.group(1);
+        final String host = bareHost(m.group(2));
+        final int port = m.group(3) == null ? -1 : Integer.parseInt(m.group(3));
+        if (port > 65535 || "https".equals(scheme) && port == 443 || "http".equals(scheme) && port == 80) {
+            return null;
+        }
+        if ("http".equals(scheme) && !(profile.isDev() && Set.of("localhost", "127.0.0.1", "::1").contains(host))) {
+            return null;
+        }
+        return host;
     }
 
     // ------------------------------------------------------------------------------------------------ key and chain
