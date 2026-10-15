@@ -374,6 +374,15 @@ Spring Security SAML2 6.5.10 over **OpenSAML 5.1.4** (transitive; upgraded from 
   so any caller can point them at internal targets. After fixing C1, add egress allow-listing / block
   link-local + private ranges for outbound fetches.
 - No SpEL-from-user-input or reflective dispatch observed in the reviewed surface.
+- **JSON deserialization (re-checked at the Jackson 3 move, 2026-10-15).** No polymorphic typing anywhere: no
+  default typing, no `@JsonTypeInfo`, no Spring Security Jackson modules; authorizations and sessions are stored with
+  Java serialization behind JEP-290 allowlists that admit no Jackson class. Untrusted wallet input is parsed only by
+  the strict mappers (`StrictJson`: depth 64, duplicate members and trailing tokens refused; status-list tokens depth
+  16; LoTE lists 1 MB strings) and `StrictCbor` (own depth/item/byte limits). Every mapper keeps Jackson 2's 20 MB
+  string limit and Jackson 3's 500 nesting limit (Jackson 2: 1000); `JsonMappersTest` and `JsonWireFormatE2eTest`
+  pin them. Jackson 3's exceptions are unchecked: the `catch (IOException)` clauses around wallet, status-list and
+  theme parsing were widened to `JacksonException`, so malformed input is still refused with its error code rather
+  than escaping as a 500.
 
 ---
 

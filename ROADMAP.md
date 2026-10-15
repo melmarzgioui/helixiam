@@ -76,12 +76,11 @@ paths are hardened and tested."
     previous realm's verifier access key and pepper) for whichever path removes a `realm_config` row. See
     `docs/eudi-wallet.md` §2.5.
 - **Post-1.0 platform upgrades** — each a planned major upgrade with its own test pass, not a weekly
-  bump (Dependabot ignores these majors until then): Jackson 3 for the application code (the server
-  runs on Spring Boot 4.1 / Spring Security 7.1 / springdoc 3 / Flyway 12 since the Boot 4 upgrade, with Jackson 2 kept
-  through the deprecated `spring-boot-jackson2` module), Apache Santuario xmlsec 4, Java 25 LTS runtime; in the
+  bump (Dependabot ignores these majors until then): Apache Santuario xmlsec 4, Java 25 LTS runtime; in the
   console React 19 and TypeScript 6 (Vite 8, `@vitejs/plugin-react` 6, Storybook 10 and Vitest 5 are in already).
-  Done: Express 5, `openid-client` 6 and `otplib` 13 in the sandbox RP; cosign 3 (`cosign-installer` 4) in the
-  release workflow (see `CHANGES-1.0.md`).
+  Done: Jackson 3 for the application code (Spring Boot's deprecated `spring-boot-jackson2` module removed); Express 5,
+  `openid-client` 6 and `otplib` 13 in the sandbox RP; cosign 3 (`cosign-installer` 4) in the release workflow (see
+  `CHANGES-1.0.md`).
 
 ## Later
 
