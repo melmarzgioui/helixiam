@@ -175,6 +175,53 @@ class WalletRequestBodyLimitFilterTest {
         assertThat(chain.getRequest()).isSameAs(request);
     }
 
+    // ------------------------------------------------------------------ the login page's DC API posts
+
+    @Test
+    void aDcApiPostOverTheLimit_is413_beforeAnyOtherFilterReadsIt() throws Exception {
+        final MockHttpServletRequest request = post("/broker/eudi/wallet/dc-api/response");
+        request.setQueryString("tx=t1");
+        request.setContent(("_csrf=x&data=" + "a".repeat(2 * 1024 * 1024)).getBytes(StandardCharsets.US_ASCII));
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+        final MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(413);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    void aDcApiPostWithinTheLimit_keepsItsQueryParameters_andItsJsonBody() throws Exception {
+        for (final String kind : new String[] {"request", "response"}) {
+            final MockHttpServletRequest request = post("/broker/eudi/wallet/dc-api/" + kind);
+            request.setContentType("application/json");
+            request.setQueryString("tx=t%2B1");
+            request.addParameter("tx", "t+1");
+            request.setContent("{\"protocol\":\"p\"}".getBytes(StandardCharsets.UTF_8));
+            final MockFilterChain chain = new MockFilterChain();
+
+            filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+            final HttpServletRequest passed = (HttpServletRequest) chain.getRequest();
+            assertThat(passed.getParameter("tx")).isEqualTo("t+1");
+            assertThat(passed.getParameterMap()).containsOnlyKeys("tx");
+            assertThat(new String(passed.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
+                    .isEqualTo("{\"protocol\":\"p\"}");
+        }
+    }
+
+    @Test
+    void otherWalletPagePaths_areNotTouched() throws Exception {
+        for (final String path : new String[] {"/broker/eudi/wallet", "/broker/eudi/wallet/status",
+                "/broker/eudi/callback", "/broker/eudi/wallet/dc-api"}) {
+            final MockHttpServletRequest request = post(path);
+            final MockFilterChain chain = new MockFilterChain();
+            filter.doFilter(request, new MockHttpServletResponse(), chain);
+            assertThat(chain.getRequest()).as(path).isSameAs(request);
+        }
+    }
+
     private static ServletInputStream endless(final AtomicLong read) {
         return new ServletInputStream() {
             @Override
