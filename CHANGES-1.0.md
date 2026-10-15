@@ -9,16 +9,24 @@ question. Newest first within each phase.
   verifier) identity-provider connection can now be managed as code: alias/display_name/enabled plus every
   key of `WalletProviderConfig`'s stored map (`client_id_scheme`, `access_key_ref`,
   `access_certificate_chain`, the dev-only `access_certificate_private_key` (sensitive, write-only — the
-  admin API never returns a secret's value), `credential_formats`, the `pid_*` PID-request settings,
-  `trust_anchors`, `revocation_checking`, the `status_list_*` Token Status List policy, the `subject_*`
-  subject-derivation strategy, `minimum_loa`, `clock_skew_seconds`, `allow_legacy_vc_sd_jwt_typ` and the
-  `limits_*` parser bounds). An attribute left unset is left out of the write so the server's own default
-  applies, with no perpetual diff; import is supported (`terraform import
-  helix_wallet_identity_provider.<name> <alias>`). Unit-tested against a mock admin API
-  (`terraform-provider-helix/internal/provider/wallet_identity_provider_test.go`: create/read/update/
-  delete/import, sparse-config round-trip, and the secret's no-diff guarantee); a gated live test exists
-  (`TestLiveWalletIdentityProviderCRUD`) but was not run against a live server. Closes the item
-  `ROADMAP.md` listed as "a Terraform resource for the wallet identity-provider connection."
+  admin API never returns a secret's value, though it is stored in plaintext in Terraform state, same as
+  any other attribute), `credential_formats`, the `pid_*` PID-request settings, `trust_anchors`,
+  `revocation_checking`, the `status_list_*` Token Status List policy, the `subject_*` subject-derivation
+  strategy, `minimum_loa`, `clock_skew_seconds`, `allow_legacy_vc_sd_jwt_typ` and the `limits_*` parser
+  bounds). An attribute left unset is left out of the write so the server's own default applies, with no
+  perpetual diff; import is supported (`terraform import helix_wallet_identity_provider.<name> <alias>`).
+  A 400 from the admin API (field-level validation) is reported as one Terraform diagnostic per field,
+  attributed to the right attribute where known (`client.go`'s `AdminError`). Removing
+  `access_certificate_private_key` from the configuration while state still has a value explicitly clears
+  it server-side (`clearAccessCertificatePrivateKey=true`) rather than merely abandoning it; this is never
+  sent when state has no value, e.g. right after `terraform import`. Tested against a mock admin API
+  (`terraform-provider-helix/internal/provider/wallet_identity_provider_test.go`): the model/wire helpers
+  in isolation, and the resource's own Create/Read/Update/ImportState through real
+  `tfsdk.Plan`/`tfsdk.State` values (create → read → update, the secret's keep-vs-clear behaviour, field
+  errors becoming attribute diagnostics, and an import → read → no-op-update sequence with no drift). The
+  gated live test (`TestLiveWalletIdentityProviderCRUD`) has been run against a dev-profile server and
+  passed. Closes the item `ROADMAP.md` listed as "a Terraform resource for the wallet identity-provider
+  connection."
 - **EUDI Wallet: interop with the EU reference wallet (test only, no product change)** — the EU Digital Identity Wallet
   reference app for Android (2026.10.43-Demo, released APK, `demo` flavour) signed in to HelixIAM on an Android 15
   emulator with SD-JWT VC and mdoc PIDs from the EU test issuer `issuer.eudiw.dev`: same-device and cross-device, both

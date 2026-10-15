@@ -12,7 +12,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -211,7 +215,10 @@ func TestToWrite_OmitsUnsetAttributes(t *testing.T) {
 		AccessKeyRef: types.StringValue("software:gov/primary"),
 		// everything else left as the Go zero value, i.e. types.String{}/types.List{} (null-equivalent)
 	}
-	w := m.toWrite(ctx)
+	w, diags := m.toWrite(ctx)
+	if diags.HasError() {
+		t.Fatalf("toWrite: %v", diags)
+	}
 	if !w.Enabled {
 		t.Fatalf("expected enabled to default true")
 	}
@@ -236,9 +243,24 @@ func TestToWrite_EncodesListsAsJSON(t *testing.T) {
 		t.Fatalf("building list: %v", diags)
 	}
 	m := walletIdentityProviderModel{Alias: types.StringValue("w"), CredentialFormats: formats}
-	w := m.toWrite(ctx)
+	w, wdiags := m.toWrite(ctx)
+	if wdiags.HasError() {
+		t.Fatalf("toWrite: %v", wdiags)
+	}
 	if w.Config["credentialFormats"] != `["dc+sd-jwt","mso_mdoc"]` {
 		t.Fatalf("unexpected JSON encoding: %q", w.Config["credentialFormats"])
+	}
+}
+
+// TestToWrite_UnknownListIsADiagnostic: putList must not silently drop a list whose value cannot be
+// determined yet — it should never actually reach here in practice (these are plain Optional, not
+// Computed, attributes), but if it ever does, dropping it silently would write an incomplete config.
+func TestToWrite_UnknownListIsADiagnostic(t *testing.T) {
+	ctx := context.Background()
+	m := walletIdentityProviderModel{Alias: types.StringValue("w"), CredentialFormats: types.ListUnknown(types.StringType)}
+	_, diags := m.toWrite(ctx)
+	if !diags.HasError() {
+		t.Fatalf("expected a diagnostic for an unknown credential_formats value")
 	}
 }
 
@@ -282,26 +304,50 @@ func TestApplyRead_NeverTouchesTheSecret(t *testing.T) {
 	}
 }
 
-// TestApplyRead_IsIdempotent: applying the same server response twice must not change the model further
-// (the drift / no-perpetual-diff case for every other attribute).
+// TestApplyRead_IsIdempotent: a SECOND refresh of a resource that was actually created against a server
+// (not two fresh, never-applied models — comparing those proves nothing, since neither carries any
+// history) must land on exactly the same values as the first. m2 starts as a copy of m1 (the real state
+// left behind by the first read), the way Terraform's Read always starts from the current state, not a
+// blank model; only then is a second, independent GET overlaid onto it.
 func TestApplyRead_IsIdempotent(t *testing.T) {
+	srv, _ := newFakeIdentityProviderServer(t)
+	defer srv.Close()
+	c := newWalletClient(srv.URL)
 	ctx := context.Background()
-	ip := &IdentityProviderRead{
-		Alias: "w", Protocol: "eudi-wallet", DisplayName: "Wallet", Enabled: true,
-		Config: map[string]any{
+
+	if err := c.CreateIdentityProvider(ctx, IdentityProviderWrite{
+		Alias: "idempotent-wallet", Protocol: "eudi-wallet", DisplayName: "Wallet", Enabled: true,
+		Config: map[string]string{
 			"accessKeyRef":               "software:gov/primary",
 			"minimumLoa":                 "http://eidas.europa.eu/LoA/high",
 			"statusList.required":        "true",
 			"statusList.maxCacheSeconds": "900",
 			"pid.requestedClaims":        `["given_name","family_name","birthdate"]`,
 		},
+	}); err != nil {
+		t.Fatalf("create: %v", err)
 	}
-	var m1, m2 walletIdentityProviderModel
-	applyRead(ctx, &m1, ip)
-	applyRead(ctx, &m2, ip)
+
+	m1 := walletIdentityProviderModel{Alias: types.StringValue("idempotent-wallet")}
+	ip1, _, err := c.GetIdentityProvider(ctx, "idempotent-wallet")
+	if err != nil {
+		t.Fatalf("get 1: %v", err)
+	}
+	applyRead(ctx, &m1, ip1)
+
+	m2 := m1 // start from the real state the first read produced, not a blank model
+	ip2, _, err := c.GetIdentityProvider(ctx, "idempotent-wallet")
+	if err != nil {
+		t.Fatalf("get 2: %v", err)
+	}
+	applyRead(ctx, &m2, ip2)
+
 	if m1.MinimumLoa != m2.MinimumLoa || m1.StatusListRequired != m2.StatusListRequired ||
 		m1.StatusListMaxCacheSeconds != m2.StatusListMaxCacheSeconds {
-		t.Fatalf("applyRead must be deterministic: m1=%+v m2=%+v", m1, m2)
+		t.Fatalf("a second refresh must be deterministic: m1=%+v m2=%+v", m1, m2)
+	}
+	if !m1.PidRequestedClaims.Equal(m2.PidRequestedClaims) {
+		t.Fatalf("a second refresh must not drift pid_requested_claims: m1=%v m2=%v", m1.PidRequestedClaims, m2.PidRequestedClaims)
 	}
 	if !m1.StatusListRequired.ValueBool() {
 		t.Fatalf("expected statusList.required=true to decode as true")
@@ -342,5 +388,385 @@ func TestImportState_SetsAliasAndID(t *testing.T) {
 	}
 	if m.ID.ValueString() != "eudi-wallet" {
 		t.Fatalf("expected id to be set from the import id, got %q", m.ID.ValueString())
+	}
+}
+
+// TestNotEmptyStringValidator rejects "" but passes null (unset) and unknown (not yet computable) values.
+func TestNotEmptyStringValidator(t *testing.T) {
+	ctx := context.Background()
+	v := notEmptyStringValidator{}
+	for name, value := range map[string]types.String{
+		"null":    types.StringNull(),
+		"unknown": types.StringUnknown(),
+		"set":     types.StringValue("Acme Wallet"),
+	} {
+		resp := &validator.StringResponse{}
+		v.ValidateString(ctx, validator.StringRequest{Path: path.Root("display_name"), ConfigValue: value}, resp)
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("%s: expected no error, got %v", name, resp.Diagnostics)
+		}
+	}
+
+	resp := &validator.StringResponse{}
+	v.ValidateString(ctx, validator.StringRequest{Path: path.Root("display_name"), ConfigValue: types.StringValue("")}, resp)
+	if !resp.Diagnostics.HasError() {
+		t.Fatalf("expected an empty string to be rejected")
+	}
+}
+
+// --- resource-level tests: Create/Read/Update/Delete/Import through the real framework types ------------
+//
+// These drive walletIdentityProviderResource's own Create/Read/Update/ImportState methods with real
+// tfsdk.Plan/tfsdk.State values built against the resource's own schema (not just the model <-> wire
+// helpers in isolation), against the same fake admin API used above.
+
+func walletSchema(ctx context.Context, t *testing.T) schema.Schema {
+	t.Helper()
+	r := &walletIdentityProviderResource{}
+	resp := &resource.SchemaResponse{}
+	r.Schema(ctx, resource.SchemaRequest{}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("building schema: %v", resp.Diagnostics)
+	}
+	return resp.Schema
+}
+
+// nullObject is every attribute of sch set to null — a valid, empty starting point for Set to overwrite.
+func nullObject(ctx context.Context, sch schema.Schema) tftypes.Value {
+	objType := sch.Type().TerraformType(ctx).(tftypes.Object)
+	vals := map[string]tftypes.Value{}
+	for name, at := range objType.AttributeTypes {
+		vals[name] = tftypes.NewValue(at, nil)
+	}
+	return tftypes.NewValue(objType, vals)
+}
+
+// normalizeListDefaults replaces any list attribute left at its Go zero value (types.List{}, which has no
+// ElementType and so cannot be converted against the schema's typed list attributes) with a properly
+// typed null list — i.e. "not set", exactly like an omitted HCL attribute. Test literals only set the
+// list fields they care about; this lets them leave the rest out instead of spelling out
+// types.ListNull(types.StringType) for every one, every time.
+func normalizeListDefaults(ctx context.Context, m *walletIdentityProviderModel) {
+	for _, l := range []*types.List{
+		&m.CredentialFormats, &m.PidSdJwtVcts, &m.PidRequestedClaims,
+		&m.CustomCredentialQueries, &m.StatusListAllowedHosts,
+	} {
+		if l.ElementType(ctx) == nil {
+			*l = types.ListNull(types.StringType)
+		}
+	}
+}
+
+func newPlan(ctx context.Context, t *testing.T, sch schema.Schema, m *walletIdentityProviderModel) tfsdk.Plan {
+	t.Helper()
+	normalizeListDefaults(ctx, m)
+	p := tfsdk.Plan{Schema: sch, Raw: nullObject(ctx, sch)}
+	if diags := p.Set(ctx, m); diags.HasError() {
+		t.Fatalf("building plan: %v", diags)
+	}
+	return p
+}
+
+func newState(ctx context.Context, t *testing.T, sch schema.Schema, m *walletIdentityProviderModel) tfsdk.State {
+	t.Helper()
+	normalizeListDefaults(ctx, m)
+	s := tfsdk.State{Schema: sch, Raw: nullObject(ctx, sch)}
+	if diags := s.Set(ctx, m); diags.HasError() {
+		t.Fatalf("building state: %v", diags)
+	}
+	return s
+}
+
+// attributeErrors returns the attribute path of every error-severity diagnostic that carries one.
+func attributeErrors(diags diag.Diagnostics) []path.Path {
+	var paths []path.Path
+	for _, d := range diags.Errors() {
+		if wp, ok := d.(diag.DiagnosticWithPath); ok {
+			paths = append(paths, wp.Path())
+		}
+	}
+	return paths
+}
+
+func containsPath(paths []path.Path, want path.Path) bool {
+	for _, p := range paths {
+		if p.Equal(want) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestResource_CreateReadUpdate(t *testing.T) {
+	srv, _ := newFakeIdentityProviderServer(t)
+	defer srv.Close()
+	c := newWalletClient(srv.URL)
+	ctx := context.Background()
+	r := &walletIdentityProviderResource{client: c}
+	sch := walletSchema(ctx, t)
+
+	createResp := &resource.CreateResponse{State: newState(ctx, t, sch, &walletIdentityProviderModel{})}
+	r.Create(ctx, resource.CreateRequest{Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+		Alias:        types.StringValue("w1"),
+		DisplayName:  types.StringValue("Wallet One"),
+		AccessKeyRef: types.StringValue("software:gov/primary"),
+		MinimumLoa:   types.StringValue("http://eidas.europa.eu/LoA/high"),
+	})}, createResp)
+	if createResp.Diagnostics.HasError() {
+		t.Fatalf("create: %v", createResp.Diagnostics)
+	}
+	var afterCreate walletIdentityProviderModel
+	if diags := createResp.State.Get(ctx, &afterCreate); diags.HasError() {
+		t.Fatalf("reading created state: %v", diags)
+	}
+	if afterCreate.ID.ValueString() != "w1" || afterCreate.AccessKeyRef.ValueString() != "software:gov/primary" {
+		t.Fatalf("unexpected state after create: %+v", afterCreate)
+	}
+	if afterCreate.ClientIDHost.IsNull() == false {
+		t.Fatalf("an attribute never set must read back null, got %v", afterCreate.ClientIDHost)
+	}
+
+	readResp := &resource.ReadResponse{State: createResp.State}
+	r.Read(ctx, resource.ReadRequest{State: createResp.State}, readResp)
+	if readResp.Diagnostics.HasError() {
+		t.Fatalf("read: %v", readResp.Diagnostics)
+	}
+	var afterRead walletIdentityProviderModel
+	if diags := readResp.State.Get(ctx, &afterRead); diags.HasError() {
+		t.Fatalf("reading read state: %v", diags)
+	}
+	if afterRead.DisplayName.ValueString() != "Wallet One" {
+		t.Fatalf("expected displayName to round-trip, got %q", afterRead.DisplayName.ValueString())
+	}
+
+	updateResp := &resource.UpdateResponse{State: readResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: readResp.State,
+		Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+			Alias:        types.StringValue("w1"),
+			DisplayName:  types.StringValue("Wallet One Updated"),
+			AccessKeyRef: types.StringValue("software:gov/secondary"),
+			MinimumLoa:   types.StringValue("http://eidas.europa.eu/LoA/high"),
+		}),
+	}, updateResp)
+	if updateResp.Diagnostics.HasError() {
+		t.Fatalf("update: %v", updateResp.Diagnostics)
+	}
+	var afterUpdate walletIdentityProviderModel
+	if diags := updateResp.State.Get(ctx, &afterUpdate); diags.HasError() {
+		t.Fatalf("reading updated state: %v", diags)
+	}
+	if afterUpdate.DisplayName.ValueString() != "Wallet One Updated" || afterUpdate.AccessKeyRef.ValueString() != "software:gov/secondary" {
+		t.Fatalf("unexpected state after update: %+v", afterUpdate)
+	}
+}
+
+// TestResource_UpdateSecret covers both halves of the ruling: an update that simply omits the secret
+// keeps it stored server-side (the attribute stays whatever it already was in state — unmanaged, not
+// cleared); an update that goes from a set value to explicitly null sends the clear flag and the server
+// actually removes it.
+func TestResource_UpdateSecret(t *testing.T) {
+	srv, fake := newFakeIdentityProviderServer(t)
+	defer srv.Close()
+	c := newWalletClient(srv.URL)
+	ctx := context.Background()
+	r := &walletIdentityProviderResource{client: c}
+	sch := walletSchema(ctx, t)
+
+	createResp := &resource.CreateResponse{State: newState(ctx, t, sch, &walletIdentityProviderModel{})}
+	r.Create(ctx, resource.CreateRequest{Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+		Alias:                       types.StringValue("dev-wallet"),
+		AccessCertificatePrivateKey: types.StringValue("-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----"),
+	})}, createResp)
+	if createResp.Diagnostics.HasError() {
+		t.Fatalf("create: %v", createResp.Diagnostics)
+	}
+	var afterCreate walletIdentityProviderModel
+	createResp.State.Get(ctx, &afterCreate)
+	if afterCreate.AccessCertificatePrivateKey.ValueString() == "" {
+		t.Fatalf("expected the secret to be carried into state right after create")
+	}
+
+	// 1) Update something else, plan still carries the secret (unchanged) — no clear flag, server keeps it.
+	unchangedResp := &resource.UpdateResponse{State: createResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: createResp.State,
+		Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+			Alias:                       types.StringValue("dev-wallet"),
+			ClientIDHost:                types.StringValue("verifier.example"),
+			AccessCertificatePrivateKey: afterCreate.AccessCertificatePrivateKey,
+		}),
+	}, unchangedResp)
+	if unchangedResp.Diagnostics.HasError() {
+		t.Fatalf("update (unrelated field): %v", unchangedResp.Diagnostics)
+	}
+	if set, _ := fake.stored["dev-wallet"][walletSecretKey]; set == "" {
+		t.Fatalf("the secret must still be stored after an unrelated update")
+	}
+
+	// 2) Update again, this time the plan drops the secret (removed from config) — must send the clear
+	// flag and the server must actually remove it, not just leave Terraform's state null while the old
+	// value lingers server-side.
+	clearedResp := &resource.UpdateResponse{State: unchangedResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: unchangedResp.State,
+		Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+			Alias:        types.StringValue("dev-wallet"),
+			ClientIDHost: types.StringValue("verifier.example"),
+			// AccessCertificatePrivateKey left null: removed from the configuration.
+		}),
+	}, clearedResp)
+	if clearedResp.Diagnostics.HasError() {
+		t.Fatalf("update (clearing secret): %v", clearedResp.Diagnostics)
+	}
+	if _, present := fake.stored["dev-wallet"][walletSecretKey]; present {
+		t.Fatalf("expected the secret to be actually removed server-side after a declarative removal")
+	}
+	var afterClear walletIdentityProviderModel
+	clearedResp.State.Get(ctx, &afterClear)
+	if !afterClear.AccessCertificatePrivateKey.IsNull() {
+		t.Fatalf("expected the secret attribute to read back null after clearing, got %q", afterClear.AccessCertificatePrivateKey.ValueString())
+	}
+}
+
+// TestResource_ImportNeverSendsClearFlag: right after import, state has no value for the secret (it was
+// never read from the server — it can't be). An update must not treat that null as "please clear it".
+func TestResource_ImportNeverSendsClearFlag(t *testing.T) {
+	srv, fake := newFakeIdentityProviderServer(t)
+	defer srv.Close()
+	c := newWalletClient(srv.URL)
+	ctx := context.Background()
+	r := &walletIdentityProviderResource{client: c}
+	sch := walletSchema(ctx, t)
+
+	if err := c.CreateIdentityProvider(ctx, IdentityProviderWrite{
+		Alias: "imported-dev-wallet", Protocol: "eudi-wallet", Enabled: true,
+		Config: map[string]string{walletSecretKey: "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----"},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	importResp := &resource.ImportStateResponse{State: tfsdk.State{Schema: sch, Raw: nullObject(ctx, sch)}}
+	r.ImportState(ctx, resource.ImportStateRequest{ID: "imported-dev-wallet"}, importResp)
+	if importResp.Diagnostics.HasError() {
+		t.Fatalf("import: %v", importResp.Diagnostics)
+	}
+	readResp := &resource.ReadResponse{State: importResp.State}
+	r.Read(ctx, resource.ReadRequest{State: importResp.State}, readResp)
+	if readResp.Diagnostics.HasError() {
+		t.Fatalf("read after import: %v", readResp.Diagnostics)
+	}
+	var afterImportRead walletIdentityProviderModel
+	readResp.State.Get(ctx, &afterImportRead)
+	if !afterImportRead.AccessCertificatePrivateKey.IsNull() {
+		t.Fatalf("expected the secret to stay null right after import, got %q", afterImportRead.AccessCertificatePrivateKey.ValueString())
+	}
+
+	// A no-op update (nothing in the plan changed from the imported state) must not clear the secret.
+	updateResp := &resource.UpdateResponse{State: readResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: readResp.State,
+		Plan:  newPlan(ctx, t, sch, &afterImportRead),
+	}, updateResp)
+	if updateResp.Diagnostics.HasError() {
+		t.Fatalf("no-op update after import: %v", updateResp.Diagnostics)
+	}
+	if secret, present := fake.stored["imported-dev-wallet"][walletSecretKey]; !present || secret == "" {
+		t.Fatalf("expected the secret to remain stored after an update that followed an import, got present=%v value=%q", present, secret)
+	}
+}
+
+// TestResource_FieldErrorsBecomeAttributeDiagnostics: a 400 with fieldErrors must become one Terraform
+// diagnostic per field, mapped to the right attribute where this resource knows the mapping.
+func TestResource_FieldErrorsBecomeAttributeDiagnostics(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/admin/realms/master/identity-providers", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"message": "Wallet provider 'w' is invalid",
+			"fieldErrors": map[string]string{
+				"alias":               "alias is required",
+				"config.accessKeyRef": "accessKeyRef is required (a signing key imported into this realm)",
+				"config.minimumLoa":   "minimumLoa must be an eIDAS level of assurance",
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := newWalletClient(srv.URL)
+	ctx := context.Background()
+	r := &walletIdentityProviderResource{client: c}
+	sch := walletSchema(ctx, t)
+
+	createResp := &resource.CreateResponse{State: newState(ctx, t, sch, &walletIdentityProviderModel{})}
+	r.Create(ctx, resource.CreateRequest{Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+		Alias: types.StringValue("w"),
+	})}, createResp)
+
+	if !createResp.Diagnostics.HasError() {
+		t.Fatalf("expected diagnostics from the 400 response")
+	}
+	if got := createResp.Diagnostics.ErrorsCount(); got != 3 {
+		t.Fatalf("expected 3 field errors to become 3 diagnostics, got %d: %v", got, createResp.Diagnostics)
+	}
+	paths := attributeErrors(createResp.Diagnostics)
+	for _, want := range []path.Path{path.Root("alias"), path.Root("access_key_ref"), path.Root("minimum_loa")} {
+		if !containsPath(paths, want) {
+			t.Fatalf("expected an attribute error on %v, got paths %v (diagnostics: %v)", want, paths, createResp.Diagnostics)
+		}
+	}
+}
+
+// TestResource_ImportReadThenNoOpUpdate_HasNoDrift: import an existing connection, refresh it, then run
+// an "update" whose plan is exactly the state Read just produced (what Terraform does when the
+// configuration already matches reality) — nothing may change, server-side or in the resulting state.
+func TestResource_ImportReadThenNoOpUpdate_HasNoDrift(t *testing.T) {
+	srv, _ := newFakeIdentityProviderServer(t)
+	defer srv.Close()
+	c := newWalletClient(srv.URL)
+	ctx := context.Background()
+	r := &walletIdentityProviderResource{client: c}
+	sch := walletSchema(ctx, t)
+
+	if err := c.CreateIdentityProvider(ctx, IdentityProviderWrite{
+		Alias: "imported-wallet", Protocol: "eudi-wallet", DisplayName: "Imported", Enabled: true,
+		Config: map[string]string{
+			"accessKeyRef": "software:gov/primary",
+			"minimumLoa":   "http://eidas.europa.eu/LoA/high",
+		},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	importResp := &resource.ImportStateResponse{State: tfsdk.State{Schema: sch, Raw: nullObject(ctx, sch)}}
+	r.ImportState(ctx, resource.ImportStateRequest{ID: "imported-wallet"}, importResp)
+	if importResp.Diagnostics.HasError() {
+		t.Fatalf("import: %v", importResp.Diagnostics)
+	}
+	readResp := &resource.ReadResponse{State: importResp.State}
+	r.Read(ctx, resource.ReadRequest{State: importResp.State}, readResp)
+	if readResp.Diagnostics.HasError() {
+		t.Fatalf("read after import: %v", readResp.Diagnostics)
+	}
+	var afterImport walletIdentityProviderModel
+	readResp.State.Get(ctx, &afterImport)
+	if afterImport.AccessKeyRef.ValueString() != "software:gov/primary" {
+		t.Fatalf("expected access_key_ref to come back from the import+read, got %q", afterImport.AccessKeyRef.ValueString())
+	}
+
+	noOpResp := &resource.UpdateResponse{State: readResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: readResp.State,
+		Plan:  newPlan(ctx, t, sch, &afterImport), // the plan is exactly what Read just produced
+	}, noOpResp)
+	if noOpResp.Diagnostics.HasError() {
+		t.Fatalf("no-op update: %v", noOpResp.Diagnostics)
+	}
+	var afterNoOp walletIdentityProviderModel
+	noOpResp.State.Get(ctx, &afterNoOp)
+
+	if afterImport.AccessKeyRef != afterNoOp.AccessKeyRef || afterImport.MinimumLoa != afterNoOp.MinimumLoa ||
+		afterImport.DisplayName != afterNoOp.DisplayName || afterImport.Enabled != afterNoOp.Enabled {
+		t.Fatalf("a no-op plan must not drift: before=%+v after=%+v", afterImport, afterNoOp)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -131,20 +132,57 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) (notF
 	}
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		msg := strings.TrimSpace(string(b))
-		// Surface the admin API's {message} when present.
+		ae := &AdminError{Method: method, Path: path, StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(b))}
+		// Surface the admin API's {message, fieldErrors} (AdminValidationAdvice) when present.
 		var e struct {
-			Message string `json:"message"`
+			Message     string            `json:"message"`
+			FieldErrors map[string]string `json:"fieldErrors"`
 		}
-		if json.Unmarshal(b, &e) == nil && e.Message != "" {
-			msg = e.Message
+		if json.Unmarshal(b, &e) == nil {
+			if e.Message != "" {
+				ae.Message = e.Message
+			}
+			if len(e.FieldErrors) > 0 {
+				ae.FieldErrors = e.FieldErrors
+			}
 		}
-		return false, fmt.Errorf("%s %s: %d %s", method, path, resp.StatusCode, msg)
+		return false, ae
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		return false, json.NewDecoder(resp.Body).Decode(out)
 	}
 	return false, nil
+}
+
+// AdminError is returned by Client for a 4xx/5xx admin API response. FieldErrors mirrors the admin
+// API's {message, fieldErrors} validation-error shape (AdminValidationAdvice on the server): one entry
+// per invalid field, field names as the admin API reports them (e.g. "alias", "config.accessKeyRef").
+// It is nil when the response carried no field errors (not every 4xx is a validation error). Callers
+// that know the field-name-to-attribute mapping (a resource's schema) can use errors.As to get at it
+// instead of only the flattened Error() string.
+type AdminError struct {
+	Method      string
+	Path        string
+	StatusCode  int
+	Message     string
+	FieldErrors map[string]string
+}
+
+func (e *AdminError) Error() string {
+	msg := e.Message
+	if len(e.FieldErrors) > 0 {
+		fields := make([]string, 0, len(e.FieldErrors))
+		for field := range e.FieldErrors {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		parts := make([]string, 0, len(fields))
+		for _, field := range fields {
+			parts = append(parts, field+": "+e.FieldErrors[field])
+		}
+		msg = msg + " (" + strings.Join(parts, "; ") + ")"
+	}
+	return fmt.Sprintf("%s %s: %d %s", e.Method, e.Path, e.StatusCode, msg)
 }
 
 // --- Application ---

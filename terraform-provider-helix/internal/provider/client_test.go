@@ -8,8 +8,10 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,6 +102,79 @@ func TestCreateRoleReturnsServerID(t *testing.T) {
 	}
 	if created.RoleID != "r-123" {
 		t.Fatalf("expected role id r-123, got %q", created.RoleID)
+	}
+}
+
+// TestDo_DecodesFieldErrors: a 400 response carrying {message, fieldErrors} (AdminValidationAdvice's
+// shape) must come back as an *AdminError with every field error, not just the top-level message, so a
+// resource can turn each one into its own Terraform diagnostic.
+func TestDo_DecodesFieldErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"message": "Wallet provider 'w' is invalid",
+			"fieldErrors": map[string]string{
+				"alias":               "alias is required",
+				"config.accessKeyRef": "accessKeyRef is required (a signing key imported into this realm)",
+				"config.minimumLoa":   "minimumLoa must be an eIDAS level of assurance",
+			},
+		})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, srv.URL+"/realms/master", "master", "", "")
+
+	err := c.CreateApplication(context.Background(), Application{Name: "x", Enabled: true})
+	if err == nil {
+		t.Fatalf("expected an error")
+	}
+	var ae *AdminError
+	if !errors.As(err, &ae) {
+		t.Fatalf("expected an *AdminError, got %T: %v", err, err)
+	}
+	if ae.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", ae.StatusCode)
+	}
+	if ae.Message != "Wallet provider 'w' is invalid" {
+		t.Fatalf("expected the top-level message to be kept, got %q", ae.Message)
+	}
+	if len(ae.FieldErrors) != 3 {
+		t.Fatalf("expected 3 field errors, got %d: %v", len(ae.FieldErrors), ae.FieldErrors)
+	}
+	for field, want := range map[string]string{
+		"alias":               "alias is required",
+		"config.accessKeyRef": "accessKeyRef is required (a signing key imported into this realm)",
+		"config.minimumLoa":   "minimumLoa must be an eIDAS level of assurance",
+	} {
+		if got := ae.FieldErrors[field]; got != want {
+			t.Fatalf("field %q: expected %q, got %q", field, want, got)
+		}
+	}
+	// err.Error() must still be a useful plain string for callers that don't unwrap it.
+	if !strings.Contains(err.Error(), "alias is required") {
+		t.Fatalf("expected Error() to mention a field error, got %q", err.Error())
+	}
+}
+
+// TestDo_PlainMessageWithoutFieldErrors: a 400 with only {message} must still work as before (no panic,
+// no spurious empty FieldErrors map reported).
+func TestDo_PlainMessageWithoutFieldErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": "alias already in use"})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, srv.URL+"/realms/master", "master", "", "")
+
+	err := c.CreateApplication(context.Background(), Application{Name: "x", Enabled: true})
+	var ae *AdminError
+	if !errors.As(err, &ae) {
+		t.Fatalf("expected an *AdminError, got %T: %v", err, err)
+	}
+	if ae.Message != "alias already in use" {
+		t.Fatalf("unexpected message: %q", ae.Message)
+	}
+	if len(ae.FieldErrors) != 0 {
+		t.Fatalf("expected no field errors, got %v", ae.FieldErrors)
 	}
 }
 

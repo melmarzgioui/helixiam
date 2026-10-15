@@ -19,6 +19,12 @@ All attributes also read from environment: `HELIX_ISSUER`, `HELIX_REALM`, `HELIX
 `HELIX_CLIENT_ID`, `HELIX_CLIENT_SECRET`. The provider authenticates with the OAuth2
 client-credentials grant and caches the token until just before expiry.
 
+**The realm is the provider's, not any one resource's.** Every resource below is created in whichever
+realm the provider block is configured for. Changing `realm` (or `HELIX_REALM`) does not move existing
+resources: Terraform plans to create them again in the new realm, and the resources left in the old realm
+stay there, unmanaged (`terraform plan`/`apply` never deletes them, since the provider's state for the old
+realm is simply no longer reachable under the new configuration).
+
 ## Resources
 
 ### `helix_application`
@@ -55,9 +61,9 @@ import helix_wallet_identity_provider.<name> <alias>`.
 | `enabled` | optional, default true | |
 | `client_id_scheme` | optional | `x509_hash` (default) or `x509_san_dns` |
 | `client_id_host` | optional | required DNS host for `x509_san_dns` |
-| `access_key_ref` | optional | realm signing-key reference (e.g. `software:gov/primary`); required unless `access_certificate_private_key` is used |
+| `access_key_ref` | optional, **recommended** | realm signing-key reference (e.g. `software:gov/primary`, imported via `/admin/realms/{realm}/verifier-keys`); never written to Terraform state. Required unless `access_certificate_private_key` is used |
 | `access_certificate_chain` | optional | PEM chain, leaf first, no root |
-| `access_certificate_private_key` | optional, **sensitive**, write-only | dev-profile-only raw PEM key; never read back — see below |
+| `access_certificate_private_key` | optional, **sensitive**, write-only | a raw PEM key, as an alternative to `access_key_ref`. The server accepts this only in its `dev` deployment profile and refuses it in every other profile. Never read back from the admin API — but **stored in plaintext in Terraform state**, since `Sensitive` only redacts CLI output/logs, not the state file; see below |
 | `registration_certificate` | optional | PEM bundle for OpenID Federation registration |
 | `invocation_scheme` | optional | default `haip-vp` |
 | `response_mode` | optional | `direct_post.jwt` (default) or `direct_post` (dev only) |
@@ -82,11 +88,28 @@ Every attribute above maps to a key of the connection's `config` map on the serv
 (`WalletProviderConfig.java`); leaving one unset omits it from the write, so the server's own default
 applies and `terraform plan` never shows drift for it. `accessCertificateKeyRef` (renamed to
 `access_key_ref`, always refused by the server) and `subjectPepper` (a realm-level secret unrelated to
-any one connection) are deliberately not exposed. **`access_certificate_private_key` is write-only**: the
-admin API never returns a secret's value, only whether one is set, so a read keeps whatever is already in
-state. Removing the line from your configuration stops Terraform from managing it but does not clear the
-value on the server (the API keeps a secret it isn't told to replace or clear) — to actually remove it,
-recreate the resource or clear it through the admin API directly.
+any one connection) are deliberately not exposed.
+
+**`access_certificate_private_key` is write-only against the API, but not encrypted in Terraform state.**
+The admin API never returns a secret's value, only whether one is set, so a read keeps whatever is
+already in state — Terraform cannot refresh it and does not need to. But what you write into this
+attribute is stored in plaintext in the Terraform state file like any other string attribute;
+`Sensitive: true` only redacts it from CLI output and logs, it does not encrypt the state file. If you set
+this attribute at all, keep state encrypted at rest or in a remote backend that encrypts it (Terraform
+Cloud, an S3 backend with SSE and a restrictive bucket policy, etc.). **Prefer `access_key_ref`** instead
+(a key imported via `/admin/realms/{realm}/verifier-keys`, never written to Terraform state at all) for
+anything beyond a dev instance — the server (`WalletConfigValidator`) only accepts
+`access_certificate_private_key` when it is running in the `dev` deployment profile and refuses it in
+every other profile.
+
+**Removing `access_certificate_private_key` from your configuration clears it.** Declarative removal means
+removal: if state has a value and the plan no longer does, the resource sends
+`clearAccessCertificatePrivateKey=true`, so the stored secret is actually deleted server-side, not merely
+left unmanaged by Terraform while the old value lingers. This flag is never sent when state has no value
+for it in the first place — for example right after `terraform import`, where Terraform cannot know
+whether the server has a secret set at all, let alone clear it. To rotate the key, set a new value
+directly (a value always replaces the stored one); to remove it, delete the line; to stop managing it
+without touching the stored value, use `terraform state rm` instead of editing the configuration.
 
 ## Build & test
 
@@ -112,9 +135,14 @@ See `examples/main.tf` for a complete configuration.
 
 ## Status
 
-The admin client + the application and realm-role resources' CRUD are **verified live** against a
-running Helix publisher (application create/read/update/delete + realm role create/read/delete).
-`helix_wallet_identity_provider` CRUD and import are covered by unit tests against a mock admin API
-(`internal/provider/wallet_identity_provider_test.go`) and has a gated live test
-(`TestLiveWalletIdentityProviderCRUD`) not yet run against a live server. Acceptance tests (`TF_ACC`)
-and registry publication are the remaining release steps.
+The admin client + all three resources' CRUD are **verified live** against a running Helix publisher:
+application create/read/update/delete, realm role create/read/delete, and (`TestLiveWalletIdentityProviderCRUD`,
+gated on `HELIX_LIVE_BASEURL`/`HELIX_LIVE_WALLET_ACCESS_KEY_REF`/`HELIX_LIVE_WALLET_TRUST_ANCHORS`) wallet
+identity-provider create/read/update/delete — run and passing against a dev-profile server as of
+2026-10-15. `helix_wallet_identity_provider` additionally has unit-level coverage against a mock admin
+API (`internal/provider/wallet_identity_provider_test.go`): the model/wire helpers in isolation, and the
+resource's own Create/Read/Update/ImportState through real `tfsdk.Plan`/`tfsdk.State` values — create →
+read → update, the secret's keep-vs-clear behaviour (including the import case, where it must never
+clear), a 400 with field errors becoming per-attribute diagnostics, and an import → read → no-op-update
+sequence that leaves the resource undisturbed. Acceptance tests (`TF_ACC`) and registry publication are
+the remaining release steps.
