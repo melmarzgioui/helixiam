@@ -65,7 +65,14 @@ public class TrustedListAdminController {
                                   boolean anchorsInUse, String lastAttemptAt, String lastSuccessAt,
                                   String listIssuedAt, String nextUpdate, String anchorsUsableUntil,
                                   String nextRefreshAt, Long sequenceNumber, Integer listsRead, String lastError,
-                                  int serviceCount, int anchorCount) {
+                                  int serviceCount, int anchorCount, boolean listOfLists, List<MemberView> members) {
+    }
+
+    /** One member of a list of trusted lists, with its own state. */
+    public record MemberView(String territory, String location, String status, boolean anchorsInUse,
+                             Long sequenceNumber, String listIssuedAt, String nextUpdate, String anchorsUsableUntil,
+                             String lastAttemptAt, String lastSuccessAt, String lastError, int serviceCount,
+                             int anchorCount) {
     }
 
     /** One verified service of the last good list. */
@@ -152,14 +159,16 @@ public class TrustedListAdminController {
         final TrustedListSource.State st = s.state();
         final TrustedListHealth.Status status = service.status(s);
         final List<ListedService> services = service.services(s);
+        final List<MemberView> members = service.members(s).stream().map(m -> member(s, m)).toList();
         List<CertificateView> signers;
         try {
             signers = PemCertificates.parse(c.signerCertificates()).stream().map(CertificateView::of).toList();
         } catch (final IllegalArgumentException e) {
             signers = List.of();
         }
-        final int anchors = (int) services.stream()
-                .filter(x -> TrustAnchors.trustAnchorProblem(x.certificate()) == null).count();
+        final int anchors = s.state().listOfLists()
+                ? members.stream().filter(MemberView::anchorsInUse).mapToInt(MemberView::anchorCount).sum()
+                : usable(services);
         return new TrustedListView(s.id(), c.name(), c.url(), c.format().name(), c.signerCertificates(), signers,
                 c.serviceTypes(), c.acceptedStatuses(),
                 c.acceptedStatuses().isEmpty() ? List.copyOf(TrustedListSpec.DEFAULT_STATUSES) : c.acceptedStatuses(),
@@ -168,7 +177,21 @@ public class TrustedListAdminController {
                 st.nextUpdate() == null || st.servicesJson() == null ? null
                         : Instant.ofEpochMilli(st.nextUpdate()).plus(Duration.ofHours(c.graceHours())).toString(),
                 time(st.nextRefreshAt()), st.sequenceNumber(), st.listsRead(), st.lastError(), services.size(),
-                anchors);
+                anchors, st.listOfLists(), members);
+    }
+
+    private MemberView member(final TrustedListSource source, final TrustedListSource.Member m) {
+        final TrustedListHealth.Status status = service.memberStatus(source, m);
+        final List<ListedService> services = TrustedListService.decode(m.servicesJson());
+        return new MemberView(m.territory(), m.location(), status.name(), status.anchorsUsable(), m.sequenceNumber(),
+                time(m.listIssuedAt()), time(m.nextUpdate()), m.nextUpdate() == null || m.servicesJson() == null
+                        ? null : Instant.ofEpochMilli(m.nextUpdate()).plus(Duration.ofHours(source.config()
+                        .graceHours())).toString(), time(m.lastAttemptAt()), time(m.lastSuccessAt()), m.lastError(),
+                services.size(), usable(services));
+    }
+
+    private static int usable(final List<ListedService> services) {
+        return (int) services.stream().filter(x -> TrustAnchors.trustAnchorProblem(x.certificate()) == null).count();
     }
 
     private static TrustedListAnchorView anchor(final ListedService s) {

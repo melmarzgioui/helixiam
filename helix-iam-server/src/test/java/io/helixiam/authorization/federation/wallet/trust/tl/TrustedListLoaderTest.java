@@ -209,19 +209,31 @@ class TrustedListLoaderTest {
 
     // ------------------------------------------------------------------------------------------------ LOTL chain
 
+    final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
+    final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL TL Signer");
+    final TestPki.Leaf deSigner = TrustedListFixtures.signer("DE TL Signer");
+
+    static LoadedList.Member member(final LoadedList loaded, final String territory) {
+        return loaded.members().stream().filter(m -> territory.equals(m.territory())).findFirst().orElseThrow();
+    }
+
+    void serveLotl(final Pointer... pointers) {
+        final Spec spec = Spec.lotl().sequence(300);
+        for (final Pointer p : pointers) {
+            spec.pointer(p);
+        }
+        served.put(LOTL_URL, TrustedListFixtures.signedXml(spec, lotlSigner));
+    }
+
     @Test
     void lotl_followsItsPointers_verifyingEachListWithTheSignerTheLotlNames() throws Exception {
-        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
-        final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL TL Signer");
-        final TestPki.Leaf deSigner = TrustedListFixtures.signer("DE TL Signer");
-        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl().sequence(300)
-                .pointer(new Pointer(LOTL_URL, TrustedListFixtures.LOTL_TYPE, "EU", "application/vnd.etsi.tsl+xml",
-                        List.of(lotlSigner.certificate())))
-                .pointer(new Pointer("https://tl.example/TL/NL.pdf", TrustedListFixtures.GENERIC_TYPE, "NL",
-                        "application/pdf", List.of(nlSigner.certificate())))
-                .pointer(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()))
-                .pointer(Pointer.memberState(DE_URL, "DE", deSigner.certificate())), lotlSigner));
-        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL").nextUpdate(
+        serveLotl(new Pointer(LOTL_URL, TrustedListFixtures.LOTL_TYPE, "EU", "application/vnd.etsi.tsl+xml",
+                        List.of(lotlSigner.certificate())),
+                new Pointer("https://tl.example/TL/NL.pdf", TrustedListFixtures.GENERIC_TYPE, "NL",
+                        "application/pdf", List.of(nlSigner.certificate())),
+                Pointer.memberState(NL_URL, "NL", nlSigner.certificate()),
+                Pointer.memberState(DE_URL, "DE", deSigner.certificate()));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL").sequence(11).nextUpdate(
                 Instant.now().plus(5, ChronoUnit.DAYS)).service(Service.granted("NL Issuer", issuerA)), nlSigner));
         served.put(DE_URL, TrustedListFixtures.signedXml(Spec.memberState("DE")
                 .service(Service.granted("DE Issuer", issuerB)), deSigner));
@@ -231,46 +243,106 @@ class TrustedListLoaderTest {
         assertThat(loaded.services()).extracting(ListedService::country).containsExactlyInAnyOrder("NL", "DE");
         assertThat(loaded.listsRead()).isEqualTo(3);
         assertThat(loaded.sequence()).isEqualTo(300);
-        // the earliest NextUpdate of every list read
-        assertThat(loaded.nextUpdate()).isBefore(Instant.now().plus(6, ChronoUnit.DAYS));
+        assertThat(loaded.members()).hasSize(2).allMatch(LoadedList.Member::loaded);
+        // each member keeps its own NextUpdate and sequence
+        assertThat(member(loaded, "NL").sequence()).isEqualTo(11);
+        assertThat(member(loaded, "NL").nextUpdate()).isBefore(Instant.now().plus(6, ChronoUnit.DAYS));
+        assertThat(member(loaded, "DE").nextUpdate()).isAfter(Instant.now().plus(20, ChronoUnit.DAYS));
+        assertThat(member(loaded, "NL").key()).isEqualTo(LoadedList.Member.key(NL_URL, "NL"));
     }
 
     @Test
-    void lotl_memberStateListSignedByAKeyTheLotlDoesNotName_isRefused() {
-        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
-        final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL TL Signer");
-        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl()
-                .pointer(Pointer.memberState(NL_URL, "NL", nlSigner.certificate())), lotlSigner));
+    void lotl_memberSignedByAKeyTheLotlDoesNotName_isRefused_withoutBlockingTheOthers() throws Exception {
+        serveLotl(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()),
+                Pointer.memberState(DE_URL, "DE", deSigner.certificate()));
         // signed by the LOTL's own key: valid XMLDSig, but not the key the LOTL names for NL
         served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL")
                 .service(Service.granted("NL Issuer", issuerA)), lotlSigner));
+        served.put(DE_URL, TrustedListFixtures.signedXml(Spec.memberState("DE")
+                .service(Service.granted("DE Issuer", issuerB)), deSigner));
 
-        assertKind(() -> loader.load(spec(LOTL_URL, lotlSigner), "realm"), TrustedListException.Kind.SIGNATURE);
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner), "realm");
+
+        assertThat(member(loaded, "NL").loaded()).isFalse();
+        assertThat(member(loaded, "NL").errorKind()).isEqualTo(TrustedListException.Kind.SIGNATURE);
+        assertThat(member(loaded, "DE").loaded()).isTrue();
+        assertThat(loaded.services()).extracting(ListedService::certificate).containsExactly(issuerB);
+    }
+
+    @Test
+    void lotl_memberReplayWithALowerSequence_isRefused() throws Exception {
+        serveLotl(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL").sequence(3)
+                .service(Service.granted("NL Issuer", issuerA)), nlSigner));
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner)
+                .withPreviousMemberSequences(Map.of(LoadedList.Member.key(NL_URL, "NL"), 9L)), "realm");
+
+        assertThat(member(loaded, "NL").loaded()).isFalse();
+        assertThat(member(loaded, "NL").errorKind()).isEqualTo(TrustedListException.Kind.ROLLBACK);
+        assertThat(loaded.services()).isEmpty();
+    }
+
+    @Test
+    void lotl_memberWhoseTerritoryOrTypeDiffersFromThePointer_isRefused() throws Exception {
+        serveLotl(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()),
+                new Pointer(DE_URL, "http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric", "DE",
+                        "application/vnd.etsi.tsl+xml", List.of(deSigner.certificate())));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("FR")
+                .service(Service.granted("FR Issuer", issuerA)), nlSigner));
+        final Spec otherType = Spec.memberState("DE").service(Service.granted("DE Issuer", issuerB));
+        served.put(DE_URL, TrustedListFixtures.sign(TrustedListFixtures.xml(otherType).replace(
+                "TSLType/EUgeneric", "TSLType/CClist"), deSigner));
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner), "realm");
+
+        assertThat(member(loaded, "NL").errorKind()).isEqualTo(TrustedListException.Kind.MALFORMED);
+        assertThat(member(loaded, "NL").errorMessage()).contains("territory");
+        assertThat(member(loaded, "DE").errorKind()).isEqualTo(TrustedListException.Kind.MALFORMED);
+        assertThat(member(loaded, "DE").errorMessage()).contains("type");
+        assertThat(loaded.services()).isEmpty();
     }
 
     @Test
     void lotl_territoryFilter_readsOnlyTheChosenLists() throws Exception {
-        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
-        final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL TL Signer");
-        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl()
-                .pointer(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()))
-                .pointer(Pointer.memberState(DE_URL, "DE", nlSigner.certificate())), lotlSigner));
+        serveLotl(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()),
+                Pointer.memberState(DE_URL, "DE", nlSigner.certificate()));
         served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL")
                 .service(Service.granted("NL Issuer", issuerA)), nlSigner));
-        // DE is not served at all: reading it would fail the load
 
         final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner).withTerritories(Set.of("NL")), "realm");
 
         assertThat(loaded.services()).extracting(ListedService::country).containsExactly("NL");
+        assertThat(loaded.members()).extracting(LoadedList.Member::territory).containsExactly("NL");
     }
 
     @Test
-    void lotl_pointerToAPlainHttpList_isRefused() {
-        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
-        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl()
-                .pointer(Pointer.memberState("http://tl.example/TL/SK.xml", "SK", signer.certificate())), lotlSigner));
+    void lotl_plainHttpPointer_isSkippedAndReported_theOthersLoad() throws Exception {
+        serveLotl(Pointer.memberState("http://tl.example/TL/SK.xml", "SK", signer.certificate()),
+                Pointer.memberState(NL_URL, "NL", nlSigner.certificate()));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL")
+                .service(Service.granted("NL Issuer", issuerA)), nlSigner));
 
-        assertKind(() -> loader.load(spec(LOTL_URL, lotlSigner), "realm"), TrustedListException.Kind.POLICY);
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner), "realm");
+
+        assertThat(member(loaded, "SK").loaded()).isFalse();
+        assertThat(member(loaded, "SK").errorKind()).isEqualTo(TrustedListException.Kind.POLICY);
+        assertThat(member(loaded, "NL").loaded()).isTrue();
+    }
+
+    @Test
+    void lotl_expiredMember_failsAlone() throws Exception {
+        serveLotl(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()),
+                Pointer.memberState(DE_URL, "DE", deSigner.certificate()));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL").nextUpdate(
+                Instant.now().minus(1, ChronoUnit.HOURS)).service(Service.granted("NL Issuer", issuerA)), nlSigner));
+        served.put(DE_URL, TrustedListFixtures.signedXml(Spec.memberState("DE")
+                .service(Service.granted("DE Issuer", issuerB)), deSigner));
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner), "realm");
+
+        assertThat(member(loaded, "NL").errorKind()).isEqualTo(TrustedListException.Kind.EXPIRED);
+        assertThat(member(loaded, "DE").loaded()).isTrue();
     }
 
     // ------------------------------------------------------------------------------------------------ hostile XML

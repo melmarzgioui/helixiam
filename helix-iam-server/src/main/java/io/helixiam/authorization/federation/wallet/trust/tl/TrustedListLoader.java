@@ -25,7 +25,9 @@ import java.util.Objects;
  * the current services of the configured types. A list of trusted lists (ETSI TS 119 612, a {@code TSLType} ending
  * in {@code listofthelists}) is followed one level: each XML pointer (optionally only the configured territories) is
  * fetched and verified with the signer certificates the list of lists names for it, and its services are extracted
- * the same way. Any list that fails fails the whole load: the caller keeps its last good anchors (fail safe).
+ * the same way. A failure of the top list fails the load (the caller keeps its last good state); a failure of one
+ * pointed-to list fails that member only ({@link LoadedList.Member}), and the caller keeps that member's last good
+ * state on its own.
  */
 public final class TrustedListLoader {
 
@@ -62,10 +64,9 @@ public final class TrustedListLoader {
             throw new TrustedListException(TrustedListException.Kind.ROLLBACK,
                     "the list's sequence number is lower than that of the last list accepted");
         }
-        final List<ListedService> services = new ArrayList<>();
-        Instant nextUpdate = top.nextUpdate();
-        int read = 1;
         if (spec.format() == TrustedListSpec.Format.ETSI_119612_XML && top.isListOfLists()) {
+            final List<LoadedList.Member> members = new ArrayList<>();
+            final List<ListedService> all = new ArrayList<>();
             int followed = 0;
             for (final Etsi119612List.Pointer pointer : top.pointers()) {
                 if (!follows(pointer, spec)) {
@@ -75,25 +76,68 @@ public final class TrustedListLoader {
                     throw new TrustedListException(TrustedListException.Kind.POLICY,
                             "the list of trusted lists points at more than " + MAX_POINTERS + " lists");
                 }
-                requireHttps(pointer.location());
-                if (pointer.signers().isEmpty()) {
-                    throw new TrustedListException(TrustedListException.Kind.SIGNATURE,
-                            "the list of trusted lists names no signer for the " + territory(pointer) + " list");
+                final LoadedList.Member member = member(pointer, spec, now, realm);
+                if (member == null) {
+                    continue; // a pointer to another list of lists: one level only
                 }
-                final Etsi119612List member = fetchVerified(TrustedListSpec.Format.ETSI_119612_XML,
-                        pointer.location(), pointer.signers(), realm);
-                if (member.isListOfLists()) {
-                    continue; // one level only
+                members.add(member);
+                if (member.loaded()) {
+                    if (all.size() + member.services().size() > MAX_SERVICES) {
+                        throw new TrustedListException(TrustedListException.Kind.POLICY,
+                                "the lists hold more than " + MAX_SERVICES + " matching services");
+                    }
+                    all.addAll(member.services());
                 }
-                checkFresh(member, now);
-                nextUpdate = nextUpdate.isBefore(member.nextUpdate()) ? nextUpdate : member.nextUpdate();
-                read++;
-                extract(member, spec, now, services);
             }
-        } else {
-            extract(top, spec, now, services);
+            final int read = 1 + (int) members.stream().filter(LoadedList.Member::loaded).count();
+            return new LoadedList(all, top.issued(), top.nextUpdate(), top.sequence(), read, true, members);
         }
-        return new LoadedList(services, top.issued(), nextUpdate, top.sequence(), read);
+        final List<ListedService> services = new ArrayList<>();
+        extract(top, spec, now, services);
+        return new LoadedList(services, top.issued(), top.nextUpdate(), top.sequence(), 1);
+    }
+
+    /**
+     * One pointed-to list, judged on its own: https, verified with the signers the list of lists names for it, its
+     * territory and type matching the pointer, fresh, and not older than its last accepted list. Null for a pointer
+     * that turns out to be another list of lists.
+     */
+    private LoadedList.Member member(final Etsi119612List.Pointer pointer, final TrustedListSpec spec,
+                                     final Instant now, final String realm) {
+        final String location = pointer.location().trim();
+        final String territory = pointer.territory();
+        try {
+            requireHttps(location);
+            if (pointer.signers().isEmpty()) {
+                throw new TrustedListException(TrustedListException.Kind.SIGNATURE,
+                        "the list of trusted lists names no signer for this list");
+            }
+            final Etsi119612List member = fetchVerified(TrustedListSpec.Format.ETSI_119612_XML, location,
+                    pointer.signers(), realm);
+            if (member.isListOfLists()) {
+                return null;
+            }
+            if (territory != null && !territory.equalsIgnoreCase(member.territory())) {
+                throw new TrustedListException(TrustedListException.Kind.MALFORMED,
+                        "the list's SchemeTerritory does not match the territory the list of lists names for it");
+            }
+            if (pointer.type() != null && !pointer.type().equals(member.type())) {
+                throw new TrustedListException(TrustedListException.Kind.MALFORMED,
+                        "the list's TSLType does not match the type the list of lists names for it");
+            }
+            checkFresh(member, now);
+            final Long previous = spec.previousMemberSequences().get(LoadedList.Member.key(location, territory));
+            if (previous != null && member.sequence() < previous) {
+                throw new TrustedListException(TrustedListException.Kind.ROLLBACK,
+                        "the list's sequence number is lower than that of its last list accepted");
+            }
+            final List<ListedService> services = new ArrayList<>();
+            extract(member, spec, now, services);
+            return LoadedList.Member.loaded(location, territory, services, member.sequence(), member.issued(),
+                    member.nextUpdate());
+        } catch (final TrustedListException e) {
+            return LoadedList.Member.failed(location, territory, e);
+        }
     }
 
     /** XML pointers to other (non list-of-lists) lists, in the configured territories. */
@@ -184,9 +228,5 @@ public final class TrustedListLoader {
             throw new TrustedListException(TrustedListException.Kind.POLICY,
                     "the list URL must be an https URL without user information");
         }
-    }
-
-    private static String territory(final Etsi119612List.Pointer pointer) {
-        return pointer.territory() == null ? "unnamed" : pointer.territory().replaceAll("[^A-Za-z]", "");
     }
 }

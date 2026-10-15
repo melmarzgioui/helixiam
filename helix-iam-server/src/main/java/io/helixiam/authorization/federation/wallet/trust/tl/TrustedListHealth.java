@@ -30,11 +30,16 @@ public final class TrustedListHealth {
         /** Past NextUpdate plus grace. No anchors (fail closed). */
         EXPIRED,
         /** The source is switched off. No anchors. */
-        DISABLED;
+        DISABLED,
+        /**
+         * A list of trusted lists that is itself fine, but some of whose members are failing, stale, expired or never
+         * verified. The good members' anchors are used.
+         */
+        DEGRADED;
 
         /** Whether the last good anchors count in this status. */
         public boolean anchorsUsable() {
-            return this == OK || this == FAILING || this == STALE;
+            return this == OK || this == FAILING || this == STALE || this == DEGRADED;
         }
     }
 
@@ -71,5 +76,12 @@ public final class TrustedListHealth {
         return evaluate(source.config().enabled(), s.servicesJson() == null || s.nextUpdate() == null ? null
                         : Instant.ofEpochMilli(s.nextUpdate()), Duration.ofHours(source.config().graceHours()), failed,
                 s.lastAttemptAt() != null, now);
+    }
+
+    /** The status of one member of a list of trusted lists now (its own last good list, the source's grace). */
+    public static Status evaluate(final TrustedListSource source, final TrustedListSource.Member m, final Instant now) {
+        return evaluate(source.config().enabled(), m.servicesJson() == null || m.nextUpdate() == null ? null
+                        : Instant.ofEpochMilli(m.nextUpdate()), Duration.ofHours(source.config().graceHours()),
+                m.lastError() != null, m.lastAttemptAt() != null, now);
     }
 }

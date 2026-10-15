@@ -8,6 +8,7 @@ package io.helixiam.authorization.federation.wallet.trust.tl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListSource.Member;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -35,7 +36,9 @@ public class TrustedListRepository {
     private static final String COLUMNS = "id, realm_id, name, url, format, signer_certificates, service_types, "
             + "accepted_statuses, territories, grace_hours, enabled, status, last_attempt_at, last_success_at, "
             + "list_issued_at, next_update, next_refresh_at, sequence_number, lists_read, last_error, services_json, "
-            + "version, config_version, created_at, updated_at";
+            + "version, config_version, list_of_lists, created_at, updated_at";
+    private static final String MEMBER_COLUMNS = "source_id, member_key, location, territory, status, services_json, "
+            + "sequence_number, list_issued_at, next_update, last_attempt_at, last_success_at, last_error, version";
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
@@ -106,8 +109,8 @@ public class TrustedListRepository {
                                 final boolean resetState, final long now) {
         final String reset = resetState ? ", status = 'NEVER', last_attempt_at = NULL, last_success_at = NULL, "
                 + "list_issued_at = NULL, next_update = NULL, next_refresh_at = NULL, sequence_number = NULL, "
-                + "lists_read = NULL, last_error = NULL, services_json = NULL" : "";
-        final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET name = ?, url = ?, format = ?, "
+                + "lists_read = NULL, last_error = NULL, services_json = NULL, list_of_lists = FALSE" : "";
+        final Integer n = tx.execute(s -> resetMembers(resetState, id) + jdbc.update("UPDATE trusted_list_source SET name = ?, url = ?, format = ?, "
                 + "signer_certificates = ?, service_types = ?, accepted_statuses = ?, territories = ?, "
                 + "grace_hours = ?, enabled = ?, version = version + 1, config_version = config_version + 1, "
                 + "lease_owner = NULL, lease_until = NULL, updated_at = ?" + reset
@@ -156,13 +159,110 @@ public class TrustedListRepository {
                                  final String servicesJson, final long now, final long nextRefreshAt) {
         final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET status = ?, last_attempt_at = ?, "
                 + "last_success_at = ?, list_issued_at = ?, next_update = ?, next_refresh_at = ?, sequence_number = ?, "
-                + "lists_read = ?, last_error = NULL, services_json = ?, version = version + 1, lease_owner = NULL, "
-                + "lease_until = NULL WHERE id = ? AND lease_owner = ? AND config_version = ? "
+                + "lists_read = ?, last_error = NULL, services_json = ?, list_of_lists = FALSE, version = version + 1, "
+                + "lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ? AND config_version = ? "
                 + "AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
                 TrustedListHealth.Status.OK.name(), now, now, loaded.issuedAt().toEpochMilli(),
                 loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(),
                 servicesJson, id, owner, configVersion, loaded.sequence()));
         return n != null && n == 1;
+    }
+
+    /** What to write for one member of a verified list of lists. */
+    public record MemberWrite(LoadedList.Member member, String servicesJson, String failureStatus) {
+    }
+
+    /**
+     * Stores a verified list of trusted lists, under the same conditions as {@link #recordSuccess}, and in the same
+     * transaction its members: a loaded member replaces its last good state (never with a lower sequence number, also
+     * checked here), a failed one keeps it and records the error, and members the list no longer points at (or that
+     * the territories no longer select) are deleted. False means nothing was written.
+     */
+    public boolean recordListOfListsSuccess(final String id, final String owner, final long configVersion,
+                                            final LoadedList loaded, final List<MemberWrite> members, final long now,
+                                            final long nextRefreshAt) {
+        final Boolean ok = tx.execute(s -> {
+            final int n = jdbc.update("UPDATE trusted_list_source SET status = ?, last_attempt_at = ?, "
+                    + "last_success_at = ?, list_issued_at = ?, next_update = ?, next_refresh_at = ?, "
+                    + "sequence_number = ?, lists_read = ?, last_error = NULL, services_json = '[]', "
+                    + "list_of_lists = TRUE, version = version + 1, lease_owner = NULL, lease_until = NULL "
+                    + "WHERE id = ? AND lease_owner = ? AND config_version = ? "
+                    + "AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
+                    TrustedListHealth.Status.OK.name(), now, now, loaded.issuedAt().toEpochMilli(),
+                    loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(), id,
+                    owner, configVersion, loaded.sequence());
+            if (n != 1) {
+                return false;
+            }
+            final java.util.Set<String> keep = new java.util.HashSet<>();
+            for (final MemberWrite w : members) {
+                final LoadedList.Member m = w.member();
+                keep.add(m.key());
+                if (m.loaded()) {
+                    jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
+                            + "(?, ?, ?, ?, 'OK', ?, ?, ?, ?, ?, ?, NULL, 1) ON CONFLICT (source_id, member_key) DO "
+                            + "UPDATE SET status = 'OK', services_json = EXCLUDED.services_json, "
+                            + "sequence_number = EXCLUDED.sequence_number, list_issued_at = EXCLUDED.list_issued_at, "
+                            + "next_update = EXCLUDED.next_update, last_attempt_at = EXCLUDED.last_attempt_at, "
+                            + "last_success_at = EXCLUDED.last_success_at, last_error = NULL, "
+                            + "version = trusted_list_member.version + 1 WHERE trusted_list_member.sequence_number IS "
+                            + "NULL OR trusted_list_member.services_json IS NULL "
+                            + "OR trusted_list_member.sequence_number <= EXCLUDED.sequence_number",
+                            id, m.key(), m.location(), m.territory(), w.servicesJson(), m.sequence(),
+                            m.issuedAt().toEpochMilli(), m.nextUpdate().toEpochMilli(), now, now);
+                } else {
+                    final String error = truncate(m.errorKind() + ": " + m.errorMessage());
+                    jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
+                            + "(?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, 1) ON CONFLICT (source_id, "
+                            + "member_key) DO UPDATE SET status = EXCLUDED.status, last_attempt_at = "
+                            + "EXCLUDED.last_attempt_at, last_error = EXCLUDED.last_error, "
+                            + "version = trusted_list_member.version + 1",
+                            id, m.key(), m.location(), m.territory(), w.failureStatus(), now, error);
+                }
+            }
+            for (final Member existing : jdbc.query("SELECT " + MEMBER_COLUMNS
+                    + " FROM trusted_list_member WHERE source_id = ?", MEMBER_MAPPER, id)) {
+                if (!keep.contains(existing.key())) {
+                    jdbc.update("DELETE FROM trusted_list_member WHERE source_id = ? AND member_key = ?", id,
+                            existing.key());
+                }
+            }
+            return true;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /** The members of a list of trusted lists, in no particular order. */
+    public List<Member> members(final String sourceId) {
+        return readTx.execute(s -> jdbc.query("SELECT " + MEMBER_COLUMNS
+                + " FROM trusted_list_member WHERE source_id = ? ORDER BY territory, location", MEMBER_MAPPER,
+                sourceId));
+    }
+
+    /**
+     * Moves a member's stored status to {@code status} only when it is still at {@code expectedVersion} and not
+     * already there, and bumps the source's version so replicas reload; true for exactly one caller.
+     */
+    public boolean transitionMember(final String sourceId, final String key, final String status,
+                                    final long expectedVersion, final long now) {
+        final Boolean ok = tx.execute(s -> {
+            final int n = jdbc.update("UPDATE trusted_list_member SET status = ?, version = version + 1 "
+                    + "WHERE source_id = ? AND member_key = ? AND status <> ? AND version = ?", status, sourceId, key,
+                    status, expectedVersion);
+            if (n == 1) {
+                jdbc.update("UPDATE trusted_list_source SET version = version + 1, updated_at = ? WHERE id = ?", now,
+                        sourceId);
+            }
+            return n == 1;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    private int resetMembers(final boolean reset, final String id) {
+        if (reset) {
+            jdbc.update("DELETE FROM trusted_list_member WHERE source_id = ?", id);
+        }
+        return 0;
     }
 
     /**
@@ -219,6 +319,12 @@ public class TrustedListRepository {
         return rs.wasNull() ? null : v;
     }
 
+    private static final RowMapper<Member> MEMBER_MAPPER = (rs, i) -> new Member(rs.getString("source_id"),
+            rs.getString("member_key"), rs.getString("location"), rs.getString("territory"), rs.getString("status"),
+            rs.getString("services_json"), longOrNull(rs, "sequence_number"), longOrNull(rs, "list_issued_at"),
+            longOrNull(rs, "next_update"), longOrNull(rs, "last_attempt_at"), longOrNull(rs, "last_success_at"),
+            rs.getString("last_error"), rs.getLong("version"));
+
     private static final RowMapper<TrustedListSource> MAPPER = (rs, i) -> {
         final TrustedListSpec.Format format;
         try {
@@ -238,6 +344,7 @@ public class TrustedListRepository {
                         longOrNull(rs, "next_update"), longOrNull(rs, "next_refresh_at"),
                         longOrNull(rs, "sequence_number"), listsRead,
                         rs.getString("last_error"), rs.getString("services_json"), rs.getLong("version"),
-                        rs.getLong("config_version"), rs.getLong("created_at"), rs.getLong("updated_at")));
+                        rs.getLong("config_version"), rs.getBoolean("list_of_lists"), rs.getLong("created_at"),
+                        rs.getLong("updated_at")));
     };
 }

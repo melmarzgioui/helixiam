@@ -7,6 +7,7 @@ package io.helixiam.authorization.federation.wallet.trust.tl;
 
 import java.security.cert.X509Certificate;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -20,9 +21,12 @@ import java.util.Set;
  * @param acceptedStatuses  current statuses that count (XML only); default {@link #DEFAULT_STATUSES}
  * @param territories       for a list of trusted lists: the territories whose lists are read (empty: all)
  * @param previousSequence  the sequence number of the last list accepted, or null: a lower one is refused (rollback)
+ * @param previousMemberSequences for a list of lists: member key ({@link LoadedList.Member#key}) → the sequence number
+ *                          of that member's last list accepted; a member with a lower one is refused (rollback)
  */
 public record TrustedListSpec(String url, Format format, List<X509Certificate> signers, Set<String> serviceTypes,
-                              Set<String> acceptedStatuses, Set<String> territories, Long previousSequence) {
+                              Set<String> acceptedStatuses, Set<String> territories, Long previousSequence,
+                              Map<String, Long> previousMemberSequences) {
 
     /** The list formats HelixIAM reads. */
     public enum Format {
@@ -54,6 +58,13 @@ public record TrustedListSpec(String url, Format format, List<X509Certificate> s
         acceptedStatuses = acceptedStatuses == null || acceptedStatuses.isEmpty() ? DEFAULT_STATUSES
                 : Set.copyOf(acceptedStatuses);
         territories = territories == null ? Set.of() : Set.copyOf(territories);
+        previousMemberSequences = previousMemberSequences == null ? Map.of() : Map.copyOf(previousMemberSequences);
+    }
+
+    public TrustedListSpec(final String url, final Format format, final List<X509Certificate> signers,
+                           final Set<String> serviceTypes, final Set<String> acceptedStatuses,
+                           final Set<String> territories, final Long previousSequence) {
+        this(url, format, signers, serviceTypes, acceptedStatuses, territories, previousSequence, Map.of());
     }
 
     public static TrustedListSpec of(final String url, final Format format, final List<X509Certificate> signers,
@@ -62,14 +73,22 @@ public record TrustedListSpec(String url, Format format, List<X509Certificate> s
     }
 
     public TrustedListSpec withAcceptedStatuses(final Set<String> value) {
-        return new TrustedListSpec(url, format, signers, serviceTypes, value, territories, previousSequence);
+        return new TrustedListSpec(url, format, signers, serviceTypes, value, territories, previousSequence,
+                previousMemberSequences);
     }
 
     public TrustedListSpec withTerritories(final Set<String> value) {
-        return new TrustedListSpec(url, format, signers, serviceTypes, acceptedStatuses, value, previousSequence);
+        return new TrustedListSpec(url, format, signers, serviceTypes, acceptedStatuses, value, previousSequence,
+                previousMemberSequences);
     }
 
     public TrustedListSpec withPreviousSequence(final Long value) {
-        return new TrustedListSpec(url, format, signers, serviceTypes, acceptedStatuses, territories, value);
+        return new TrustedListSpec(url, format, signers, serviceTypes, acceptedStatuses, territories, value,
+                previousMemberSequences);
+    }
+
+    public TrustedListSpec withPreviousMemberSequences(final Map<String, Long> value) {
+        return new TrustedListSpec(url, format, signers, serviceTypes, acceptedStatuses, territories,
+                previousSequence, value);
     }
 }

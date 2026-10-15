@@ -1151,9 +1151,27 @@ CREATE TABLE IF NOT EXISTS trusted_list_source (
     services_json       text,
     version             bigint                  NOT NULL,
     config_version      bigint                  NOT NULL DEFAULT 1,
+    list_of_lists       boolean                 NOT NULL DEFAULT false,
     lease_owner         character varying(64),
     lease_until         bigint,
     created_at          bigint                  NOT NULL,
     updated_at          bigint                  NOT NULL,
     CONSTRAINT trusted_list_source_realm_name_uq UNIQUE (realm_id, name)
+);
+-- Trusted lists (same as Flyway V83): the members of a list of trusted lists, each with its own state.
+CREATE TABLE IF NOT EXISTS trusted_list_member (
+    source_id       character varying(36)   NOT NULL REFERENCES trusted_list_source (id) ON DELETE CASCADE,
+    member_key      character varying(64)   NOT NULL,
+    location        character varying(2048) NOT NULL,
+    territory       character varying(16),
+    status          character varying(16)   NOT NULL,
+    services_json   text,
+    sequence_number bigint,
+    list_issued_at  bigint,
+    next_update     bigint,
+    last_attempt_at bigint,
+    last_success_at bigint,
+    last_error      character varying(1000),
+    version         bigint                  NOT NULL,
+    PRIMARY KEY (source_id, member_key)
 );

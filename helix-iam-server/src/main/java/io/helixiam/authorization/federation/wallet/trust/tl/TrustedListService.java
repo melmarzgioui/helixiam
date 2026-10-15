@@ -57,6 +57,9 @@ public class TrustedListService implements TrustedListAnchorSource {
     public static final String STALE = "TRUSTED_LIST_STALE";
     public static final String EXPIRED = "TRUSTED_LIST_EXPIRED";
     public static final String DISCARDED = "TRUSTED_LIST_REFRESH_DISCARDED";
+    public static final String MEMBER_REFRESH_FAILED = "TRUSTED_LIST_MEMBER_REFRESH_FAILED";
+    public static final String MEMBER_STALE = "TRUSTED_LIST_MEMBER_STALE";
+    public static final String MEMBER_EXPIRED = "TRUSTED_LIST_MEMBER_EXPIRED";
 
     /** Renews the leases of running refreshes (one daemon thread for every service instance). */
     private static final ScheduledExecutorService LEASE_KEEPER = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -105,7 +108,10 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
     }
 
-    private record Snapshot(TrustedListSource source, List<ListedService> services) {
+    private record MemberSnapshot(TrustedListSource.Member member, List<ListedService> services) {
+    }
+
+    private record Snapshot(TrustedListSource source, List<ListedService> services, List<MemberSnapshot> members) {
     }
 
     private final TrustedListRepository repository;
@@ -135,14 +141,53 @@ public class TrustedListService implements TrustedListAnchorSource {
         return repository.get(realmId, id);
     }
 
-    /** The last good services of a source (whatever its status now), for the console's preview. */
+    /**
+     * The last good services of a source (whatever its status now), for the console's preview; for a list of
+     * trusted lists, those of every member.
+     */
     public List<ListedService> services(final TrustedListSource source) {
-        return ServicesCodec.decode(source.state().servicesJson());
+        if (!source.state().listOfLists()) {
+            return ServicesCodec.decode(source.state().servicesJson());
+        }
+        final List<ListedService> out = new ArrayList<>();
+        for (final TrustedListSource.Member m : repository.members(source.id())) {
+            out.addAll(ServicesCodec.decode(m.servicesJson()));
+        }
+        return out;
     }
 
-    /** The status of {@code source} now. */
+    /** Decodes stored services (for views); unreadable rows give none. */
+    public static List<ListedService> decode(final String servicesJson) {
+        return ServicesCodec.decode(servicesJson);
+    }
+
+    /** The members of a list of trusted lists (empty for a single list). */
+    public List<TrustedListSource.Member> members(final TrustedListSource source) {
+        return source.state().listOfLists() ? repository.members(source.id()) : List.of();
+    }
+
+    /** The status of one member now. */
+    public TrustedListHealth.Status memberStatus(final TrustedListSource source, final TrustedListSource.Member m) {
+        return TrustedListHealth.evaluate(source, m, clock.instant());
+    }
+
+    /**
+     * The status of {@code source} now: its own (the list, or the list of lists), or {@code DEGRADED} for a healthy
+     * list of lists some of whose members are not.
+     */
     public TrustedListHealth.Status status(final TrustedListSource source) {
-        return TrustedListHealth.evaluate(source, clock.instant());
+        return aggregate(source, members(source));
+    }
+
+    private TrustedListHealth.Status aggregate(final TrustedListSource source,
+                                               final List<TrustedListSource.Member> members) {
+        final Instant now = clock.instant();
+        final TrustedListHealth.Status own = TrustedListHealth.evaluate(source, now);
+        if (own == TrustedListHealth.Status.OK && members.stream()
+                .anyMatch(m -> TrustedListHealth.evaluate(source, m, now) != TrustedListHealth.Status.OK)) {
+            return TrustedListHealth.Status.DEGRADED;
+        }
+        return own;
     }
 
     /** @throws InvalidConfigException for bad settings or a name already used in the realm */
@@ -262,8 +307,34 @@ public class TrustedListService implements TrustedListAnchorSource {
                     audit.emit(source.realmId(), STALE, source.id(), "FAILURE", detail);
                 }
             }
+            for (final MemberSnapshot ms : snapshot.members()) {
+                final TrustedListSource.Member m = ms.member();
+                final TrustedListHealth.Status ownStatus = TrustedListHealth.evaluate(source, m, now);
+                if ((ownStatus == TrustedListHealth.Status.STALE || ownStatus == TrustedListHealth.Status.EXPIRED)
+                        && !ownStatus.name().equals(m.status())
+                        && repository.transitionMember(source.id(), m.key(), ownStatus.name(), m.version(),
+                                now.toEpochMilli())) {
+                    final Map<String, String> detail = memberDetail(source, m);
+                    detail.put("nextUpdate", instant(m.nextUpdate()));
+                    detail.put("graceHours", String.valueOf(source.config().graceHours()));
+                    final boolean expired = ownStatus == TrustedListHealth.Status.EXPIRED;
+                    LOG.warn("trusted lists: member {} ({}) of {} of realm {} is {}", LogSafe.sanitize(m.territory()),
+                            LogSafe.sanitize(m.location()), LogSafe.sanitize(source.config().name()),
+                            LogSafe.sanitize(source.realmId()), expired ? "EXPIRED: its anchors are no longer used"
+                                    : "STALE: its last good anchors are used within the grace period");
+                    audit.emit(source.realmId(), expired ? MEMBER_EXPIRED : MEMBER_STALE, source.id(), "FAILURE",
+                            detail);
+                }
+            }
         }
         sync();
+    }
+
+    private static Map<String, String> memberDetail(final TrustedListSource source, final TrustedListSource.Member m) {
+        final Map<String, String> d = detail(source);
+        d.put("territory", m.territory() == null ? "" : m.territory());
+        d.put("memberUrl", m.location());
+        return d;
     }
 
     /**
@@ -280,7 +351,14 @@ public class TrustedListService implements TrustedListAnchorSource {
             }
             final Optional<TrustedListSource> row = repository.byId(v.getKey());
             if (row.isPresent()) {
-                snapshots.put(v.getKey(), new Snapshot(row.get(), ServicesCodec.decode(row.get().state().servicesJson())));
+                final List<MemberSnapshot> members = new ArrayList<>();
+                if (row.get().state().listOfLists()) {
+                    for (final TrustedListSource.Member m : repository.members(row.get().id())) {
+                        members.add(new MemberSnapshot(m, ServicesCodec.decode(m.servicesJson())));
+                    }
+                }
+                snapshots.put(v.getKey(), new Snapshot(row.get(),
+                        ServicesCodec.decode(row.get().state().servicesJson()), List.copyOf(members)));
                 reloaded++;
             }
         }
@@ -306,7 +384,18 @@ public class TrustedListService implements TrustedListAnchorSource {
                     || !TrustedListHealth.evaluate(source, now).anchorsUsable()) {
                 continue;
             }
-            for (final ListedService service : snapshot.services()) {
+            final List<ListedService> usable = new ArrayList<>();
+            if (source.state().listOfLists()) {
+                // each member counts only within its own NextUpdate plus grace
+                for (final MemberSnapshot m : snapshot.members()) {
+                    if (TrustedListHealth.evaluate(source, m.member(), now).anchorsUsable()) {
+                        usable.addAll(m.services());
+                    }
+                }
+            } else {
+                usable.addAll(snapshot.services());
+            }
+            for (final ListedService service : usable) {
                 if ((types.isEmpty() || types.contains(service.serviceType()))
                         && TrustAnchors.trustAnchorProblem(service.certificate()) == null
                         && !out.contains(service.certificate())) {
@@ -366,10 +455,18 @@ public class TrustedListService implements TrustedListAnchorSource {
             final Instant planned = now.plus(settings.refreshInterval());
             final Instant next = loaded.nextUpdate().isBefore(planned) ? loaded.nextUpdate() : planned;
             final long nextRefresh = Math.max(next.toEpochMilli(), now.plus(Duration.ofMinutes(1)).toEpochMilli());
-            if (!repository.recordSuccess(id, owner, configVersion, loaded, ServicesCodec.encode(loaded.services()),
-                    now.toEpochMilli(), nextRefresh)) {
+            final List<TrustedListSource.Member> before = loaded.listOfLists() ? repository.members(id) : List.of();
+            final boolean stored = loaded.listOfLists()
+                    ? repository.recordListOfListsSuccess(id, owner, configVersion, loaded,
+                            memberWrites(source, before, loaded, now), now.toEpochMilli(), nextRefresh)
+                    : repository.recordSuccess(id, owner, configVersion, loaded,
+                            ServicesCodec.encode(loaded.services()), now.toEpochMilli(), nextRefresh);
+            if (!stored) {
                 discarded(source, detail);
                 return true;
+            }
+            if (loaded.listOfLists()) {
+                auditMembers(source, before, loaded, now, detail);
             }
             final long usable = loaded.services().stream()
                     .filter(s -> TrustAnchors.trustAnchorProblem(s.certificate()) == null).count();
@@ -389,6 +486,62 @@ public class TrustedListService implements TrustedListAnchorSource {
             repository.releaseLease(id, owner);
             sync();
         }
+    }
+
+    private List<TrustedListRepository.MemberWrite> memberWrites(final TrustedListSource source,
+            final List<TrustedListSource.Member> before, final LoadedList loaded, final Instant now) {
+        final List<TrustedListRepository.MemberWrite> out = new ArrayList<>();
+        for (final LoadedList.Member m : loaded.members()) {
+            if (m.loaded()) {
+                out.add(new TrustedListRepository.MemberWrite(m, ServicesCodec.encode(m.services()), null));
+            } else {
+                final TrustedListSource.Member old = before.stream().filter(b -> b.key().equals(m.key())).findFirst()
+                        .orElse(null);
+                final Instant lastGood = old == null || old.servicesJson() == null || old.nextUpdate() == null ? null
+                        : Instant.ofEpochMilli(old.nextUpdate());
+                final TrustedListHealth.Status status = TrustedListHealth.evaluate(true, lastGood,
+                        Duration.ofHours(source.config().graceHours()), true, true, now);
+                out.add(new TrustedListRepository.MemberWrite(m, null, status.name()));
+            }
+        }
+        return out;
+    }
+
+    /** One audit event (and a log line) per member that failed; the source's own event lists them all. */
+    private void auditMembers(final TrustedListSource source, final List<TrustedListSource.Member> before,
+                              final LoadedList loaded, final Instant now, final Map<String, String> sourceDetail) {
+        final List<String> ok = new ArrayList<>();
+        final List<String> failedMembers = new ArrayList<>();
+        for (final LoadedList.Member m : loaded.members()) {
+            final String label = m.territory() == null ? m.location() : m.territory();
+            if (m.loaded()) {
+                ok.add(label);
+                continue;
+            }
+            failedMembers.add(label);
+            final Map<String, String> detail = detail(source);
+            detail.put("territory", m.territory() == null ? "" : m.territory());
+            detail.put("memberUrl", m.location());
+            detail.put("reason", m.errorKind().name());
+            detail.put("message", m.errorMessage());
+            final TrustedListSource.Member old = before.stream().filter(b -> b.key().equals(m.key())).findFirst()
+                    .orElse(null);
+            if (old != null && old.servicesJson() != null && old.nextUpdate() != null) {
+                final Instant until = Instant.ofEpochMilli(old.nextUpdate())
+                        .plus(Duration.ofHours(source.config().graceHours()));
+                if (now.isBefore(until)) {
+                    detail.put("anchorsKeptUntil", until.toString());
+                }
+            }
+            LOG.warn("trusted lists: member {} ({}) of {} of realm {} refused ({}: {}){}",
+                    LogSafe.sanitize(label), LogSafe.sanitize(m.location()), LogSafe.sanitize(source.config().name()),
+                    LogSafe.sanitize(source.realmId()), m.errorKind(), LogSafe.sanitize(m.errorMessage()),
+                    detail.containsKey("anchorsKeptUntil") ? "; its last good anchors are kept until "
+                            + detail.get("anchorsKeptUntil") : "; it gives no anchors");
+            audit.emit(source.realmId(), MEMBER_REFRESH_FAILED, source.id(), "FAILURE", detail);
+        }
+        sourceDetail.put("membersLoaded", String.join(" ", ok));
+        sourceDetail.put("membersFailed", String.join(" ", failedMembers));
     }
 
     /** The result was not stored: the lease was lost or the settings changed while the list was loading. */
@@ -427,7 +580,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         audit.emit(source.realmId(), REFRESH_FAILED, source.id(), "FAILURE", detail);
     }
 
-    private static TrustedListSpec spec(final TrustedListSource source) {
+    private TrustedListSpec spec(final TrustedListSource source) {
         final TrustedListSource.Config c = source.config();
         final List<X509Certificate> signers;
         try {
@@ -436,9 +589,15 @@ public class TrustedListService implements TrustedListAnchorSource {
             throw new IllegalStateException("stored signer certificates cannot be read");
         }
         final boolean hadGood = source.state().servicesJson() != null;
+        final Map<String, Long> memberSequences = new java.util.HashMap<>();
+        for (final TrustedListSource.Member m : members(source)) {
+            if (m.servicesJson() != null && m.sequenceNumber() != null) {
+                memberSequences.put(m.key(), m.sequenceNumber());
+            }
+        }
         return new TrustedListSpec(c.url(), c.format(), signers, Set.copyOf(c.serviceTypes()),
                 Set.copyOf(c.acceptedStatuses()), Set.copyOf(c.territories()),
-                hadGood ? source.state().sequenceNumber() : null);
+                hadGood ? source.state().sequenceNumber() : null, memberSequences);
     }
 
     private static Map<String, String> detail(final TrustedListSource source) {

@@ -511,4 +511,149 @@ class TrustedListServiceTest {
         b.sync();
         assertThat(anchors(b)).containsExactly(issuer);
     }
+
+    // ------------------------------------------------------------------------------------------------ list of lists
+
+    static final String LOTL = "https://lotl.example/lotl.xml";
+    static final String NL = "https://tl.example/NL.xml";
+    static final String DE = "https://tl.example/DE.xml";
+    final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
+    final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL Signer");
+    final TestPki.Leaf deSigner = TrustedListFixtures.signer("DE Signer");
+    final X509Certificate nlIssuer = TestPki.create("NL PID Issuer").root();
+    final X509Certificate deIssuer = TestPki.create("DE PID Issuer").root();
+
+    void serveLotl(final long sequence, final TrustedListFixtures.Pointer... pointers) {
+        final Spec spec = Spec.lotl().sequence(sequence).issued(clock.instant().minus(1, ChronoUnit.HOURS))
+                .nextUpdate(clock.instant().plus(60, ChronoUnit.DAYS));
+        for (final TrustedListFixtures.Pointer p : pointers) {
+            spec.pointer(p);
+        }
+        served.put(LOTL, TrustedListFixtures.signedXml(spec, lotlSigner));
+    }
+
+    void serveMember(final String url, final String territory, final long sequence, final int days,
+                     final TestPki.Leaf by, final Service... services) {
+        final Spec spec = Spec.memberState(territory).sequence(sequence).issued(clock.instant().minus(1, ChronoUnit.HOURS))
+                .nextUpdate(clock.instant().plus(days, ChronoUnit.DAYS));
+        for (final Service x : services) {
+            spec.service(x);
+        }
+        served.put(url, TrustedListFixtures.signedXml(spec, by));
+    }
+
+    TrustedListSource lotlSource() {
+        return service.create(realm, new TrustedListSource.Config("ut", LOTL, TrustedListSpec.Format.ETSI_119612_XML,
+                TestPki.pem(lotlSigner.certificate()), List.of(PID_TYPE), List.of(), List.of(), 24, true));
+    }
+
+    TrustedListSource.Member member(final TrustedListSource source, final String territory) {
+        return service.members(service.get(realm, source.id()).orElseThrow()).stream()
+                .filter(m -> territory.equals(m.territory())).findFirst().orElseThrow();
+    }
+
+    @Test
+    void lotl_oneBrokenMember_doesNotBlockTheOthers_andIsReportedAndAudited() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate()));
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+        serveMember(DE, "DE", 5, 30, nlSigner, Service.granted("DE", deIssuer)); // wrong signer for DE
+        final TrustedListSource created = lotlSource();
+
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(service.status(after)).isEqualTo(TrustedListHealth.Status.DEGRADED);
+        assertThat(anchors(service)).containsExactly(nlIssuer);
+        assertThat(member(created, "DE").lastError()).startsWith("SIGNATURE:");
+        assertThat(member(created, "NL").lastError()).isNull();
+        assertThat(audits).contains("TRUSTED_LIST_REFRESHED:SUCCESS", "TRUSTED_LIST_MEMBER_REFRESH_FAILED:FAILURE");
+        assertThat(auditDetails.stream().filter(d -> "DE".equals(d.get("territory")))).singleElement()
+                .satisfies(d -> assertThat(d).containsEntry("reason", "SIGNATURE"));
+    }
+
+    @Test
+    void lotl_memberReplayWithALowerSequence_isRefused_andItsNewerStateStays() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        // sequence 9 withdrew the issuer
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer).withStatus(WITHDRAWN));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        assertThat(anchors(service)).isEmpty();
+
+        // an attacker replays the older, still-fresh sequence 3 in which the issuer was granted
+        serveMember(NL, "NL", 3, 30, nlSigner, Service.granted("NL", nlIssuer));
+        service.refreshNow(realm, created.id());
+
+        assertThat(anchors(service)).isEmpty();
+        assertThat(member(created, "NL").lastError()).startsWith("ROLLBACK:");
+        assertThat(member(created, "NL").sequenceNumber()).isEqualTo(9);
+    }
+
+    @Test
+    void lotl_memberNearExpiry_expiresAlone() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate()));
+        serveMember(NL, "NL", 5, 5, nlSigner, Service.granted("NL", nlIssuer));
+        serveMember(DE, "DE", 5, 30, deSigner, Service.granted("DE", deIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        assertThat(anchors(service)).containsExactlyInAnyOrder(nlIssuer, deIssuer);
+
+        clock.advance(Duration.ofDays(5).plusHours(25)); // past NL's NextUpdate + 24 h grace only
+        service.checkHealth();
+        service.checkHealth();
+
+        assertThat(anchors(service)).containsExactly(deIssuer);
+        assertThat(audits.stream().filter(a -> a.startsWith("TRUSTED_LIST_MEMBER_EXPIRED"))).hasSize(1);
+        assertThat(audits).noneMatch(a -> a.startsWith("TRUSTED_LIST_EXPIRED"));
+        assertThat(service.status(service.get(realm, created.id()).orElseThrow()))
+                .isEqualTo(TrustedListHealth.Status.DEGRADED);
+    }
+
+    @Test
+    void lotl_failingMemberKeepsItsLastGoodAnchorsUntilItsOwnGraceEnds() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        served.remove(NL); // NL's list disappears
+
+        service.refreshNow(realm, created.id());
+
+        assertThat(member(created, "NL").lastError()).startsWith("FETCH:");
+        assertThat(anchors(service)).containsExactly(nlIssuer);
+        assertThat(auditDetails.stream().filter(d -> "NL".equals(d.get("territory")))).singleElement()
+                .satisfies(d -> assertThat(d).containsKey("anchorsKeptUntil").containsEntry("reason", "FETCH"));
+    }
+
+    @Test
+    void lotl_plainHttpPointer_isSkippedAndReported() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState("http://tl.example/SK.xml", "SK", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+        final TrustedListSource created = lotlSource();
+
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(member(created, "SK").lastError()).startsWith("POLICY:");
+        assertThat(anchors(service)).containsExactly(nlIssuer);
+        assertThat(service.status(after)).isEqualTo(TrustedListHealth.Status.DEGRADED);
+    }
+
+    @Test
+    void lotl_memberNoLongerPointedAt_isDropped() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate()));
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+        serveMember(DE, "DE", 5, 30, deSigner, Service.granted("DE", deIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+
+        serveLotl(11, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        service.refreshNow(realm, created.id());
+
+        assertThat(anchors(service)).containsExactly(nlIssuer);
+        assertThat(service.members(service.get(realm, created.id()).orElseThrow()))
+                .extracting(TrustedListSource.Member::territory).containsExactly("NL");
+    }
 }
