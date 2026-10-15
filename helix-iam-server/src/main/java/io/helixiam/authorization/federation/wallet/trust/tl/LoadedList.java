@@ -71,7 +71,12 @@ public record LoadedList(List<ListedService> services, Instant issuedAt, Instant
          * dropped and pointed at again, must still not go below the highest sequence number accepted for it.
          */
         public static String highWaterKey(final String territory, final String tslType) {
-            return (territory == null ? "" : territory) + "\n" + (tslType == null ? "" : tslType);
+            return hwmTerritory(territory) + "\n" + (tslType == null ? "" : tslType);
+        }
+
+        /** The territory as high-water marks store it: upper case, "" for none. */
+        public static String hwmTerritory(final String territory) {
+            return territory == null ? "" : territory.trim().toUpperCase(java.util.Locale.ROOT);
         }
 
         /** The member's identity: SHA-256 (hex) of its location and territory, so a moved list is a new member. */

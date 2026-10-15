@@ -246,7 +246,7 @@ public class TrustedListRepository {
                             + "sequence_number, mac) VALUES (?, ?, ?, ?, ?) ON CONFLICT (source_id, territory, tsl_type) "
                             + "DO UPDATE SET sequence_number = EXCLUDED.sequence_number, mac = EXCLUDED.mac "
                             + "WHERE trusted_list_hwm.sequence_number <= EXCLUDED.sequence_number", id,
-                            m.territory() == null ? "" : m.territory(), m.tslType() == null ? "" : m.tslType(),
+                            LoadedList.Member.hwmTerritory(m.territory()), m.tslType() == null ? "" : m.tslType(),
                             m.sequence(), w.hwmMac());
                     if (raised != 1) {
                         // refused: record it like any refused member, keeping that row's last good state

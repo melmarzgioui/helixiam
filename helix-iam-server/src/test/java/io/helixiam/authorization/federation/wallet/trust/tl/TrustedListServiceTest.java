@@ -993,6 +993,17 @@ class TrustedListServiceTest {
     }
 
     @Test
+    void theHighWaterMarkIsStoredWithAnUpperCaseTerritory() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "nl", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+
+        assertThat(JDBC.queryForList("SELECT territory FROM trusted_list_hwm WHERE source_id = ?", String.class,
+                created.id())).containsExactly("NL");
+    }
+
+    @Test
     void theHighWaterMarkIsEnforcedInSqlToo() {
         serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
         serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer).withStatus(WITHDRAWN));

@@ -451,6 +451,9 @@ class TrustedListLoaderTest {
 
         assertThat(member(loaded, "NL").errorKind()).isEqualTo(TrustedListException.Kind.ROLLBACK);
         assertThat(member(loaded, "NL").tslType()).isNull();
+        // the territory's case does not matter (a pointer may say "nl")
+        assertThat(LoadedList.Member.highWaterKey("nl", TrustedListFixtures.GENERIC_TYPE))
+                .isEqualTo(LoadedList.Member.highWaterKey("NL", TrustedListFixtures.GENERIC_TYPE));
         // a list of another type for the same territory has its own mark
         assertThat(LoadedList.Member.highWaterKey("NL", "x")).isNotEqualTo(
                 LoadedList.Member.highWaterKey("NL", TrustedListFixtures.GENERIC_TYPE));

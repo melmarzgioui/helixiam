@@ -373,7 +373,7 @@ public class TrustedListService implements TrustedListAnchorSource {
 
     private String hwmMac(final String sourceId, final long configVersion, final String territory,
                           final String tslType, final long sequence) {
-        return integrity.mac("hwm", sourceId, configVersion, territory == null ? "" : territory,
+        return integrity.mac("hwm", sourceId, configVersion, LoadedList.Member.hwmTerritory(territory),
                 tslType == null ? "" : tslType, sequence);
     }
 
