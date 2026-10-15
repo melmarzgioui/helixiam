@@ -438,27 +438,42 @@ anchors are read at every verification, so a refresh, a withdrawal or an expiry 
   final URL; at most `helix.wallet.trusted-lists.max-bytes`, 16 MB; connect 5 s, 30 s in total; slots of the
   `WALLET` fetch-limiter group, per realm);
 - its signature verifies with **one of the pinned signer certificates** (never with the certificate the list carries
-  in its own `KeyInfo` or `x5c`), and that certificate was valid at the list's `ListIssueDateTime`. XML: exactly one
-  enveloped `ds:Signature` under the root, one reference covering the whole list (`URI=""` or the root's `Id`), only
-  same-document references, only enveloped-signature and canonicalization transforms, unique `Id` attributes, RSA /
-  RSA-PSS / ECDSA with SHA-256/384/512 (Santuario secure validation). JSON: RS/PS/ES 256/384/512, no `alg=none`, no
-  detached or unencoded payload;
+  in its own `KeyInfo` or `x5c`). That certificate must have an RSA (≥ 2048 bits) or EC (P-256 or stronger) key, must
+  have been valid at the list's `ListIssueDateTime`, and must not have expired more than
+  `helix.wallet.trusted-lists.signer-expiry-grace-days` (180) ago, whatever date the list claims. (Lists are signed
+  at issue and stay valid until NextUpdate, so a signer can lapse before its list does: the EUDI test LOTL issued on
+  2026-04-30 is signed by a certificate that expired on 2026-07-04, which the default grace accepts; set the grace to
+  `0` to refuse it.) XML: exactly one enveloped `ds:Signature` under the root, one reference covering the whole list
+  (`URI=""` or the root's `Id`), only same-document references, only enveloped-signature and canonicalization
+  transforms, unique `Id` attributes; signature RSA PKCS#1 v1.5, RSASSA-PSS with MGF1 (the fixed-hash
+  `sha*-rsa-MGF1` identifiers only; the parameterised `rsa-pss` identifier is refused) or ECDSA with SHA-256/384/512,
+  and reference digests SHA-256/384/512 only (checked by HelixIAM: Santuario's secure validation alone still accepts
+  SHA-1 digests). JSON: RS/PS/ES 256/384/512, no `alg=none`, no detached or unencoded payload;
 - it was parsed without a DOCTYPE (so no entities), without XInclude or external DTD/schema access, at most 64
   levels deep;
-- its `NextUpdate` has not passed (a list without one is a closed list and is refused) and its sequence number is
-  not lower than that of the last list accepted (rollback);
-- for a list of trusted lists: every XML pointer to a non-list-of-lists list in the chosen territories is https and
-  verifies with the signer certificates **the list of lists names for it**; one failing list fails the whole refresh.
-  PDF renditions and pointers to other lists of lists are skipped.
+- its `NextUpdate` has not passed (a list without one is a closed list and is refused), counting it at most until
+  `ListIssueDateTime` plus six months (ETSI TS 119 612 §5.3.14; `helix.wallet.trusted-lists.max-validity-months`),
+  and its sequence number is not lower than that of the last list accepted (rollback; also enforced in SQL);
+- for a list of trusted lists: each XML pointer to a non-list-of-lists list in the chosen territories is a
+  **member**, judged on its own: it must be https, verify with the signer certificates **the list of lists names for
+  it**, carry the `SchemeTerritory` and `TSLType` the pointer names, be fresh, and not have a lower sequence number
+  than that member's last accepted list. A member that fails (a plain-http pointer is skipped and reported the same
+  way) keeps its own last good anchors until its own NextUpdate plus grace, then gives none; the other members are
+  not affected. Members the list no longer points at are dropped. PDF renditions and pointers to other lists of
+  lists are skipped.
 
 From a verified list HelixIAM keeps every service of the configured types whose **current** status is accepted and
-started (service history is ignored), and stores the services; only **CA certificates** that pass the usual anchor
+started (service history is ignored; in a LoTE, a service without a status counts, as listing is the trust decision
+there, and one with a status counts only when it is accepted), and stores the services; only **CA certificates** that pass the usual anchor
 rule (EC P-256/384/521 or RSA ≥ 2048, `keyCertSign`) become anchors. A listed end-entity certificate is shown in the
 preview as "not a CA" and not used.
 
 **Refresh and fail-safe.** Each replica checks every `helix.wallet.trusted-lists.check-interval-seconds` (60) for
 sources that are due; the one that takes the row's lease (a conditional update on `trusted_list_source`) refreshes,
-the others wait. A healthy source is refreshed at the earlier of its NextUpdate and
+the others wait. The lease is renewed while a load runs, is not re-entrant (the console and the scheduler of one
+replica cannot refresh the same source together), and is cleared by a settings change: a refresh stores its result
+only if it still holds the lease and the settings it started with are unchanged, otherwise the result is dropped and
+audited as `TRUSTED_LIST_REFRESH_DISCARDED`. A healthy source is refreshed at the earlier of its NextUpdate and
 `helix.wallet.trusted-lists.refresh-interval-minutes` (360) after the last refresh; a failed one after
 `retry-interval-minutes` (15). **Refresh now** in the console does the same at once (`409` while another refresh
 holds the lease). The verified services are stored in the database; every replica reloads the sources whose version
@@ -470,16 +485,29 @@ moved every `poll-interval-seconds` (10).
 | `FAILING` | yes (last good) | The last refresh failed (unreachable, bad signature, rollback, …) but the last good list is before its NextUpdate |
 | `STALE` | yes (last good) | Past the last good list's NextUpdate, within the grace period |
 | `EXPIRED` | **no** | Past NextUpdate plus grace: fail closed until a new list verifies |
-| `NEVER` / `ERROR` | no | Never loaded / never verified |
+| `DEGRADED` | yes (the good members) | A list of trusted lists that is itself fine, with some members failing, stale, expired or never verified; each member has its own status |
+| `NEVER` / `ERROR` | no | Never loaded / never verified (console: "Never verified") |
 | `DISABLED` | no | Switched off |
 
 Changing what a source loads (URL, format, signers, types, statuses, territories) drops its stored anchors at once.
-Deleting a source drops its anchors from every provider that names it.
+Deleting a source drops its anchors from every provider that names it. Providers name a source, so **renaming a source
+that providers use is refused** (remove it from them first) rather than silently re-pointing them.
 
-**Audit and logs.** `TRUSTED_LIST_REFRESHED` (services, usable anchors, lists verified, sequence, NextUpdate),
-`TRUSTED_LIST_REFRESH_FAILED` (reason, message, status, until when the last good anchors are kept),
-`TRUSTED_LIST_STALE` and `TRUSTED_LIST_EXPIRED` (each once, on one replica), all ADMIN-category with actor `system`;
-the admin writes are `TRUSTED_LIST_CREATE|UPDATE|DELETE|REFRESH_REQUEST`. Each is also logged (refresh INFO,
+**Integrity of the stored rows.** A source's settings (URL, format, pinned signers, types, statuses, territories) and
+the stored services of each source and member carry an HMAC-SHA256 keyed from `DB_ENCRYPTION`. A row whose MAC does
+not match (modified outside HelixIAM, or `DB_ENCRYPTION` changed) is not used: its anchors are dropped, a refresh is
+refused until the settings are saved again, and `TRUSTED_LIST_INTEGRITY_FAILED` is audited. Outside the `dev` profile a
+source cannot be saved without `DB_ENCRYPTION`; in `dev` without it there is no MAC and nothing is checked. After
+changing `DB_ENCRYPTION`, save each source again and refresh it.
+
+**Audit and logs.** `TRUSTED_LIST_REFRESHED` (services, usable anchors, lists verified, sequence, NextUpdate, members
+loaded and failed), `TRUSTED_LIST_REFRESH_FAILED` (reason, message, status, until when the last good anchors are kept),
+`TRUSTED_LIST_REFRESH_DISCARDED`, `TRUSTED_LIST_MEMBER_REFRESH_FAILED` (per member), `TRUSTED_LIST_STALE`,
+`TRUSTED_LIST_EXPIRED`, `TRUSTED_LIST_MEMBER_STALE` and `TRUSTED_LIST_MEMBER_EXPIRED` (each once, on one replica),
+`TRUSTED_LIST_SIGNER_EXPIRING` / `_EXPIRED` (a pinned signer expiring within 30 days, at every refresh) and
+`TRUSTED_LIST_INTEGRITY_FAILED`, all ADMIN-category with actor `system`; the admin writes are
+`TRUSTED_LIST_CREATE|UPDATE|DELETE|REFRESH_REQUEST`, with the name, URL and SHA-256 fingerprints of the pinned
+signers (and the previous values on an update). Each is also logged (refresh INFO,
 failure and stale WARN, expiry ERROR).
 
 **Pinning the signer.** The signer certificates must come from the publisher through a channel you trust, never from
@@ -496,6 +524,8 @@ certificates before the grace period ends. Automatic signer rotation (the LOTL "
 | `helix.wallet.trusted-lists.check-interval-seconds` | `60` | How often each replica looks for due sources (`0`: only "Refresh now") |
 | `helix.wallet.trusted-lists.poll-interval-seconds` | `10` | How often each replica reloads sources that changed elsewhere |
 | `helix.wallet.trusted-lists.max-bytes` | `16777216` (16 MB) | Largest list fetched |
+| `helix.wallet.trusted-lists.signer-expiry-grace-days` | `180` | How long after its expiry a signer may still verify a list issued while it was valid (`0`: never) |
+| `helix.wallet.trusted-lists.max-validity-months` | `6` | A list counts at most this long after its issue time, whatever its NextUpdate says |
 
 Not exported or imported with a realm: a realm import whose wallet provider names a trusted list fails validation
 until the source exists in the target realm.

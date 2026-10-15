@@ -142,6 +142,20 @@ question. Newest first within each phase.
   providers yet) and `helix-iam-server/SECURITY-REVIEW.md` Appendix B.11. Tests: `TrustedListLoaderTest`,
   `PinnedTrustedListFetcherTest`, `TrustedListServiceTest` (PostgreSQL, two replicas), `TrustedListHealthTest`,
   `TrustedListWalletE2eTest`; opt-in `PublishedTrustedListsManualTest` verified the three published lists.
+- **security (trusted lists, review of 2026-10-15).** All findings fixed: a refresh racing a settings change can no
+  longer store a list after a re-pin (`config_version`, Flyway **V82**; non-re-entrant, renewed lease;
+  `TRUSTED_LIST_REFRESH_DISCARDED`); each member of a list of trusted lists has its own state, rollback protection,
+  territory/type match and fail-safe grace, and a broken or plain-http member no longer fails the source (Flyway
+  **V83** `trusted_list_member`, status `DEGRADED`, per-member audit); reference digests SHA-256/384/512 only (Santuario
+  still accepted SHA-1) and no parameterised `rsa-pss`; signers expired more than
+  `signer-expiry-grace-days` (180) ago and RSA < 2048 / EC < P-256 keys are refused, expiring pinned signers are
+  audited; NextUpdate is capped at issue + 6 months (`max-validity-months`); LoTE service statuses use the
+  accepted-status allowlist; stored settings and anchors carry an HMAC keyed from `DB_ENCRYPTION` (Flyway **V84**,
+  `TRUSTED_LIST_INTEGRITY_FAILED`); health transitions are conditional on the version judged; sync and refresh run on
+  separate threads; renaming a source that providers use is refused, and admin writes are audited with the URL and
+  signer fingerprints. Console: FAILING and DEGRADED explained, "Never verified" for ERROR, members table, signer
+  expiry warnings, unknown trusted lists caught before saving, and dark-mode danger alerts fixed (a legacy
+  `.hx-alert` rule in `app.css` overrode the themed one).
 - **admin API:** `trustAnchors` on a wallet connection is no longer required when `trustedLists.sources` is set;
   an unknown source name is a `400` on `config.trustedLists.sources`.
 

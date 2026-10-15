@@ -352,21 +352,27 @@ Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-1
 
 ## EUDI Wallet: trusted lists (`EuTrustedListSource`, 2026-10-15) — open items
 
-Shipped: ETSI TS 119 612 XML and TS 119 602 LoTE JSON sources with pinned signers, fail-safe grace, lease-based
-refresh (see `SECURITY-REVIEW.md` Appendix B.11). Left, none of them a fail-open path:
+Shipped: ETSI TS 119 612 XML and TS 119 602 LoTE JSON sources with pinned signers, fail-safe grace per source and per
+member, lease-based refresh, integrity MACs (see `SECURITY-REVIEW.md` Appendix B.11). The 2026-10-15 review's
+findings are all fixed (B.11 lists them). What stays deferred, with the review's reasoning; none of them is a
+fail-open path:
 
-- **LOTL pivot chain / signer rotation.** The EU LOTL announces its signer certificates in the Official Journal and
-  in "pivot" LOTLs; HelixIAM only checks against the certificates an admin pinned. A rotation makes the list stop
-  verifying (FAILING → STALE → EXPIRED, audited) until the admin re-pins.
+- **LOTL signer pivot chain.** The EU LOTL announces its signer certificates in the Official Journal and in "pivot"
+  LOTLs; HelixIAM only checks against the certificates an admin pinned. A publisher's key rotation makes the list stop
+  verifying (FAILING → STALE → EXPIRED, audited; pinned signers expiring within 30 days are audited and shown in the
+  console beforehand) until the admin re-pins. Reasoning: automating it means trusting a chain of earlier LOTLs back to
+  an OJ-published anchor; getting that wrong would be a trust-root bypass, while the manual path fails closed.
 - **XAdES qualifying properties not interpreted.** `SignedProperties` is covered by the signature, but its
-  `SigningTime` and `SigningCertificateV2` digest are not compared to the pinned signer; the signer's validity is
-  checked against `ListIssueDateTime` instead.
-- **No revocation check of the pinned signer certificates** (they are pinned explicitly; a revoked signer must be
-  removed by hand).
-- **LoTE pointers (`PointersToOtherLoTE`) are not followed**; plain-http pointers in a LOTL are refused (the EU LOTL
-  has one, for SK), which fails a load that includes that territory: choose territories.
+  `SigningTime` and `SigningCertificateV2` digest are not compared to the pinned signer. Reasoning: the signature is
+  checked against pinned keys only, the signer's validity is checked against `ListIssueDateTime` and against *now*
+  (expiry grace), so these properties add evidence but no missing check.
+- **LoTE pointers (`PointersToOtherLoTE`) are not followed.** Reasoning: no published LoTE uses them yet; following
+  them needs the same per-member machinery as the LOTL and a format that is not yet in use to test against.
 - **Realm export/import** does not carry trusted list sources; an imported wallet provider that names one is refused
-  until the source exists.
-- **The EUDI reference implementation's test LOTL signer expired on 2026-07-04** (valid when the current list was
-  issued, so it still verifies); its next issue must be re-pinned.
+  until the source exists in the target realm. Reasoning: pinned signers are trust roots and should be pinned
+  deliberately in each realm, not copied by an import.
 
+Accepted (not deferred): the pinned signers are not checked for revocation. They are pinned explicitly, are refused
+once expired beyond the grace, are audited when expiring, and a compromised one is removed by re-pinning, which
+discards any in-flight refresh. The EUDI reference implementation's test LOTL signer expired on 2026-07-04 (inside the
+default 180-day signer-expiry grace); its next issue may need a new pin.
