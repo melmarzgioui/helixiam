@@ -28,6 +28,7 @@ import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFi
 import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.WITHDRAWN;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 /**
  * {@link TrustedListLoader} on lists built and signed in the test: what counts as a current service, signature and
@@ -198,7 +199,7 @@ class TrustedListLoaderTest {
 
         assertThat(loader.load(spec(TL_URL, expired), "realm").services()).hasSize(1);
         assertKind(() -> new TrustedListLoader(fetcher, Clock.systemUTC(), SecureXml.DEFAULT_MAX_BYTES,
-                new TrustedListLoader.Settings(java.time.Duration.ZERO)).load(spec(TL_URL, expired), "realm"),
+                new TrustedListLoader.Settings(java.time.Duration.ZERO, java.time.Period.ofMonths(6))).load(spec(TL_URL, expired), "realm"),
                 TrustedListException.Kind.SIGNER);
     }
 
@@ -233,6 +234,32 @@ class TrustedListLoaderTest {
                         n, kp.getPublic()).build(new org.bouncycastle.operator.jcajce.JcaContentSignerBuilder(
                         "SHA256withRSA").build(kp.getPrivate())));
         return new TestPki.Leaf(c, kp.getPrivate(), List.of(c));
+    }
+
+    @Test
+    void nextUpdateIsCappedAtIssuePlusSixMonths() throws Exception {
+        final Instant issued = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.SECONDS);
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT").issued(issued)
+                .nextUpdate(Instant.now().plus(1000, ChronoUnit.DAYS)).service(Service.granted("A", issuerA)), signer));
+
+        final LoadedList loaded = loader.load(spec(TL_URL, signer), "realm");
+
+        assertThat(loaded.nextUpdate()).isEqualTo(issued.atZone(java.time.ZoneOffset.UTC).plusMonths(6).toInstant());
+    }
+
+    @Test
+    void listIssuedMoreThanSixMonthsAgo_isExpired_whateverItsNextUpdateSays() {
+        final Instant now = Instant.now();
+        final TestPki.Leaf old = TrustedListFixtures.signer("Old", now.minus(400, ChronoUnit.DAYS),
+                now.plus(400, ChronoUnit.DAYS));
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT").issued(now.minus(200, ChronoUnit.DAYS))
+                .nextUpdate(now.plus(30, ChronoUnit.DAYS)).service(Service.granted("A", issuerA)), old));
+
+        assertKind(() -> loader.load(spec(TL_URL, old), "realm"), TrustedListException.Kind.EXPIRED);
+        // a longer, configured validity accepts it
+        assertThat(assertDoesNotThrow(() -> new TrustedListLoader(fetcher, Clock.systemUTC(),
+                SecureXml.DEFAULT_MAX_BYTES, new TrustedListLoader.Settings(java.time.Duration.ofDays(180),
+                java.time.Period.ofMonths(12))).load(spec(TL_URL, old), "realm")).services()).hasSize(1);
     }
 
     @Test

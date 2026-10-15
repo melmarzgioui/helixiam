@@ -13,6 +13,8 @@ import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Period;
+import java.time.ZoneOffset;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -46,12 +48,16 @@ public final class TrustedListLoader {
      *                          2026-04-30 was signed by a certificate that expired on 2026-07-04); beyond the grace the
      *                          list is refused however it is dated, so a long-expired (possibly leaked) key cannot sign
      *                          a backdated list. Default 180 days ({@code helix.wallet.trusted-lists.signer-expiry-grace-days}).
+     * @param maxValidity       the longest a list counts after its ListIssueDateTime: its NextUpdate is capped there
+     *                          (ETSI TS 119 612 §5.3.14: NextUpdate at most six months after issue). Default six months
+     *                          ({@code helix.wallet.trusted-lists.max-validity-months}).
      */
-    public record Settings(Duration signerExpiryGrace) {
-        public static final Settings DEFAULTS = new Settings(Duration.ofDays(180));
+    public record Settings(Duration signerExpiryGrace, Period maxValidity) {
+        public static final Settings DEFAULTS = new Settings(Duration.ofDays(180), Period.ofMonths(6));
 
         public Settings {
             Objects.requireNonNull(signerExpiryGrace, "signerExpiryGrace");
+            Objects.requireNonNull(maxValidity, "maxValidity");
         }
     }
 
@@ -198,13 +204,23 @@ public final class TrustedListLoader {
         if (format == TrustedListSpec.Format.ETSI_119602_JSON) {
             final LoteJsonList.Verified verified = LoteJsonList.read(body, usable);
             checkSigner(verified.signer(), verified.list().issued());
-            return verified.list();
+            return capped(verified.list());
         }
         final Document doc = SecureXml.parse(body, maxBytes);
         final X509Certificate signer = XmlListSignature.verify(doc, usable);
         final Etsi119612List list = Etsi119612List.read(doc.getDocumentElement());
         checkSigner(signer, list.issued());
-        return list;
+        return capped(list);
+    }
+
+    /** The list with its NextUpdate capped at ListIssueDateTime plus {@link Settings#maxValidity} (UTC calendar). */
+    private Etsi119612List capped(final Etsi119612List list) {
+        final Instant cap = list.issued().atZone(ZoneOffset.UTC).plus(settings.maxValidity()).toInstant();
+        if (list.nextUpdate() == null || !list.nextUpdate().isAfter(cap)) {
+            return list;
+        }
+        return new Etsi119612List(list.type(), list.territory(), list.sequence(), list.issued(), cap, list.pointers(),
+                list.services());
     }
 
     /**
