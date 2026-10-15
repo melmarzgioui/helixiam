@@ -12,6 +12,7 @@ import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -36,18 +37,43 @@ public final class TrustedListLoader {
     /** Most services kept from one load. */
     public static final int MAX_SERVICES = 10_000;
 
+    /**
+     * Policy knobs.
+     *
+     * @param signerExpiryGrace how long after its notAfter a signer certificate may still verify a list that was issued
+     *                          while it was valid. Lists are signed at issue and stay valid until NextUpdate, so a
+     *                          signer may lapse before the list does (the EUDI reference implementation's test LOTL of
+     *                          2026-04-30 was signed by a certificate that expired on 2026-07-04); beyond the grace the
+     *                          list is refused however it is dated, so a long-expired (possibly leaked) key cannot sign
+     *                          a backdated list. Default 180 days ({@code helix.wallet.trusted-lists.signer-expiry-grace-days}).
+     */
+    public record Settings(Duration signerExpiryGrace) {
+        public static final Settings DEFAULTS = new Settings(Duration.ofDays(180));
+
+        public Settings {
+            Objects.requireNonNull(signerExpiryGrace, "signerExpiryGrace");
+        }
+    }
+
     private final TrustedListFetcher fetcher;
     private final Clock clock;
     private final long maxBytes;
+    private final Settings settings;
 
     public TrustedListLoader(final TrustedListFetcher fetcher, final Clock clock) {
         this(fetcher, clock, SecureXml.DEFAULT_MAX_BYTES);
     }
 
     public TrustedListLoader(final TrustedListFetcher fetcher, final Clock clock, final long maxBytes) {
+        this(fetcher, clock, maxBytes, Settings.DEFAULTS);
+    }
+
+    public TrustedListLoader(final TrustedListFetcher fetcher, final Clock clock, final long maxBytes,
+                             final Settings settings) {
         this.fetcher = Objects.requireNonNull(fetcher, "fetcher");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.maxBytes = maxBytes;
+        this.settings = Objects.requireNonNull(settings, "settings");
     }
 
     /**
@@ -159,29 +185,42 @@ public final class TrustedListLoader {
     private Etsi119612List fetchVerified(final TrustedListSpec.Format format, final String url,
                                          final List<X509Certificate> signers, final String realm)
             throws TrustedListException {
+        final List<X509Certificate> usable = signers.stream().filter(c -> PemCertificates.keyProblem(c) == null)
+                .toList();
+        if (usable.isEmpty()) {
+            throw new TrustedListException(TrustedListException.Kind.SIGNER,
+                    "no signer certificate has an acceptable key (RSA 2048 bits or more, or EC P-256 or stronger)");
+        }
         final byte[] body = fetcher.fetch(url, realm);
         if (body.length > maxBytes) {
             throw new TrustedListException(TrustedListException.Kind.TOO_LARGE, "the list is larger than the size cap");
         }
         if (format == TrustedListSpec.Format.ETSI_119602_JSON) {
-            final LoteJsonList.Verified verified = LoteJsonList.read(body, signers);
+            final LoteJsonList.Verified verified = LoteJsonList.read(body, usable);
             checkSigner(verified.signer(), verified.list().issued());
             return verified.list();
         }
         final Document doc = SecureXml.parse(body, maxBytes);
-        final X509Certificate signer = XmlListSignature.verify(doc, signers);
+        final X509Certificate signer = XmlListSignature.verify(doc, usable);
         final Etsi119612List list = Etsi119612List.read(doc.getDocumentElement());
         checkSigner(signer, list.issued());
         return list;
     }
 
-    /** The pinned signer must have been valid when the list was issued (the list is signed at issue). */
-    private static void checkSigner(final X509Certificate signer, final Instant issued) throws TrustedListException {
+    /**
+     * The signer must have been valid when the list was issued (the list is signed at issue), and must not have expired
+     * longer ago than {@link Settings#signerExpiryGrace} (whatever date the list claims).
+     */
+    private void checkSigner(final X509Certificate signer, final Instant issued) throws TrustedListException {
         try {
             signer.checkValidity(Date.from(issued));
         } catch (final CertificateExpiredException | CertificateNotYetValidException e) {
             throw new TrustedListException(TrustedListException.Kind.SIGNER,
                     "the signer certificate was not valid when the list was issued");
+        }
+        if (clock.instant().isAfter(signer.getNotAfter().toInstant().plus(settings.signerExpiryGrace()))) {
+            throw new TrustedListException(TrustedListException.Kind.SIGNER, "the signer certificate expired more than "
+                    + settings.signerExpiryGrace().toDays() + " days ago; pin the publisher's current certificate");
         }
     }
 

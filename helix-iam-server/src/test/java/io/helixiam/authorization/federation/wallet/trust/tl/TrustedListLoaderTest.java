@@ -173,6 +173,69 @@ class TrustedListLoaderTest {
     }
 
     @Test
+    void signerExpiredLongerAgoThanTheGrace_isRefused_evenForABackdatedList() {
+        // the review's case: a key that expired 400 days ago signs a list backdated into its validity
+        final Instant now = Instant.now();
+        final TestPki.Leaf expired = TrustedListFixtures.signer("Expired", now.minus(800, ChronoUnit.DAYS),
+                now.minus(400, ChronoUnit.DAYS));
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .issued(now.minus(401, ChronoUnit.DAYS)).nextUpdate(now.plus(30, ChronoUnit.DAYS))
+                .service(Service.granted("Issuer A", issuerA)), expired));
+
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, expired), "realm"), TrustedListException.Kind.SIGNER))
+                .hasMessageContaining("expired");
+    }
+
+    @Test
+    void signerExpiredWithinTheGrace_isAccepted_likeTheCurrentEudiTestList() throws Exception {
+        // the EUDI reference implementation's test LOTL: signer expired ~100 days ago, list issued while it was valid
+        final Instant now = Instant.now();
+        final TestPki.Leaf expired = TrustedListFixtures.signer("EUDI-like", now.minus(400, ChronoUnit.DAYS),
+                now.minus(103, ChronoUnit.DAYS));
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .issued(now.minus(168, ChronoUnit.DAYS)).nextUpdate(now.plus(12, ChronoUnit.DAYS))
+                .service(Service.granted("Issuer A", issuerA)), expired));
+
+        assertThat(loader.load(spec(TL_URL, expired), "realm").services()).hasSize(1);
+        assertKind(() -> new TrustedListLoader(fetcher, Clock.systemUTC(), SecureXml.DEFAULT_MAX_BYTES,
+                new TrustedListLoader.Settings(java.time.Duration.ZERO)).load(spec(TL_URL, expired), "realm"),
+                TrustedListException.Kind.SIGNER);
+    }
+
+    @Test
+    void weakSignerKeyNamedByAListOfLists_isNotUsed() throws Exception {
+        final TestPki.Leaf weak = weakRsaSigner();
+        final TestPki.Leaf lotl = TrustedListFixtures.signer("LOTL");
+        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl()
+                .pointer(Pointer.memberState(NL_URL, "NL", weak.certificate())), lotl));
+        served.put(NL_URL, TrustedListFixtures.sign(TrustedListFixtures.xml(Spec.memberState("NL")
+                .service(Service.granted("NL", issuerA))), weak,
+                org.apache.xml.security.signature.XMLSignature.ALGO_ID_SIGNATURE_RSA_SHA256,
+                "http://www.w3.org/2001/04/xmlenc#sha256"));
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotl), "realm");
+
+        assertThat(loaded.members()).singleElement().satisfies(m -> {
+            assertThat(m.loaded()).isFalse();
+            assertThat(m.errorKind()).isEqualTo(TrustedListException.Kind.SIGNER);
+        });
+    }
+
+    static TestPki.Leaf weakRsaSigner() throws Exception {
+        final java.security.KeyPairGenerator g = java.security.KeyPairGenerator.getInstance("RSA");
+        g.initialize(1024);
+        final java.security.KeyPair kp = g.generateKeyPair();
+        final org.bouncycastle.asn1.x500.X500Name n = new org.bouncycastle.asn1.x500.X500Name("CN=Weak RSA");
+        final Instant now = Instant.now();
+        final X509Certificate c = new org.bouncycastle.cert.jcajce.JcaX509CertificateConverter().getCertificate(
+                new org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder(n, java.math.BigInteger.TEN,
+                        java.util.Date.from(now.minus(1, ChronoUnit.DAYS)), java.util.Date.from(now.plus(9, ChronoUnit.DAYS)),
+                        n, kp.getPublic()).build(new org.bouncycastle.operator.jcajce.JcaContentSignerBuilder(
+                        "SHA256withRSA").build(kp.getPrivate())));
+        return new TestPki.Leaf(c, kp.getPrivate(), List.of(c));
+    }
+
+    @Test
     void sha1ReferenceDigest_isRefused() {
         final String xml = TrustedListFixtures.xml(Spec.memberState("UT").service(Service.granted("Issuer A", issuerA)));
         served.put(TL_URL, TrustedListFixtures.sign(xml, signer,

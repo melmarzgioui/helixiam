@@ -29,7 +29,9 @@ import java.util.Map;
  *   <li>{@code retry-interval-minutes} (default 15): wait after a failed refresh;</li>
  *   <li>{@code check-interval-seconds} (default 60, 0 = off): how often each replica looks for due sources;</li>
  *   <li>{@code poll-interval-seconds} (default 10, 0 = off): how often each replica reloads sources that moved;</li>
- *   <li>{@code max-bytes} (default 16 MB): the largest list fetched.</li>
+ *   <li>{@code max-bytes} (default 16 MB): the largest list fetched;</li>
+ *   <li>{@code signer-expiry-grace-days} (default 180): how long after its expiry a signer may still verify a list
+ *       issued while it was valid.</li>
  * </ul>
  * Lists are fetched with the JDK's default trust store, through the {@link OutboundUrlGuard} bean.
  */
@@ -47,10 +49,12 @@ public class TrustedListConfiguration {
             final AuditLog auditLog,
             @Value("${helix.wallet.trusted-lists.refresh-interval-minutes:360}") final long refreshMinutes,
             @Value("${helix.wallet.trusted-lists.retry-interval-minutes:15}") final long retryMinutes,
-            @Value("${helix.wallet.trusted-lists.max-bytes:" + SecureXml.DEFAULT_MAX_BYTES + "}") final long maxBytes)
+            @Value("${helix.wallet.trusted-lists.max-bytes:" + SecureXml.DEFAULT_MAX_BYTES + "}") final long maxBytes,
+            @Value("${helix.wallet.trusted-lists.signer-expiry-grace-days:180}") final long signerGraceDays)
             throws NoSuchAlgorithmException {
         final TrustedListLoader loader = new TrustedListLoader(
-                new PinnedTrustedListFetcher(guard, SSLContext.getDefault(), maxBytes), Clock.systemUTC(), maxBytes);
+                new PinnedTrustedListFetcher(guard, SSLContext.getDefault(), maxBytes), Clock.systemUTC(), maxBytes,
+                new TrustedListLoader.Settings(Duration.ofDays(Math.max(0, signerGraceDays))));
         return new TrustedListService(repository, loader, auditSink(auditLog), Clock.systemUTC(),
                 new TrustedListService.Settings(Duration.ofMinutes(Math.max(5, refreshMinutes)),
                         Duration.ofMinutes(Math.max(1, retryMinutes)), Duration.ofMinutes(2)));

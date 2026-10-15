@@ -299,6 +299,37 @@ class TrustedListServiceTest {
     }
 
     @Test
+    void weakPinnedSignerKey_isAFieldError() {
+        final TrustedListSource.Config weak = new TrustedListSource.Config("weak", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(TestPki.caCertificate(TestPki.KeyType.RSA_1024, null)),
+                List.of(PID_TYPE), List.of(), List.of(), 24, true);
+        assertThatThrownBy(() -> service.create(realm, weak))
+                .isInstanceOfSatisfying(TrustedListService.InvalidConfigException.class,
+                        e -> assertThat(e.fieldErrors()).containsOnlyKeys("signerCertificates")
+                                .extractingByKey("signerCertificates").asString().contains("2048"));
+        final TrustedListSource.Config strong = new TrustedListSource.Config("strong", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(TestPki.caCertificate(TestPki.KeyType.RSA_2048, null)),
+                List.of(PID_TYPE), List.of(), List.of(), 24, true);
+        assertThat(service.create(realm, strong).config().name()).isEqualTo("strong");
+    }
+
+    @Test
+    void pinnedSignerExpiringSoon_isAuditedOnRefresh() {
+        final TestPki.Leaf soon = TrustedListFixtures.signer("Soon", clock.instant().minus(Duration.ofDays(300)),
+                clock.instant().plus(Duration.ofDays(10)));
+        served.put(URL, TrustedListFixtures.signedXml(listWith(3, Service.granted("Issuer", issuer)), soon));
+        final TrustedListSource created = service.create(realm, new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(soon.certificate()), List.of(PID_TYPE), List.of(),
+                List.of(), 24, true));
+
+        service.refreshNow(realm, created.id());
+
+        assertThat(audits).contains("TRUSTED_LIST_SIGNER_EXPIRING:FAILURE");
+        assertThat(auditDetails.stream().filter(d -> d.containsKey("signerNotAfter"))).singleElement()
+                .satisfies(d -> assertThat(d.get("signerSubject")).contains("CN=Soon"));
+    }
+
+    @Test
     void deletedSource_isGoneOnEveryReplica() {
         serve(listWith(3, Service.granted("Issuer", issuer)));
         final TrustedListService other = newReplica(fetcher);

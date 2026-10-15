@@ -39,7 +39,13 @@ public final class TrustedListConfigValidator {
             e.put("format", "Choose the list format");
         }
         try {
-            PemCertificates.parse(c.signerCertificates());
+            for (final java.security.cert.X509Certificate cert : PemCertificates.parse(c.signerCertificates())) {
+                final String problem = PemCertificates.keyProblem(cert);
+                if (problem != null) {
+                    e.put("signerCertificates", problem + " (RSA 2048 bits or more, or EC P-256 or stronger)");
+                    break;
+                }
+            }
         } catch (final IllegalArgumentException ex) {
             e.put("signerCertificates", ex.getMessage());
         }

@@ -57,6 +57,10 @@ public class TrustedListService implements TrustedListAnchorSource {
     public static final String STALE = "TRUSTED_LIST_STALE";
     public static final String EXPIRED = "TRUSTED_LIST_EXPIRED";
     public static final String DISCARDED = "TRUSTED_LIST_REFRESH_DISCARDED";
+    public static final String SIGNER_EXPIRING = "TRUSTED_LIST_SIGNER_EXPIRING";
+    public static final String SIGNER_EXPIRED = "TRUSTED_LIST_SIGNER_EXPIRED";
+    /** A pinned signer expiring within this is audited at every refresh (and shown in the console). */
+    public static final Duration SIGNER_WARNING = Duration.ofDays(30);
     public static final String MEMBER_REFRESH_FAILED = "TRUSTED_LIST_MEMBER_REFRESH_FAILED";
     public static final String MEMBER_STALE = "TRUSTED_LIST_MEMBER_STALE";
     public static final String MEMBER_EXPIRED = "TRUSTED_LIST_MEMBER_EXPIRED";
@@ -480,6 +484,7 @@ public class TrustedListService implements TrustedListAnchorSource {
                     LogSafe.sanitize(source.realmId()), loaded.listsRead(), loaded.services().size(), usable,
                     loaded.sequence(), loaded.nextUpdate());
             audit.emit(source.realmId(), REFRESHED, source.id(), "SUCCESS", detail);
+            auditSigners(source, now);
             return true;
         } finally {
             keeper.cancel(false);
@@ -542,6 +547,30 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
         sourceDetail.put("membersLoaded", String.join(" ", ok));
         sourceDetail.put("membersFailed", String.join(" ", failedMembers));
+    }
+
+    /** Audits every pinned signer that has expired or expires within {@link #SIGNER_WARNING}: re-pin in time. */
+    private void auditSigners(final TrustedListSource source, final Instant now) {
+        final List<X509Certificate> signers;
+        try {
+            signers = PemCertificates.parse(source.config().signerCertificates());
+        } catch (final IllegalArgumentException e) {
+            return;
+        }
+        for (final X509Certificate signer : signers) {
+            final Instant notAfter = signer.getNotAfter().toInstant();
+            if (notAfter.isAfter(now.plus(SIGNER_WARNING))) {
+                continue;
+            }
+            final boolean expired = !notAfter.isAfter(now);
+            final Map<String, String> detail = detail(source);
+            detail.put("signerSubject", signer.getSubjectX500Principal().getName());
+            detail.put("signerNotAfter", notAfter.toString());
+            LOG.warn("trusted lists: a pinned signer of {} of realm {} {} {}; pin the publisher's new certificate",
+                    LogSafe.sanitize(source.config().name()), LogSafe.sanitize(source.realmId()),
+                    expired ? "expired on" : "expires on", notAfter);
+            audit.emit(source.realmId(), expired ? SIGNER_EXPIRED : SIGNER_EXPIRING, source.id(), "FAILURE", detail);
+        }
     }
 
     /** The result was not stored: the lease was lost or the settings changed while the list was loading. */

@@ -62,6 +62,25 @@ public final class TrustedListFixtures {
         return TestPki.selfSignedLeaf("CN=" + name + ", O=Test Scheme Operator, C=EU");
     }
 
+    /** A self-signed EC P-256 list signer valid from {@code notBefore} to {@code notAfter} (e.g. long expired). */
+    public static TestPki.Leaf signer(final String name, final Instant notBefore, final Instant notAfter) {
+        try {
+            final java.security.KeyPairGenerator g = java.security.KeyPairGenerator.getInstance("EC");
+            g.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            final java.security.KeyPair kp = g.generateKeyPair();
+            final org.bouncycastle.asn1.x500.X500Name n = new org.bouncycastle.asn1.x500.X500Name("CN=" + name);
+            final X509Certificate c = new org.bouncycastle.cert.jcajce.JcaX509CertificateConverter().getCertificate(
+                    new org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder(n,
+                            java.math.BigInteger.valueOf(System.nanoTime()), java.util.Date.from(notBefore),
+                            java.util.Date.from(notAfter), n, kp.getPublic())
+                            .build(new org.bouncycastle.operator.jcajce.JcaContentSignerBuilder("SHA256withECDSA")
+                                    .build(kp.getPrivate())));
+            return new TestPki.Leaf(c, kp.getPrivate(), List.of(c));
+        } catch (final Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** One listed trust service. */
     public record Service(String provider, String name, String type, String status, Instant statusStart,
                           X509Certificate certificate) {

@@ -53,4 +53,21 @@ public final class PemCertificates {
         }
         return List.copyOf(out);
     }
+
+    /**
+     * Why {@code cert} cannot sign a trusted list (its key is too weak or of a type list signatures do not use), or
+     * null when it can: RSA of at least 2048 bits, or EC on a curve of at least 256 bits.
+     */
+    public static String keyProblem(final X509Certificate cert) {
+        final java.security.PublicKey key = cert.getPublicKey();
+        if (key instanceof java.security.interfaces.RSAPublicKey rsa) {
+            return rsa.getModulus().bitLength() >= 2048 ? null
+                    : "A signer certificate's RSA key is shorter than 2048 bits";
+        }
+        if (key instanceof java.security.interfaces.ECPublicKey ec) {
+            return ec.getParams().getCurve().getField().getFieldSize() >= 256 ? null
+                    : "A signer certificate's EC key is on a curve smaller than P-256";
+        }
+        return "A signer certificate must have an RSA (at least 2048 bits) or EC (P-256 or stronger) key";
+    }
 }
