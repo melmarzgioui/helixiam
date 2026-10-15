@@ -58,7 +58,9 @@ import java.util.Set;
  * <p>Claims: {@code response_type=vp_token}, {@code client_id}, {@code response_mode}, {@code response_uri},
  * {@code nonce}, {@code state} ({@link #walletState}, never {@code helixState}), {@code dcql_query} (the transaction's
  * query as a JSON object), {@code client_metadata}, {@code aud=https://self-issued.me/v2} (§5.8, static discovery),
- * {@code iat} = now and {@code exp} = the transaction expiry (rounded down to whole seconds). OpenID4VP defines neither
+ * {@code iat} = the transaction's creation and {@code exp} = its expiry (both rounded down to whole seconds; neither
+ * depends on when the request is fetched, so a wallet that fetches it again, conformance ruling D2, gets the same claims:
+ * only a POST fetch's {@code wallet_nonce} and the ECDSA signature differ). OpenID4VP defines neither
  * {@code iat} nor {@code exp} for the request object; JAR allows them. {@code nbf} and {@code iss} are left out:
  * neither OpenID4VP nor HAIP asks for them, and wallets ignore {@code iss} (§5).
  *
@@ -224,7 +226,7 @@ public final class AuthorizationRequestFactory {
                 .claim("dcql_query", dcqlQuery(tx))
                 .claim("client_metadata", clientMetadata(tx, cfg, encrypted))
                 .audience(AUDIENCE)
-                .issueTime(Date.from(now))
+                .issueTime(Date.from(Instant.ofEpochSecond(tx.createdAt().getEpochSecond())))
                 .expirationTime(Date.from(Instant.ofEpochSecond(exp)));
         if (walletNonce != null) {
             builder.claim("wallet_nonce", walletNonce);

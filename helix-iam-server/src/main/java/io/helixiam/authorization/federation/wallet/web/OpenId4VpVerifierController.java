@@ -36,9 +36,10 @@ import java.util.regex.Pattern;
  *
  * <ul>
  *   <li>{@code GET|POST /oid4vp/<alias>/request/<requestId>}: the signed request object
- *       ({@code application/oauth-authz-req+jwt}, {@code Cache-Control: no-store}), served once:
- *       {@code claimRequest} records which of the two request ids (same-device or cross-device) was used; a second
- *       fetch of either is 404. POST is the {@code request_uri_method=post} fetch (§5.10): its optional
+ *       ({@code application/oauth-authz-req+jwt}, {@code Cache-Control: no-store}). {@code claimRequest} records which
+ *       of the two request ids (same-device or cross-device) was fetched first; from then on the other one is 404.
+ *       The same id may be fetched again until the wallet's response arrives (conformance ruling D2: a wallet retrying
+ *       after a network error gets the same request, with the same claims), then it is 404 too. POST is the {@code request_uri_method=post} fetch (§5.10): its optional
  *       {@code wallet_nonce} (URL-safe ASCII, at most 256 characters) is echoed in the request object as §5.10
  *       requires; {@code wallet_metadata} is ignored (Helix's request does not depend on it). GET is accepted whatever
  *       the configured method ("Wallets not supporting the post method will send a GET request", §5.1).</li>

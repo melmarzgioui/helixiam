@@ -16,8 +16,8 @@ import java.time.Instant;
  *
  * <p><b>Same-device vs cross-device (spec §6, the chosen mechanism):</b> each transaction has two request ids. The QR
  * code carries {@link #crossDeviceRequestId}, the same-device button carries {@link #sameDeviceRequestId}.
- * {@link WalletTransactionStore#claimRequest} sets {@link #flow} from whichever id the wallet fetched; only one of the
- * two can ever be fetched. The {@code direct_post} handler returns a {@code redirect_uri} only for
+ * {@link WalletTransactionStore#claimRequest} sets {@link #flow} from whichever id the wallet fetched first; only that
+ * one can be fetched (again, until the response arrives: conformance ruling D2). The {@code direct_post} handler returns a {@code redirect_uri} only for
  * {@link Flow#SAME_DEVICE}. {@link #flow} is {@code null} until the request is fetched.
  *
  * <p>The request ids, {@link #responseId} and {@link #responseCode} are bearer secrets. Stores index them by their

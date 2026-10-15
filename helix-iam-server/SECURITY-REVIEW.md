@@ -536,7 +536,15 @@ shapes several of the mitigations below:
 Every identifier the protocol hands to the wallet or expects back (`transactionId`, request/response ids,
 `nonce`, `response_code`) is `SecureRandom`-generated at ≥128 bits and enforced single-use **atomically** at the
 store (`WalletTransactionStore#redeem`: "Keeps the `WalletTransaction`s and makes every state transition atomic
-and single use"). A second redemption attempt with a correct code does not "burn" the transaction for a third
+and single use"). One deliberate exception, the request ids: the first fetch binds the transaction to that flow (the other
+request id is refused from then on), and the **same** request id may be fetched again while the transaction is
+`REQUEST_FETCHED`; once the response has been received, or the transaction has ended or expired, it is 404
+(`claimRequest`, one atomic step in all three stores; `AbstractWalletTransactionStoreTest` runs the cases against
+memory, Redis and PostgreSQL). **Ruling (2026-10-15, conformance run D2):** wallets retry a `request_uri` fetch after
+a network error and the HAIP certification plan tests it. A re-fetch exposes nothing new: the request is the same
+(`iat` is the transaction's creation, so even the claims are identical) and signed, it reaches only whoever already
+holds that bearer id, and the response stays strictly single use, so the extra fetch cannot be turned into a second
+answer. A second redemption attempt with a correct code does not "burn" the transaction for a third
 party who does not hold the code — burning on mismatch would let anyone who merely observes/guesses a
 `response_code` cancel the legitimate holder's login, which is a worse outcome than letting the real holder retry
 (ledger Task 16 ruling). The `_sd`/`...` disclosure digests inside a credential, the KB-JWT/DeviceSignature,

@@ -162,7 +162,7 @@ All paths are relative to the realm base used by the existing broker routes; fol
 | `GET /broker/{alias}` | Browser | *Existing.* Calls `start()` → 302 to wallet page. |
 | `GET /broker/{alias}/wallet?tx=` | Browser | **New.** Thymeleaf page: QR code (cross-device) + "Open wallet" button (same-device) + (Phase 4) Digital Credentials API. |
 | `GET /broker/{alias}/wallet/status?tx=` | Browser (JS poll) | **New.** JSON `{status: PENDING\|COMPLETED\|FAILED\|EXPIRED, next?: url}`. Bound to the browser session (§10). |
-| `GET\|POST /oid4vp/{alias}/request/{requestId}` | Wallet | **New.** Returns the signed request object, `Content-Type: application/oauth-authz-req+jwt`. Support `request_uri_method=post` if HAIP requires it; otherwise GET. **Single use.** |
+| `GET\|POST /oid4vp/{alias}/request/{requestId}` | Wallet | **New.** Returns the signed request object, `Content-Type: application/oauth-authz-req+jwt`. Support `request_uri_method=post` if HAIP requires it; otherwise GET. **Bound to the first flow; the same id may be fetched again until the response arrives** (security requirement 2). |
 | `POST /oid4vp/{alias}/response/{responseId}` | Wallet | **New.** `response_uri`; accepts `application/x-www-form-urlencoded` with `response` (JWE) for `direct_post.jwt`, and `vp_token`/`state` or `error` for `direct_post`. Verifies, then returns `200 {"redirect_uri": "..."}` for same-device, or `200 {}` for cross-device. |
 | `GET /broker/{alias}/callback?response_code=&state=` | Browser | *Existing.* Calls `callback()`. |
 
@@ -396,7 +396,14 @@ helix:
 ## 10. Security requirements (non-negotiable)
 
 1. **Browser binding:** the `status` endpoint and the `callback` only act for the browser session that started the transaction (same cookie/session id, compared by hash). A leaked QR code or `transactionId` must not let an attacker complete someone else's login.
-2. **Single use** of `requestId`, `responseId`, `nonce` and `response_code`, enforced atomically (§6).
+2. **Single use** of `responseId`, `nonce` and `response_code`, enforced atomically (§6). A `requestId` is single use
+   per flow: the first fetch binds the transaction to its flow (the other flow's id is refused from then on), the same
+   id may be fetched again while the transaction is `REQUEST_FETCHED`, and it is refused once the response has been
+   received or the transaction has ended or expired. *Ruling (2026-10-15, after the OpenID Foundation conformance run,
+   `docs/compliance/oid4vp-conformance/README.md` D2):* real wallets retry a `request_uri` fetch after a network error,
+   and the HAIP certification plan tests it (`request-uri-fetched-twice`). A re-fetch exposes nothing new: it returns the
+   same signed request (same nonce, state, response URI, ephemeral key, `iat`, `exp`) to whoever holds the same bearer
+   id, and the response stays single use, so it cannot be used to answer twice.
 3. **No session fixation:** rotate the Helix session id on successful login, as the existing broker does; verify this.
 4. All random identifiers use `SecureRandom` with ≥128 bits.
 5. Strict input limits:

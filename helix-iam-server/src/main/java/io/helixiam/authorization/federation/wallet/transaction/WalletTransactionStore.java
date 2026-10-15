@@ -36,7 +36,12 @@ public interface WalletTransactionStore {
 
     Optional<WalletTransaction> byTransactionId(String id);
 
-    /** Atomic CREATED→REQUEST_FETCHED, records which requestId (flow) was used. Empty if not CREATED / expired. */
+    /**
+     * Atomic CREATED→REQUEST_FETCHED, records which requestId (flow) was used. Conformance ruling D2: while the
+     * transaction is REQUEST_FETCHED, the same flow's requestId returns it again, unchanged (a wallet retrying its
+     * request_uri fetch). Empty for the other flow's id, once the response was received or the transaction ended, and
+     * when expired.
+     */
     Optional<WalletTransaction> claimRequest(String requestId);
 
     /** Atomic REQUEST_FETCHED→RESPONSE_RECEIVED for responseId. Empty on second call. */

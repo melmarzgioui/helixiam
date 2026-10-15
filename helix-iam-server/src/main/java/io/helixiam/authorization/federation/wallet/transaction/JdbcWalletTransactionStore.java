@@ -185,11 +185,16 @@ public class JdbcWalletTransactionStore implements WalletTransactionStore, AutoC
             return Optional.empty();
         }
         final String hash = SecretHash.of(requestId);
-        // Whichever request id was fetched decides the flow; only one of the two can ever be (status = CREATED).
+        // Whichever request id is fetched first decides the flow; only one of the two can ever be (status = CREATED).
+        // Conformance ruling D2: the same flow's id fetched again before the response arrived is a re-fetch, which this
+        // one statement answers with the unchanged row (the CASE yields the flow it already has).
         return one(() -> jdbc.query("UPDATE wallet_transaction SET status = 'REQUEST_FETCHED', flow = CASE WHEN "
                 + "same_device_request_hash = ? THEN 'SAME_DEVICE' ELSE 'CROSS_DEVICE' END "
-                + "WHERE (same_device_request_hash = ? OR cross_device_request_hash = ?) AND status = 'CREATED' "
-                + "AND expires_at > ? RETURNING " + COLUMNS, rows, hash, hash, hash, now()));
+                + "WHERE expires_at > ? AND ((status = 'CREATED' "
+                + "AND (same_device_request_hash = ? OR cross_device_request_hash = ?)) "
+                + "OR (status = 'REQUEST_FETCHED' AND ((flow = 'SAME_DEVICE' AND same_device_request_hash = ?) "
+                + "OR (flow = 'CROSS_DEVICE' AND cross_device_request_hash = ?)))) RETURNING " + COLUMNS,
+                rows, hash, now(), hash, hash, hash, hash));
     }
 
     @Override

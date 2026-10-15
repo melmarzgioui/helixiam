@@ -165,12 +165,16 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore, A
         }
         final String hash = SecretHash.of(requestId);
         return transition(index.get(hash), entry -> {
-            if (entry.tx().status() != Status.CREATED) {
-                return null;
-            }
             final Flow flow = hash.equals(entry.sameDeviceHash()) ? Flow.SAME_DEVICE
                     : hash.equals(entry.crossDeviceHash()) ? Flow.CROSS_DEVICE : null;
-            return flow == null ? null : entry.with(entry.tx().claimed(flow));
+            if (flow == null) {
+                return null;
+            }
+            if (entry.tx().status() == Status.CREATED) {
+                return entry.with(entry.tx().claimed(flow));
+            }
+            // A re-fetch (conformance ruling D2): the same request id, before the response arrived, changes nothing.
+            return entry.tx().status() == Status.REQUEST_FETCHED && entry.tx().flow() == flow ? entry : null;
         }).map(Entry::tx);
     }
 
