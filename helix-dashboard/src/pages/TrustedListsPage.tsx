@@ -538,12 +538,12 @@ function TrustedListEditor({ initial, withPresets, signers, submitLabel, onSubmi
       </FormField>
       <FormField label={t("tl.form.statuses")} required error={fe("acceptedStatuses")}
         hint={form.format === "ETSI_119602_JSON" ? t("tl.form.statusesHintLote") : t("tl.form.statusesHint")} group>
-            <div className="hx-optiongrid">
-              {STATUS_OPTIONS.map((s) => (
-                <Checkbox key={s.value} checked={form.acceptedStatuses.includes(s.value)} onChange={(on) => toggleStatus(s.value, on)}
-                  label={<span className="hx-optlabel"><span>{t(`tl.statusOpt.${s.key}`)}</span><span className="hx-optlabel__sub hx-mono">{`…/${s.value.slice(s.value.lastIndexOf("/") + 1)}`}</span></span>} />
-              ))}
-            </div>
+        <div className="hx-optiongrid">
+          {STATUS_OPTIONS.map((s) => (
+            <Checkbox key={s.value} checked={form.acceptedStatuses.includes(s.value)} onChange={(on) => toggleStatus(s.value, on)}
+              label={<span className="hx-optlabel"><span>{t(`tl.statusOpt.${s.key}`)}</span><span className="hx-optlabel__sub hx-mono">{`…/${s.value.slice(s.value.lastIndexOf("/") + 1)}`}</span></span>} />
+          ))}
+        </div>
       </FormField>
       {form.format === "ETSI_119612_XML" && (
         <>
