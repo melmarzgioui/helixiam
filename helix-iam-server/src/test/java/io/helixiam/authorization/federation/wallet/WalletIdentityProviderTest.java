@@ -713,4 +713,72 @@ class WalletIdentityProviderTest {
             throw new UnsupportedOperationException();
         }
     }
+
+    // ------------------------------------------------------------------------------------------------ verify-only
+
+    private WalletIdentityProvider verifyOnlyProvider() {
+        final Map<String, String> stored = valid();
+        stored.put("subject.strategy", "NONE");
+        stored.put("verify.linkedProvider", "eudi-login");
+        return providers(keys, DeploymentProfile.production()).build(REALM, config(stored));
+    }
+
+    private String verifiedVerifyCode(final String transactionId) {
+        final WalletTransaction tx = store.byTransactionId(transactionId).orElseThrow();
+        assertThat(store.claimRequest(tx.sameDeviceRequestId())).isPresent();
+        assertThat(store.claimResponse(tx.responseId())).isPresent();
+        final String code = "code-" + transactionId;
+        assertThat(store.complete(transactionId, code, VerifiedIdentityJson.writeVerify(
+                new WalletSubject.AdminNumber("aa11", null), Map.of(), "http://eidas.europa.eu/LoA/high", null,
+                null))).isTrue();
+        return code;
+    }
+
+    @Test
+    void aVerifyOnlyProvider_neverStartsALoginOrALink_andIsNotSignInCapable() {
+        final WalletIdentityProvider provider = verifyOnlyProvider();
+        assertThat(provider.signInCapable()).isFalse();
+        assertThat(provider().signInCapable()).isTrue();
+        assertThatThrownBy(() -> provider.start(startContext(binding("b")))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> provider.startLink(startContext(binding("b")), "user-7"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> provider().startVerify(startContext(binding("b")), "user-7"))
+                .as("a login provider never verifies").isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void startVerify_persistsAVerifyTransactionOfThatUser_whoseCallbackIsTheFlow() {
+        final WalletIdentityProvider provider = verifyOnlyProvider();
+        assertThatThrownBy(() -> provider.startVerify(startContext(binding("b")), " "))
+                .isInstanceOf(IllegalStateException.class);
+        final IdentityProvider.RedirectResponse redirect = provider.startVerify(startContext(binding("b")), "user-7");
+
+        assertThat(redirect.location()).startsWith("/broker/eudi-wallet/wallet?tx=");
+        final WalletTransaction tx = store.byTransactionId(txId(redirect)).orElseThrow();
+        assertThat(tx.purpose()).isEqualTo(WalletTransaction.Purpose.VERIFY);
+        assertThat(tx.initiatingUserId()).isEqualTo("user-7");
+        assertThat(WalletIdentityProvider.callbackPath(tx)).isEqualTo("/flow/wallet/callback");
+    }
+
+    @Test
+    void redeemVerify_returnsTheVerificationAndItsUser_andIsNeverALoginOrALink() {
+        final WalletIdentityProvider provider = verifyOnlyProvider();
+        final String bindingHash = binding("browser");
+        final String code = verifiedVerifyCode(txId(provider.startVerify(startContext(bindingHash), "user-7")));
+        assertRefused(() -> provider.redeemVerify(callbackContext(Map.of("response_code", code), "other",
+                bindingHash)), WalletErrorCode.REPLAY);
+
+        final WalletIdentityProvider.VerifyRedemption redeemed = provider.redeemVerify(callbackContext(
+                Map.of("response_code", code), STATE, bindingHash));
+        assertThat(redeemed.initiatingUserId()).isEqualTo("user-7");
+        assertThat(redeemed.verification().numberSubject()).isEqualTo("aa11");
+        assertThat(redeemed.transactionId()).isNotBlank();
+
+        final String code2 = verifiedVerifyCode(txId(provider.startVerify(startContext(bindingHash), "user-7")));
+        assertRefused(() -> provider.redeem(callbackContext(Map.of("response_code", code2), STATE, bindingHash)),
+                WalletErrorCode.INVALID_RESPONSE);
+        final String code3 = verifiedVerifyCode(txId(provider.startVerify(startContext(bindingHash), "user-7")));
+        assertRefused(() -> provider.redeemLink(callbackContext(Map.of("response_code", code3), STATE, bindingHash)),
+                WalletErrorCode.INVALID_RESPONSE);
+    }
 }

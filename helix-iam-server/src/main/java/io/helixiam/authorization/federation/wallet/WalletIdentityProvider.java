@@ -84,6 +84,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
      * per browser). Never sent anywhere.
      */
     public static final String TRANSACTION_PARAM = "walletTransactionId";
+    /** Verify-only mode: the realm-relative browser callback of a VERIFY transaction (the flow step's). */
+    public static final String VERIFY_CALLBACK_PATH = "/flow/wallet/callback";
 
     private static final Logger LOG = LogManager.getLogger(WalletIdentityProvider.class);
     private static final int ID_BYTES = 32;
@@ -172,8 +174,38 @@ public final class WalletIdentityProvider implements IdentityProvider {
         return start(context, WalletTransaction.Purpose.LINK, userId);
     }
 
+    /**
+     * Verify-only mode: starts a {@link WalletTransaction.Purpose#VERIFY} transaction for the already identified
+     * {@code userId} (the {@code eudi-wallet-verify} flow step). Same wallet page and endpoints; its response stores a
+     * {@link VerifiedIdentityJson.Verification} and only {@link #redeemVerify} can redeem it. It never signs anyone in.
+     *
+     * @throws IllegalStateException without a user, realm, state or binding, for a provider that is not verify-only,
+     *                               or for a stored provider of another realm
+     */
+    public RedirectResponse startVerify(final AuthnRequestContext context, final String userId) {
+        if (!config.subject().verifyOnly()) {
+            throw new IllegalStateException("Wallet provider '" + config.alias() + "' is not a verify-only connection");
+        }
+        if (blank(userId)) {
+            throw new IllegalStateException("A wallet verification needs the identified user");
+        }
+        return start(context, WalletTransaction.Purpose.VERIFY, userId);
+    }
+
+    /** Whether this provider can sign anyone in (a verify-only connection cannot). */
+    @Override
+    public boolean signInCapable() {
+        return !config.subject().verifyOnly();
+    }
+
     private RedirectResponse start(final AuthnRequestContext context, final WalletTransaction.Purpose purpose,
                                    final String userId) {
+        if (config.subject().verifyOnly() != (purpose == WalletTransaction.Purpose.VERIFY)) {
+            // Design D7: a verify-only connection is never a first factor and never links; a login connection never
+            // stands in for a verification.
+            throw new IllegalStateException("Wallet provider '" + config.alias() + "' cannot start a " + purpose
+                    + " transaction");
+        }
         if (blank(context.realmId()) || blank(context.state())) {
             throw new IllegalStateException("A wallet login needs a realm and a state");
         }
@@ -202,8 +234,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
                     LogSafe.sanitize(config.alias()), LogSafe.sanitize(context.realmId()));
             return new RedirectResponse(walletPage + "/unavailable", Map.of());
         }
-        LOG.info("Wallet {} started: alias={} realm={} tx={}", purpose == WalletTransaction.Purpose.LINK ? "link"
-                : "login", LogSafe.sanitize(config.alias()), LogSafe.sanitize(context.realmId()), tx.transactionId());
+        LOG.info("Wallet {} started: alias={} realm={} tx={}", purpose.name().toLowerCase(java.util.Locale.ROOT),
+                LogSafe.sanitize(config.alias()), LogSafe.sanitize(context.realmId()), tx.transactionId());
         return new RedirectResponse(walletPage + "?tx=" + tx.transactionId(),
                 Map.of(TRANSACTION_PARAM, tx.transactionId()));
     }
@@ -286,6 +318,22 @@ public final class WalletIdentityProvider implements IdentityProvider {
         return new LinkRedemption(tx.initiatingUserId(), VerifiedIdentityJson.readLink(tx.verifiedIdentityJson()));
     }
 
+    /** Verify-only mode: what {@link #redeemVerify} returns. */
+    public record VerifyRedemption(String initiatingUserId, String transactionId,
+                                   VerifiedIdentityJson.Verification verification) {
+    }
+
+    /**
+     * Verify-only mode: redeems a {@link WalletTransaction.Purpose#VERIFY} transaction's response code with the same
+     * checks as {@link #callback} (state, browser binding, single use, constant time). A LOGIN or LINK code is refused
+     * here, and a VERIFY code is refused by every other redemption.
+     */
+    public VerifyRedemption redeemVerify(final CallbackContext context) {
+        final WalletTransaction tx = redeemTransaction(context, WalletTransaction.Purpose.VERIFY);
+        return new VerifyRedemption(tx.initiatingUserId(), tx.transactionId(),
+                VerifiedIdentityJson.readVerify(tx.verifiedIdentityJson()));
+    }
+
     private WalletTransaction redeemTransaction(final CallbackContext context,
                                                 final WalletTransaction.Purpose purpose) {
         final String code = context.parameters() == null ? null : context.parameters().get(RESPONSE_CODE_PARAM);
@@ -356,8 +404,12 @@ public final class WalletIdentityProvider implements IdentityProvider {
      */
     public static String callbackPath(final WalletTransaction tx) {
         final String alias = segment(tx.providerAlias());
-        return tx.purpose() == WalletTransaction.Purpose.LINK ? "/account/wallet/" + alias + "/callback"
-                : "/broker/" + alias + "/callback";
+        return switch (tx.purpose()) {
+            case LINK -> "/account/wallet/" + alias + "/callback";
+            // verify-only: the flow step that started it (the flow knows the provider)
+            case VERIFY -> VERIFY_CALLBACK_PATH;
+            case LOGIN -> "/broker/" + alias + "/callback";
+        };
     }
 
     /** The realm of a stored provider (its key's realm); {@code null} for a YAML provider, usable in every realm. */
