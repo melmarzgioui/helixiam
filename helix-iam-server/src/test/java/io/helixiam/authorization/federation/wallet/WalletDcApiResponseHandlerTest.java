@@ -338,4 +338,47 @@ class WalletDcApiResponseHandlerTest {
                 .isEqualTo(new WalletResponseHandler.Result.WalletErrorRecorded());
         assertThat(current(tx).failureCode()).isEqualTo(WalletErrorCode.WALLET_ACCESS_DENIED);
     }
+
+    // ------------------------------------------------------------------ verify-only (subject.strategy=NONE)
+
+    private WalletIdentityProvider verifyOnly() {
+        return provider(DeploymentProfile.production(), Map.of("subject.strategy", "NONE",
+                "verify.linkedProvider", "eudi-login"));
+    }
+
+    private WalletTransaction verifyStarted(final WalletIdentityProvider provider) {
+        final IdentityProvider.RedirectResponse redirect = provider.startVerify(new IdentityProvider.AuthnRequestContext(
+                REALM, "helix-state", null, BINDING), "user-7");
+        return store.byTransactionId(redirect.location().substring(redirect.location().indexOf("tx=") + 3))
+                .orElseThrow();
+    }
+
+    @Test
+    void aVerifyOnlyConnection_cannotStartASignIn_soTheDcApiNeverSignsAnyoneIn() {
+        final WalletIdentityProvider provider = verifyOnly();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> started(provider))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void overTheDcApi_aVerificationIsStoredAsAVerification_andARefusalIsAuditedAsOne() {
+        final WalletIdentityProvider provider = verifyOnly();
+        final WalletTransaction tx = verifyStarted(provider);
+        final DcApiWalletClient.DcApiRequest request = asWallet(provider, tx, ORIGIN);
+        assertThat(handler.handleDcApi(provider, REALM, tx, body(request.protocol(),
+                DcApiWalletClient.respond(request, sdJwtVpToken(request.audience(), request.nonce())))))
+                .isEqualTo(new WalletResponseHandler.Result.Accepted(null));
+        assertThat(VerifiedIdentityJson.readVerify(current(tx).verifiedIdentityJson())).isNotNull();
+        assertThat(WalletIdentityProvider.callbackPath(current(tx))).isEqualTo("/flow/wallet/callback");
+
+        final WalletTransaction other = verifyStarted(provider);
+        final DcApiWalletClient.DcApiRequest second = asWallet(provider, other, ORIGIN);
+        handler.handleDcApi(provider, REALM, other, body(second.protocol(),
+                DcApiWalletClient.respond(second, sdJwtVpToken("origin:https://evil.example", second.nonce()))));
+        final org.mockito.ArgumentCaptor<io.helixiam.authorization.security.audit.AuditEvent> events =
+                org.mockito.ArgumentCaptor.forClass(io.helixiam.authorization.security.audit.AuditEvent.class);
+        org.mockito.Mockito.verify(audit, org.mockito.Mockito.atLeastOnce()).emit(events.capture());
+        assertThat(events.getValue().type()).isEqualTo("WALLET_VERIFY_FAILURE");
+        assertThat(events.getValue().actor()).isEqualTo("user-7");
+    }
 }

@@ -26,7 +26,7 @@ import {
 import type { WalletAdminApi } from "../api/wallet";
 import {
   DEFAULT_WALLET_FORM, DEV_KEY, clearEditedErrors, firstErrorSection, splitWalletServerErrors, validateWallet,
-  walletConfigFromForm, walletFormFromConfig, type WalletForm, type WalletSection,
+  walletConfigFromForm, walletFormFromConfig, walletLinkOptions, defaultWalletAlias, type WalletForm, type WalletSection,
 } from "../pages/walletProvider";
 import { useT } from "../i18n/LocaleContext";
 
@@ -55,6 +55,8 @@ export interface ProviderWizardProps {
   busy?: boolean;
   /** The fieldErrors of a refused save (400): shown on the wizard's fields, opening the step that holds them. */
   serverErrors?: Record<string, string> | null;
+  /** The realm's connections: a verify-only wallet connection picks its linked sign-in connection from them. */
+  providers?: { alias: string; protocol: string; displayName: string; config?: Record<string, string> }[];
 }
 
 /** Splits a stored mapper list into the ticked presets vs the free-form custom rows. */
@@ -68,7 +70,7 @@ function seedMappers(typeId: string | null, mappers: AttributeMapper[]) {
 }
 
 /** The E8.4 "Add identity provider" wizard, composed from the design system. */
-export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletApi, busy, serverErrors }: ProviderWizardProps) {
+export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletApi, busy, serverErrors, providers }: ProviderWizardProps) {
   const { t } = useT();
   const editing = !!initial;
   const seeded = seedMappers(initial?.providerType ?? null, initial?.mappers ?? []);
@@ -100,7 +102,9 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
     onReplace: (on: boolean) => setDevKey((d) => ({ ...d, replacing: on, value: on ? d.value : "" })),
     onClear: (on: boolean) => setDevKey((d) => ({ ...d, clearing: on, value: "" })),
   };
-  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKeyState, wallet.lists)) : {};
+  const linkOptions = providers ? walletLinkOptions(providers, alias.trim()) : undefined;
+  const walletLocal = isWallet ? validateWallet(walletForm, { ...walletContext(walletForm, wallet.meta, wallet.keys, devKeyState, wallet.lists),
+    alias: alias.trim(), linkedAliases: linkOptions?.map((o) => o.alias) }) : {};
   if (isWallet && !alias.trim()) walletLocal.alias = "connectionDetail.fieldRequired";
   if (isWallet && !displayName.trim()) walletLocal.displayName = "connectionDetail.fieldRequired";
   const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
@@ -108,7 +112,15 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
     const section = firstErrorSection({ [k]: "x" });
     return section !== null && WALLET_STEP_OF[section] === s;
   });
+  const existingAliases = (providers ?? []).map((p) => p.alias);
+  // The alias the wizard proposed (unique in the realm); it follows the strategy until the admin edits it.
+  const [autoAlias, setAutoAlias] = React.useState<string | null>(null);
   const patchWallet = (patch: Partial<WalletForm>) => {
+    if (patch.subjectStrategy !== undefined && !editing && autoAlias !== null && alias === autoAlias) {
+      const next = defaultWalletAlias(existingAliases, patch.subjectStrategy === "NONE");
+      setAlias(next);
+      setAutoAlias(next);
+    }
     setWalletForm((f) => ({ ...f, ...patch }));
     setWalletServer((sv) => ({ ...sv, fields: clearEditedErrors(sv.fields, patch) }));
   };
@@ -122,7 +134,9 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
 
   const pickType = (t: ProviderType) => {
     setTypeId(t.id);
-    setAlias(t.protocol === "wallet" ? "eudi-wallet" : t.id);
+    const proposed = t.protocol === "wallet" ? defaultWalletAlias(existingAliases, false) : t.id;
+    setAlias(proposed);
+    setAutoAlias(t.protocol === "wallet" ? proposed : null);
     setDisplayName(t.protocol === "wallet" ? "EUDI Wallet" : t.name);
     setWalletForm(DEFAULT_WALLET_FORM);
     setConfig(t.defaultLoaValue ? { minimumLoa: t.defaultLoaValue } : {});
@@ -201,7 +215,7 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
       {isWallet && type && step > 0 && wallet.meta && wallet.keys && realmId && walletApi && (() => {
         const props = {
           realmId, api: walletApi, form: walletForm, onChange: patchWallet, errors: walletShown, meta: wallet.meta,
-          keys: wallet.keys, onKeyImported: wallet.addKey, original: null, devKey: devKeyState,
+          keys: wallet.keys, onKeyImported: wallet.addKey, original: null, devKey: devKeyState, linkedOptions: linkOptions,
           trustedLists: wallet.lists, trustedListsError: wallet.listsError,
         };
         return (
@@ -224,7 +238,7 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
             {step === 3 && <WalletPoliciesSection {...props} />}
             {step === 4 && (
               <Section title={type.name}>
-                <WalletReview form={walletForm} keys={wallet.keys} />
+                <WalletReview form={walletForm} keys={wallet.keys} linkedOptions={linkOptions} />
                 <Switch checked={enabled} onChange={setEnabled} label="Enable immediately after creation" />
               </Section>
             )}

@@ -50,6 +50,7 @@ class AuthTimeStamperTest {
         stamper.stamp(request);
 
         verify(session).removeAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE);
+        verify(session).removeAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE);
     }
 
     @Test

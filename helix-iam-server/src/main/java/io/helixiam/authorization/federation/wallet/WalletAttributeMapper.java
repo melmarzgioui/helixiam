@@ -179,6 +179,19 @@ public final class WalletAttributeMapper {
      *
      * @throws WalletVerificationException {@code INVALID_RESPONSE} as for {@link #map}, minus the LoA check
      */
+    /**
+     * Whether a requested PID claim ({@code pid.requestedClaims} name) ends up in the mapped attributes: itself, or,
+     * for an object claim such as {@code place_of_birth}, as its dotted members. The verify-only release list may only
+     * name such claims ({@link WalletVerifiedClaims}).
+     */
+    public static boolean isMappedClaim(final String requestedClaim) {
+        if (requestedClaim == null || requestedClaim.isBlank()) {
+            return false;
+        }
+        return MAPPED_CLAIMS.contains(requestedClaim)
+                || MAPPED_CLAIMS.stream().anyMatch(name -> name.startsWith(requestedClaim + "."));
+    }
+
     public static Map<String, String> pidAttributes(final MatchedPresentations matched) {
         return attributes(Objects.requireNonNull(matched, "matched"));
     }

@@ -107,6 +107,11 @@ public final class PendingFederatedLogin {
             // value — never earlier, so an abandoned step-up can never leak into an unrelated login.
             session.setAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE, state.pendingAcr());
         }
+        if (state != null && state.pendingVerifiedClaims() != null) {
+            // verify-only wallet step: released for the authorization request this login completes (bound to its
+            // code, once, by SsoSessionBindingAuthorizationService), set only now that the login completed
+            session.setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE, state.pendingVerifiedClaims());
+        }
         if (state != null) {
             report(state, outcomes, true);
         }

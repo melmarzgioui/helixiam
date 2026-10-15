@@ -77,7 +77,7 @@ import helix_wallet_identity_provider.<name> <alias>`.
 | `trust_anchors` | optional | PEM bundle of trusted PID-issuer CAs |
 | `revocation_checking` | optional | default `HARD_FAIL` |
 | `status_list_required` / `status_list_on_unavailable` / `status_list_max_cache_seconds` / `status_list_allowed_hosts` | optional | Token Status List policy |
-| `subject_strategy` / `subject_acknowledge_weak_subject` | optional | how the Helix subject is derived |
+| `subject_strategy` / `subject_acknowledge_weak_subject` | optional | how the Helix subject is derived: `ADMINISTRATIVE_NUMBER` (default), `ATTRIBUTE_TUPLE` (needs the acknowledgement), or `NONE` (verify-only, see `verify_*`) |
 | `minimum_loa` | optional | default `http://eidas.europa.eu/LoA/high` |
 | `clock_skew_seconds` | optional | 0–60, default 60 |
 | `allow_legacy_vc_sd_jwt_typ` | optional | default false |
@@ -88,6 +88,8 @@ import helix_wallet_identity_provider.<name> <alias>`.
 | `dc_api_expected_origins` | optional | list of web origins a DC API response may be bound to, written as a browser reports them (`https://login.example.eu`); at most 10, each on a host the server answers for (`IDP_BASE_URL` or `HELIX_ALLOWED_HOSTS`). Unset: the origin of `IDP_BASE_URL` |
 | `trusted_lists` | optional, list | names of the realm's trusted list sources (Federation → Trusted lists, `/admin/realms/{realm}/trusted-lists`) whose verified PID issuer anchors are trusted in addition to `trust_anchors`; each must exist in the realm. Unset: none (an empty list is refused) |
 | `trusted_list_service_types` | optional, list | narrows `trusted_lists` to these service type URIs. Unset: every type the sources load |
+| `verify_linked_provider` | optional | with `subject_strategy = "NONE"` (verify-only / step-up, never a sign-in): the alias of the realm's wallet sign-in connection whose links prove whose wallet it is. Required with `NONE`, refused otherwise (see `docs/eudi-wallet.md` §13) |
+| `verify_released_claims` | optional, list | with `NONE`: the verified claims released as `verified_claims` (requested mapped PID claims, or `age_over_NN`), only to a client that asks for the `verified_claims` scope. Unset: nothing is released (an empty list is refused) |
 | `id` | computed | the connection alias |
 
 Every attribute above maps to a key of the connection's `config` map on the server

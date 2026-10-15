@@ -43,6 +43,12 @@ public class FlowExecutionState implements Serializable {
      * while this flow is mid-CHALLENGE and reported (then cleared) by {@code FlowController} when THIS flow ends.
      */
     private java.io.Serializable pendingOutcome;
+    /**
+     * Verify-only wallet step: the {@code verified_claims} JSON a succeeded step released, held here (like
+     * {@link #pendingAcr}) until THIS flow completes; {@code PendingFederatedLogin} then hands it to the authorization
+     * request the login completes.
+     */
+    private String pendingVerifiedClaims;
 
     public FlowExecutionState(final String realmId) {
         this.realmId = realmId;
@@ -114,5 +120,14 @@ public class FlowExecutionState implements Serializable {
 
     public void setPendingOutcome(final java.io.Serializable pendingOutcome) {
         this.pendingOutcome = pendingOutcome;
+    }
+
+    /** The {@code verified_claims} JSON pending until THIS flow completes, or {@code null}. */
+    public String pendingVerifiedClaims() {
+        return pendingVerifiedClaims;
+    }
+
+    public void setPendingVerifiedClaims(final String pendingVerifiedClaims) {
+        this.pendingVerifiedClaims = pendingVerifiedClaims;
     }
 }

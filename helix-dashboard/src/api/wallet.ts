@@ -45,6 +45,8 @@ export interface WalletMetadata {
   credentialFormats: string[];
   /** The server runs the dev profile: direct_post and the raw dev key are allowed. */
   devProfile: boolean;
+  /** Whether the flow engine runs after a password login (a verify-only connection's step needs it). */
+  flowEngineEnabled?: boolean;
 }
 
 /** The admin API behind the EUDI wallet provider form. Errors are AdminApiError (400 carries fieldErrors). */
@@ -73,18 +75,24 @@ export function createWalletHttpClient(baseUrl = ""): WalletAdminApi {
 }
 
 /** The PID claim catalogue as the server lists it (DcqlQueryBuilder), for the memory client and stories. */
+/** The claims the server's WalletAttributeMapper maps (what a verify-only connection may release). */
+const RELEASABLE_SAMPLE = new Set(["family_name", "given_name", "birthdate", "place_of_birth", "nationalities",
+  "address.formatted", "address.country", "address.region", "address.locality", "address.postal_code",
+  "address.street_address", "address.house_number", "issuing_authority", "issuing_country"]);
+
 export const SAMPLE_PID_CLAIMS: PidClaimInfo[] = [
   "family_name", "given_name", "birthdate", "place_of_birth", "nationalities", "picture", "address.formatted",
   "address.country", "address.region", "address.locality", "address.postal_code", "address.street_address",
   "address.house_number", "personal_administrative_number", "birth_family_name", "birth_given_name", "sex", "email",
   "phone_number", "date_of_expiry", "issuing_authority", "issuing_country", "document_number", "issuing_jurisdiction",
   "date_of_issuance", "trust_anchor", "attestation_legal_category",
-].map((name) => ({ name, mdoc: name !== "address.house_number" }));
+].map((name) => ({ name, mdoc: name !== "address.house_number", releasable: RELEASABLE_SAMPLE.has(name) }));
 
 /** In-memory client for stories and tests. `preview` maps a PEM bundle to certificates (default: one CA root). */
 export function createWalletMemoryClient(opts: {
   keys?: VerifierKey[];
   devProfile?: boolean;
+  flowEngineEnabled?: boolean;
   preview?: (pem: string) => CertificateInfo[];
   trustedLists?: TrustedList[];
 } = {}): WalletAdminApi {
@@ -110,6 +118,7 @@ export function createWalletMemoryClient(opts: {
     metadata: async () => ({
       pidClaims: SAMPLE_PID_CLAIMS, defaultRequestedClaims: ["given_name", "family_name", "birthdate"],
       credentialFormats: ["dc+sd-jwt", "mso_mdoc"], devProfile: !!opts.devProfile,
+      flowEngineEnabled: opts.flowEngineEnabled ?? true,
     }),
     previewCertificates: async (_realmId, pem) => {
       if (!pem.includes("-----BEGIN CERTIFICATE-----")) {

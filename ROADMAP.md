@@ -38,8 +38,12 @@ paths are hardened and tested."
   requests; ~~an `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being
   pasted PEM~~ — done (ETSI TS 119 612 XML and TS 119 602 LoTE JSON, see `docs/eudi-wallet.md` §7.3); the Terraform
   resource for the wallet identity-provider connection is done (`helix_wallet_identity_provider`,
-  `terraform-provider-helix/README.md`); and a separate plan for the step-up/verify-only
-  flow (`subject.strategy=NONE`), deliberately left out of the initial implementation (maintainer decision 4).
+  `terraform-provider-helix/README.md`); and ~~a separate plan for the step-up/verify-only
+  flow (`subject.strategy=NONE`), deliberately left out of the initial implementation (maintainer decision 4)~~ —
+  done 2026-10-15: the `eudi-wallet-verify` flow step with `acr_values` step-up, see
+  [`docs/superpowers/specs/2026-10-15-wallet-verify-only-design.md`](docs/superpowers/specs/2026-10-15-wallet-verify-only-design.md)
+  and `docs/eudi-wallet.md` §13 (its deferred items: a standalone RP "verify attributes" API, attribute-matching
+  binding, `verified_claims` in userinfo/access tokens, step-up without re-entering the first factor).
 - **EUDI Wallet follow-ups** (from the final review of the wallet branch):
   - Done (2026-10-15): **interop against the EU reference wallet** and **a third-party mdoc DeviceAuth vector**. The
     EU Digital Identity Wallet reference app (2026.10.43-Demo) signed in with SD-JWT VC and mdoc PIDs from the EU test

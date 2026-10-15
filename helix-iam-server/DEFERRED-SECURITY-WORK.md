@@ -377,3 +377,32 @@ once expired (default grace 0 for top-level lists, ETSI TS 119 615), are audited
 discards any in-flight refresh. The EUDI reference implementation's test LOTL signer expired on 2026-07-04 and the Commission's acceptance LoTE
 signer on 2026-09-15: with the default grace of 0 both are refused until re-pinned, or loaded with an explicit
 `signer-expiry-grace-days` (≥ ~120 and ≥ ~30).
+
+## EUDI Wallet verify-only / step-up (2026-10-15, branch `feat/wallet-verify-only`)
+
+Fixed after the security review: the step's `verified_claims` are pinned to the authorization request the step started
+for (client, request hash, 5-minute TTL, `verified_claims` scope) and dropped on any other code or a consent denial;
+they reach the code exchange's ID token only and are removed from the stored authorization; with the flow engine off,
+a login whose flow has the step is refused and such flows cannot be saved or bound; the broker never touches the
+step's browser binding; `age_over_NN` is computed conservatively (UTC-12, 29 February on 1 March); the linked sign-in
+connection must exist, sign in and not be weaker (LoA); the `/flow` redirect refuses `\`.
+
+Deferred, by design:
+- **`acr` is session-wide.** A successful step raises the SSO session's `acr` until the next login, bounded by the
+  realm's SSO lifetime: every later code of any client in that session carries it. A configurable step-up lifetime
+  (re-prompting after N minutes) is not implemented.
+- **`acr_values` is voluntary.** With `prompt=none` (or after one re-authentication) an unmet `acr_values` still
+  yields a code with the lower, actual `acr`. Relying parties MUST check `acr` in the ID token.
+- **Trust anchors of the verify-only connection** that the linked connection does not trust are only logged (WARN)
+  at save time, not refused: the two may be configured at different times, and the binding to the user's link is the
+  security decision.
+- **Realm import** does not apply the flow-save checks (engine, wallet step connection, SSO on a verify-only
+  connection); the step fails closed at run time.
+- **Stored ID token value.** After the code exchange the stored authorization keeps no `verified_claims` (attribute,
+  parsed ID token claims, claims metadata), but the stored ID token *value* — the signed JWT already delivered — still
+  encodes them until the authorization is removed: it cannot be re-signed and `id_token_hint` looks it up by value.
+- **PAR.** A pushed authorization request's parameters are not resolved when the step pins its release, so PAR clients
+  get the step-up `acr` but no `verified_claims` (fails closed).
+- **Impersonation** runs no login flow (admin action), so it never runs the wallet step.
+- **Magic link** (fixed): with the engine on it runs the login's flow like a federated login; with it off a flow that
+  needs the engine refuses the login (`error=flow`). `FlowEngineGuard` now fails closed when the flow store errors.

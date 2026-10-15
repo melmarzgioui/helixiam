@@ -45,6 +45,13 @@ public final class AuthTimeStamper {
      */
     public static final String ACR_SESSION_ATTRIBUTE = "HELIX_ACR";
 
+    /**
+     * Verify-only wallet step: the {@code verified_claims} JSON the step released for THIS login, waiting for the code
+     * of the authorization request the login completes ({@link SsoSessionBindingAuthorizationService} binds it to that
+     * one code and removes it). Cleared by every {@link #stamp}, like {@link #ACR_SESSION_ATTRIBUTE}.
+     */
+    public static final String VERIFIED_CLAIMS_SESSION_ATTRIBUTE = "HELIX_VERIFIED_CLAIMS";
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final LongSupplier nowEpochSeconds;
@@ -80,6 +87,7 @@ public final class AuthTimeStamper {
             session.setAttribute(HELIX_SID, newSid());
         }
         session.removeAttribute(ACR_SESSION_ATTRIBUTE);
+        session.removeAttribute(VERIFIED_CLAIMS_SESSION_ATTRIBUTE);
     }
 
     /** The session's OIDC {@code sid}, or {@code null} when the session never completed a login. */

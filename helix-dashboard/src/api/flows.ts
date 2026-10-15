@@ -79,6 +79,8 @@ export interface FlowApi {
   create(realmId: string, alias: string, copyFromAlias?: string | null): Promise<FlowSummary>;
   rename(realmId: string, alias: string, newAlias: string): Promise<FlowSummary>;
   remove(realmId: string, alias: string): Promise<void>;
+  /** Whether the server's flow engine runs after a password login (helix.flow-engine.enabled). */
+  engine?(realmId: string): Promise<{ enabled: boolean }>;
 }
 
 /** HTTP-backed client for the E8.5-S4 auth-flow admin REST API. */
@@ -113,5 +115,6 @@ export function createFlowHttpClient(baseUrl = ""): FlowApi {
     rename: (realmId, alias, newAlias) =>
       fetch(flowsUrl(realmId, alias), { method: "PATCH", ...body({ alias: newAlias }) }).then(json),
     remove: (realmId, alias) => fetch(flowsUrl(realmId, alias), { method: "DELETE" }).then(json).then(() => undefined),
+    engine: (realmId) => fetch(`${realmBase(realmId)}/flow-engine`).then(json),
   };
 }

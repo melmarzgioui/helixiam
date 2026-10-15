@@ -18,6 +18,14 @@ public interface IdentityProvider {
     /** Protocol + alias + display name; the registry keys providers by the alias. */
     IdpMetadata metadata();
 
+    /**
+     * Whether this provider can sign a user in (be listed on the login page, start a login at {@code /broker/<alias>}).
+     * Default {@code true}; an EUDI wallet verify-only connection ({@code subject.strategy=NONE}) answers {@code false}.
+     */
+    default boolean signInCapable() {
+        return true;
+    }
+
     /** Build the redirect that starts authentication at the external IdP (authorize / AuthnRequest). */
     RedirectResponse start(AuthnRequestContext context);
 

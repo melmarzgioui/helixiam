@@ -39,6 +39,14 @@ public class ClientAdminController {
         this(publisher, io.helixiam.common.startup.DeploymentProfile.production());
     }
 
+    /** Security review item 3b: a flow that needs the engine cannot be bound while it is off. */
+    private FlowSaveChecks checks;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setChecks(final FlowSaveChecks checks) {
+        this.checks = checks;
+    }
+
     @org.springframework.beans.factory.annotation.Autowired
     public ClientAdminController(final ClientAdminPublisher publisher,
                                  final io.helixiam.common.startup.DeploymentProfile profile) {
@@ -59,6 +67,9 @@ public class ClientAdminController {
 
     @PostMapping
     public ResponseEntity<?> create(@PathVariable final String realmId, @Valid @RequestBody final ClientRequest request) {
+        if (checks != null) {
+            checks.requireBindable(realmId, request.authFlowAlias(), "authFlowAlias");
+        }
         if (secretOnPublicClient(request)) {
             return publicClientHasNoSecret("clientSecret");
         }
@@ -93,6 +104,9 @@ public class ClientAdminController {
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable final String realmId, @PathVariable final String id,
                                     @Valid @RequestBody final ClientRequest request) {
+        if (checks != null) {
+            checks.requireBindable(realmId, request.authFlowAlias(), "authFlowAlias");
+        }
         if (secretOnPublicClient(request)) {
             return publicClientHasNoSecret("clientSecret");
         }

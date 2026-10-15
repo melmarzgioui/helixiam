@@ -55,8 +55,11 @@ public record WalletTransaction(String transactionId, String sameDeviceRequestId
                 verifiedIdentityJson, failureCode, createdAt, expiresAt, Purpose.LOGIN, null);
     }
 
-    /** What a transaction is for (Task 21b): signing in, or linking the wallet to a signed-in user. */
-    public enum Purpose { LOGIN, LINK }
+    /**
+     * What a transaction is for (Task 21b): signing in, linking the wallet to a signed-in user, or (verify-only mode)
+     * verifying the signed-in user's wallet in a flow step. LINK and VERIFY carry the initiating user.
+     */
+    public enum Purpose { LOGIN, LINK, VERIFY }
 
     /**
      * Which invocation path the wallet used: decided by which request id it fetched, or {@link #DC_API} when the

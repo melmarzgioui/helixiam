@@ -60,7 +60,7 @@ public final class VerifiedIdentityJson {
     public static final int VERSION = 1;
 
     private static final Set<String> MEMBERS = Set.of("v", "externalSubject", "email", "emailVerified", "attributes",
-            "levelOfAssurance", "decision", "link", "format", "issuerDn");
+            "levelOfAssurance", "decision", "link", "verify", "format", "issuerDn");
     private static final Set<String> PENDING_LINK_MEMBERS = Set.of("realmId", "alias", "subject", "userId");
     private static final String KIND = "kind";
     private static final String EXISTING = "existing";
@@ -70,6 +70,7 @@ public final class VerifiedIdentityJson {
     private static final String NUMBER = "number";
     private static final String TUPLE = "tuple";
     private static final String UNAVAILABLE = "unavailable";
+    private static final String VERIFY = "verify";
 
     /**
      * A stored wallet login: the mapped identity ({@code null} for a {@link WalletLinkService.Decision.Refused}) and
@@ -183,7 +184,7 @@ public final class VerifiedIdentityJson {
      */
     public static WalletSubject readLink(final String json) {
         final JsonNode node = parse(json);
-        if (!node.has(LINK) || node.has("decision") || node.has("externalSubject") || node.has("email")
+        if (!node.has(LINK) || node.has(VERIFY) || node.has("decision") || node.has("externalSubject") || node.has("email")
                 || node.has("levelOfAssurance") || node.get("attributes").size() != 0) {
             throw invalid();
         }
@@ -210,6 +211,101 @@ public final class VerifiedIdentityJson {
             }
             default -> throw invalid();
         };
+    }
+
+    /**
+     * Verify-only mode: what a verified {@code VERIFY} transaction keeps for the {@code eudi-wallet-verify} flow step.
+     * The subject hashes (computed as the linked login connection computes them) to bind the wallet to the signed-in
+     * user, the released claims ({@link WalletVerifiedClaims}, already reduced to the allow-list), the level of
+     * assurance, and the audit context. No identity, no decision, no other PID value.
+     *
+     * @param numberSubject the administrative-number HMAC, or {@code null}
+     * @param tupleSubject  the attribute-tuple HMAC (only when the linked connection accepts weak subjects), or
+     *                      {@code null}
+     * @param claims        released claim name to a string or boolean value, in release order
+     */
+    public record Verification(String numberSubject, String tupleSubject, Map<String, Object> claims,
+                               String levelOfAssurance, String format, String issuerDn) {
+    }
+
+    /** The JSON for a verified {@code VERIFY} transaction (see {@link Verification}). */
+    public static String writeVerify(final WalletSubject subject, final Map<String, Object> claims,
+                                     final String levelOfAssurance, final String format, final String issuerDn) {
+        java.util.Objects.requireNonNull(subject, "subject");
+        java.util.Objects.requireNonNull(levelOfAssurance, "levelOfAssurance");
+        final ObjectNode node = JsonNodeFactory.instance.objectNode();
+        node.put("v", VERSION);
+        node.put("emailVerified", false);
+        node.putObject("attributes");
+        if (format != null) {
+            node.put("format", format);
+        }
+        if (issuerDn != null) {
+            node.put("issuerDn", issuerDn);
+        }
+        final ObjectNode verify = node.putObject(VERIFY);
+        switch (subject) {
+            case WalletSubject.AdminNumber number -> {
+                verify.put(NUMBER, number.value());
+                if (number.tupleValue() != null) {
+                    verify.put(TUPLE, number.tupleValue());
+                }
+            }
+            case WalletSubject.Tuple tuple -> verify.put(TUPLE, tuple.value());
+            case WalletSubject.Unavailable unavailable -> {
+                // no subject: the step refuses the binding
+            }
+        }
+        final ObjectNode out = verify.putObject("claims");
+        if (claims != null) {
+            claims.forEach((name, value) -> {
+                if (value instanceof Boolean b) {
+                    out.put(name, b);
+                } else if (value instanceof String text) {
+                    out.put(name, text);
+                } else {
+                    throw new IllegalArgumentException("A released claim is a string or a boolean");
+                }
+            });
+        }
+        verify.put("loa", levelOfAssurance);
+        return toJson(node);
+    }
+
+    /**
+     * The verification stored in a verify record ({@link #writeVerify}).
+     *
+     * @throws WalletVerificationException {@code INVALID_RESPONSE} when {@code json} is not exactly a verify record
+     */
+    public static Verification readVerify(final String json) {
+        final JsonNode node = parse(json);
+        if (!node.has(VERIFY) || node.has(LINK) || node.has("decision") || node.has("externalSubject")
+                || node.has("email") || node.has("levelOfAssurance") || node.get("attributes").size() != 0) {
+            throw invalid();
+        }
+        final JsonNode verify = node.get(VERIFY);
+        if (!verify.isObject()) {
+            throw invalid();
+        }
+        onlyMembers(verify, Set.of(NUMBER, TUPLE, "claims", "loa"));
+        if (!verify.path("claims").isObject()) {
+            throw invalid();
+        }
+        final Map<String, Object> claims = new LinkedHashMap<>();
+        for (final Iterator<Map.Entry<String, JsonNode>> it = verify.get("claims").fields(); it.hasNext(); ) {
+            final Map.Entry<String, JsonNode> entry = it.next();
+            if (entry.getValue().isBoolean()) {
+                claims.put(entry.getKey(), entry.getValue().asBoolean());
+            } else if (entry.getValue().isTextual()) {
+                claims.put(entry.getKey(), entry.getValue().asText());
+            } else {
+                throw invalid();
+            }
+        }
+        return new Verification(verify.has(NUMBER) ? text(verify, NUMBER) : null,
+                verify.has(TUPLE) ? text(verify, TUPLE) : null, Collections.unmodifiableMap(claims),
+                text(verify, "loa"), node.has("format") ? text(node, "format") : null,
+                node.has("issuerDn") ? text(node, "issuerDn") : null);
     }
 
     private static ObjectNode identityNode(final BrokeredIdentity identity) {
@@ -269,7 +365,7 @@ public final class VerifiedIdentityJson {
      */
     public static BrokeredIdentity read(final String idpAlias, final String json) {
         final JsonNode node = parse(json);
-        if (node.has(LINK)) {
+        if (node.has(LINK) || node.has(VERIFY)) {
             throw invalid();
         }
         return identity(idpAlias, node);
@@ -283,7 +379,7 @@ public final class VerifiedIdentityJson {
      */
     public static StoredLogin readLogin(final String idpAlias, final String json) {
         final JsonNode node = parse(json);
-        if (!node.has("decision") || node.has(LINK)) {
+        if (!node.has("decision") || node.has(LINK) || node.has(VERIFY)) {
             throw invalid();
         }
         final WalletLinkService.Decision decision = decision(node.get("decision"));

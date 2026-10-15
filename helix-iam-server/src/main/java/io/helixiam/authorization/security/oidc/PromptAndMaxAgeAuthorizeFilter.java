@@ -96,6 +96,12 @@ public class PromptAndMaxAgeAuthorizeFilter extends OncePerRequestFilter {
             handlePromptLogin(request, authed);
         } else if (tooOld) {
             forceReauth(request); // SAS entry point will redirect to /login and save the request
+        } else if (authed && acrValuesNotMet(request)) {
+            // Step-up (EUDI wallet verify-only design D2): the session's acr does not satisfy the requested
+            // acr_values, so the user signs in again, once for this request (the prompt=login mechanism, so it cannot
+            // loop), and the client's flow (e.g. its wallet verification step) can raise it. acr_values is voluntary
+            // (OIDC Core 3.1.2.1): if it is still not met the code is issued with the actual acr, which the RP checks.
+            handlePromptLogin(request, true);
         }
         chain.doFilter(request, response);
     }
@@ -119,6 +125,41 @@ public class PromptAndMaxAgeAuthorizeFilter extends OncePerRequestFilter {
         // Not yet re-authenticated for this request: note when it was seen, then make the user sign in.
         forceReauth(request);
         request.getSession(true).setAttribute(PROMPT_LOGIN_SINCE, nowEpochSeconds.getAsLong());
+    }
+
+    /** Whether the request carries {@code acr_values} that the session's {@code acr} satisfies none of. */
+    private static boolean acrValuesNotMet(final HttpServletRequest request) {
+        final String requested = request.getParameter("acr_values");
+        if (requested == null || requested.isBlank()) {
+            return false;
+        }
+        final HttpSession session = request.getSession(false);
+        final String sessionAcr = session != null
+                && session.getAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE) instanceof String acr ? acr : null;
+        return !acrSatisfied(sessionAcr, requested);
+    }
+
+    /**
+     * Whether {@code sessionAcr} satisfies one of the space-separated {@code acrValues}: the same value, or, for two
+     * eIDAS LoA URIs, a rung at or above the requested one (high satisfies substantial and low).
+     */
+    static boolean acrSatisfied(final String sessionAcr, final String acrValues) {
+        if (sessionAcr == null || sessionAcr.isBlank() || acrValues == null) {
+            return false;
+        }
+        final int sessionRung = io.helixiam.authorization.federation.eid.EidLevelOfAssurance.rung(
+                io.helixiam.authorization.federation.eid.EidScheme.EIDAS, sessionAcr);
+        for (final String value : acrValues.trim().split("\\s+")) {
+            if (value.equals(sessionAcr)) {
+                return true;
+            }
+            final int requestedRung = io.helixiam.authorization.federation.eid.EidLevelOfAssurance.rung(
+                    io.helixiam.authorization.federation.eid.EidScheme.EIDAS, value);
+            if (requestedRung > 0 && sessionRung >= requestedRung) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isFullyAuthenticated(final HttpServletRequest request) {

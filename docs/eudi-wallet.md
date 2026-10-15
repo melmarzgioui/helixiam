@@ -853,3 +853,120 @@ wallet (`DcApiWalletClient` checks `expected_origins` against the origin as a wa
 
 A live check needs a physical Android phone with a current Chrome and the reference wallet (which, per the §10 notes,
 supports the DC API), or an emulator image with Play Store plus a TLS certificate from a public CA for the verifier.
+
+## 13. Verify-only / step-up (`subject.strategy=NONE`)
+
+Some applications do not need the wallet to *sign the user in*; they need proof, for a user who is already signed in,
+that their own wallet confirms it is them (a step-up to eIDAS high), or a verified detail such as "18 or over" or a
+nationality. A wallet connection with `subject.strategy=NONE` does exactly that. Design and rationale:
+[`docs/superpowers/specs/2026-10-15-wallet-verify-only-design.md`](superpowers/specs/2026-10-15-wallet-verify-only-design.md).
+
+**What it never does.** It never signs anyone in (it is not on the login page, and `/broker/<alias>` refuses to
+start it), never creates an account, never links a wallet (the account console neither lists nor links it), and
+stores nothing on the account.
+
+### 13.1 Setting it up
+
+1. Keep (or create) the realm's normal wallet **sign-in** connection (`ADMINISTRATIVE_NUMBER` or `ATTRIBUTE_TUPLE`);
+   users link their wallet with it (§6).
+2. Create a second wallet connection with `subject.strategy=NONE`:
+
+   | Key | Meaning |
+   |---|---|
+   | `verify.linkedProvider` | **Required.** The alias of the sign-in connection of step 1, in the same realm, that signs users in (not another verify-only one). A presented wallet must be linked to the signed-in user *there*. The verify-only connection's `minimumLoa` may not be lower than the linked one's (400); trust anchors the linked connection does not also trust are only logged as a warning. |
+   | `pid.requestedClaims` | What the wallet is asked for (as for any connection). Keep it small. The administrative number and issuing country are always asked for optionally, to bind the wallet; they are never released. |
+   | `verify.releasedClaims` | JSON list of what goes to the application. Each entry is a requested claim this verifier maps (`given_name`, `family_name`, `birthdate`, `nationalities`, `place_of_birth`, `address.*`, `issuing_country`, `issuing_authority`) or `age_over_NN` (1–150, worked out from the verified birth date, which must be requested; the birth date itself is not released unless listed). **Default: nothing** — the step then only proves the wallet and raises the level of assurance. |
+
+   In YAML (`helix.federation.wallet`) the same settings are `subject.linkedProvider` and `subject.releasedClaims`.
+   Console: Identity providers → the wallet connection → Policies → "Verify only (step-up)".
+3. Add the step **EU Digital Identity Wallet verification** (`eudi-wallet-verify`, setting `providerAlias` = the
+   verify-only connection) to a sign-in flow after the first factor (Authentication → flow editor), and bind that
+   flow to the application (Applications → Login flow). A flow save without `providerAlias` is refused (400).
+
+**First factors.** Password and magic-link logins run the login's flow when the flow engine is on (a magic link the
+same way a federated login does); federated logins always do. Admin impersonation is an admin action and runs no flow.
+
+**Flow engine.** A password-first login runs flow steps only when the flow engine is on
+(`helix.flow-engine.enabled=true`, default off); a federated first factor (eID, OIDC, SAML, wallet login) always runs
+them. With the engine off, nothing is skipped silently: a password or magic-link login whose flow (the client's, or the realm's
+browser flow) has the wallet verification step is refused (`/login?error=flow`, logged as a WARN); saving such a flow,
+or binding it to a client or application, is refused (400); saving a verify-only connection logs a warning; and the
+console shows a banner on the flow editor and on the connection (`GET /admin/realms/{realm}/flow-engine`).
+
+An application's single sign-on setting (REDIRECT/OPTION) cannot name a verify-only connection (400).
+
+Validation (400 `{message, fieldErrors}`): `NONE` needs `verify.linkedProvider` (an alias other than its own), refuses
+`subject.acknowledgeWeakSubject=true` (the linked connection's own setting applies), and accepts only the release
+entries above; `verify.*` without `NONE` is refused.
+
+### 13.2 What happens at sign-in
+
+1. The user completes the first factor. The step starts a `VERIFY` wallet transaction for that user, bound to this
+   browser, and sends the browser to the usual wallet page (QR code and "Open wallet app"; the copy says "Confirm",
+   not "Sign in").
+2. The wallet presents; the response endpoint verifies it exactly like a login (signature, holder binding, trust
+   chain, revocation, nonce, audience, minimum LoA). It keeps only the subject the **linked** connection computes for
+   this PID (its subject settings and requested claims, the realm pepper), the released claims and the LoA.
+3. The browser returns to `/flow/wallet/callback`; the code is redeemed (single use, this browser, this login's
+   state), and the wallet is bound to the user, against the live links:
+   - the PID's administrative number, when linked at the linked connection, must be linked to **this user** (a number
+     linked to anyone else is refused, even if the attribute tuple matches this user);
+   - otherwise the attribute tuple, when the linked connection accepts weak subjects, must be linked to this user;
+   - a wallet that is not linked at all is refused: the user links it once from the account console (§6.1).
+
+   A refused wallet shows "We could not confirm your wallet" with **Try again** (a new transaction).
+4. On success the login's `acr` becomes the wallet's LoA (`http://eidas.europa.eu/LoA/high`). The released claims go
+   into the **ID token** of the authorization request the step started for, **only if that request asked for the
+   `verified_claims` scope** (a standard client scope, seeded in every realm; register it on the client). Without the
+   scope the step still raises `acr`, and nothing is released:
+
+   ```json
+   "acr": "http://eidas.europa.eu/LoA/high",
+   "verified_claims": {
+     "verification": {"trust_framework": "eidas", "assurance_level": "http://eidas.europa.eu/LoA/high",
+                      "time": "2026-10-15T10:00:00Z"},
+     "claims": {"age_over_18": true, "nationalities": "DE,NL"}
+   }
+   ```
+
+   `verified_claims` is pinned to that one authorization request (its `client_id` and a hash of its `client_id`,
+   `state`, `nonce` and `redirect_uri`) for 5 minutes: any other code (another tab, another client, a later
+   `prompt=none`), a denied consent or the timeout drops it. It is in the ID token of the code exchange only — never in
+   a refreshed ID token, userinfo or an access token — and it is removed from the stored authorization once the code
+   is exchanged: the attribute, and the stored ID token's parsed claims and claims metadata. **What remains:** the
+   stored ID token *value* (the signed JWT the client already received) still encodes the claims until the
+   authorization is removed (logout, revocation, expiry clean-up); it cannot be re-signed, and `id_token_hint` finds the
+   authorization by that value. Protocol mappers cannot set it.
+
+   **Pushed authorization requests (PAR):** the step pins the release to the front-channel authorize parameters; a PAR
+   client sends only `client_id` and `request_uri` there, so no release is pinned and a PAR client gets the step-up
+   `acr` but no `verified_claims` (it fails closed). Resolving the pushed request first is deferred.
+
+### 13.3 Stepping up a signed-in user: `acr_values`
+
+An application that needs the wallet for a user who already has an SSO session (signed in elsewhere without it) sends
+`acr_values=http://eidas.europa.eu/LoA/high` on its authorization request. When the session's `acr` does not satisfy
+any requested value (the same value, or an equal or higher eIDAS rung: high satisfies substantial and low), the user
+signs in again once for that request and the application's flow (with the wallet step) runs. `acr_values` is
+voluntary (OIDC Core §3.1.2.1): if the user still does not reach it — and always with `prompt=none` — the code is
+issued with the lower, actual `acr`. **Relying parties MUST check `acr` in the ID token.**
+
+The `acr` belongs to the SSO session: once raised, it stays until the next login, bounded by the realm's SSO session
+lifetime, and every later code of any client in that session carries it. A separate, shorter step-up lifetime is not
+configurable yet (`helix-iam-server/DEFERRED-SECURITY-WORK.md`).
+
+### 13.4 Audit
+
+| Event | When | Detail |
+|---|---|---|
+| `WALLET_VERIFY_SUCCESS` | the step accepted the wallet (actor: the user) | `transactionId, alias, format, issuerDn, result, releasedClaims` (claim **names** only) |
+| `WALLET_VERIFY_FAILURE` | refused at the response endpoint (actor: the user) or at the step | as above with `reason`: a `WalletErrorCode`, e.g. `BINDING_MISMATCH` (another person's wallet), `SUBJECT_UNAVAILABLE` (not linked) |
+
+A verification is never a `WALLET_LOGIN_*` event, and no PID value or subject hash is ever audited or logged.
+
+### 13.5 Not in this release
+
+A configurable step-up lifetime (shorter than the SSO session); a standalone "verify attributes" API for applications outside an OIDC login; binding by matching PID attributes to
+the profile (instead of a link); `verified_claims` in userinfo or access tokens and the OIDC `claims` parameter;
+discovery metadata (`acr_values_supported`, `verified_claims_supported`); stepping up without re-entering the first
+factor; keeping verified attributes on the profile; non-PID credentials (EAA).

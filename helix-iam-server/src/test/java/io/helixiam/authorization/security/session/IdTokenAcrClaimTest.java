@@ -90,4 +90,53 @@ class IdTokenAcrClaimTest {
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
                 .redirectUri("https://app.example/cb").build();
     }
+
+    // ------------------------------------------------------------------ verify-only: verified_claims
+
+    @Test
+    void boundVerifiedClaims_reachTheIdTokenAsFreshMutableMaps() {
+        final OAuth2Authorization authorization = OAuth2Authorization.from(authorization("http://eidas.europa.eu/LoA/high"))
+                .attribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE,
+                        "{\"verification\":{\"trust_framework\":\"eidas\"},\"claims\":{\"age_over_18\":true,"
+                                + "\"nationalities\":\"NL\"}}")
+                .build();
+        final JwtEncodingContext context = idTokenContext(authorization);
+
+        IdTokenSessionClaims.apply(context);
+
+        final Object claim = context.getClaims().build().getClaim(IdTokenSessionClaims.VERIFIED_CLAIMS);
+        assertThat(claim).isInstanceOf(java.util.LinkedHashMap.class);
+        @SuppressWarnings("unchecked")
+        final java.util.Map<String, Object> verified = (java.util.Map<String, Object>) claim;
+        assertThat(verified.get("claims")).isInstanceOf(java.util.LinkedHashMap.class)
+                .isEqualTo(java.util.Map.of("age_over_18", true, "nationalities", "NL"));
+        assertThat(verified.get("verification")).isEqualTo(java.util.Map.of("trust_framework", "eidas"));
+    }
+
+    @Test
+    void unreadableOrAbsentVerifiedClaims_emitNothing() {
+        final JwtEncodingContext broken = idTokenContext(OAuth2Authorization.from(authorization(null))
+                .attribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE, "[not json").build());
+        IdTokenSessionClaims.apply(broken);
+        assertThat(broken.getClaims().build().<Object>getClaim(IdTokenSessionClaims.VERIFIED_CLAIMS)).isNull();
+
+        final JwtEncodingContext none = idTokenContext(authorization(null));
+        IdTokenSessionClaims.apply(none);
+        assertThat(none.getClaims().build().<Object>getClaim(IdTokenSessionClaims.VERIFIED_CLAIMS)).isNull();
+    }
+
+    @Test
+    void aRefreshGrantIdToken_neverCarriesVerifiedClaims() {
+        final OAuth2Authorization authorization = OAuth2Authorization.from(authorization(null))
+                .attribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE, "{\"claims\":{}}").build();
+        final JwtEncodingContext refresh = JwtEncodingContext.with(JwsHeader.with(() -> "RS256"),
+                        JwtClaimsSet.builder().subject("user-1").issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(60)))
+                .registeredClient(client()).authorization(authorization)
+                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+                .tokenType(new OAuth2TokenType("id_token")).build();
+
+        IdTokenSessionClaims.apply(refresh);
+
+        assertThat(refresh.getClaims().build().<Object>getClaim(IdTokenSessionClaims.VERIFIED_CLAIMS)).isNull();
+    }
 }

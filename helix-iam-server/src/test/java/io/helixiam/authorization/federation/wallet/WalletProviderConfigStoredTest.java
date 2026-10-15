@@ -264,4 +264,23 @@ class WalletProviderConfigStoredTest {
         m.put("dcql.trustedAuthorities", "true");
         return WalletProviderConfig.fromStored(m);
     }
+
+    @Test
+    void verifyOnlySettings_roundTrip_andDefaultToNothingReleased() {
+        final WalletProviderConfig plain = WalletProviderConfig.fromStored(Map.of("alias", "eudi-wallet"));
+        assertThat(plain.subject().linkedProvider()).isNull();
+        assertThat(plain.subject().releasedClaims()).isEmpty();
+        assertThat(plain.subject().verifyOnly()).isFalse();
+        assertThat(plain.toStored()).doesNotContainKeys("verify.linkedProvider", "verify.releasedClaims");
+
+        final WalletProviderConfig c = WalletProviderConfig.fromStored(Map.of("alias", "eudi-verify",
+                "subject.strategy", "none", "verify.linkedProvider", " eudi-wallet ",
+                "verify.releasedClaims", "[\"age_over_18\",\"nationalities\"]"));
+        assertThat(c.subject().verifyOnly()).isTrue();
+        assertThat(c.subject().linkedProvider()).isEqualTo("eudi-wallet");
+        assertThat(c.subject().releasedClaims()).containsExactly("age_over_18", "nationalities");
+        assertThat(WalletProviderConfig.fromStored(c.toStored())).isEqualTo(c);
+        assertThat(c.toStored()).containsEntry("verify.linkedProvider", "eudi-wallet")
+                .containsEntry("verify.releasedClaims", "[\"age_over_18\",\"nationalities\"]");
+    }
 }

@@ -180,6 +180,51 @@ public class IdentityProviderAdminController {
         if (!errors.isEmpty()) {
             throw new ProviderValidationException(errors);
         }
+        checkVerifyOnlyLink(realmId, alias, request);
+    }
+
+    /** Security review item 3b: whether the flow engine runs (a verify-only connection needs it for password logins). */
+    private FlowSaveChecks flowChecks;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setFlowChecks(final FlowSaveChecks flowChecks) {
+        this.flowChecks = flowChecks;
+    }
+
+    /**
+     * Security review item 8: a verify-only connection links to an existing, sign-in capable wallet connection of the
+     * same realm and is not weaker than it ({@link io.helixiam.authorization.federation.wallet.WalletVerifyLinkRules});
+     * trust anchors the linked connection does not trust, and a flow engine that is off, are logged as warnings.
+     */
+    private void checkVerifyOnlyLink(final String realmId, final String alias, final IdentityProviderRequest request) {
+        final io.helixiam.authorization.federation.wallet.WalletProviderConfig verify =
+                io.helixiam.authorization.federation.wallet.WalletProviderConfig.fromStored(alias,
+                        request.displayName(), request.config());
+        if (!verify.subject().verifyOnly()) {
+            return;
+        }
+        IdentityProviderConfig linked = null;
+        try {
+            linked = publisher.get(new IdentityProviderRef(realmId, verify.subject().linkedProvider()));
+        } catch (final RuntimeException absent) {
+            linked = null;
+        }
+        final Map<String, String> errors = WalletConfigValidator.asAdminFields(
+                io.helixiam.authorization.federation.wallet.WalletVerifyLinkRules.problems(verify,
+                        linked == null ? null : linked.protocol(), linked == null ? null : linked.config()));
+        if (!errors.isEmpty()) {
+            throw new ProviderValidationException(errors);
+        }
+        if (!io.helixiam.authorization.federation.wallet.WalletVerifyLinkRules.anchorsWithin(verify.trustAnchors(),
+                linked.config().get("trustAnchors"))) {
+            LOG.warn("Verify-only wallet connection {} in realm {} trusts PID issuers its linked connection {} does not",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(realmId),
+                    LogSafe.sanitize(verify.subject().linkedProvider()));
+        }
+        if (flowChecks != null && !flowChecks.engineEnabled()) {
+            LOG.warn("Verify-only wallet connection {} in realm {} saved while helix.flow-engine.enabled=false: its "
+                    + "flow step cannot run after a password login", LogSafe.sanitize(alias), LogSafe.sanitize(realmId));
+        }
     }
 
     /** The stored connection's settings with its secrets (empty when there is none, or it cannot be read now). */

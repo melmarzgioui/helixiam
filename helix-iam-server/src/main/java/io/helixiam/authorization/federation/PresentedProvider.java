@@ -38,6 +38,11 @@ public final class PresentedProvider implements IdentityProvider {
     }
 
     @Override
+    public boolean signInCapable() {
+        return delegate.signInCapable();
+    }
+
+    @Override
     public RedirectResponse start(final AuthnRequestContext context) {
         return delegate.start(context);
     }

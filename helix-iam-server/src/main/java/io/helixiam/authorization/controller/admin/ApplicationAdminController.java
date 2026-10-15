@@ -38,6 +38,14 @@ public class ApplicationAdminController {
         this.publisher = publisher;
     }
 
+    /** Security review item 3b: a flow that needs the engine cannot be bound while it is off. */
+    private FlowSaveChecks checks;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setChecks(final FlowSaveChecks checks) {
+        this.checks = checks;
+    }
+
     @GetMapping
     public List<ApplicationConfig> list(@PathVariable final String realmId) {
         return publisher.list(realmId);
@@ -52,6 +60,9 @@ public class ApplicationAdminController {
     @PostMapping
     public ResponseEntity<ApplicationConfig> create(@PathVariable final String realmId,
                                                     @Valid @RequestBody final ApplicationRequest request) {
+        if (checks != null) {
+            checks.requireBindable(realmId, request.authFlowAlias(), "authFlowAlias");
+        }
         final ApplicationConfig saved = publisher.save(toConfig(realmId, request.name(), request));
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
@@ -59,6 +70,9 @@ public class ApplicationAdminController {
     @PutMapping("/{name}")
     public ResponseEntity<ApplicationConfig> update(@PathVariable final String realmId, @PathVariable final String name,
                                                     @Valid @RequestBody final ApplicationRequest request) {
+        if (checks != null) {
+            checks.requireBindable(realmId, request.authFlowAlias(), "authFlowAlias");
+        }
         final ApplicationConfig saved = publisher.save(toConfig(realmId, name, request));
         return ResponseEntity.ok(saved);
     }

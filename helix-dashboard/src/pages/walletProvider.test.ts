@@ -21,6 +21,9 @@ import {
   walletFormsEqual,
   walletWarnings,
   trustedAuthoritiesEffective,
+  releasableClaims,
+  walletLinkOptions,
+  defaultWalletAlias,
   type WalletForm,
   type WalletValidationContext,
 } from "./walletProvider";
@@ -449,5 +452,129 @@ describe("trusted lists on the wallet form", () => {
     expect(other).toEqual([]);
     expect(firstErrorSection({ "trustedLists.serviceTypes": "x" })).toBe("credentials");
     expect(clearEditedErrors({ "trustedLists.sources": "x" }, { trustedListSources: [] })).toEqual({});
+  });
+});
+
+describe("verify-only mode (subject.strategy NONE)", () => {
+  const RELEASABLE = CATALOGUE.map((c) => ({ ...c, releasable: c.name !== "personal_administrative_number" && c.name !== "address.house_number" ? true : c.name === "address.house_number" }));
+  const verify = (over: Partial<WalletForm> = {}): WalletForm => valid({
+    subjectStrategy: "NONE",
+    verifyLinkedProvider: "eudi-wallet",
+    requestedClaims: ["birthdate", "nationalities"],
+    verifyReleasedClaims: ["age_over_18", "nationalities"],
+    ...over,
+  });
+  const ctx = (over: Partial<WalletValidationContext> = {}) => prod({ pidClaims: RELEASABLE, alias: "eudi-verify", ...over });
+
+  it("reads and writes verify.linkedProvider and verify.releasedClaims, only for NONE", () => {
+    const form = walletFormFromConfig({ "subject.strategy": "NONE", "verify.linkedProvider": " eudi-wallet ",
+      "verify.releasedClaims": "[\"age_over_18\"]" });
+    expect(form.subjectStrategy).toBe("NONE");
+    expect(form.verifyLinkedProvider).toBe("eudi-wallet");
+    expect(form.verifyReleasedClaims).toEqual(["age_over_18"]);
+    const out = walletConfigFromForm(verify());
+    expect(out["subject.strategy"]).toBe("NONE");
+    expect(out["subject.acknowledgeWeakSubject"]).toBe("false");
+    expect(out["verify.linkedProvider"]).toBe("eudi-wallet");
+    expect(out["verify.releasedClaims"]).toBe("[\"age_over_18\",\"nationalities\"]");
+    const login = walletConfigFromForm(verify({ subjectStrategy: "ADMINISTRATIVE_NUMBER" }),
+      { "verify.linkedProvider": "stale", "verify.releasedClaims": "[\"x\"]" });
+    expect(login).not.toHaveProperty("verify.linkedProvider");
+    expect(login).not.toHaveProperty("verify.releasedClaims");
+    expect(walletFormFromConfig(walletConfigFromForm(verify()))).toEqual(verify());
+  });
+
+  it("defaults to nothing released and no linked connection", () => {
+    expect(DEFAULT_WALLET_FORM.verifyLinkedProvider).toBe("");
+    expect(DEFAULT_WALLET_FORM.verifyReleasedClaims).toEqual([]);
+    expect(walletConfigFromForm(verify({ verifyReleasedClaims: [] }))).not.toHaveProperty("verify.releasedClaims");
+  });
+
+  it("passes a complete verify-only form", () => {
+    expect(validateWallet(verify(), ctx())).toEqual({});
+    expect(validateWallet(verify({ verifyReleasedClaims: [] }), ctx())).toEqual({});
+  });
+
+  it("needs a linked sign-in connection: an alias, not itself, one of the realm's wallet connections when known", () => {
+    expect(validateWallet(verify({ verifyLinkedProvider: " " }), ctx())["verify.linkedProvider"]).toBe("wallet.err.linkedRequired");
+    expect(validateWallet(verify({ verifyLinkedProvider: "not an alias" }), ctx())["verify.linkedProvider"]).toBe("wallet.err.linkedAlias");
+    expect(validateWallet(verify({ verifyLinkedProvider: "eudi-verify" }), ctx())["verify.linkedProvider"]).toBe("wallet.err.linkedSelf");
+    expect(validateWallet(verify(), ctx({ linkedAliases: ["other"] }))["verify.linkedProvider"]).toBe("wallet.err.linkedUnknown");
+    expect(validateWallet(verify(), ctx({ linkedAliases: ["eudi-wallet"] }))).toEqual({});
+    expect(validateWallet(verify(), ctx({ linkedAliases: [] }))["verify.linkedProvider"]).toBe("wallet.err.linkedNone");
+    expect(validateWallet(verify({ verifyLinkedProvider: "" }), ctx({ linkedAliases: [] }))["verify.linkedProvider"])
+      .toBe("wallet.err.linkedNone");
+  });
+
+  it("releases only requested releasable claims and age thresholds 1-150 with birthdate requested, no repeats", () => {
+    const err = (released: string[], requested = ["birthdate", "nationalities", "personal_administrative_number"]) =>
+      validateWallet(verify({ requestedClaims: requested, verifyReleasedClaims: released }), ctx())["verify.releasedClaims"];
+    expect(err(["given_name"])).toBe("wallet.err.releasedNotRequested");
+    expect(err(["personal_administrative_number"])).toBe("wallet.err.releasedNotReleasable");
+    expect(err(["age_over_18"], ["nationalities"])).toBe("wallet.err.releasedAgeNeedsBirthdate");
+    for (const bad of ["age_over_0", "age_over_151", "age_over_018", "age_over_x"]) expect(err([bad])).toBe("wallet.err.releasedAge");
+    expect(err(["age_over_18", "age_over_18"])).toBe("wallet.err.releasedRepeated");
+    expect(err(["age_over_1", "age_over_150", "birthdate"])).toBeUndefined();
+  });
+
+  it("refuses the weak-subject acknowledgement with NONE (the linked connection decides)", () => {
+    expect(validateWallet(verify({ acknowledgeWeakSubject: true }), ctx())["subject.strategy"]).toBe("wallet.err.verifyNoAck");
+  });
+
+  it("server errors on the verify settings land on the policies section", () => {
+    const split = splitWalletServerErrors({ "config.verify.linkedProvider": "m1", "config.verify.releasedClaims": "m2" });
+    expect(split.fields).toEqual({ "verify.linkedProvider": "m1", "verify.releasedClaims": "m2" });
+    expect(firstErrorSection(split.fields)).toBe("policies");
+    expect(clearEditedErrors(split.fields, { verifyLinkedProvider: "x" })).toEqual({ "verify.releasedClaims": "m2" });
+    expect(clearEditedErrors(split.fields, { verifyReleasedClaims: [] })).toEqual({ "verify.linkedProvider": "m1" });
+  });
+
+  it("releasableClaims lists the requested releasable claims, then the age thresholds when birthdate is requested", () => {
+    expect(releasableClaims(verify({ requestedClaims: ["nationalities", "birthdate", "personal_administrative_number"] }), RELEASABLE))
+      .toEqual(["nationalities", "birthdate", "age_over_16", "age_over_18", "age_over_21", "age_over_65"]);
+    expect(releasableClaims(verify({ requestedClaims: ["nationalities"], verifyReleasedClaims: ["age_over_30"] }), RELEASABLE))
+      .toEqual(["nationalities", "age_over_30"]);
+  });
+
+  it("does not warn about the admin number for a verify-only connection (it binds the wallet)", () => {
+    expect(walletWarnings(verify({ requestedClaims: ["birthdate", "personal_administrative_number"] })))
+      .not.toContain("adminNumberWithoutStrategy");
+  });
+});
+
+describe("walletLinkOptions", () => {
+  it("offers the realm's other wallet sign-in connections, never a verify-only one or itself", () => {
+    const idp = (alias: string, protocol: string, config: Record<string, string> = {}) =>
+      ({ alias, protocol, displayName: alias.toUpperCase(), config });
+    expect(walletLinkOptions([
+      idp("eudi-wallet", "eudi-wallet"), idp("w2", "OpenID4VP", { "subject.strategy": "ATTRIBUTE_TUPLE" }),
+      idp("digid", "saml"), idp("eudi-verify", "eudi-wallet", { "subject.strategy": "none" }), idp("self", "wallet"),
+    ], "self")).toEqual([{ alias: "eudi-wallet", displayName: "EUDI-WALLET" }, { alias: "w2", displayName: "W2" }]);
+  });
+});
+
+describe("flow engine warning (verify-only)", () => {
+  it("warns about a verify-only connection when the server's flow engine is off", () => {
+    const verifyForm = valid({ subjectStrategy: "NONE", verifyLinkedProvider: "eudi-wallet" });
+    expect(walletWarnings(verifyForm, null, { flowEngineEnabled: false })).toContain("flowEngineOff");
+    expect(walletWarnings(verifyForm, null, { flowEngineEnabled: true })).not.toContain("flowEngineOff");
+    expect(walletWarnings(verifyForm)).not.toContain("flowEngineOff");
+    expect(walletWarnings(valid(), null, { flowEngineEnabled: false })).not.toContain("flowEngineOff");
+  });
+});
+
+describe("defaultWalletAlias", () => {
+  it("is eudi-wallet, else the first free eudi-wallet-N; eudi-wallet-verify for a verify-only connection", () => {
+    expect(defaultWalletAlias([], false)).toBe("eudi-wallet");
+    expect(defaultWalletAlias(["eudi-wallet"], false)).toBe("eudi-wallet-2");
+    expect(defaultWalletAlias(["eudi-wallet", "eudi-wallet-2"], false)).toBe("eudi-wallet-3");
+    expect(defaultWalletAlias(["eudi-wallet"], true)).toBe("eudi-wallet-verify");
+    expect(defaultWalletAlias(["eudi-wallet-verify"], true)).toBe("eudi-wallet-verify-2");
+  });
+
+  it("never makes the existing sign-in connection look like itself in the link options", () => {
+    const existing = [{ alias: "eudi-wallet", protocol: "eudi-wallet", displayName: "Wallet", config: {} }];
+    const own = defaultWalletAlias(existing.map((p) => p.alias), true);
+    expect(walletLinkOptions(existing, own)).toEqual([{ alias: "eudi-wallet", displayName: "Wallet" }]);
   });
 });

@@ -97,6 +97,129 @@ class SsoSessionBindingAuthorizationServiceTest {
         assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.ACR_ATTRIBUTE)).isNull();
     }
 
+    // ------------------------------------------------------------------ verify-only: verified_claims
+
+    private static final String CLAIMS = "{\"claims\":{\"age_over_18\":true}}";
+
+    /** The pending release for client "web" and the request {@link #withRequest} carries. */
+    private static String pendingFor(final String clientId, final String state, final Instant expires) {
+        return PendingVerifiedClaims.wrap(CLAIMS, clientId,
+                PendingVerifiedClaims.requestHash(clientId, state, "n-1", "https://app.example/cb"), expires);
+    }
+
+    /** A code being issued for client "web", request (state, nonce n-1), with {@code scopes} authorized. */
+    private static OAuth2Authorization withRequest(final String state, final java.util.Set<String> scopes) {
+        return withRequest(state, "n-1", "https://app.example/cb", scopes);
+    }
+
+    private static OAuth2Authorization withRequest(final String state, final String nonce, final String redirectUri,
+                                                   final java.util.Set<String> scopes) {
+        final org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest request =
+                org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest.authorizationCode()
+                        .authorizationUri("https://idp.example/oauth2/authorize").clientId("web")
+                        .redirectUri(redirectUri).state(state).scopes(scopes)
+                        .additionalParameters(java.util.Map.of("nonce", nonce)).build();
+        return OAuth2Authorization.from(withCode(false)).authorizedScopes(scopes)
+                .attribute(org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest.class.getName(),
+                        request).build();
+    }
+
+    private String bound() {
+        return saved.get().getAttribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE);
+    }
+
+    @Test
+    void verifiedClaims_bindToTheCodeOfTheVerySameRequest_withTheScope_once() {
+        final MockHttpServletRequest request = browserRequest("sid-5", 1_700_000_400L);
+        request.getSession(false).setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE,
+                pendingFor("web", "st-1", Instant.now().plusSeconds(300)));
+
+        service.save(withRequest("st-1", java.util.Set.of("openid", "verified_claims")));
+        assertThat(bound()).isEqualTo(CLAIMS);
+        assertThat(request.getSession(false).getAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE)).isNull();
+
+        service.save(withRequest("st-1", java.util.Set.of("openid", "verified_claims")));
+        assertThat(bound()).as("released once").isNull();
+    }
+
+    @Test
+    void verifiedClaims_areDropped_forAnotherRequestOrClient_afterTheTtl_orWithoutTheScope() {
+        for (final OAuth2Authorization other : java.util.List.of(
+                withRequest("st-OTHER", java.util.Set.of("openid", "verified_claims")),
+                withRequest("st-1", java.util.Set.of("openid")))) {
+            final MockHttpServletRequest request = browserRequest("sid-6", 1_700_000_500L);
+            request.getSession(false).setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE,
+                    pendingFor("web", "st-1", Instant.now().plusSeconds(300)));
+            service.save(other);
+            assertThat(bound()).isNull();
+            assertThat(request.getSession(false).getAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE))
+                    .as("dropped on mismatch").isNull();
+        }
+        final MockHttpServletRequest otherClient = browserRequest("sid-7", 1_700_000_600L);
+        otherClient.getSession(false).setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE,
+                pendingFor("bank", "st-1", Instant.now().plusSeconds(300)));
+        service.save(withRequest("st-1", java.util.Set.of("openid", "verified_claims")));
+        assertThat(bound()).isNull();
+
+        final MockHttpServletRequest expired = browserRequest("sid-8", 1_700_000_700L);
+        expired.getSession(false).setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE,
+                pendingFor("web", "st-1", Instant.now().minusSeconds(1)));
+        service.save(withRequest("st-1", java.util.Set.of("openid", "verified_claims")));
+        assertThat(bound()).isNull();
+    }
+
+    @Test
+    void verifiedClaims_areDropped_whenOnlyTheNonceOrOnlyTheRedirectUriDiffers() {
+        final java.util.Set<String> scopes = java.util.Set.of("openid", "verified_claims");
+        for (final OAuth2Authorization other : java.util.List.of(
+                withRequest("st-1", "n-OTHER", "https://app.example/cb", scopes),
+                withRequest("st-1", "n-1", "https://app.example/other", scopes))) {
+            final MockHttpServletRequest request = browserRequest("sid-10", 1_700_000_900L);
+            request.getSession(false).setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE,
+                    pendingFor("web", "st-1", Instant.now().plusSeconds(300)));
+            service.save(other);
+            assertThat(bound()).isNull();
+        }
+    }
+
+    @Test
+    void theStoredIdToken_losesVerifiedClaims_inItsClaimsAndMetadata_whenTheCodeIsExchanged() {
+        final Instant now = Instant.now();
+        final java.util.Map<String, Object> claims = new java.util.LinkedHashMap<>();
+        claims.put("sub", "user-1");
+        claims.put("verified_claims", java.util.Map.of("claims", java.util.Map.of("age_over_18", true)));
+        final org.springframework.security.oauth2.core.oidc.OidcIdToken idToken =
+                new org.springframework.security.oauth2.core.oidc.OidcIdToken("id.jwt", now, now.plusSeconds(60), claims);
+        final OAuth2Authorization exchanged = OAuth2Authorization.from(withCode(true))
+                .token(idToken, m -> m.put(OAuth2Authorization.Token.CLAIMS_METADATA_NAME, claims)).build();
+
+        service.save(exchanged);
+
+        final OAuth2Authorization.Token<org.springframework.security.oauth2.core.oidc.OidcIdToken> stored =
+                saved.get().getToken(org.springframework.security.oauth2.core.oidc.OidcIdToken.class);
+        assertThat(stored.getToken().getClaims()).containsKey("sub").doesNotContainKey("verified_claims");
+        assertThat(stored.getClaims()).containsKey("sub").doesNotContainKey("verified_claims");
+        assertThat(stored.getToken().getTokenValue()).as("kept: id_token_hint looks the token up by value")
+                .isEqualTo("id.jwt");
+    }
+
+    @Test
+    void anAuthorizationRemovedInTheBrowser_dropsThePendingClaims_consentDenied() {
+        final MockHttpServletRequest request = browserRequest("sid-9", 1_700_000_800L);
+        request.getSession(false).setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE,
+                pendingFor("web", "st-1", Instant.now().plusSeconds(300)));
+        service.remove(withRequest("st-1", java.util.Set.of("openid")));
+        assertThat(request.getSession(false).getAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    @Test
+    void theExchangedAuthorization_isStoredWithoutTheVerifiedClaims() {
+        final OAuth2Authorization exchanged = OAuth2Authorization.from(withCode(true))
+                .attribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE, CLAIMS).build();
+        service.save(exchanged);
+        assertThat(bound()).isNull();
+    }
+
     private static MockHttpServletRequest browserRequest(final String sid, final long authTime) {
         final MockHttpServletRequest request = new MockHttpServletRequest();
         request.getSession(true).setAttribute(AuthTimeStamper.HELIX_SID, sid);

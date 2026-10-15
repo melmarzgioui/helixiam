@@ -156,11 +156,17 @@ class WalletConsoleAdminE2eTest extends AbstractE2eTest {
             }
             if ("given_name".equals(c.path("name").asText())) {
                 assertThat(c.path("mdoc").asBoolean()).isTrue();
+                assertThat(c.path("releasable").asBoolean()).as("verify-only may release it").isTrue();
+            }
+            if ("personal_administrative_number".equals(c.path("name").asText())) {
+                assertThat(c.path("releasable").asBoolean()).as("a binding claim, never released").isFalse();
             }
         });
         assertThat(texts(meta.path("defaultRequestedClaims"))).containsExactly("given_name", "family_name", "birthdate");
         assertThat(texts(meta.path("credentialFormats"))).containsExactly("dc+sd-jwt", "mso_mdoc");
         assertThat(meta.path("devProfile").isBoolean()).isTrue();
+        assertThat(meta.path("flowEngineEnabled").isBoolean()).as("the console warns when it is off").isTrue();
+        assertThat(meta.path("flowEngineEnabled").asBoolean()).isFalse();
     }
 
     @Test

@@ -30,7 +30,7 @@ import { clearFlag } from "../api/idpSecrets";
 import { createWalletHttpClient, type WalletAdminApi } from "../api/wallet";
 import {
   DEFAULT_WALLET_FORM, DEV_KEY, clearEditedErrors, firstErrorSection, isWalletProtocol, splitWalletServerErrors,
-  validateWallet, walletConfigFromForm, walletFormFromConfig, walletFormsEqual, type WalletForm, type WalletSection,
+  validateWallet, walletConfigFromForm, walletFormFromConfig, walletFormsEqual, walletLinkOptions, type WalletForm, type WalletSection,
 } from "./walletProvider";
 
 const defaultWalletApi = createWalletHttpClient();
@@ -154,6 +154,15 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
   const family = loaded ? familyOf(loaded.protocol) : "oidc";
   const isWallet = family === "wallet";
   const wallet = useWalletData(walletApi, realmId, isWallet);
+  // Verify-only: the realm's wallet sign-in connections the linked connection is picked from (best effort).
+  const [linkOptions, setLinkOptions] = React.useState<{ alias: string; displayName: string }[] | undefined>(undefined);
+  React.useEffect(() => {
+    if (!isWallet) return;
+    let live = true;
+    api.list(realmId).then((all) => { if (live) setLinkOptions(walletLinkOptions(all, alias)); })
+      .catch(() => { if (live) setLinkOptions(undefined); });
+    return () => { live = false; };
+  }, [api, realmId, alias, isWallet]);
   const type = loaded ? findProviderType(loaded.protocol) : undefined;
   const scheme = (loaded && isEidScheme(loaded.protocol.toLowerCase()) ? loaded.protocol.toLowerCase() : (config.scheme || "")) as EidScheme | "";
   // Login-button preview mark: prefer the eID scheme inferred from the name/alias (eHerkenning/eIDAS are
@@ -209,7 +218,8 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
     return m;
   };
   const errs = missing();
-  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKey, wallet.lists)) : {};
+  const walletLocal = isWallet ? validateWallet(walletForm, { ...walletContext(walletForm, wallet.meta, wallet.keys, devKey, wallet.lists),
+    alias, linkedAliases: linkOptions?.map((o) => o.alias) }) : {};
   for (const k of errs) walletLocal[k] = "connectionDetail.fieldRequired";
   const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
   const fieldErr = (k: string) => (isWallet
@@ -328,7 +338,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
         {isWallet && tab !== "settings" && wallet.meta && wallet.keys && (() => {
           const props = {
             realmId, api: walletApi, form: walletForm, onChange: patchWallet, errors: walletShown, meta: wallet.meta,
-            keys: wallet.keys, onKeyImported: wallet.addKey, original: walletOriginal, devKey,
+            keys: wallet.keys, onKeyImported: wallet.addKey, original: walletOriginal, devKey, linkedOptions: linkOptions,
             trustedLists: wallet.lists, trustedListsError: wallet.listsError,
           };
           return (

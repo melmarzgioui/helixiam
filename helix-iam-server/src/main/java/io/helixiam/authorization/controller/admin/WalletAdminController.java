@@ -39,17 +39,31 @@ public class WalletAdminController {
 
     private final DeploymentProfile profile;
 
+    private boolean flowEngineEnabled;
+
+    @org.springframework.beans.factory.annotation.Value("${helix.flow-engine.enabled:false}")
+    public void setFlowEngineEnabled(final boolean flowEngineEnabled) {
+        this.flowEngineEnabled = flowEngineEnabled;
+    }
+
     public WalletAdminController(final DeploymentProfile profile) {
         this.profile = profile;
     }
 
-    /** One requestable PID claim: its canonical name and whether an mdoc PID carries it. */
-    public record PidClaim(String name, boolean mdoc) {
+    /**
+     * One requestable PID claim: its canonical name, whether an mdoc PID carries it, and whether a verify-only
+     * connection may release it ({@code verify.releasedClaims}; besides the derived {@code age_over_NN}).
+     */
+    public record PidClaim(String name, boolean mdoc, boolean releasable) {
     }
 
     /** What the console's wallet form needs to know about this server. */
+    /**
+     * @param flowEngineEnabled whether the flow engine runs after a password login ({@code helix.flow-engine.enabled});
+     *                          a verify-only connection's flow step needs it (security review item 3c)
+     */
     public record WalletMetadata(List<PidClaim> pidClaims, List<String> defaultRequestedClaims,
-                                 List<String> credentialFormats, boolean devProfile) {
+                                 List<String> credentialFormats, boolean devProfile, boolean flowEngineEnabled) {
     }
 
     /** The certificates of a previewed bundle, in bundle order. */
@@ -59,9 +73,10 @@ public class WalletAdminController {
     @GetMapping("/metadata")
     public WalletMetadata metadata(@PathVariable final String realmId) {
         final List<PidClaim> claims = new ArrayList<>();
-        DcqlQueryBuilder.pidClaimCatalogue().forEach((name, mdoc) -> claims.add(new PidClaim(name, mdoc)));
+        DcqlQueryBuilder.pidClaimCatalogue().forEach((name, mdoc) -> claims.add(new PidClaim(name, mdoc,
+                io.helixiam.authorization.federation.wallet.WalletAttributeMapper.isMappedClaim(name))));
         return new WalletMetadata(List.copyOf(claims), WalletProviderConfig.Pid.DEFAULT_REQUESTED_CLAIMS,
-                WalletProviderConfig.DEFAULT_FORMATS, profile.isDev());
+                WalletProviderConfig.DEFAULT_FORMATS, profile.isDev(), flowEngineEnabled);
     }
 
     @PostMapping("/certificates/preview")

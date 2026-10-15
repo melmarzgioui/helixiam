@@ -39,9 +39,9 @@ final class WalletTransactionValidation {
         if (tx.purpose() == null) {
             throw new IllegalArgumentException("A wallet transaction needs a purpose");
         }
-        if ((tx.purpose() == WalletTransaction.Purpose.LINK) == blank(tx.initiatingUserId())) {
-            throw new IllegalArgumentException("A LINK wallet transaction needs the user that started it, and a LOGIN "
-                    + "transaction has none");
+        if ((tx.purpose() != WalletTransaction.Purpose.LOGIN) == blank(tx.initiatingUserId())) {
+            throw new IllegalArgumentException("A LINK or VERIFY wallet transaction needs the user that started it, "
+                    + "and a LOGIN transaction has none");
         }
         if (tx.responseCode() != null || tx.verifiedIdentityJson() != null || tx.failureCode() != null) {
             throw new IllegalArgumentException("A new wallet transaction has no outcome yet");

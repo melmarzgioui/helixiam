@@ -22,7 +22,8 @@ import type { CertificateInfo, VerifierKey, WalletAdminApi, WalletMetadata } fro
 import type { TrustedList } from "../api/trustedLists";
 import { statusTone } from "../pages/trustedList";
 import {
-  LOA_LADDER, MDOC_FORMAT, SD_JWT_FORMAT, TTL_RANGE, commonName, expiryState, parseHostList, parseOriginList, sanCheck,
+  LOA_LADDER, MDOC_FORMAT, SD_JWT_FORMAT, TTL_RANGE, commonName, expiryState, parseHostList, parseOriginList, releasableClaims,
+  sanCheck,
   trustedAuthoritiesEffective, validateKeyImport, walletWarnings, type KeyImportForm, type WalletForm,
   type WalletValidationContext,
 } from "../pages/walletProvider";
@@ -59,6 +60,11 @@ export interface WalletSectionProps {
   trustedLists?: TrustedList[] | null;
   /** Why the trusted list sources could not be loaded. */
   trustedListsError?: string | null;
+  /**
+   * Verify-only: the realm's wallet sign-in connections the linked connection is picked from. Absent: the alias is
+   * typed (the server still checks it when the flow step runs).
+   */
+  linkedOptions?: { alias: string; displayName: string }[];
 }
 
 /** Loads what the wallet form needs from the server: the metadata (claim catalogue, dev profile) and the realm's keys. */
@@ -489,7 +495,7 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
   const { form, onChange, errors, meta, original } = props;
   const { t } = useT();
   const fe = useFieldError(errors);
-  const warnings = walletWarnings(form, original);
+  const warnings = walletWarnings(form, original, meta);
   const requiredId = React.useId();
   const dcApiId = React.useId();
 
@@ -504,6 +510,9 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
             <RadioCard roving selected={form.subjectStrategy === "ATTRIBUTE_TUPLE"}
               onSelect={() => onChange({ subjectStrategy: "ATTRIBUTE_TUPLE" })}
               title={t("wallet.subject.tuple")} description={t("wallet.subject.tupleDesc")} />
+            <RadioCard roving selected={form.subjectStrategy === "NONE"}
+              onSelect={() => onChange({ subjectStrategy: "NONE", acknowledgeWeakSubject: false })}
+              title={t("wallet.subject.verify")} description={t("wallet.subject.verifyDesc")} />
           </div>
         </FormField>
         {warnings.includes("weakTuple") && (
@@ -520,6 +529,11 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
             options={LOA_LADDER.map((l) => ({ value: l.value, label: t(`wallet.loa.${l.key}`), description: l.value }))} />
         </FormField>
       </Section>
+
+      {form.subjectStrategy === "NONE" && <WalletVerifyFields {...props} />}
+      {warnings.includes("flowEngineOff") && (
+        <Alert tone="warning" title={t("wallet.warn.flowEngineOff.title")}>{t("wallet.warn.flowEngineOff")}</Alert>
+      )}
 
       <Section title={t("wallet.status.title")} description={t("wallet.status.desc")}>
         <div className="hx-switchrow">
@@ -601,10 +615,63 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
   );
 }
 
+/** Verify-only (subject.strategy NONE): the linked sign-in connection and what is released (verified_claims). */
+function WalletVerifyFields({ form, onChange, errors, meta, linkedOptions }: WalletSectionProps) {
+  const { t } = useT();
+  const fe = useFieldError(errors);
+  const offered = releasableClaims(form, meta.pidClaims);
+  const linked = form.verifyLinkedProvider.trim();
+  const options = [
+    ...(linkedOptions ?? []).map((o) => ({ value: o.alias, label: o.displayName || o.alias, description: o.alias })),
+    ...(linked && linkedOptions && !linkedOptions.some((o) => o.alias === linked) ? [{ value: linked, label: linked }] : []),
+  ];
+  const toggle = (claim: string, on: boolean) => onChange({
+    verifyReleasedClaims: on ? [...form.verifyReleasedClaims.filter((c) => c !== claim), claim]
+      : form.verifyReleasedClaims.filter((c) => c !== claim),
+  });
+  const label = (claim: string) => {
+    const age = /^age_over_(\d+)$/.exec(claim);
+    return age ? t("wallet.verify.age", { n: Number(age[1]) }) : t(`wallet.claim.${claim}`);
+  };
+  return (
+    <Section title={t("wallet.verify.title")} description={t("wallet.verify.desc")}>
+      <FormField label={t("wallet.verify.linked")} required error={fe("verify.linkedProvider")} hint={t("wallet.verify.linkedHint")}>
+        {linkedOptions && linkedOptions.length === 0 ? (
+          <p className="hx-help" id="walletLinkedNone">{t("wallet.verify.linkedNone")}</p>
+        ) : linkedOptions ? (
+          <Select aria-label={t("wallet.verify.linked")} value={linked} placeholder={t("wallet.verify.linkedPlaceholder")}
+            onChange={(v) => onChange({ verifyLinkedProvider: v })} options={options} />
+        ) : (
+          <Input value={form.verifyLinkedProvider} placeholder="eudi-wallet" spellCheck={false}
+            onChange={(e) => onChange({ verifyLinkedProvider: e.target.value })} />
+        )}
+      </FormField>
+      <FormField label={t("wallet.verify.released")} error={fe("verify.releasedClaims")} hint={t("wallet.verify.releasedHint")} group>
+        <div className="hx-optiongrid hx-optiongrid--claims">
+          {offered.map((claim) => (
+            <Checkbox key={claim} checked={form.verifyReleasedClaims.includes(claim)} onChange={(on) => toggle(claim, on)}
+              label={
+                <span className="hx-optlabel">
+                  <span>{label(claim)}</span>
+                  <span className="hx-optlabel__sub">{claim.startsWith("age_over_") ? t("wallet.verify.ageDesc")
+                    : <span className="hx-mono">{claim}</span>}</span>
+                </span>
+              } />
+          ))}
+        </div>
+      </FormField>
+      {form.verifyReleasedClaims.length === 0 && <p className="hx-help">{t("wallet.verify.releasedNone")}</p>}
+      <Alert tone="info">{t("wallet.verify.useInFlow")}</Alert>
+    </Section>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------- review
 
 /** The wizard's last step: what will be saved, in words (raw ids only as muted technical lines). */
-export function WalletReview({ form, keys }: { form: WalletForm; keys: VerifierKey[] }) {
+export function WalletReview({ form, keys, linkedOptions }: {
+  form: WalletForm; keys: VerifierKey[]; linkedOptions?: { alias: string; displayName: string }[];
+}) {
   const { t } = useT();
   const key = keys.find((k) => k.keyRef === form.accessKeyRef.trim());
   const anchors = (form.trustAnchors.match(/-----BEGIN CERTIFICATE-----/g) ?? []).length;
@@ -630,8 +697,23 @@ export function WalletReview({ form, keys }: { form: WalletForm; keys: VerifierK
         {t(trustedAuthoritiesEffective(form) ? "wallet.trustedAuthorities.on" : "wallet.trustedAuthorities.off")}
       </Detail>
       <Detail label={t("wallet.review.subject")}>
-        {form.subjectStrategy === "ADMINISTRATIVE_NUMBER" ? t("wallet.subject.adminNumber") : t("wallet.subject.tuple")}
+        {form.subjectStrategy === "ADMINISTRATIVE_NUMBER" ? t("wallet.subject.adminNumber")
+          : form.subjectStrategy === "NONE" ? t("wallet.subject.verify") : t("wallet.subject.tuple")}
       </Detail>
+      {form.subjectStrategy === "NONE" && (() => {
+        const linked = form.verifyLinkedProvider.trim();
+        const name = linkedOptions?.find((o) => o.alias === linked)?.displayName;
+        const released = form.verifyReleasedClaims.map((c) => {
+          const age = /^age_over_(\d+)$/.exec(c);
+          return age ? t("wallet.verify.age", { n: Number(age[1]) }) : t(`wallet.claim.${c}`);
+        });
+        return (
+          <>
+            <Detail label={t("wallet.review.linked")} mono={linked || undefined}>{name || linked || "—"}</Detail>
+            <Detail label={t("wallet.review.released")}>{released.length ? released.join(", ") : t("wallet.review.none")}</Detail>
+          </>
+        );
+      })()}
       <Detail label={t("wallet.review.status")} sub={hosts.length ? hosts.join(", ") : undefined}>
         {`${form.statusRequired ? t("wallet.review.statusRequired") : t("wallet.review.statusOptional")} · ${form.onUnavailable === "FAIL_CLOSED" ? t("wallet.status.failClosed") : t("wallet.status.failOpen")}`}
       </Detail>

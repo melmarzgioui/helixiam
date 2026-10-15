@@ -19,7 +19,7 @@ public final class ReservedClaims {
     public static final Set<String> NAMES = Set.of(
             // JWT / OIDC protocol
             "sub", "iss", "aud", "exp", "iat", "nbf", "jti", "azp", "sid", "auth_time", "nonce", "acr", "amr",
-            "at_hash", "c_hash", "s_hash", "typ", "cnf",
+            "verified_claims", "at_hash", "c_hash", "s_hash", "typ", "cnf",
             // OAuth authority
             "scope", "scp", "client_id", "roles", "realm_access", "resource_access", "organizations",
             // delegation / non-human identity

@@ -548,9 +548,80 @@ class WalletConfigValidatorTest {
         assertThat(errors(production, m)).isEmpty();
     }
 
+    // ------------------------------------------------------------------ verify-only (subject.strategy=NONE)
+
+    /** A valid verify-only provider: NONE, a linked login provider, an age threshold and a nationality released. */
+    private static Map<String, String> verifyOnly() {
+        final Map<String, String> m = valid();
+        m.put("alias", "eudi-verify");
+        m.put("subject.strategy", "NONE");
+        m.put("verify.linkedProvider", "eudi-wallet");
+        m.put("pid.requestedClaims", "[\"birthdate\",\"nationalities\"]");
+        m.put("verify.releasedClaims", "[\"age_over_18\",\"nationalities\"]");
+        return m;
+    }
+
     @Test
-    void subjectStrategyNone_isNotSupported() {
-        assertThat(errorsWith("subject.strategy", "NONE")).containsKey("subject.strategy");
+    void subjectStrategyNone_withALinkedProviderAndReleasedClaims_isAccepted() {
+        assertThat(errors(production, verifyOnly())).isEmpty();
+        final Map<String, String> nothingReleased = verifyOnly();
+        nothingReleased.remove("verify.releasedClaims");
+        assertThat(errors(production, nothingReleased)).as("releasing nothing is the minimal default").isEmpty();
+    }
+
+    @Test
+    void subjectStrategyNone_withoutALinkedProvider_isRefused() {
+        final Map<String, String> m = verifyOnly();
+        m.remove("verify.linkedProvider");
+        assertThat(errors(production, m)).containsKey("verify.linkedProvider");
+        m.put("verify.linkedProvider", "eudi-verify");
+        assertThat(errors(production, m)).as("not itself").containsKey("verify.linkedProvider");
+        m.put("verify.linkedProvider", "not an alias!");
+        assertThat(errors(production, m)).containsKey("verify.linkedProvider");
+    }
+
+    @Test
+    void subjectStrategyNone_withTheWeakSubjectAcknowledged_isRefused() {
+        final Map<String, String> m = verifyOnly();
+        m.put("subject.acknowledgeWeakSubject", "true");
+        assertThat(errors(production, m)).containsKey("subject.acknowledgeWeakSubject");
+    }
+
+    @Test
+    void releasedClaims_mustBeRequestedMappedClaimsOrAgeThresholds() {
+        final Map<String, String> notRequested = verifyOnly();
+        notRequested.put("verify.releasedClaims", "[\"given_name\"]");
+        assertThat(errors(production, notRequested)).containsKey("verify.releasedClaims");
+
+        final Map<String, String> notMapped = verifyOnly();
+        notMapped.put("pid.requestedClaims", "[\"birthdate\",\"personal_administrative_number\"]");
+        notMapped.put("verify.releasedClaims", "[\"personal_administrative_number\"]");
+        assertThat(errors(production, notMapped)).as("the number is a binding claim, never released")
+                .containsKey("verify.releasedClaims");
+
+        final Map<String, String> ageWithoutBirthdate = verifyOnly();
+        ageWithoutBirthdate.put("pid.requestedClaims", "[\"nationalities\"]");
+        ageWithoutBirthdate.put("verify.releasedClaims", "[\"age_over_18\"]");
+        assertThat(errors(production, ageWithoutBirthdate)).containsKey("verify.releasedClaims");
+
+        for (final String bad : List.of("[\"age_over_0\"]", "[\"age_over_151\"]", "[\"age_over_x\"]",
+                "[\"age_over_18\",\"age_over_18\"]", "[\"\"]")) {
+            final Map<String, String> m = verifyOnly();
+            m.put("verify.releasedClaims", bad);
+            assertThat(errors(production, m)).as(bad).containsKey("verify.releasedClaims");
+        }
+
+        final Map<String, String> placeOfBirth = verifyOnly();
+        placeOfBirth.put("pid.requestedClaims", "[\"birthdate\",\"place_of_birth\",\"address.country\"]");
+        placeOfBirth.put("verify.releasedClaims", "[\"place_of_birth\",\"address.country\",\"birthdate\","
+                + "\"age_over_21\"]");
+        assertThat(errors(production, placeOfBirth)).isEmpty();
+    }
+
+    @Test
+    void verifySettings_withoutStrategyNone_areRefused() {
+        assertThat(errorsWith("verify.linkedProvider", "eudi-wallet")).containsKey("verify.linkedProvider");
+        assertThat(errorsWith("verify.releasedClaims", "[\"given_name\"]")).containsKey("verify.releasedClaims");
     }
 
     @ParameterizedTest

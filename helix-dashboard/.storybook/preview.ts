@@ -2,6 +2,8 @@ import type { Preview } from "@storybook/react";
 import "../src/styles/tokens.css";
 import "../src/styles/components.css";
 import "../src/styles/app.css";
+import React from "react";
+import { ToastProvider } from "../src/components/ToastProvider";
 
 /** Theme switcher so every story can be reviewed in light + the Black Cat / Jade dark mode. */
 const preview: Preview = {
@@ -29,7 +31,8 @@ const preview: Preview = {
       document.documentElement.setAttribute("data-theme", context.globals.theme);
       document.body.style.background = "var(--bg)";
       document.body.style.padding = "24px";
-      return Story();
+      // Pages use toasts (useToast): every story renders inside the provider the app has.
+      return React.createElement(ToastProvider, null, Story());
     },
   ],
 };

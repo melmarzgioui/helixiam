@@ -198,4 +198,84 @@ class FlowExecutorTest {
         assertThat(afterPassword.type()).isEqualTo(FlowProgress.Type.COMPLETED);
         assertThat(afterPassword.userId()).isEqualTo("user-1");
     }
+
+    /** A step that asserts a level of assurance and verified claims when it succeeds (the wallet verify step). */
+    private static Authenticator assertingAuthenticator() {
+        return new Authenticator() {
+            @Override
+            public AuthenticatorMetadata metadata() {
+                return AuthenticatorMetadata.of("assert", "Assert", FactorClass.POSSESSION, 5);
+            }
+
+            @Override
+            public void authenticate(final AuthenticationContext context) {
+                context.assertLevelOfAssurance("http://eidas.europa.eu/LoA/high");
+                context.releaseVerifiedClaims("{\"claims\":{}}");
+                context.challenge("assert-form");
+            }
+
+            @Override
+            public void action(final AuthenticationContext context) {
+                context.assertLevelOfAssurance("http://eidas.europa.eu/LoA/high");
+                context.releaseVerifiedClaims("{\"claims\":{}}");
+                if ("ok".equals(context.formParameter("answer"))) {
+                    context.success();
+                } else {
+                    context.failure("no");
+                }
+            }
+        };
+    }
+
+    @Test
+    void aSucceededStep_putsItsLevelOfAssuranceAndVerifiedClaimsOnTheState_aChallengeOrFailureDoesNot() {
+        FlowExecutor executor = executor(assertingAuthenticator());
+        AuthFlow flow = AuthFlow.of("browser", AuthExecution.authenticator("e-a", "assert", Requirement.REQUIRED));
+        FlowExecutionState state = new FlowExecutionState("master");
+        state.setUserId("user-1");
+
+        executor.begin(flow, state);
+        assertThat(state.pendingAcr()).as("not on a challenge").isNull();
+        assertThat(state.pendingVerifiedClaims()).isNull();
+        executor.submit(flow, state, "e-a", Map.of("answer", "no"));
+        assertThat(state.pendingAcr()).as("not on a failure").isNull();
+        assertThat(state.pendingVerifiedClaims()).isNull();
+
+        assertThat(executor.submit(flow, state, "e-a", Map.of("answer", "ok")).type())
+                .isEqualTo(FlowProgress.Type.COMPLETED);
+        assertThat(state.pendingAcr()).isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(state.pendingVerifiedClaims()).isEqualTo("{\"claims\":{}}");
+    }
+
+    @Test
+    void aStepThatFailedAndThenAsksAgain_isRunAfresh_insteadOfFailingTheFlow() {
+        FlowExecutor executor = executor(assertingAuthenticator());
+        AuthFlow flow = AuthFlow.of("browser", AuthExecution.authenticator("e-a", "assert", Requirement.REQUIRED));
+        FlowExecutionState state = new FlowExecutionState("master");
+        state.setUserId("user-1");
+        executor.begin(flow, state);
+        assertThat(executor.submit(flow, state, "e-a", Map.of("answer", "no")).type())
+                .isEqualTo(FlowProgress.Type.FAILED);
+
+        // a submit the step answers with a new challenge ("try again")
+        final Authenticator retrying = new Authenticator() {
+            @Override
+            public AuthenticatorMetadata metadata() {
+                return AuthenticatorMetadata.of("assert", "Assert", FactorClass.POSSESSION, 5);
+            }
+
+            @Override
+            public void authenticate(final AuthenticationContext context) {
+                context.challenge("assert-form");
+            }
+
+            @Override
+            public void action(final AuthenticationContext context) {
+                context.challenge("assert-form");
+            }
+        };
+        FlowProgress again = executor(retrying).submit(flow, state, "e-a", Map.of("restart", "1"));
+        assertThat(again.type()).isEqualTo(FlowProgress.Type.CHALLENGE);
+        assertThat(state.outcomes()).doesNotContainKey("e-a");
+    }
 }

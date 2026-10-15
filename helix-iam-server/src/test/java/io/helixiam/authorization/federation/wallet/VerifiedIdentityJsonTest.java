@@ -250,4 +250,52 @@ class VerifiedIdentityJsonTest {
     void readLink_refusesAnythingButTheExactLinkShape(final String json) {
         assertThatThrownBy(() -> VerifiedIdentityJson.readLink(json)).isInstanceOf(WalletVerificationException.class);
     }
+
+    // ------------------------------------------------------------------ verify-only records
+
+    @Test
+    void aVerifyRecord_roundTripsTheBindingSubjectsTheReleasedClaimsAndTheLoa() {
+        final java.util.Map<String, Object> claims = new java.util.LinkedHashMap<>();
+        claims.put("age_over_18", true);
+        claims.put("nationalities", "NL");
+        final String json = VerifiedIdentityJson.writeVerify(new WalletSubject.AdminNumber("aa11", "bb22"), claims,
+                "http://eidas.europa.eu/LoA/high", "dc+sd-jwt", "CN=PID");
+
+        final VerifiedIdentityJson.Verification v = VerifiedIdentityJson.readVerify(json);
+        assertThat(v.numberSubject()).isEqualTo("aa11");
+        assertThat(v.tupleSubject()).isEqualTo("bb22");
+        assertThat(v.claims()).containsExactly(java.util.Map.entry("age_over_18", true),
+                java.util.Map.entry("nationalities", "NL"));
+        assertThat(v.levelOfAssurance()).isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(v.format()).isEqualTo("dc+sd-jwt");
+        assertThat(v.issuerDn()).isEqualTo("CN=PID");
+
+        final VerifiedIdentityJson.Verification tuple = VerifiedIdentityJson.readVerify(VerifiedIdentityJson
+                .writeVerify(new WalletSubject.Tuple("cc33"), java.util.Map.of(), "http://eidas.europa.eu/LoA/high",
+                        null, null));
+        assertThat(tuple.numberSubject()).isNull();
+        assertThat(tuple.tupleSubject()).isEqualTo("cc33");
+        assertThat(tuple.claims()).isEmpty();
+        final VerifiedIdentityJson.Verification none = VerifiedIdentityJson.readVerify(VerifiedIdentityJson
+                .writeVerify(new WalletSubject.Unavailable(WalletSubject.Reason.WEAK_SUBJECT_NOT_ACKNOWLEDGED),
+                        java.util.Map.of(), "http://eidas.europa.eu/LoA/high", null, null));
+        assertThat(none.numberSubject()).isNull();
+        assertThat(none.tupleSubject()).isNull();
+    }
+
+    @Test
+    void aVerifyRecord_isNeverALoginOrALink_andViceVersa() {
+        final String verify = VerifiedIdentityJson.writeVerify(new WalletSubject.Tuple("cc33"), java.util.Map.of(),
+                "http://eidas.europa.eu/LoA/high", null, null);
+        assertThatThrownBy(() -> VerifiedIdentityJson.read("eudi-wallet", verify))
+                .isInstanceOf(WalletVerificationException.class);
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLogin("eudi-wallet", verify))
+                .isInstanceOf(WalletVerificationException.class);
+        assertThatThrownBy(() -> VerifiedIdentityJson.readLink(verify)).isInstanceOf(WalletVerificationException.class);
+        final String link = VerifiedIdentityJson.writeLink(new WalletSubject.Tuple("cc33"));
+        assertThatThrownBy(() -> VerifiedIdentityJson.readVerify(link)).isInstanceOf(WalletVerificationException.class);
+        assertThatThrownBy(() -> VerifiedIdentityJson.readVerify("{\"v\":1,\"emailVerified\":false,"
+                + "\"attributes\":{},\"verify\":{\"claims\":{\"x\":[1]},\"loa\":\"l\"}}"))
+                .as("only string or boolean claim values").isInstanceOf(WalletVerificationException.class);
+    }
 }

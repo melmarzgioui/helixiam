@@ -23,6 +23,12 @@ import {
   JourneyStage,
 } from "./flowModel";
 import { useT } from "../i18n/LocaleContext";
+import {
+  WALLET_VERIFY_ID, PROVIDER_ALIAS, firstStepError, flowEngineWarning, setWalletVerifyProvider, stepFieldId,
+  verifyOnlyConnections,
+  walletVerifyStepErrors, type VerifyConnection,
+} from "./walletVerifyStep";
+import { Alert } from "../components/Alert";
 
 export interface AuthFlowPageProps {
   api: FlowApi;
@@ -32,7 +38,7 @@ export interface AuthFlowPageProps {
 }
 
 /** A minimal identity-provider option for the idp-redirect step's alias picker. */
-export interface IdpOption { alias: string; displayName: string; }
+export interface IdpOption { alias: string; displayName: string; protocol?: string; config?: Record<string, string>; }
 
 type Mode = "simple" | "advanced";
 const MODE_KEY = "helix.authflow.mode";
@@ -64,6 +70,14 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
   const [execs, setExecs] = React.useState<FlowExecution[]>([]);
   const [catalog, setCatalog] = React.useState<AuthenticatorCatalogEntry[]>([]);
   const [idps, setIdps] = React.useState<IdpOption[]>([]);
+  const [idpsKnown, setIdpsKnown] = React.useState(false);
+  const [triedSave, setTriedSave] = React.useState(false);
+  const [engineEnabled, setEngineEnabled] = React.useState<boolean | undefined>(undefined);
+  React.useEffect(() => {
+    let live = true;
+    api.engine?.(realmId).then((e) => { if (live) setEngineEnabled(e.enabled); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [api, realmId]);
   const [builtIn, setBuiltIn] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const toast = useToast();
@@ -99,11 +113,20 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
   const idpClient = React.useMemo(() => idpApi ?? createIdpClient(), [idpApi]);
   React.useEffect(() => {
     idpClient.list(realmId)
-      .then((list) => setIdps(list.map((p) => ({ alias: p.alias, displayName: p.displayName }))))
-      .catch(() => setIdps([]));
+      .then((list) => { setIdps(list.map((p) => ({ alias: p.alias, displayName: p.displayName, protocol: p.protocol, config: p.config }))); setIdpsKnown(true); })
+      .catch(() => { setIdps([]); setIdpsKnown(false); });
   }, [idpClient, realmId]);
 
   const dirty = loaded !== null && JSON.stringify(loaded) !== JSON.stringify(execs);
+  // The EUDI wallet verification step names a verify-only wallet connection; saving is blocked until each one does.
+  const verifyConnections = React.useMemo(
+    () => verifyOnlyConnections(idps.map((p) => ({ alias: p.alias, displayName: p.displayName, protocol: p.protocol ?? "", config: p.config }))),
+    [idps]);
+  const stepErrors = walletVerifyStepErrors(execs, idpsKnown ? verifyConnections.map((c) => c.alias) : undefined);
+  const setVerifyProvider = (execId: string, providerAlias: string) => setExecs((xs) => setWalletVerifyProvider(xs, execId, providerAlias));
+  const walletVerifyProps: WalletVerifyProps = {
+    connections: verifyConnections, errors: triedSave ? stepErrors : {}, onChange: setVerifyProvider,
+  };
   const journey = React.useMemo(() => toJourney(execs, catalog), [execs, catalog]);
   const preview = React.useMemo(() => previewScreens(journey), [journey]);
   const summary = React.useMemo(() => summarizeJourney(journey), [journey]);
@@ -160,6 +183,19 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
   };
 
   const save = async () => {
+    if (Object.keys(stepErrors).length > 0) {
+      setTriedSave(true);
+      toast.show({ tone: "error", title: t("authFlow.error.save"), message: t("authFlow.walletVerify.err.blocked") });
+      // Block + inline errors (as every console form): the button stays enabled, the first field gets the focus.
+      const first = firstStepError(execs, stepErrors);
+      if (first) {
+        window.requestAnimationFrame(() => {
+          const el = document.getElementById(stepFieldId(first));
+          (el?.querySelector<HTMLElement>("button, input, select") ?? el)?.focus();
+        });
+      }
+      return;
+    }
     setBusy(true);
     try {
       const saved = await api.saveByAlias(realmId, alias, execs);
@@ -258,6 +294,9 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
         </div>
       </div>
 
+      {flowEngineWarning(engineEnabled, execs, verifyConnections) && (
+        <Alert tone="warning" title={t("authFlow.engineOff.title")}>{t("authFlow.engineOff.msg")}</Alert>
+      )}
       {loaded === null ? (
         <div className="hx-loadwrap"><Spinner size={28} label={t("authFlow.loading")} /></div>
       ) : (
@@ -267,6 +306,7 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
               stages={journey}
               rootCount={siblings(null).length}
               idps={idps}
+              walletVerify={walletVerifyProps}
               onAddStage={addStage}
               onAddMethod={(stageId, cond) => setPicker({ stageId, condition: cond })}
               onRemove={remove}
@@ -281,6 +321,7 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
               catalog={catalog}
               siblings={siblings}
               idps={idps}
+              walletVerify={walletVerifyProps}
               onAdd={(parentId, cond) => setPicker({ stageId: parentId, condition: cond })}
               onAddStage={addStage}
               onRemove={remove}
@@ -342,10 +383,11 @@ function Segmented({ value, onChange, options }: { value: string; onChange: (v: 
 }
 
 // ----------------------------------------------------------------------------- Simple: Journey + preview
-function JourneyView({ stages, rootCount, idps, onAddStage, onAddMethod, onRemove, onMoveStage, onStageRequirement, onStageMode, preview }: {
+function JourneyView({ stages, rootCount, idps, walletVerify, onAddStage, onAddMethod, onRemove, onMoveStage, onStageRequirement, onStageMode, preview }: {
   stages: JourneyStage[];
   rootCount: number;
   idps: IdpOption[];
+  walletVerify: WalletVerifyProps;
   onAddStage: () => void;
   onAddMethod: (stageId: string, condition: boolean) => void;
   onRemove: (id: string) => void;
@@ -416,6 +458,11 @@ function JourneyView({ stages, rootCount, idps, onAddStage, onAddMethod, onRemov
                       <IdpManagedNote config={m.config} idps={idps} />
                     </div>
                   ))}
+                  {s.methods.filter((m) => m.authenticatorId === WALLET_VERIFY_ID).map((m) => (
+                    <div key={`wv-${m.execId}`} className="hx-stage__cfg">
+                      <WalletVerifyStepConfig execId={m.execId} config={m.config} {...walletVerify} />
+                    </div>
+                  ))}
                   <div className="hx-stage__foot">
                     <div className="hx-stage__addgroup">
                       <button className="hx-textbtn" onClick={() => onAddMethod(s.id, false)}>{t("authFlow.journey.addMethod")}</button>
@@ -439,6 +486,11 @@ function JourneyView({ stages, rootCount, idps, onAddStage, onAddMethod, onRemov
                   {s.methods.filter((m) => m.authenticatorId === "idp-redirect").map((m) => (
                     <div key={`cfg-${m.execId}`} className="hx-stage__cfg hx-stage__cfg--readonly">
                       <IdpManagedNote config={m.config} idps={idps} />
+                    </div>
+                  ))}
+                  {s.methods.filter((m) => m.authenticatorId === WALLET_VERIFY_ID).map((m) => (
+                    <div key={`wv-${m.execId}`} className="hx-stage__cfg">
+                      <WalletVerifyStepConfig execId={m.execId} config={m.config} {...walletVerify} />
                     </div>
                   ))}
                 </>
@@ -504,11 +556,12 @@ function PreviewCard({ title, tag, children }: { title: string; tag: string | nu
 }
 
 // ----------------------------------------------------------------------------- Advanced: flow canvas
-function CanvasView({ execs, catalog, siblings, idps, onAdd, onAddStage, onRemove, onMove, onRequirement }: {
+function CanvasView({ execs, catalog, siblings, idps, walletVerify, onAdd, onAddStage, onRemove, onMove, onRequirement }: {
   execs: FlowExecution[];
   catalog: AuthenticatorCatalogEntry[];
   siblings: (parentId: string | null) => FlowExecution[];
   idps: IdpOption[];
+  walletVerify: WalletVerifyProps;
   onAdd: (parentId: string | null, condition: boolean) => void;
   onAddStage: () => void;
   onRemove: (id: string) => void;
@@ -567,6 +620,9 @@ function CanvasView({ execs, catalog, siblings, idps, onAdd, onAddStage, onRemov
             {sel.authenticatorId === "idp-redirect" && (
               <IdpManagedNote config={sel.config} idps={idps} />
             )}
+            {sel.authenticatorId === WALLET_VERIFY_ID && (
+              <WalletVerifyStepConfig execId={sel.executionId} config={sel.config} {...walletVerify} />
+            )}
             {sel.authenticatorId == null && (
               <div className="hx-badges hx-picksearch">
                 <Button variant="ghost" onClick={() => onAdd(sel.executionId, false)}>{t("authFlow.inspector.addMethod")}</Button>
@@ -608,6 +664,40 @@ function IdpManagedNote({ config, idps }: { config?: Record<string, string>; idp
     <div className="hx-idpnote">
       <div className="hx-idpnote__summary">{summary}</div>
       <div className="hx-idpnote__managed">{t("authFlow.idp.managed")}</div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------- EUDI wallet verification step
+/** What the wallet verification step's picker needs: the verify-only connections, the save errors, the setter. */
+interface WalletVerifyProps {
+  connections: VerifyConnection[];
+  /** executionId → i18n key, shown once a save was tried (walletVerifyStepErrors). */
+  errors: Record<string, string>;
+  onChange: (execId: string, providerAlias: string) => void;
+}
+
+/**
+ * The "EU Digital Identity Wallet verification" step's one setting: which verify-only wallet connection it uses
+ * (pages/walletVerifyStep.ts). Without any such connection it says where to create one.
+ */
+function WalletVerifyStepConfig({ execId, config, connections, errors, onChange }: WalletVerifyProps & {
+  execId: string; config?: Record<string, string>;
+}) {
+  const { t } = useT();
+  const value = (config?.[PROVIDER_ALIAS] ?? "").trim();
+  const error = errors[execId] ? t(errors[execId]) : undefined;
+  const options = [
+    ...connections.map((c) => ({ value: c.alias, label: c.displayName || c.alias, description: c.alias })),
+    ...(value && !connections.some((c) => c.alias === value) ? [{ value, label: value }] : []),
+  ];
+  return (
+    <div className="hx-walletverify" id={stepFieldId(execId)}>
+      <FormField label={t("authFlow.walletVerify.field")} required error={error} hint={t("authFlow.walletVerify.hint")}>
+        <Select aria-label={t("authFlow.walletVerify.field")} value={value || undefined} options={options}
+          placeholder={t("authFlow.walletVerify.placeholder")} onChange={(v) => onChange(execId, v)} />
+      </FormField>
+      {connections.length === 0 && <p className="hx-help">{t("authFlow.walletVerify.none")}</p>}
     </div>
   );
 }

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html th:lang="${#locale.language}" lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/*
+  Verify-only EUDI wallet flow step (WalletVerifyAuthenticator). GET /flow normally sends the browser straight to the
+  wallet page; this view is shown when the browser comes back to /flow (back button) or after a refused wallet
+  (error): "Continue with wallet" posts restart=1, which starts a new verification. Never a sign-in by itself.
+*/-->
+<head>
+    <th:block th:replace="~{fragments/theme :: hxHead(#{flow.walletVerify.page.title}, false)}"></th:block>
+</head>
+<body>
+<div class="mainWrapper">
+    <header th:replace="~{fragments/theme :: hxHeader(false)}"></header>
+    <main>
+        <div class="container title">
+            <h1 class="hx-title" th:text="#{flow.walletVerify.title}">Confirm with your EUDI Wallet</h1>
+            <div class="description" th:text="#{flow.walletVerify.description}">This step checks your EU Digital Identity Wallet.</div>
+        </div>
+        <div class="container">
+            <article id="walletVerify">
+                <div id="walletVerifyError" class="hx-alert hx-alert-error" role="alert" th:if="${error != null}">
+                    <p id="walletVerifyNotLinked" th:if="${flowFailure == 'not_linked'}"
+                       th:text="#{flow.walletVerify.notLinked}">This wallet isn't linked to your account.</p>
+                    <p th:unless="${flowFailure == 'not_linked'}" th:text="#{flow.walletVerify.failed}">We could not confirm your wallet.</p>
+                </div>
+                <form th:action="${flowAction}" method="post">
+                    <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
+                    <input type="hidden" name="restart" value="1"/>
+                    <div class="buttonHolder hx-wallet-actions">
+                        <button id="walletVerifyStart" type="submit" autofocus><span th:text="#{flow.walletVerify.start}">Continue with wallet</span></button>
+                        <a id="walletVerifyBack" class="button secondary" th:href="@{/login}"><span th:text="#{flow.walletVerify.back}">Back to sign in</span></a>
+                    </div>
+                </form>
+            </article>
+        </div>
+        <footer th:replace="~{fragments/theme :: hxFooter}"></footer>
+    </main>
+</div>
+</body>
+</html>

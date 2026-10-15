@@ -79,6 +79,48 @@ question. Newest first within each phase.
   row is gone. The same trigger also deletes the realm's EU trusted list sources (`trusted_list_source`), whose members and rollback high-water marks cascade with them. `federated_link` (wallet account links) has no `realm_id` column and is unaffected; it
   already cascades off the linked user. `FlywayWalletRealmCascadeTest`; `docs/eudi-wallet.md` §2.5;
   `ROADMAP.md`.
+- **EUDI Wallet: verify-only / step-up mode (`subject.strategy=NONE`)** — maintainer decision 4, the last open
+  wallet design question (`docs/superpowers/specs/2026-10-15-wallet-verify-only-design.md`; operator guide
+  `docs/eudi-wallet.md` §13). A wallet connection with `subject.strategy=NONE` never signs anyone in and never creates
+  or links an account. The new flow step **`eudi-wallet-verify`** (setting `providerAlias`) runs after the user is
+  identified: it starts a `VERIFY` wallet transaction for that user, and accepts the presentation only when the same
+  PID, resolved by the linked login connection (`verify.linkedProvider`: its subject settings, the realm pepper), is
+  linked to that user (the administrative number wins; the tuple only when the linked connection accepts it; an
+  unlinked wallet or another person's wallet is refused, `WALLET_VERIFY_FAILURE` with `BINDING_MISMATCH` /
+  `SUBJECT_UNAVAILABLE`). On success the login's `acr` becomes the wallet's LoA (eIDAS high) and the claims listed in
+  `verify.releasedClaims` (requested mapped PID claims, or a derived `age_over_NN`) go into the ID token as an OIDC
+  Identity Assurance-style `verified_claims` object, for the authorization request the login completes only (never a
+  later SSO code of another client); nothing is persisted. `WALLET_VERIFY_SUCCESS` carries the released claim names
+  only.
+  - **`acr_values`** — a request whose `acr_values` the session's `acr` does not satisfy (same value, or a lower eIDAS
+    rung) now forces one re-authentication (the `prompt=login` mechanism, no loop), so an SSO session without the
+    wallet is stepped up by the client's flow. `acr_values` stays voluntary: if it is still not met the code carries
+    the actual `acr`, which the RP must check.
+  - **Never a first factor**: a verify-only connection is not on the login page, `/broker/<alias>` refuses it, the
+    account console neither lists nor links it, and the step refuses a login connection. Validation (400
+    `{message, fieldErrors}`): NONE needs `verify.linkedProvider` (another alias), refuses
+    `subject.acknowledgeWeakSubject`, and allows only requested mapped claims or `age_over_1..150` (with `birthdate`)
+    in `verify.releasedClaims`; `verify.*` without NONE is refused. Flow saves refuse an `eudi-wallet-verify` step
+    without `providerAlias`. `verified_claims` is now a reserved claim (protocol mappers cannot set it).
+  - **Console**: the wallet connection's Policies tab has a third strategy, "Verify only (step-up)", with the linked
+    sign-in connection and the released claims (age thresholds included); the flow editor's wallet verification step
+    has a connection picker and blocks saving without one (EN + NL).
+  - **Fixes found on the way**: `/flow` redirects were realm-prefixed twice (`/realms/<r>/realms/<r>/flow`, 403) when the
+    flow engine ran in a realm; a flow step that failed and then asks again (retry) no longer fails the whole flow.
+  - **Note**: a password-first login runs flow steps only with `helix.flow-engine.enabled=true` (default off, as
+    before); a federated first factor always runs them.
+  - No schema change: the transaction purpose `VERIFY` fits the existing `wallet_transaction.purpose` column.
+  - **Security review fixes**: `verified_claims` is released only to a request that asked for the new standard scope
+    `verified_claims` (seeded in every realm), pinned to the request the step started for (client + hash of
+    `client_id`/`state`/`nonce`/`redirect_uri`, 5-minute TTL, dropped on any other code or consent denial), put in the
+    code exchange's ID token only and removed from the stored authorization (never on refresh). With the flow engine
+    off, a password login whose flow has the wallet step is refused (`error=flow`) and such flows cannot be saved or
+    bound (400); the console shows a banner. The linked sign-in connection must exist in the realm, sign in and not
+    have a lower minimum LoA (400); an application's SSO setting cannot name a verify-only connection (400). The
+    broker no longer touches the step's browser binding; `age_over_NN` uses the date at UTC-12 and treats 29 February
+    as reached on 1 March; the `/flow` redirect refuses `\`. The retry page says when the wallet is not the one linked
+    to the account. `acr` stays session-wide until the next login and `acr_values` stays voluntary (RPs must check
+    `acr`), both recorded in `DEFERRED-SECURITY-WORK.md`.
 - **EUDI Wallet: interop with the EU reference wallet (test only, no product change)** — the EU Digital Identity Wallet
   reference app for Android (2026.10.43-Demo, released APK, `demo` flavour) signed in to HelixIAM on an Android 15
   emulator with SD-JWT VC and mdoc PIDs from the EU test issuer `issuer.eudiw.dev`: same-device and cross-device, both

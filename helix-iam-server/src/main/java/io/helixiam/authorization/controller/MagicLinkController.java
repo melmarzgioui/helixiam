@@ -132,6 +132,22 @@ public class MagicLinkController {
         auditLog.emit(AuditEvent.authn(io.helixiam.authorization.security.audit.AuditContext.nowIso(), "LOGIN_SUCCESS",
                 realm, user.getEmail(), AuditContext.clientIp(request), "SUCCESS", Map.of("method", "magic_link")));
 
+        // Security review: a magic link is a first factor like a password. With the flow engine on it runs the login's
+        // flow (as a federated login does), so a wallet verification step is never skipped; with the engine off, a
+        // flow that needs it refuses the login instead of issuing a code.
+        if (flowEngineEnabled && completer != null) {
+            return completer.completeLogin(userId, null, request, response, null, null,
+                    io.helixiam.authorization.security.SignInAuthorities.MAGIC_LINK).view();
+        }
+        if (flows != null && io.helixiam.authorization.security.flow.FlowEngineGuard.needsEngine(flows, realm,
+                io.helixiam.authorization.security.flow.InFlightClientResolver.clientId(request, response))) {
+            org.apache.logging.log4j.LogManager.getLogger(MagicLinkController.class).warn(
+                    "Magic-link login refused: its flow needs helix.flow-engine.enabled=true, realm {}",
+                    io.helixiam.common.log.LogSafe.sanitize(realm));
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            request.getSession().invalidate();
+            return "redirect:/login?error=flow";
+        }
         final boolean enrolled = totp.isEnrolled(userId);
         if (enrolled || mfaPolicy.required(realm)) {
             sessions.persist(new MfaAuthentication(auth), request, response);
@@ -141,6 +157,23 @@ public class MagicLinkController {
         authTimeStamper.stamp(request);
         sessionPolicy.applyOnLogin(request, realm);
         return savedRequestRedirect.redirectView(request, response, spBaseUrl);
+    }
+
+    private boolean flowEngineEnabled;
+    private io.helixiam.authorization.federation.FederatedLoginCompleter completer;
+    private io.helixiam.authorization.amqp.AuthFlowPublisher flows;
+
+    @org.springframework.beans.factory.annotation.Value("${helix.flow-engine.enabled:false}")
+    public void setFlowEngineEnabled(final boolean flowEngineEnabled) {
+        this.flowEngineEnabled = flowEngineEnabled;
+    }
+
+    /** The post-first-factor flow (when the engine is on) and the guard's flow lookup (when it is off). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setFlowSupport(final io.helixiam.authorization.federation.FederatedLoginCompleter completer,
+                               final io.helixiam.authorization.amqp.AuthFlowPublisher flows) {
+        this.completer = completer;
+        this.flows = flows;
     }
 
     private void requireEnabled() {
