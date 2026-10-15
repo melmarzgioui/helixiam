@@ -361,6 +361,7 @@
 .hx-stage__methods { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .8rem; }
 .hx-stage__cfg { margin-top: .7rem; padding: .8rem .9rem; border: 1px solid var(--border); border-radius: var(--radius-sm, 8px); background: var(--surface-2, rgba(0,0,0,.02)); display: grid; gap: .6rem; }
 .hx-stage__cfg--readonly { background: transparent; border-style: dashed; }
+.hx-walletverify { display: grid; gap: .5rem; }
 .hx-idpnote { display: grid; gap: .25rem; }
 .hx-idpnote__summary { font-size: .9rem; }
 .hx-idpnote__managed { font-size: .8rem; color: var(--fg-faint); }

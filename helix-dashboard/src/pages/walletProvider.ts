@@ -17,13 +17,26 @@ export function isWalletProtocol(protocol: string | null | undefined): boolean {
   return WALLET_PROTOCOLS.includes((protocol ?? "").trim().toLowerCase());
 }
 
+/**
+ * Verify-only: the connections a verify-only connection may link to — the realm's wallet connections that sign in
+ * (not verify-only ones), other than {@code ownAlias}.
+ */
+export function walletLinkOptions(idps: { alias: string; protocol: string; displayName: string; config?: Record<string, string> }[],
+  ownAlias: string): { alias: string; displayName: string }[] {
+  return idps
+    .filter((p) => isWalletProtocol(p.protocol) && p.alias !== ownAlias
+      && (p.config?.["subject.strategy"] ?? "").trim().toUpperCase() !== "NONE")
+    .map((p) => ({ alias: p.alias, displayName: p.displayName }));
+}
+
 export const SD_JWT_FORMAT = "dc+sd-jwt";
 export const MDOC_FORMAT = "mso_mdoc";
 export const WALLET_FORMATS = [SD_JWT_FORMAT, MDOC_FORMAT];
 
 export type ClientIdScheme = "x509_hash" | "x509_san_dns";
 export type ResponseMode = "direct_post.jwt" | "direct_post";
-export type SubjectStrategy = "ADMINISTRATIVE_NUMBER" | "ATTRIBUTE_TUPLE";
+/** NONE: verify-only / step-up (the eudi-wallet-verify flow step); never signs in, never creates or links an account. */
+export type SubjectStrategy = "ADMINISTRATIVE_NUMBER" | "ATTRIBUTE_TUPLE" | "NONE";
 export type OnUnavailable = "FAIL_CLOSED" | "FAIL_OPEN_WITH_AUDIT";
 /** Issuer X.509 certificate revocation (CRL / OCSP), TrustAnchors.RevocationMode on the server. */
 export type RevocationChecking = "HARD_FAIL" | "SOFT_FAIL" | "OFF";
@@ -58,7 +71,16 @@ export interface PidClaimInfo {
   name: string;
   /** Whether an mdoc PID has an element for it (false: SD-JWT VC only). */
   mdoc: boolean;
+  /** Whether a verify-only connection may release it (WalletAttributeMapper maps it). */
+  releasable?: boolean;
 }
+
+/** Verify-only: age_over_NN, NN 1-150 without a leading zero (WalletVerifiedClaims.AGE_OVER). */
+const AGE_OVER = /^age_over_([1-9][0-9]{0,2})$/;
+/** The age thresholds the console offers when birthdate is requested. */
+export const AGE_THRESHOLDS = [16, 18, 21, 65];
+/** An identity-provider alias (the server's verify.linkedProvider rule). */
+const ALIAS = /^[A-Za-z0-9._-]{1,64}$/;
 
 /** What the form edits. Numbers stay strings so a blank field can mean "the server default". */
 export interface WalletForm {
@@ -77,6 +99,10 @@ export interface WalletForm {
   requestedClaims: string[];
   subjectStrategy: SubjectStrategy;
   acknowledgeWeakSubject: boolean;
+  /** NONE only: the realm's wallet sign-in connection whose links prove whose wallet it is. */
+  verifyLinkedProvider: string;
+  /** NONE only: the verified claims released into the ID token (verified_claims); empty releases nothing. */
+  verifyReleasedClaims: string[];
   minimumLoa: string;
   statusRequired: boolean;
   onUnavailable: OnUnavailable;
@@ -107,6 +133,8 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
   requestedClaims: [...DEFAULT_CLAIMS],
   subjectStrategy: "ADMINISTRATIVE_NUMBER",
   acknowledgeWeakSubject: false,
+  verifyLinkedProvider: "",
+  verifyReleasedClaims: [],
   minimumLoa: DEFAULT_LOA,
   statusRequired: false,
   onUnavailable: "FAIL_CLOSED",
@@ -127,6 +155,7 @@ export const WALLET_FORM_KEYS = [
   "pid.requestedClaims", "subject.strategy", "subject.acknowledgeWeakSubject", "minimumLoa", "statusList.required",
   "statusList.onUnavailable", "statusList.maxCacheSeconds", "statusList.allowedHosts", "responseMode",
   "transactionTtlSeconds", "dcql.trustedAuthorities", "dcApi.enabled", "dcApi.request", "dcApi.expectedOrigins",
+  "verify.linkedProvider", "verify.releasedClaims",
 ];
 
 /** The dev-only secret (ProviderSecretKeys): a raw PEM private key instead of an imported key. */
@@ -170,8 +199,10 @@ export function walletFormFromConfig(config: Record<string, string>): WalletForm
     revocationChecking: pick(config.revocationChecking, REVOCATION_MODES, "HARD_FAIL"),
     credentialFormats: list(config.credentialFormats, WALLET_FORMATS),
     requestedClaims: list(config["pid.requestedClaims"], DEFAULT_CLAIMS),
-    subjectStrategy: pick(config["subject.strategy"], ["ADMINISTRATIVE_NUMBER", "ATTRIBUTE_TUPLE"] as const, "ADMINISTRATIVE_NUMBER"),
+    subjectStrategy: pick(config["subject.strategy"], ["ADMINISTRATIVE_NUMBER", "ATTRIBUTE_TUPLE", "NONE"] as const, "ADMINISTRATIVE_NUMBER"),
     acknowledgeWeakSubject: text(config["subject.acknowledgeWeakSubject"]).toLowerCase() === "true",
+    verifyLinkedProvider: text(config["verify.linkedProvider"]),
+    verifyReleasedClaims: list(config["verify.releasedClaims"], []),
     minimumLoa: text(config.minimumLoa) || DEFAULT_LOA,
     statusRequired: text(config["statusList.required"]).toLowerCase() === "true",
     onUnavailable: pick(config["statusList.onUnavailable"], ["FAIL_CLOSED", "FAIL_OPEN_WITH_AUDIT"] as const, "FAIL_CLOSED"),
@@ -229,6 +260,10 @@ export function walletConfigFromForm(form: WalletForm, base: Record<string, stri
   out["pid.requestedClaims"] = JSON.stringify(form.requestedClaims);
   out["subject.strategy"] = form.subjectStrategy;
   out["subject.acknowledgeWeakSubject"] = String(form.acknowledgeWeakSubject);
+  if (form.subjectStrategy === "NONE") {
+    put("verify.linkedProvider", form.verifyLinkedProvider.trim());
+    if (form.verifyReleasedClaims.length) out["verify.releasedClaims"] = JSON.stringify(form.verifyReleasedClaims);
+  }
   out.minimumLoa = form.minimumLoa;
   out["statusList.required"] = String(form.statusRequired);
   out["statusList.onUnavailable"] = form.onUnavailable;
@@ -256,6 +291,10 @@ export function walletFormsEqual(a: WalletForm, b: WalletForm): boolean {
 export type WalletFieldErrors = Record<string, string>;
 
 export interface WalletValidationContext {
+  /** This connection's own alias (a verify-only connection cannot link to itself). */
+  alias?: string;
+  /** The realm's wallet sign-in connections a verify-only connection may link to, when known. */
+  linkedAliases?: string[];
   /** The server runs the dev profile (GET .../wallet/metadata). */
   devProfile: boolean;
   /** The PID claim catalogue; when absent, claim names are not checked here (the server still is). */
@@ -347,6 +386,16 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
     && !claims.some((c) => known.get(c))) add("pid.requestedClaims", "wallet.err.claimsNoMdoc");
 
   if (form.subjectStrategy === "ATTRIBUTE_TUPLE" && !form.acknowledgeWeakSubject) add("subject.strategy", "wallet.err.ackRequired");
+  if (form.subjectStrategy === "NONE") {
+    if (form.acknowledgeWeakSubject) add("subject.strategy", "wallet.err.verifyNoAck");
+    const linked = form.verifyLinkedProvider.trim();
+    if (!linked) add("verify.linkedProvider", "wallet.err.linkedRequired");
+    else if (!ALIAS.test(linked)) add("verify.linkedProvider", "wallet.err.linkedAlias");
+    else if (ctx.alias && linked === ctx.alias.trim()) add("verify.linkedProvider", "wallet.err.linkedSelf");
+    else if (ctx.linkedAliases && !ctx.linkedAliases.includes(linked)) add("verify.linkedProvider", "wallet.err.linkedUnknown");
+    const released = releasedClaimsProblem(form, ctx.pidClaims);
+    if (released) add("verify.releasedClaims", released);
+  }
   if (!LOA_LADDER.some((l) => l.value === form.minimumLoa)) add("minimumLoa", "wallet.err.loa");
 
   if (!inRange(form.statusMaxCacheSeconds, STATUS_CACHE_RANGE.min, STATUS_CACHE_RANGE.max)) {
@@ -365,6 +414,45 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
   return e;
 }
 
+/** Mirrors WalletVerifiedClaims.problem: the i18n key of the first problem with the released claims, or null. */
+function releasedClaimsProblem(form: WalletForm, catalogue?: PidClaimInfo[]): string | null {
+  const seen = new Set<string>();
+  for (const claim of form.verifyReleasedClaims) {
+    if (seen.has(claim)) return "wallet.err.releasedRepeated";
+    seen.add(claim);
+    const age = AGE_OVER.exec(claim);
+    if (age) {
+      if (Number(age[1]) > 150) return "wallet.err.releasedAge";
+      if (!form.requestedClaims.includes("birthdate")) return "wallet.err.releasedAgeNeedsBirthdate";
+      continue;
+    }
+    if (claim.startsWith("age_over_")) return "wallet.err.releasedAge";
+    if (!form.requestedClaims.includes(claim)) return "wallet.err.releasedNotRequested";
+    const info = catalogue?.find((c) => c.name === claim);
+    if (catalogue && (!info || info.releasable === false)) return "wallet.err.releasedNotReleasable";
+  }
+  return null;
+}
+
+/**
+ * Verify-only: what the release picker offers — the requested claims the server may release, in request order, then
+ * the age thresholds (AGE_THRESHOLDS plus any already chosen) when birthdate is requested; an age threshold already
+ * chosen stays listed so it can be unticked.
+ */
+export function releasableClaims(form: WalletForm, catalogue?: PidClaimInfo[]): string[] {
+  const out = form.requestedClaims.filter((c) => {
+    const info = catalogue?.find((x) => x.name === c);
+    return !catalogue || (info ? info.releasable !== false : false);
+  });
+  const ages = new Set<number>();
+  if (form.requestedClaims.includes("birthdate")) AGE_THRESHOLDS.forEach((n) => ages.add(n));
+  for (const c of form.verifyReleasedClaims) {
+    const m = AGE_OVER.exec(c);
+    if (m) ages.add(Number(m[1]));
+  }
+  return [...out, ...[...ages].sort((a, b) => a - b).map((n) => `age_over_${n}`)];
+}
+
 // ---------------------------------------------------------------------------------------------------- warnings
 
 /** Advisory, never blocking: i18n suffixes under `wallet.warn.`. */
@@ -379,7 +467,7 @@ export type WalletWarning = "manyClaims" | "adminNumberWithoutStrategy" | "place
 export function walletWarnings(form: WalletForm, original?: WalletForm | null): WalletWarning[] {
   const out: WalletWarning[] = [];
   if (form.requestedClaims.length > CLAIM_WARNING_THRESHOLD) out.push("manyClaims");
-  if (form.requestedClaims.includes(ADMIN_NUMBER_CLAIM) && form.subjectStrategy !== "ADMINISTRATIVE_NUMBER") {
+  if (form.requestedClaims.includes(ADMIN_NUMBER_CLAIM) && form.subjectStrategy === "ATTRIBUTE_TUPLE") {
     out.push("adminNumberWithoutStrategy");
   }
   if (original && original.requestedClaims.includes(PLACE_OF_BIRTH_CLAIM) !== form.requestedClaims.includes(PLACE_OF_BIRTH_CLAIM)) {
@@ -415,6 +503,7 @@ const SECTION_OF: Record<string, WalletSection> = {
   credentialFormats: "credentials", "pid.requestedClaims": "credentials",
   "subject.strategy": "policies", minimumLoa: "policies", "statusList.required": "policies",
   "statusList.onUnavailable": "policies", "statusList.maxCacheSeconds": "policies", "statusList.allowedHosts": "policies",
+  "verify.linkedProvider": "policies", "verify.releasedClaims": "policies",
   responseMode: "policies", transactionTtlSeconds: "policies",
   "dcApi.enabled": "policies", "dcApi.request": "policies", "dcApi.expectedOrigins": "policies",
 };
@@ -432,6 +521,7 @@ const FIELD_OF: Record<keyof WalletForm, string> = {
   responseMode: "responseMode", transactionTtlSeconds: "transactionTtlSeconds",
   trustedAuthorities: "dcql.trustedAuthorities",
   dcApiEnabled: "dcApi.enabled", dcApiRequest: "dcApi.request", dcApiExpectedOrigins: "dcApi.expectedOrigins",
+  verifyLinkedProvider: "verify.linkedProvider", verifyReleasedClaims: "verify.releasedClaims",
 };
 
 /** Drops the errors of the fields a form change touches (a server error stays until its field is edited). */

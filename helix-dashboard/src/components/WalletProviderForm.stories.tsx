@@ -57,3 +57,23 @@ export const DetailPage: Story = {
 export const DetailPageDevProfile: Story = {
   render: () => <ConnectionDetailPage api={stored} walletApi={walletApi(true)} realmId="gov" alias="eudi-wallet" onBack={() => {}} />,
 };
+
+/** Verify-only / step-up (subject.strategy NONE): linked to the sign-in connection, releasing an age check. */
+const withVerifyOnly = createMemoryClient([
+  {
+    realmId: "gov", alias: "eudi-wallet", protocol: "eudi-wallet", displayName: "EUDI Wallet", enabled: true,
+    config: { accessKeyRef: KEY.keyRef, trustAnchors: ANCHORS, "subject.strategy": "ADMINISTRATIVE_NUMBER" },
+  },
+  {
+    realmId: "gov", alias: "eudi-verify", protocol: "eudi-wallet", displayName: "EUDI Wallet check", enabled: true,
+    config: {
+      accessKeyRef: KEY.keyRef, trustAnchors: ANCHORS, credentialFormats: '["dc+sd-jwt","mso_mdoc"]',
+      "pid.requestedClaims": '["birthdate","nationalities"]', "subject.strategy": "NONE",
+      "verify.linkedProvider": "eudi-wallet", "verify.releasedClaims": '["age_over_18"]',
+    },
+  },
+]);
+
+export const DetailPageVerifyOnly: Story = {
+  render: () => <ConnectionDetailPage api={withVerifyOnly} walletApi={walletApi()} realmId="gov" alias="eudi-verify" onBack={() => {}} />,
+};

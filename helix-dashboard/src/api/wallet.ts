@@ -73,13 +73,18 @@ export function createWalletHttpClient(baseUrl = ""): WalletAdminApi {
 }
 
 /** The PID claim catalogue as the server lists it (DcqlQueryBuilder), for the memory client and stories. */
+/** The claims the server's WalletAttributeMapper maps (what a verify-only connection may release). */
+const RELEASABLE_SAMPLE = new Set(["family_name", "given_name", "birthdate", "place_of_birth", "nationalities",
+  "address.formatted", "address.country", "address.region", "address.locality", "address.postal_code",
+  "address.street_address", "address.house_number", "issuing_authority", "issuing_country"]);
+
 export const SAMPLE_PID_CLAIMS: PidClaimInfo[] = [
   "family_name", "given_name", "birthdate", "place_of_birth", "nationalities", "picture", "address.formatted",
   "address.country", "address.region", "address.locality", "address.postal_code", "address.street_address",
   "address.house_number", "personal_administrative_number", "birth_family_name", "birth_given_name", "sex", "email",
   "phone_number", "date_of_expiry", "issuing_authority", "issuing_country", "document_number", "issuing_jurisdiction",
   "date_of_issuance", "trust_anchor", "attestation_legal_category",
-].map((name) => ({ name, mdoc: name !== "address.house_number" }));
+].map((name) => ({ name, mdoc: name !== "address.house_number", releasable: RELEASABLE_SAMPLE.has(name) }));
 
 /** In-memory client for stories and tests. `preview` maps a PEM bundle to certificates (default: one CA root). */
 export function createWalletMemoryClient(opts: {

@@ -100,7 +100,8 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
     onReplace: (on: boolean) => setDevKey((d) => ({ ...d, replacing: on, value: on ? d.value : "" })),
     onClear: (on: boolean) => setDevKey((d) => ({ ...d, clearing: on, value: "" })),
   };
-  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKeyState, wallet.lists)) : {};
+  const walletLocal = isWallet ? validateWallet(walletForm, { ...walletContext(walletForm, wallet.meta, wallet.keys, devKeyState, wallet.lists),
+    alias: alias.trim() }) : {};
   if (isWallet && !alias.trim()) walletLocal.alias = "connectionDetail.fieldRequired";
   if (isWallet && !displayName.trim()) walletLocal.displayName = "connectionDetail.fieldRequired";
   const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
