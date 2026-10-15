@@ -169,7 +169,8 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
         final E2eHttp.Response refused = browser.followRedirectsUntil(browser.get(present(browser, walletPage,
                 pid(bobNumber))), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
         assertThat(refused.locationStartsWith(E2eSeed.REDIRECT_URI)).as("no code for a swapped wallet").isFalse();
-        assertThat(refused.body()).as(refused + "\n" + browser.trail(8)).contains("id=\"walletVerifyError\"");
+        assertThat(refused.body()).as(refused + "\n" + browser.trail(8)).contains("id=\"walletVerifyError\"")
+                .contains("id=\"walletVerifyNotLinked\"");
         final List<AuditRecord> failure = awaitAudits("WALLET_VERIFY_FAILURE", tx, 1);
         assertThat(failure).hasSize(1);
         assertThat(failure.get(0).actor()).isEqualTo(ada.userId());
@@ -182,7 +183,7 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
                 .isEqualTo("/realms/" + realm + "/broker/" + verifyAlias + "/wallet");
         final E2eHttp.Response strangerRefused = browser.followRedirectsUntil(browser.get(present(browser, second,
                 pid("PAN-" + UUID.randomUUID()))), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
-        assertThat(strangerRefused.body()).contains("id=\"walletVerifyError\"");
+        assertThat(strangerRefused.body()).contains("id=\"walletVerifyError\"").contains("id=\"walletVerifyNotLinked\"");
 
         // "try again" with her own wallet completes the login
         final E2eHttp.Response third = browser.followRedirects(browser.postForm(E2eHttp.formAction(

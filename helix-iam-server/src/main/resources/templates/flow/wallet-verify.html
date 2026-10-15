@@ -18,8 +18,11 @@
         </div>
         <div class="container">
             <article id="walletVerify">
-                <p id="walletVerifyError" class="hx-alert hx-alert-error" role="alert" th:if="${error != null}"
-                   th:text="#{flow.walletVerify.failed}">We could not confirm your wallet.</p>
+                <div id="walletVerifyError" class="hx-alert hx-alert-error" role="alert" th:if="${error != null}">
+                    <p id="walletVerifyNotLinked" th:if="${flowFailure == 'not_linked'}"
+                       th:text="#{flow.walletVerify.notLinked}">This wallet isn't linked to your account.</p>
+                    <p th:unless="${flowFailure == 'not_linked'}" th:text="#{flow.walletVerify.failed}">We could not confirm your wallet.</p>
+                </div>
                 <form th:action="${flowAction}" method="post">
                     <input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
                     <input type="hidden" name="restart" value="1"/>

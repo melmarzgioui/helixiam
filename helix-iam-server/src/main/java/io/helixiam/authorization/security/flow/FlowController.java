@@ -181,6 +181,8 @@ public class FlowController {
             case CHALLENGE -> REDIRECT_PREFIX + "/flow"; // advanced to the next factor's screen
             case FAILED -> {
                 model.addAttribute("error", "true"); // wrong response — re-prompt with an error
+                model.addAttribute("flowFailure", state.attributesFor(state.currentChallengeExecutionId())
+                        .get(io.helixiam.authorization.flow.spi.AuthenticationContext.FAILURE_ATTRIBUTE));
                 yield VIEW_PREFIX + state.currentChallengeView();
             }
         };

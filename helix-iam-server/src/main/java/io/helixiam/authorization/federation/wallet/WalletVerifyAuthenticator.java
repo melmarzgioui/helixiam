@@ -138,6 +138,7 @@ public class WalletVerifyAuthenticator implements Authenticator {
             return;
         }
         context.putAttribute(STATE_ATTRIBUTE, state);
+        context.putAttribute(AuthenticationContext.FAILURE_ATTRIBUTE, null);
         pinRequest(context);
         final Map<String, String> parameters = redirect.parameters();
         if (parameters != null && parameters.get(WalletIdentityProvider.TRANSACTION_PARAM) != null) {
@@ -230,6 +231,10 @@ public class WalletVerifyAuthenticator implements Authenticator {
                         final VerifiedIdentityJson.Verification v, final WalletErrorCode code) {
         audit.emit(WalletVerifyAudit.failure(context.realmId(), context.userId(), transactionId, alias,
                 v == null ? null : v.format(), v == null ? null : v.issuerDn(), code));
+        // UI review B: the signed-in user is told their wallet is not the linked one (it names no other account)
+        context.putAttribute(AuthenticationContext.FAILURE_ATTRIBUTE,
+                code == WalletErrorCode.BINDING_MISMATCH || code == WalletErrorCode.SUBJECT_UNAVAILABLE
+                        ? "not_linked" : null);
         LOG.warn("wallet verify: refused, realm={} alias={} user={} reason={}", LogSafe.sanitize(context.realmId()),
                 LogSafe.sanitize(alias), LogSafe.sanitize(context.userId()), code.reason());
         context.failure(code.reason());

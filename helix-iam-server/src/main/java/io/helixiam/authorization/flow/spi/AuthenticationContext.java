@@ -29,6 +29,12 @@ public class AuthenticationContext {
      */
     public static final String REDIRECT_ATTRIBUTE = "flow.redirect";
 
+    /**
+     * An execution attribute naming WHY the step failed, for its view to say so (e.g. {@code not_linked}); the
+     * challenge view gets it as {@code flowFailure} when it is re-rendered after a failure.
+     */
+    public static final String FAILURE_ATTRIBUTE = "flow.failure";
+
     private final String executionId;
     private final String realmId;
     private String userId;
