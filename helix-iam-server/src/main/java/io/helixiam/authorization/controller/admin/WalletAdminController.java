@@ -43,8 +43,11 @@ public class WalletAdminController {
         this.profile = profile;
     }
 
-    /** One requestable PID claim: its canonical name and whether an mdoc PID carries it. */
-    public record PidClaim(String name, boolean mdoc) {
+    /**
+     * One requestable PID claim: its canonical name, whether an mdoc PID carries it, and whether a verify-only
+     * connection may release it ({@code verify.releasedClaims}; besides the derived {@code age_over_NN}).
+     */
+    public record PidClaim(String name, boolean mdoc, boolean releasable) {
     }
 
     /** What the console's wallet form needs to know about this server. */
@@ -59,7 +62,8 @@ public class WalletAdminController {
     @GetMapping("/metadata")
     public WalletMetadata metadata(@PathVariable final String realmId) {
         final List<PidClaim> claims = new ArrayList<>();
-        DcqlQueryBuilder.pidClaimCatalogue().forEach((name, mdoc) -> claims.add(new PidClaim(name, mdoc)));
+        DcqlQueryBuilder.pidClaimCatalogue().forEach((name, mdoc) -> claims.add(new PidClaim(name, mdoc,
+                io.helixiam.authorization.federation.wallet.WalletAttributeMapper.isMappedClaim(name))));
         return new WalletMetadata(List.copyOf(claims), WalletProviderConfig.Pid.DEFAULT_REQUESTED_CLAIMS,
                 WalletProviderConfig.DEFAULT_FORMATS, profile.isDev());
     }
