@@ -246,6 +246,8 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
       : <Badge tone="neutral">{t("tl.anchor.notCa")}</Badge> },
   ];
 
+  const signerRefused = pinnedSignerExpiredRefusal(list.lastError);
+
   const memberColumns: Column<TrustedListMember>[] = [
     { key: "territory", header: t("tl.member.territory"), render: (m) => <strong>{m.territory ?? "—"}</strong> },
     { key: "location", header: t("tl.member.list"), render: (m) => (
@@ -284,15 +286,16 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
         <Section title={t("tl.status.title")} description={t("tl.status.desc")}
           actions={<StatusBadge list={list} />}>
           <div className="hx-formblock">
-          <StatusAlert list={list} />
-          {signerWarnings(list.signers).map((w) => (
+          {/* a refusal for an expired pinned signer says it all: no generic status or expiry warning on top */}
+          {!signerRefused && <StatusAlert list={list} />}
+          {!signerRefused && signerWarnings(list.signers).map((w) => (
             <Alert key={`${w.subject}-${w.notAfter}`} tone={w.expired ? "danger" : "warning"}
               title={w.expired ? t("tl.signer.expiredTitle") : t("tl.signer.expiringTitle")}>
               {t(w.expired ? "tl.signer.expired" : "tl.signer.expiring",
                 { name: commonName(w.subject), date: absoluteTime(w.notAfter, locale) })}
             </Alert>
           ))}
-          {pinnedSignerExpiredRefusal(list.lastError) && (
+          {signerRefused && (
             <Alert tone="danger" title={t("tl.alert.signerRefused.title")}>{t("tl.alert.signerRefused")}</Alert>
           )}
           {list.lastError && (
@@ -382,7 +385,9 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
         <Section title={t("tl.settings.title")} description={t("tl.settings.desc")}
           actions={<Button variant="danger" onClick={() => setDeleting(true)}>{t("tl.delete")}</Button>}>
           {deleteError && (
-            <Alert tone="danger" title={t("tl.inUse.title")} onDismiss={() => setDeleteError(null)}>{deleteError}</Alert>
+            <div className="hx-formblock">
+              <Alert tone="danger" title={t("tl.inUse.title")} onDismiss={() => setDeleteError(null)}>{deleteError}</Alert>
+            </div>
           )}
           <TrustedListEditor key={`${list.id}-${list.configVersion}`} initial={formFromTrustedList(list)} signers={list}
             submitLabel={t("tl.form.save")} onReload={() => { void load(); }}
