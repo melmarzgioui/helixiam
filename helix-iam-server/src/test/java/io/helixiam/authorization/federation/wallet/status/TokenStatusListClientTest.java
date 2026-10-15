@@ -607,17 +607,55 @@ class TokenStatusListClientTest {
 
     @Test
     @Timeout(value = 20, unit = TimeUnit.SECONDS)
-    void connectTimeoutIsThreeSeconds() {
+    void connectTimeoutIsThreeSeconds() throws Exception {
         final TokenStatusListClient client = client(failClosed());
         assertThat(client.connectTimeout()).isEqualTo(Duration.ofSeconds(3));
-        // A non-routable address: the connect hangs until the 3 s connect timeout, well before the 5 s deadline.
-        // (A network that rejects the route at once fails even faster; either way never the 5 s read deadline.)
+        // A loopback listener whose accept queue is full and never drained: the kernel drops further SYNs, so a connect
+        // hangs until the 3 s connect timeout, well before the 5 s deadline. (No routing assumption: an "unroutable"
+        // address such as 10.255.255.1 answers at once on some networks.)
         final OutboundUrlGuard permissive = OutboundUrlGuard.permissive();
-        final long start = System.nanoTime();
-        assertCode(() -> client(failClosed(), permissive).evaluate(
-                new StatusReference(0, "https://10.255.255.1:443/lists/1"), anchors),
-                WalletErrorCode.STATUS_UNAVAILABLE);
-        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(4_500));
+        try (BlackHole hole = BlackHole.open()) {
+            final long start = System.nanoTime();
+            assertCode(() -> client(failClosed(), permissive).evaluate(
+                    new StatusReference(0, "https://127.0.0.1:" + hole.port() + "/lists/1"), anchors),
+                    WalletErrorCode.STATUS_UNAVAILABLE);
+            final Duration took = Duration.ofNanos(System.nanoTime() - start);
+            assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(2_900)).isLessThan(Duration.ofMillis(4_500));
+        }
+    }
+
+    /** A loopback port that accepts no more connections: its backlog is filled and never accepted. */
+    private record BlackHole(ServerSocket server, List<java.net.Socket> fillers) implements AutoCloseable {
+
+        static BlackHole open() throws IOException {
+            final ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
+            final List<java.net.Socket> fillers = new ArrayList<>();
+            final InetSocketAddress address = new InetSocketAddress(InetAddress.getLoopbackAddress(),
+                    server.getLocalPort());
+            for (int i = 0; i < 256; i++) {
+                final java.net.Socket socket = new java.net.Socket();
+                try {
+                    socket.connect(address, 250);
+                    fillers.add(socket);
+                } catch (final java.net.SocketTimeoutException full) {
+                    socket.close();
+                    return new BlackHole(server, fillers);
+                }
+            }
+            throw new IllegalStateException("the loopback accept queue never filled up");
+        }
+
+        int port() {
+            return server.getLocalPort();
+        }
+
+        @Override
+        public void close() throws IOException {
+            for (final java.net.Socket socket : fillers) {
+                socket.close();
+            }
+            server.close();
+        }
     }
 
     @Test
