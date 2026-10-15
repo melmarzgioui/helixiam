@@ -1,0 +1,29 @@
+{
+  "source": "EU Digital Identity Wallet reference app (eudi-app-android-wallet-ui) 2026.10.43-Demo, demo flavour, on an Android 15 emulator, presenting to HelixIAM 1.0.0-SNAPSHOT (master 298dd452)",
+  "capturedAt": "2026-10-15T08:33:03.357Z",
+  "requestObjectFetchedAt": "2026-10-15T08:32:48.982Z",
+  "flow": "SAME_DEVICE",
+  "format": "dc+sd-jwt",
+  "dcqlQueryId": "pid_sd_jwt",
+  "clientId": "x509_hash:NDYhYE-at3hRuFy5Uz4K7Wbkx0tVUYJMF0g8c5nuxsY",
+  "nonce": "yA5XjKQaZfdg2eOPN8ltqA",
+  "responseUri": "https://localhost:8743/realms/refw/oid4vp/eudi-wallet/response/tXVKe5hJm-yuirrSK1MQQbRT5UUEhkmQ62CC9XQ7zG8",
+  "encryptionJwkThumbprint": "k4nihUb0POx8ygt8-nxq8Av6cS5n5F0StinZwddApNI",
+  "jweEnc": "A128GCM",
+  "jweKid": "L-O9uk8KBukU_umNm-rSLA",
+  "issuerCertificate": "C=UT,O=EUDI Wallet Reference Implementation,2.5.4.97=LEIEU-123456789,CN=PID DS - 003",
+  "issuerCa": "C=UT,O=EUDI Wallet Reference Implementation,CN=PID Issuer CA - UT 02",
+  "vct": "urn:eudi:pid:1",
+  "kbJwtIat": 1792053183,
+  "statusListReference": {
+    "idx": 8383,
+    "uri": "https://issuer.eudiw.dev/token_status_list/FC/urn:eudi:pid:1/19d203b0-448d-4954-99f4-6984de5bd02c"
+  },
+  "expectedClaims": {
+    "given_name": "Refw",
+    "family_name": "Tester",
+    "birthdate": "1990-01-01",
+    "personal_administrative_number": "REFW-TEST-0001",
+    "issuing_country": "FC"
+  }
+}
