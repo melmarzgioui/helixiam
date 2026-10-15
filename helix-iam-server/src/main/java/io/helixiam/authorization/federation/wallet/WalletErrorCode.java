@@ -15,7 +15,9 @@ public enum WalletErrorCode {
     HOLDER_BINDING_MISSING, HOLDER_BINDING_INVALID, NONCE_MISMATCH, AUDIENCE_MISMATCH, DISCLOSURE_INVALID,
     DIGEST_MISMATCH, DCQL_NOT_SATISFIED, VCT_NOT_ACCEPTED, DOCTYPE_NOT_ACCEPTED, ALGORITHM_NOT_ALLOWED,
     LIMIT_EXCEEDED, DECRYPTION_FAILED, STATE_MISMATCH, TRANSACTION_EXPIRED, REPLAY, WALLET_ACCESS_DENIED,
-    WALLET_ERROR, SUBJECT_UNAVAILABLE, BROWSER_MISMATCH;
+    WALLET_ERROR, SUBJECT_UNAVAILABLE, BROWSER_MISMATCH,
+    /** Verify-only mode: the presented wallet is not the signed-in user's (it is linked to another account). */
+    BINDING_MISMATCH;
 
     /** Stable reason code for audit/UI, e.g. "wallet.credential_revoked". */
     public String reason() { return "wallet." + name().toLowerCase(java.util.Locale.ROOT); }

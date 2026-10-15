@@ -89,6 +89,15 @@ public class WalletResponseHandler {
         this.audit = audit;
     }
 
+    /** Verify-only mode: where the linked login connection of a verify-only connection is found (absent: none). */
+    private io.helixiam.authorization.federation.IdentityProviderRegistry registry;
+
+    /** The registry the linked login connection of a verify-only connection is read from. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRegistry(final io.helixiam.authorization.federation.IdentityProviderRegistry registry) {
+        this.registry = registry;
+    }
+
     /** What the response endpoint answers. */
     public sealed interface Result {
 
@@ -139,8 +148,7 @@ public class WalletResponseHandler {
             store.fail(tx.transactionId(), WalletErrorCode.INVALID_RESPONSE);
             // Task 22 fix round 1: every other store.fail() in this method is matched by an audit.emit(); this one
             // was missing it (a transaction's response posted under the wrong realm/provider).
-            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, null, null,
-                    WalletErrorCode.INVALID_RESPONSE));
+            audit.emit(failure(tx, realmId, alias, null, null, WalletErrorCode.INVALID_RESPONSE));
             LOG.warn("Wallet response for another realm or provider: alias={} realm={} tx={}", LogSafe.sanitize(alias),
                     LogSafe.sanitize(realmId), tx.transactionId());
             return new Result.NotFound();
@@ -150,8 +158,7 @@ public class WalletResponseHandler {
             return WalletStatusAudit.duringTransaction(tx.transactionId(), () -> verify(provider, tx, parsed));
         } catch (final WalletVerificationException e) {
             store.fail(tx.transactionId(), e.code());
-            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, e.format(), e.issuerDn(),
-                    e.code()));
+            audit.emit(failure(tx, realmId, alias, e.format(), e.issuerDn(), e.code()));
             if (e.code() == WalletErrorCode.WALLET_ERROR || e.code() == WalletErrorCode.WALLET_ACCESS_DENIED) {
                 LOG.info("Wallet answered with an error: alias={} realm={} tx={}", LogSafe.sanitize(alias),
                         LogSafe.sanitize(realmId), tx.transactionId());
@@ -163,8 +170,7 @@ public class WalletResponseHandler {
         } catch (final RuntimeException e) {
             // Our side failed (pepper, query, store): never a login, never detail for the wallet.
             store.fail(tx.transactionId(), WalletErrorCode.INVALID_RESPONSE);
-            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, null, null,
-                    WalletErrorCode.INVALID_RESPONSE));
+            audit.emit(failure(tx, realmId, alias, null, null, WalletErrorCode.INVALID_RESPONSE));
             LOG.error("Wallet response could not be processed: alias={} realm={} tx={} error={}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(realmId), tx.transactionId(), e.getClass().getSimpleName());
             return new Result.Rejected(WalletErrorCode.INVALID_RESPONSE);
@@ -321,6 +327,16 @@ public class WalletResponseHandler {
             // the console's callback links it to the user who started it, and nobody is signed in.
             identityJson = VerifiedIdentityJson.writeLink(subject);
             outcome = "link:" + subject.getClass().getSimpleName();
+        } else if (tx.purpose() == WalletTransaction.Purpose.VERIFY) {
+            // Verify-only mode (design D4/D6): the subject the LINKED login connection computes for this PID (the
+            // step binds it to the signed-in user against live links), the allow-listed claims, the LoA. No identity,
+            // no account decision, no other PID value is kept.
+            final WalletSubject bindingSubject = linkedSubject(tx.realmId(), config, matched);
+            final java.util.Map<String, Object> released = WalletVerifiedClaims.release(mapped.attributes(),
+                    config.subject().releasedClaims(), java.time.LocalDate.now(java.time.ZoneOffset.UTC));
+            identityJson = VerifiedIdentityJson.writeVerify(bindingSubject, released, mapped.levelOfAssurance(),
+                    format, issuerDn);
+            outcome = "verify:" + bindingSubject.getClass().getSimpleName();
         } else {
             final WalletLinkService.Decision decision = links.decide(tx.realmId(), config.alias(), subject, policy);
             identityJson = decision instanceof WalletLinkService.Decision.Refused
@@ -357,6 +373,42 @@ public class WalletResponseHandler {
         return base + "/realms/" + UriUtils.encodePathSegment(tx.realmId(), StandardCharsets.UTF_8)
                 + WalletIdentityProvider.callbackPath(tx) + "?" + WalletIdentityProvider.RESPONSE_CODE_PARAM + "="
                 + code;
+    }
+
+    /**
+     * The subject the verify-only connection's linked login connection computes for {@code matched}: its own subject
+     * settings and requested claims, the realm pepper. {@link WalletSubject.Unavailable} when that connection is not
+     * a loaded wallet login connection of the realm (logged; the step then refuses the binding).
+     */
+    private WalletSubject linkedSubject(final String realmId, final WalletProviderConfig config,
+                                        final MatchedPresentations matched) {
+        final String linkedAlias = config.subject().linkedProvider();
+        java.util.Optional<WalletIdentityProvider> linked = java.util.Optional.empty();
+        if (registry != null && linkedAlias != null) {
+            try {
+                linked = WalletIdentityProvider.from(registry.get(realmId, linkedAlias))
+                        .filter(p -> p.servesRealm(realmId) && p.signInCapable());
+            } catch (final IllegalArgumentException absent) {
+                linked = java.util.Optional.empty();
+            }
+        }
+        if (linked.isEmpty()) {
+            LOG.warn("Wallet verification: the linked sign-in connection is not a wallet login connection of the realm: "
+                    + "alias={} realm={} linked={}", LogSafe.sanitize(config.alias()), LogSafe.sanitize(realmId),
+                    LogSafe.sanitize(linkedAlias));
+            return new WalletSubject.Unavailable(WalletSubject.Reason.STRATEGY_NOT_SUPPORTED);
+        }
+        return subjects.resolve(realmId, matched, linked.get().config());
+    }
+
+    /** The failure event of {@code tx}'s purpose: a verification's is never a login failure. */
+    private static io.helixiam.authorization.security.audit.AuditEvent failure(final WalletTransaction tx,
+            final String realmId, final String alias, final String format, final String issuerDn,
+            final WalletErrorCode code) {
+        return tx.purpose() == WalletTransaction.Purpose.VERIFY
+                ? WalletVerifyAudit.failure(realmId, tx.initiatingUserId(), tx.transactionId(), alias, format,
+                        issuerDn, code)
+                : WalletLoginAudit.failure(realmId, tx.transactionId(), alias, format, issuerDn, code);
     }
 
     private static void requireState(final String state, final String expected) {

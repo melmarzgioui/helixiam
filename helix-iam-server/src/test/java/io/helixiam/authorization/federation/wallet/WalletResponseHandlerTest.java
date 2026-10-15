@@ -56,6 +56,8 @@ class WalletResponseHandlerTest {
     private final WalletResponseHandler handler;
     /** Task 21b: when set, {@link #fetched} starts a LINK transaction of this user instead of a login. */
     private String linkingUser;
+    /** Verify-only: when set, {@link #fetched} starts a VERIFY transaction of this user. */
+    private String verifyingUser;
     /** The transaction of the last {@link #fetched} login (its id never reaches the wallet). */
     private String lastTxId;
 
@@ -86,8 +88,9 @@ class WalletResponseHandlerTest {
                                                       final WalletTransaction.Flow flow) {
         final IdentityProvider.AuthnRequestContext context = new IdentityProvider.AuthnRequestContext(
                 REALM, HELIX_STATE, BASE + "/realms/acme/broker/eudi-wallet/callback", BINDING);
-        final IdentityProvider.RedirectResponse redirect = linkingUser == null ? provider.start(context)
-                : provider.startLink(context, linkingUser);
+        final IdentityProvider.RedirectResponse redirect = verifyingUser != null
+                ? provider.startVerify(context, verifyingUser)
+                : linkingUser == null ? provider.start(context) : provider.startLink(context, linkingUser);
         final String txId = redirect.location().substring(redirect.location().indexOf("tx=") + 3);
         lastTxId = txId;
         final WalletTransaction created = store.byTransactionId(txId).orElseThrow();
@@ -391,5 +394,101 @@ class WalletResponseHandlerTest {
 
         assertThat(((WalletResponseHandler.Result.Accepted) result).redirectUri()).matches(java.util.regex.Pattern.quote(
                 BASE + "/realms/acme/account/wallet/eudi-wallet/callback?response_code=") + "[A-Za-z0-9_-]{22}");
+    }
+
+    // ------------------------------------------------------------------------------------------------ verify-only
+
+    /** A verify-only provider "eudi-verify" linked to the login provider {@link #ALIAS}. */
+    private WalletIdentityProvider verifyProvider(final String released) {
+        final Map<String, String> config = new HashMap<>();
+        config.put("accessKeyRef", keys.ref(REALM));
+        config.put("trustAnchors", WALLET.pki().rootPem());
+        config.put("revocationChecking", "OFF");
+        config.put("credentialFormats", "[\"dc+sd-jwt\"]");
+        config.put("subject.strategy", "NONE");
+        config.put("verify.linkedProvider", ALIAS);
+        config.put("verify.releasedClaims", released);
+        return new WalletIdentityProviders(new WalletConfigValidator(keys, DeploymentProfile.production()), keys,
+                store, new OutboundUrlGuard(), mock(AuditLog.class))
+                .build(REALM, WalletProviderConfig.fromStored("eudi-verify", "Verify", config));
+    }
+
+    private WalletResponseHandler handlerWith(final AuditLog audit, final WalletIdentityProvider login) {
+        final WalletResponseHandler h = new WalletResponseHandler(new WalletSubjectResolver(pepper),
+                new WalletLinkService(identities), AccountLinkingPolicy.defaults(), BASE, audit);
+        final io.helixiam.authorization.federation.IdentityProviderRegistry registry =
+                new io.helixiam.authorization.federation.IdentityProviderRegistry(List.of());
+        if (login != null) {
+            registry.reload(REALM, List.of(login));
+        }
+        h.setRegistry(registry);
+        return h;
+    }
+
+    /** hex(HMAC-SHA256(the test pepper, "DE:PAN-0001")): the number subject every provider of the realm computes. */
+    private static String numberSubject() {
+        try {
+            final javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(new byte[32], "HmacSHA256"));
+            return java.util.HexFormat.of().formatHex(mac.doFinal("DE:PAN-0001".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (final java.security.GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    void aVerifyTransaction_storesTheLinkedProvidersSubject_andOnlyTheReleasedClaims() {
+        final WalletIdentityProvider verify = verifyProvider("[\"age_over_18\"]");
+        verifyingUser = "user-7";
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(verify, WalletTransaction.Flow.SAME_DEVICE);
+
+        final WalletResponseHandler.Result result = handlerWith(mock(AuditLog.class), provider()).handle(
+                verify, REALM, responseId(request), form("response", Oid4vpWalletClient.respond(request,
+                        vpToken(request))));
+
+        assertThat(((WalletResponseHandler.Result.Accepted) result).redirectUri())
+                .startsWith(BASE + "/realms/acme/flow/wallet/callback?response_code=");
+        final WalletTransaction tx = tx(request);
+        final VerifiedIdentityJson.Verification v = VerifiedIdentityJson.readVerify(tx.verifiedIdentityJson());
+        assertThat(v.numberSubject()).isEqualTo(numberSubject());
+        assertThat(v.tupleSubject()).as("the login provider does not accept weak subjects").isNull();
+        assertThat(v.claims()).containsExactly(Map.entry("age_over_18", true));
+        assertThat(v.levelOfAssurance()).isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(v.format()).isEqualTo("dc+sd-jwt");
+        assertThat(tx.verifiedIdentityJson()).doesNotContain("Erika").doesNotContain("1984")
+                .doesNotContain("PAN-0001").doesNotContain("given_name");
+    }
+
+    @Test
+    void aVerifyTransaction_withoutItsLinkedProvider_storesNoSubject() {
+        final WalletIdentityProvider verify = verifyProvider("[]");
+        verifyingUser = "user-7";
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(verify, WalletTransaction.Flow.CROSS_DEVICE);
+
+        assertThat(handlerWith(mock(AuditLog.class), null).handle(verify, REALM, responseId(request),
+                form("response", Oid4vpWalletClient.respond(request, vpToken(request)))))
+                .isEqualTo(new WalletResponseHandler.Result.Accepted(null));
+        final VerifiedIdentityJson.Verification v = VerifiedIdentityJson.readVerify(tx(request).verifiedIdentityJson());
+        assertThat(v.numberSubject()).isNull();
+        assertThat(v.tupleSubject()).isNull();
+        assertThat(v.claims()).isEmpty();
+    }
+
+    @Test
+    void aRefusedVerifyTransaction_isAuditedAsAVerifyFailure_notALoginFailure() {
+        final AuditLog audit = mock(AuditLog.class);
+        final WalletIdentityProvider verify = verifyProvider("[]");
+        verifyingUser = "user-7";
+        final Oid4vpWalletClient.VerifiedRequest request = fetched(verify, WalletTransaction.Flow.CROSS_DEVICE);
+
+        handlerWith(audit, provider()).handle(verify, REALM, responseId(request),
+                form("error", "access_denied", "state", request.state()));
+
+        final org.mockito.ArgumentCaptor<io.helixiam.authorization.security.audit.AuditEvent> events =
+                org.mockito.ArgumentCaptor.forClass(io.helixiam.authorization.security.audit.AuditEvent.class);
+        org.mockito.Mockito.verify(audit).emit(events.capture());
+        assertThat(events.getValue().type()).isEqualTo("WALLET_VERIFY_FAILURE");
+        assertThat(events.getValue().detail()).containsEntry("reason", "WALLET_ACCESS_DENIED")
+                .containsEntry("alias", "eudi-verify");
     }
 }
