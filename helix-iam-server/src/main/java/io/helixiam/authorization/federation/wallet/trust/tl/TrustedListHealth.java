@@ -35,7 +35,9 @@ public final class TrustedListHealth {
          * A list of trusted lists that is itself fine, but some of whose members are failing, stale, expired or never
          * verified. The good members' anchors are used.
          */
-        DEGRADED;
+        DEGRADED,
+        /** The stored row failed its integrity check (modified outside HelixIAM, or DB_ENCRYPTION changed). No anchors. */
+        INTEGRITY;
 
         /** Whether the last good anchors count in this status. */
         public boolean anchorsUsable() {

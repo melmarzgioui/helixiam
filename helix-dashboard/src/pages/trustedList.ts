@@ -143,6 +143,7 @@ export function statusTone(status: TrustedListStatus | string): BadgeTone {
     case "DEGRADED":
     case "STALE": return "warning";
     case "EXPIRED":
+    case "INTEGRITY":
     case "ERROR": return "danger";
     default: return "neutral";
   }

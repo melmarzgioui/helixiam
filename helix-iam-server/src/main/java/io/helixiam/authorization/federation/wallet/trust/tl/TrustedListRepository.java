@@ -112,9 +112,22 @@ public class TrustedListRepository {
      * Saves the settings. When {@code resetState} (the list itself changed), the last good services and the refresh
      * state are dropped and the source is due at once: anchors extracted under other settings never survive.
      */
+    /**
+     * New MACs for the stored services of a source whose settings change without reloading them (bound to the new
+     * config_version): the source's own, and member key → member MAC. Null when they did not verify (left alone).
+     */
+    public record Rebind(String servicesMac, Map<String, String> memberMacs) {
+    }
+
     public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
                                 final boolean resetState, final long now, final String settingsMac,
                                 final long expectedConfigVersion) {
+        return updateConfig(realmId, id, c, resetState, now, settingsMac, expectedConfigVersion, null);
+    }
+
+    public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
+                                final boolean resetState, final long now, final String settingsMac,
+                                final long expectedConfigVersion, final Rebind rebind) {
         final String reset = resetState ? ", status = 'NEVER', last_attempt_at = NULL, last_success_at = NULL, "
                 + "list_issued_at = NULL, next_update = NULL, next_refresh_at = NULL, sequence_number = NULL, "
                 + "lists_read = NULL, last_error = NULL, services_json = NULL, services_mac = NULL, list_of_lists = FALSE"
@@ -132,6 +145,11 @@ public class TrustedListRepository {
                 return false;
             }
             resetMembers(resetState, id);
+            if (!resetState && rebind != null) {
+                jdbc.update("UPDATE trusted_list_source SET services_mac = ? WHERE id = ?", rebind.servicesMac(), id);
+                rebind.memberMacs().forEach((key, mac) -> jdbc.update("UPDATE trusted_list_member SET services_mac = ? "
+                        + "WHERE source_id = ? AND member_key = ?", mac, id, key));
+            }
             return true;
         });
         return Boolean.TRUE.equals(ok);
@@ -358,7 +376,9 @@ public class TrustedListRepository {
                 new TrustedListSource.Config(rs.getString("name"), rs.getString("url"), format,
                         rs.getString("signer_certificates"), strings(rs.getString("service_types")),
                         strings(rs.getString("accepted_statuses")), strings(rs.getString("territories")),
-                        rs.getInt("grace_hours"), rs.getBoolean("enabled")),
+                        // clamped to the validator's range: a row edited outside HelixIAM cannot stretch the grace
+                        Math.max(0, Math.min(TrustedListConfigValidator.MAX_GRACE_HOURS, rs.getInt("grace_hours"))),
+                        rs.getBoolean("enabled")),
                 new TrustedListSource.State(rs.getString("status"), longOrNull(rs, "last_attempt_at"),
                         longOrNull(rs, "last_success_at"), longOrNull(rs, "list_issued_at"),
                         longOrNull(rs, "next_update"), longOrNull(rs, "next_refresh_at"),

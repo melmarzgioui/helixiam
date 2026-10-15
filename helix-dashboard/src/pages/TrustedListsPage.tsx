@@ -407,6 +407,7 @@ function StatusAlert({ list }: { list: TrustedList }) {
     case "STALE": return <Alert tone="warning" title={t("tl.alert.stale.title")}>{t("tl.alert.stale")}</Alert>;
     case "EXPIRED": return <Alert tone="danger" title={t("tl.alert.expired.title")}>{t("tl.alert.expired")}</Alert>;
     case "ERROR": return <Alert tone="danger" title={t("tl.alert.error.title")}>{t("tl.alert.error")}</Alert>;
+    case "INTEGRITY": return <Alert tone="danger" title={t("tl.alert.integrity.title")}>{t("tl.alert.integrity")}</Alert>;
     case "DISABLED": return <Alert tone="info" title={t("tl.alert.disabled.title")}>{t("tl.alert.disabled")}</Alert>;
     default: return null;
   }

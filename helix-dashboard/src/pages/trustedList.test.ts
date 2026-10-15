@@ -128,6 +128,7 @@ describe("statusTone", () => {
     expect(statusTone("NEVER")).toBe("neutral");
     expect(statusTone("DISABLED")).toBe("neutral");
     expect(statusTone("DEGRADED")).toBe("warning");
+    expect(statusTone("INTEGRITY")).toBe("danger");
   });
 
   it("warns about pinned signers that expired or expire within 30 days", () => {

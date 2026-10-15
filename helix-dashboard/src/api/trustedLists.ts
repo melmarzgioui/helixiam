@@ -8,7 +8,7 @@ import type { CertificateInfo } from "./wallet";
 
 export type TrustedListFormat = "ETSI_119612_XML" | "ETSI_119602_JSON";
 /** TrustedListHealth.Status on the server, evaluated now. */
-export type TrustedListStatus = "NEVER" | "ERROR" | "OK" | "FAILING" | "STALE" | "EXPIRED" | "DISABLED" | "DEGRADED";
+export type TrustedListStatus = "NEVER" | "ERROR" | "OK" | "FAILING" | "STALE" | "EXPIRED" | "DISABLED" | "DEGRADED" | "INTEGRITY";
 
 /** One member of a list of trusted lists, judged on its own (server MemberView). */
 export interface TrustedListMember {

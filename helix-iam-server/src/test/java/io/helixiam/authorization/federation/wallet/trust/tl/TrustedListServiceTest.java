@@ -813,4 +813,86 @@ class TrustedListServiceTest {
         assertThat(tokens).hasSize(2).doesNotContainNull();
         assertThat(tokens.get(0)).isNotEqualTo(tokens.get(1));
     }
+
+    void sql(final String statement, final Object... args) {
+        new org.springframework.transaction.support.TransactionTemplate(TRANSACTIONS).executeWithoutResult(t ->
+                JDBC.update(statement, args));
+    }
+
+    @Test
+    void everySettingThatDecidesTrust_isCoveredByTheSettingsMac() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        for (final String tamper : List.of("grace_hours = 700", "enabled = NOT enabled", "name = 'other'",
+                "accepted_statuses = '[\"http://example/any\"]'", "territories = '[\"NL\"]'",
+                "service_types = '[\"http://example/other\"]'", "url = 'https://evil.example/x.xml'",
+                "format = 'ETSI_119602_JSON'")) {
+            final String name = "ut" + Math.abs(tamper.hashCode());
+            final TrustedListSource created = service.create(realm, config(name));
+            service.refreshNow(realm, created.id());
+            sql("UPDATE trusted_list_source SET " + tamper + ", version = version + 1 WHERE id = ?", created.id());
+            final TrustedListService other = newReplica(fetcher);
+            other.sync();
+            assertThat(other.anchors(realm, List.of(name, "other"), List.of())).as(tamper).isEmpty();
+            assertThat(other.status(other.get(realm, created.id()).orElseThrow())).as(tamper)
+                    .isEqualTo(TrustedListHealth.Status.INTEGRITY);
+        }
+    }
+
+    @Test
+    void aSourceMovedToAnotherRealmInTheDatabase_givesNoAnchorsThere() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        sql("UPDATE trusted_list_source SET realm_id = ?, version = version + 1 WHERE id = ?", realm + "-other",
+                created.id());
+        final TrustedListService other = newReplica(fetcher);
+        other.sync();
+        assertThat(other.anchors(realm + "-other", List.of("ut"), List.of())).isEmpty();
+    }
+
+    @Test
+    void storedAnchorsOfAnEarlierConfigVersion_areNotAccepted() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        final String oldMac = JDBC.queryForObject("SELECT services_mac FROM trusted_list_source WHERE id = ?",
+                String.class, created.id());
+        final TrustedListSource current = service.get(realm, created.id()).orElseThrow();
+        // a settings change that keeps the anchors re-binds them to the new config_version...
+        service.update(realm, created.id(), new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
+                List.of(), List.of(), 48, true), current.state().configVersion());
+        assertThat(anchors(service)).containsExactly(issuer);
+        // ...so the earlier row's MAC, put back, no longer verifies
+        sql("UPDATE trusted_list_source SET services_mac = ?, version = version + 1 WHERE id = ?", oldMac, created.id());
+        final TrustedListService other = newReplica(fetcher);
+        other.sync();
+        assertThat(anchors(other)).isEmpty();
+    }
+
+    @Test
+    void graceHoursAreClampedOnRead() {
+        final TrustedListRepository repo = new TrustedListRepository(JDBC, TRANSACTIONS);
+        final String id = UUID.randomUUID().toString();
+        repo.insert(id, realm, new TrustedListSource.Config("huge", URL, TrustedListSpec.Format.ETSI_119612_XML,
+                TestPki.pem(signer.certificate()), List.of(PID_TYPE), List.of(), List.of(), 100_000, true),
+                clock.millis(), null);
+        assertThat(repo.byId(id).orElseThrow().config().graceHours()).isEqualTo(720);
+    }
+
+    @Test
+    void aTamperedMember_isShownAsAnIntegrityFailure_notInUse() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        sql("UPDATE trusted_list_member SET next_update = next_update + 86400000 WHERE source_id = ?", created.id());
+
+        final TrustedListSource source = service.get(realm, created.id()).orElseThrow();
+        final TrustedListSource.Member nl = service.members(source).get(0);
+
+        assertThat(service.memberStatus(source, nl)).isEqualTo(TrustedListHealth.Status.INTEGRITY);
+        assertThat(service.memberStatus(source, nl).anchorsUsable()).isFalse();
+        assertThat(service.services(source)).isEmpty();
+    }
 }

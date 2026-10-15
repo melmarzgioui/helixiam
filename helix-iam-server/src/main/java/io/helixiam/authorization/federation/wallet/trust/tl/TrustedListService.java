@@ -193,7 +193,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
         final List<ListedService> out = new ArrayList<>();
         for (final TrustedListSource.Member m : repository.members(source.id())) {
-            if (memberIntact(m)) {
+            if (memberIntact(source, m)) {
                 out.addAll(ServicesCodec.decode(m.servicesJson()));
             }
         }
@@ -212,6 +212,9 @@ public class TrustedListService implements TrustedListAnchorSource {
 
     /** The status of one member now. */
     public TrustedListHealth.Status memberStatus(final TrustedListSource source, final TrustedListSource.Member m) {
+        if (!memberIntact(source, m)) {
+            return TrustedListHealth.Status.INTEGRITY;
+        }
         return TrustedListHealth.evaluate(source, m, clock.instant());
     }
 
@@ -225,10 +228,13 @@ public class TrustedListService implements TrustedListAnchorSource {
 
     private TrustedListHealth.Status aggregate(final TrustedListSource source,
                                                final List<TrustedListSource.Member> members) {
+        if (!settingsIntact(source) || !servicesIntact(source)) {
+            return TrustedListHealth.Status.INTEGRITY;
+        }
         final Instant now = clock.instant();
         final TrustedListHealth.Status own = TrustedListHealth.evaluate(source, now);
         if (own == TrustedListHealth.Status.OK && members.stream()
-                .anyMatch(m -> TrustedListHealth.evaluate(source, m, now) != TrustedListHealth.Status.OK)) {
+                .anyMatch(m -> memberStatus(source, m) != TrustedListHealth.Status.OK)) {
             return TrustedListHealth.Status.DEGRADED;
         }
         return own;
@@ -246,7 +252,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
         requireIntegrity();
         final String id = UUID.randomUUID().toString();
-        repository.insert(id, realmId, c, clock.millis(), settingsMac(id, realmId, c));
+        repository.insert(id, realmId, c, clock.millis(), settingsMac(id, realmId, c, 1));
         sync();
         return repository.get(realmId, id).orElseThrow();
     }
@@ -285,8 +291,10 @@ public class TrustedListService implements TrustedListAnchorSource {
             throw new InvalidConfigException(errors);
         }
         requireIntegrity();
-        if (!repository.updateConfig(realmId, id, c, !existing.get().config().sameList(c), clock.millis(),
-                settingsMac(id, realmId, c), expectedConfigVersion)) {
+        final boolean reset = !existing.get().config().sameList(c);
+        if (!repository.updateConfig(realmId, id, c, reset, clock.millis(),
+                settingsMac(id, realmId, c, expectedConfigVersion + 1), expectedConfigVersion,
+                reset ? null : rebind(existing.get(), expectedConfigVersion + 1))) {
             throw new ConcurrentUpdateException();
         }
         sync();
@@ -313,40 +321,75 @@ public class TrustedListService implements TrustedListAnchorSource {
 
     // ------------------------------------------------------------------------------------------------ integrity
 
-    private String settingsMac(final String id, final String realm, final TrustedListSource.Config c) {
-        return integrity.mac("settings", id, realm, c.url(), c.format().name(), c.signerCertificates(),
+    /**
+     * Every setting that decides trust: realm, URL, format, pinned signers, service types, accepted statuses,
+     * territories, grace, the switch, the name providers refer to, and the config_version (so an older row cannot be
+     * put back).
+     */
+    private String settingsMac(final String id, final String realm, final TrustedListSource.Config c,
+                               final long configVersion) {
+        return integrity.mac("settings", id, realm, c.name(), c.url(), c.format().name(), c.signerCertificates(),
                 TrustedListRepository.settingJson(c.serviceTypes()),
                 TrustedListRepository.settingJson(c.acceptedStatuses()),
-                TrustedListRepository.settingJson(c.territories()));
+                TrustedListRepository.settingJson(c.territories()), c.graceHours(), c.enabled(), configVersion);
     }
 
-    private String servicesMac(final String id, final String servicesJson, final long sequence,
-                               final long nextUpdate, final boolean listOfLists) {
-        return integrity.mac("services", id, servicesJson, sequence, nextUpdate, listOfLists);
+    /** The stored services (and their freshness) of a source, bound to the config_version they were loaded under. */
+    private String servicesMac(final String id, final long configVersion, final String servicesJson,
+                               final long sequence, final long nextUpdate, final boolean listOfLists) {
+        return integrity.mac("services", id, configVersion, servicesJson, sequence, nextUpdate, listOfLists);
     }
 
-    private String memberMac(final String sourceId, final String key, final String servicesJson, final long sequence,
-                             final long nextUpdate) {
-        return integrity.mac("member", sourceId, key, servicesJson, sequence, nextUpdate);
+    private String memberMac(final String sourceId, final long configVersion, final String key, final String territory,
+                             final String servicesJson, final long sequence, final long nextUpdate) {
+        return integrity.mac("member", sourceId, configVersion, key, territory, servicesJson, sequence, nextUpdate);
     }
 
     private boolean settingsIntact(final TrustedListSource s) {
-        return integrity.verify(s.state().settingsMac(), "settings", s.id(), s.realmId(), s.config().url(),
-                s.config().format().name(), s.config().signerCertificates(),
-                TrustedListRepository.settingJson(s.config().serviceTypes()),
-                TrustedListRepository.settingJson(s.config().acceptedStatuses()),
-                TrustedListRepository.settingJson(s.config().territories()));
+        return integrity.verify(s.state().settingsMac(), settingsParts(s));
+    }
+
+    private Object[] settingsParts(final TrustedListSource s) {
+        final TrustedListSource.Config c = s.config();
+        return new Object[] {"settings", s.id(), s.realmId(), c.name(), c.url(), c.format().name(),
+                c.signerCertificates(), TrustedListRepository.settingJson(c.serviceTypes()),
+                TrustedListRepository.settingJson(c.acceptedStatuses()),
+                TrustedListRepository.settingJson(c.territories()), c.graceHours(), c.enabled(),
+                s.state().configVersion()};
     }
 
     private boolean servicesIntact(final TrustedListSource s) {
         final TrustedListSource.State st = s.state();
-        return st.servicesJson() == null || integrity.verify(st.servicesMac(), "services", s.id(), st.servicesJson(),
-                st.sequenceNumber(), st.nextUpdate(), st.listOfLists());
+        return st.servicesJson() == null || integrity.verify(st.servicesMac(), "services", s.id(), st.configVersion(),
+                st.servicesJson(), st.sequenceNumber(), st.nextUpdate(), st.listOfLists());
     }
 
-    private boolean memberIntact(final TrustedListSource.Member m) {
-        return m.servicesJson() == null || integrity.verify(m.servicesMac(), "member", m.sourceId(), m.key(),
-                m.servicesJson(), m.sequenceNumber(), m.nextUpdate());
+    private boolean memberIntact(final TrustedListSource source, final TrustedListSource.Member m) {
+        return m.servicesJson() == null || integrity.verify(m.servicesMac(), "member", m.sourceId(),
+                source.state().configVersion(), m.key(), m.territory(), m.servicesJson(), m.sequenceNumber(),
+                m.nextUpdate());
+    }
+
+    /**
+     * New MACs binding the stored services of {@code s} to {@code newConfigVersion}, when they verify under the
+     * current one (a settings change that keeps them); null otherwise (they stay unverifiable: the next refresh
+     * reloads them).
+     */
+    private TrustedListRepository.Rebind rebind(final TrustedListSource s, final long newConfigVersion) {
+        if (!integrity.enabled() || !servicesIntact(s)) {
+            return null;
+        }
+        final TrustedListSource.State st = s.state();
+        final String sourceMac = st.servicesJson() == null ? null : servicesMac(s.id(), newConfigVersion,
+                st.servicesJson(), st.sequenceNumber(), st.nextUpdate(), st.listOfLists());
+        final Map<String, String> members = new LinkedHashMap<>();
+        for (final TrustedListSource.Member m : members(s)) {
+            if (m.servicesJson() != null && memberIntact(s, m)) {
+                members.put(m.key(), memberMac(s.id(), newConfigVersion, m.key(), m.territory(), m.servicesJson(),
+                        m.sequenceNumber(), m.nextUpdate()));
+            }
+        }
+        return new TrustedListRepository.Rebind(sourceMac, members);
     }
 
     /** Logs and audits (once per row version on this replica) a row that failed its integrity check. */
@@ -512,7 +555,7 @@ public class TrustedListService implements TrustedListAnchorSource {
                 final List<MemberSnapshot> members = new ArrayList<>();
                 if (intact && source.state().listOfLists()) {
                     for (final TrustedListSource.Member m : repository.members(source.id())) {
-                        if (memberIntact(m)) {
+                        if (memberIntact(source, m)) {
                             members.add(new MemberSnapshot(m, ServicesCodec.decode(m.servicesJson())));
                         } else {
                             reportTampering(source, "the stored anchors of member " + m.territory());
@@ -606,7 +649,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         final Map<String, String> detail = detail(source);
         try {
             if (!settingsIntact(source) || !servicesIntact(source)
-                    || members(source).stream().anyMatch(m -> !memberIntact(m))) {
+                    || members(source).stream().anyMatch(m -> !memberIntact(source, m))) {
                 failed(source, owner, configVersion, now, "INTEGRITY", "the stored settings or anchors failed the integrity "
                         + "check (modified outside HelixIAM, or DB_ENCRYPTION changed); re-save the settings", detail);
                 return true;
@@ -628,7 +671,8 @@ public class TrustedListService implements TrustedListAnchorSource {
             final List<TrustedListSource.Member> before = loaded.listOfLists() ? repository.members(id) : List.of();
             final boolean stored = loaded.listOfLists()
                     ? repository.recordListOfListsSuccess(id, owner, configVersion, loaded,
-                            servicesMac(id, "[]", loaded.sequence(), loaded.nextUpdate().toEpochMilli(), true),
+                            servicesMac(id, configVersion, "[]", loaded.sequence(), loaded.nextUpdate().toEpochMilli(),
+                                    true),
                             memberWrites(source, before, loaded, now), now.toEpochMilli(), nextRefresh)
                     : storeSingle(id, owner, configVersion, loaded, now, nextRefresh);
             if (!stored) {
@@ -663,7 +707,8 @@ public class TrustedListService implements TrustedListAnchorSource {
                                 final Instant now, final long nextRefresh) {
         final String json = ServicesCodec.encode(loaded.services());
         return repository.recordSuccess(id, owner, configVersion, loaded, json,
-                servicesMac(id, json, loaded.sequence(), loaded.nextUpdate().toEpochMilli(), false), now.toEpochMilli(),
+                servicesMac(id, configVersion, json, loaded.sequence(), loaded.nextUpdate().toEpochMilli(), false),
+                now.toEpochMilli(),
                 nextRefresh);
     }
 
@@ -673,8 +718,9 @@ public class TrustedListService implements TrustedListAnchorSource {
         for (final LoadedList.Member m : loaded.members()) {
             if (m.loaded()) {
                 final String json = ServicesCodec.encode(m.services());
-                out.add(new TrustedListRepository.MemberWrite(m, json, memberMac(source.id(), m.key(), json,
-                        m.sequence(), m.nextUpdate().toEpochMilli()), null));
+                out.add(new TrustedListRepository.MemberWrite(m, json, memberMac(source.id(),
+                        source.state().configVersion(), m.key(), m.territory(), json, m.sequence(),
+                        m.nextUpdate().toEpochMilli()), null));
             } else {
                 final TrustedListSource.Member old = before.stream().filter(b -> b.key().equals(m.key())).findFirst()
                         .orElse(null);

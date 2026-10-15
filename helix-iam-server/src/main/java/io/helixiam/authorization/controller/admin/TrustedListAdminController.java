@@ -253,7 +253,9 @@ public class TrustedListAdminController {
 
     private MemberView member(final TrustedListSource source, final TrustedListSource.Member m) {
         final TrustedListHealth.Status status = service.memberStatus(source, m);
-        final List<ListedService> services = TrustedListService.decode(m.servicesJson());
+        // a member whose stored anchors fail the integrity check shows none, and is not in use
+        final List<ListedService> services = status == TrustedListHealth.Status.INTEGRITY ? List.of()
+                : TrustedListService.decode(m.servicesJson());
         return new MemberView(m.territory(), m.location(), status.name(), status.anchorsUsable(), m.sequenceNumber(),
                 time(m.listIssuedAt()), time(m.nextUpdate()), m.nextUpdate() == null || m.servicesJson() == null
                         ? null : Instant.ofEpochMilli(m.nextUpdate()).plus(Duration.ofHours(source.config()
