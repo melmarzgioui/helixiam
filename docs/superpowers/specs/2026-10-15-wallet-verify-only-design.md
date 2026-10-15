@@ -136,7 +136,7 @@ failures. New `WalletErrorCode.BINDING_MISMATCH`.
 
 ## 8. Docs
 
-`docs/eudi-wallet.md` new §12 "Verify-only / step-up"; `CHANGES-1.0.md` next-release entry; `ROADMAP.md` item done.
+`docs/eudi-wallet.md` new §13 "Verify-only / step-up" (numbered §13 after the rebase onto the DC API, which took §12); `CHANGES-1.0.md` next-release entry; `ROADMAP.md` item done.
 
 ## 9. Deferred
 

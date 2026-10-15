@@ -198,7 +198,7 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
      * {@code verified_claims}: neither the attribute nor the ID token's parsed claims or claims metadata (every store
      * persists those). The token VALUE (the signed JWT the client already holds) is kept as is: re-signing it is not
      * possible and the value is how {@code id_token_hint} finds the authorization, so it still encodes the released
-     * claims until the authorization is removed (documented in docs/eudi-wallet.md §12).
+     * claims until the authorization is removed (documented in docs/eudi-wallet.md §13).
      */
     static OAuth2Authorization withoutVerifiedClaims(final OAuth2Authorization authorization) {
         final OAuth2Authorization.Token<org.springframework.security.oauth2.core.oidc.OidcIdToken> idToken =

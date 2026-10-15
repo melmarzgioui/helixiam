@@ -95,7 +95,7 @@ public class ClaimScopeAdminService {
 
     /**
      * The standard scope a client requests to receive the verify-only EUDI wallet step's {@code verified_claims}
-     * (docs/eudi-wallet.md §12); without it the step still raises {@code acr}, but releases nothing.
+     * (docs/eudi-wallet.md §13); without it the step still raises {@code acr}, but releases nothing.
      */
     static final String VERIFIED_CLAIMS_SCOPE = "verified_claims";
     private static final String VERIFIED_CLAIMS_DESCRIPTION =
