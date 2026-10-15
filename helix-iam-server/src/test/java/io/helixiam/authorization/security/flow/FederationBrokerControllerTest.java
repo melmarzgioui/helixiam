@@ -55,6 +55,22 @@ class FederationBrokerControllerTest {
     @BeforeEach
     void bindRealm() {
         RealmContextHolder.set("gov");
+        // a mock answers false for the SPI's default signInCapable(); these providers sign users in
+        org.mockito.Mockito.when(provider.signInCapable()).thenReturn(true);
+    }
+
+    @Test
+    void aProviderThatCannotSignIn_isRefused_beforeTheBrowserBindingIsTouched() {
+        org.mockito.Mockito.when(provider.signInCapable()).thenReturn(false);
+        org.mockito.Mockito.when(registry.get("gov", "verify")).thenReturn(provider);
+        final org.springframework.mock.web.MockHttpServletRequest request =
+                new org.springframework.mock.web.MockHttpServletRequest();
+        final String binding = BrowserBinding.begin(request.getSession(true), "gov", "verify");
+        final String view = controller.start("verify", request, new org.springframework.ui.ExtendedModelMap());
+        org.assertj.core.api.Assertions.assertThat(view).contains("/login?error=federation");
+        org.assertj.core.api.Assertions.assertThat(BrowserBinding.current(request.getSession(false), "gov", "verify"))
+                .as("the step's binding is untouched").isEqualTo(binding);
+        org.mockito.Mockito.verify(provider, org.mockito.Mockito.never()).start(org.mockito.ArgumentMatchers.any());
     }
 
     @AfterEach
