@@ -62,8 +62,9 @@ import java.util.regex.Pattern;
  * when set; at least one acceptable trust anchor; at least one known, non-repeated, non-empty credential format;
  * known, non-repeated, non-empty PID claims that {@link DcqlQueryBuilder} can request for the configured formats;
  * {@code direct_post} only in dev; TTL 60–900 s; clock skew 0–60 s; positive limits; status cache 0–900 s and bare
- * host names; {@code ATTRIBUTE_TUPLE} only with {@code acknowledgeWeakSubject}; {@code NONE} and
- * {@code customCredentialQueries} not supported yet; {@code minimumLoa} on the eIDAS ladder ({@link EidScheme#EUDI_WALLET}
+ * host names; {@code ATTRIBUTE_TUPLE} only with {@code acknowledgeWeakSubject}; {@code NONE} (verify-only) with a
+ * linked login connection, without {@code acknowledgeWeakSubject}, releasing only requested mapped claims or
+ * {@code age_over_NN} ({@code verify.*} only with {@code NONE}); {@code customCredentialQueries} not supported yet; {@code minimumLoa} on the eIDAS ladder ({@link EidScheme#EUDI_WALLET}
  * delegates to it).
  */
 @Component
@@ -304,7 +305,7 @@ public class WalletConfigValidator {
         }
         checkTrust(realmId, c, e);
         checkStatusList(c.statusList(), e);
-        checkSubject(c.subject(), e);
+        checkSubject(c, e);
         if (EidLevelOfAssurance.rung(EidScheme.EUDI_WALLET, c.minimumLoa()) == 0) {
             e.add("minimumLoa",
                     "minimumLoa must be an eIDAS level of assurance (http://eidas.europa.eu/LoA/low|substantial|high)");
@@ -686,10 +687,37 @@ public class WalletConfigValidator {
         }
     }
 
-    private static void checkSubject(final WalletProviderConfig.Subject subject, final Errors e) {
-        if (subject.strategy() == WalletProviderConfig.Subject.Strategy.NONE) {
-            e.add("subject.strategy", "subject.strategy NONE (verify-only) is not supported yet");
-        } else if (subject.strategy() == WalletProviderConfig.Subject.Strategy.ATTRIBUTE_TUPLE
+    /** Same syntax as an identity-provider alias the console writes (letters, digits, {@code . _ -}). */
+    private static final java.util.regex.Pattern LINKED_ALIAS = java.util.regex.Pattern.compile("[A-Za-z0-9._-]{1,64}");
+
+    private static void checkSubject(final WalletProviderConfig c, final Errors e) {
+        final WalletProviderConfig.Subject subject = c.subject();
+        if (subject.verifyOnly()) {
+            // Verify-only (docs/superpowers/specs/2026-10-15-wallet-verify-only-design.md §5).
+            final String linked = subject.linkedProvider();
+            if (linked == null) {
+                e.add("verify.linkedProvider", "A verify-only connection needs the wallet sign-in connection whose "
+                        + "links prove whose wallet it is (verify.linkedProvider)");
+            } else if (!LINKED_ALIAS.matcher(linked).matches()) {
+                e.add("verify.linkedProvider", "verify.linkedProvider must be an identity provider alias");
+            } else if (linked.equals(c.alias())) {
+                e.add("verify.linkedProvider", "verify.linkedProvider must name another wallet connection");
+            }
+            if (subject.acknowledgeWeakSubject()) {
+                e.add("subject.acknowledgeWeakSubject", "Not used by a verify-only connection: the linked "
+                        + "connection's own setting decides whether attribute-tuple links count");
+            }
+            WalletVerifiedClaims.problem(c.pid().requestedClaims(), subject.releasedClaims())
+                    .ifPresent(p -> e.add("verify.releasedClaims", p));
+            return;
+        }
+        if (subject.linkedProvider() != null) {
+            e.add("verify.linkedProvider", "verify.linkedProvider is only used with subject.strategy NONE");
+        }
+        if (!subject.releasedClaims().isEmpty()) {
+            e.add("verify.releasedClaims", "verify.releasedClaims is only used with subject.strategy NONE");
+        }
+        if (subject.strategy() == WalletProviderConfig.Subject.Strategy.ATTRIBUTE_TUPLE
                 && !subject.acknowledgeWeakSubject()) {
             e.add("subject.strategy", "subject.strategy ATTRIBUTE_TUPLE requires subject.acknowledgeWeakSubject=true");
         }

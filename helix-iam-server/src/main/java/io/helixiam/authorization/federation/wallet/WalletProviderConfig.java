@@ -339,13 +339,38 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
      * or removing {@code place_of_birth} there changes every tuple subject of this provider and orphans its existing
      * tuple links (users must link their wallet again). Administrative-number subjects are not affected.
      */
-    public record Subject(Strategy strategy, boolean acknowledgeWeakSubject) {
+    public record Subject(Strategy strategy, boolean acknowledgeWeakSubject, String linkedProvider,
+                          List<String> releasedClaims) {
 
-        /** {@code NONE} (verify-only step-up) is out of this plan; the validator refuses it. */
+        /**
+         * {@code NONE}: verify-only / step-up (docs/superpowers/specs/2026-10-15-wallet-verify-only-design.md). The
+         * provider never signs anyone in, never creates or links an account; the {@code eudi-wallet-verify} flow step
+         * uses it after the user is identified.
+         */
         public enum Strategy { ADMINISTRATIVE_NUMBER, ATTRIBUTE_TUPLE, NONE }
 
+        /**
+         * @param linkedProvider {@code verify.linkedProvider}: with {@link Strategy#NONE}, the realm's wallet login
+         *                       provider whose links (and subject settings) prove whose wallet it is
+         * @param releasedClaims {@code verify.releasedClaims}: with {@link Strategy#NONE}, the verified claims released
+         *                       into the ID token's {@code verified_claims} (requested mapped PID claims and
+         *                       {@code age_over_NN}); empty (the default) releases nothing
+         */
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Subject {
             strategy = strategy == null ? Strategy.ADMINISTRATIVE_NUMBER : strategy;
+            linkedProvider = linkedProvider == null || linkedProvider.isBlank() ? null : linkedProvider.trim();
+            releasedClaims = releasedClaims == null ? List.of() : copy(releasedClaims);
+        }
+
+        /** A login/link subject (no verify-only settings). */
+        public Subject(final Strategy strategy, final boolean acknowledgeWeakSubject) {
+            this(strategy, acknowledgeWeakSubject, null, null);
+        }
+
+        /** Whether this provider is verify-only ({@link Strategy#NONE}). */
+        public boolean verifyOnly() {
+            return strategy == Strategy.NONE;
         }
     }
 
@@ -435,7 +460,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
                         r.enumValue("statusList.onUnavailable", StatusPolicy.OnUnavailable.class, Enum::name),
                         r.integer("statusList.maxCacheSeconds"), r.list("statusList.allowedHosts")),
                 new Subject(r.enumValue("subject.strategy", Subject.Strategy.class, Enum::name),
-                        r.bool("subject.acknowledgeWeakSubject")),
+                        r.bool("subject.acknowledgeWeakSubject"), r.text("verify.linkedProvider"),
+                        r.list("verify.releasedClaims")),
                 r.text("minimumLoa"), r.integer("clockSkewSeconds"), r.bool("allowLegacyVcSdJwtTyp"),
                 new Limits(r.integer("limits.maxJwtBytes"), r.integer("limits.cborMaxDepth"),
                         r.integer("limits.cborMaxItems"), r.integer("limits.cborMaxBytes")),
@@ -508,6 +534,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         put(m, "statusList.allowedHosts", json(statusList.allowedHosts()));
         put(m, "subject.strategy", subject.strategy().name());
         put(m, "subject.acknowledgeWeakSubject", String.valueOf(subject.acknowledgeWeakSubject()));
+        put(m, "verify.linkedProvider", subject.linkedProvider());
+        put(m, "verify.releasedClaims", subject.releasedClaims().isEmpty() ? null : json(subject.releasedClaims()));
         put(m, "minimumLoa", minimumLoa);
         put(m, "clockSkewSeconds", String.valueOf(clockSkewSeconds));
         put(m, "allowLegacyVcSdJwtTyp", String.valueOf(allowLegacyVcSdJwtTyp));
