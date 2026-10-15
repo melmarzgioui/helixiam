@@ -107,7 +107,8 @@ public class FlowController {
         // A step that challenges on another page (the EUDI wallet verification: the wallet page) sends the browser
         // there ONCE; coming back to /flow renders its view.
         if (execAttributes.remove(io.helixiam.authorization.flow.spi.AuthenticationContext.REDIRECT_ATTRIBUTE)
-                instanceof String target && target.startsWith("/") && !target.startsWith("//")) {
+                instanceof String target && target.startsWith("/") && !target.startsWith("//")
+                && target.indexOf('\\') < 0) { // never "/\\host" (browsers read it as "//host")
             session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
             return REDIRECT_PREFIX + target; // context-relative: resolved under the realm like the broker's
         }

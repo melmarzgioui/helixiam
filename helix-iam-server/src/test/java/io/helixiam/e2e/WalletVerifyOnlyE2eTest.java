@@ -355,6 +355,32 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void theAdminApi_refusesAVerifyOnlyConnectionWithoutASignInConnection_andAnAppSsoOnIt() {
+        final E2eAdminSession admin = adminSession();
+        final Map<String, String> config = new LinkedHashMap<>(wallet.storedConfig(wallet.importAccessKey(realm)));
+        config.put("subject.strategy", "NONE");
+        config.put("verify.linkedProvider", "nope");
+        final E2eHttp.Response missing = admin.post("/admin/realms/" + realm + "/identity-providers", Map.of(
+                "alias", "eudi-verify-2", "protocol", "eudi-wallet", "displayName", "Verify 2", "enabled", true,
+                "config", config));
+        assertThat(missing.status()).as(missing.toString()).isEqualTo(400);
+        assertThat(missing.json().path("fieldErrors").has("config.verify.linkedProvider")).isTrue();
+
+        final Map<String, Object> sso = new LinkedHashMap<>();
+        sso.put("executionId", "sso");
+        sso.put("parentId", null);
+        sso.put("authenticatorId", "idp-redirect");
+        sso.put("requirement", "REQUIRED");
+        sso.put("condition", false);
+        sso.put("priority", 5);
+        sso.put("config", Map.of("providerAlias", verifyAlias, "mode", "REDIRECT"));
+        final E2eHttp.Response app = admin.put("/admin/realms/" + realm + "/flows/" + STEP_UP_FLOW,
+                Map.of("executions", List.of(sso)));
+        assertThat(app.status()).as(app.toString()).isEqualTo(400);
+        assertThat(app.json().path("fieldErrors").has("executions[0].config.providerAlias")).isTrue();
+    }
+
+    @Test
     void theVerifyOnlyConnection_isNeverASignInMethod() {
         final E2eHttp browser = newBrowser();
         final String authorize = "/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=web"

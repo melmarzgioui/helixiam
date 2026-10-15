@@ -19,6 +19,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.ui.ExtendedModelMap;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -135,5 +136,29 @@ class FlowControllerTest {
 
         assertThat(request.getSession(false)
                 .getAttribute(io.helixiam.authorization.security.session.AuthTimeStamper.ACR_SESSION_ATTRIBUTE)).isNull();
+    }
+
+    @Test
+    void aStepsRedirect_isFollowedOnce_onlyToARealmRelativePath() {
+        for (final String target : List.of("/broker/eudi-verify/wallet?tx=1", "//evil.example/x", "/\\evil.example/x",
+                "https://evil.example/x", "/broker\\..\\x")) {
+            final MockHttpServletRequest request = new MockHttpServletRequest();
+            final HttpSession session = request.getSession(true);
+            final FlowExecutionState state = new FlowExecutionState("master");
+            state.setUserId("user-9");
+            state.setCurrentChallengeExecutionId("w");
+            state.setCurrentChallengeView("wallet-verify");
+            state.attributesFor("w").put(io.helixiam.authorization.flow.spi.AuthenticationContext.REDIRECT_ATTRIBUTE,
+                    target);
+            session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
+            final String view = controller.renderChallenge(session, new ExtendedModelMap());
+            if (target.equals("/broker/eudi-verify/wallet?tx=1")) {
+                assertThat(view).isEqualTo("redirect:" + target);
+                assertThat(controller.renderChallenge(session, new ExtendedModelMap())).as("once")
+                        .isEqualTo("flow/wallet-verify");
+            } else {
+                assertThat(view).as(target).isEqualTo("flow/wallet-verify");
+            }
+        }
     }
 }
