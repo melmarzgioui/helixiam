@@ -5,6 +5,20 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.10`)
 
+- **Added (Terraform provider) — `helix_wallet_identity_provider` resource.** The EUDI Wallet (OpenID4VP
+  verifier) identity-provider connection can now be managed as code: alias/display_name/enabled plus every
+  key of `WalletProviderConfig`'s stored map (`client_id_scheme`, `access_key_ref`,
+  `access_certificate_chain`, the dev-only `access_certificate_private_key` (sensitive, write-only — the
+  admin API never returns a secret's value), `credential_formats`, the `pid_*` PID-request settings,
+  `trust_anchors`, `revocation_checking`, the `status_list_*` Token Status List policy, the `subject_*`
+  subject-derivation strategy, `minimum_loa`, `clock_skew_seconds`, `allow_legacy_vc_sd_jwt_typ` and the
+  `limits_*` parser bounds). An attribute left unset is left out of the write so the server's own default
+  applies, with no perpetual diff; import is supported (`terraform import
+  helix_wallet_identity_provider.<name> <alias>`). Unit-tested against a mock admin API
+  (`terraform-provider-helix/internal/provider/wallet_identity_provider_test.go`: create/read/update/
+  delete/import, sparse-config round-trip, and the secret's no-diff guarantee); a gated live test exists
+  (`TestLiveWalletIdentityProviderCRUD`) but was not run against a live server. Closes the item
+  `ROADMAP.md` listed as "a Terraform resource for the wallet identity-provider connection."
 - **EUDI Wallet: interop with the EU reference wallet (test only, no product change)** — the EU Digital Identity Wallet
   reference app for Android (2026.10.43-Demo, released APK, `demo` flavour) signed in to HelixIAM on an Android 15
   emulator with SD-JWT VC and mdoc PIDs from the EU test issuer `issuer.eudiw.dev`: same-device and cross-device, both

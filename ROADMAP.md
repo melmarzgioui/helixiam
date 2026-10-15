@@ -22,7 +22,8 @@ paths are hardened and tested."
 ## Next — after 1.0
 
 - SDK published as its own package.
-- Terraform provider resource coverage (realm, identity provider, agent, flow).
+- Terraform provider resource coverage (realm, agent, flow; generic identity-provider connections beyond
+  the wallet one). Done: `helix_wallet_identity_provider` (the EUDI wallet connection, see below).
 - Live eID (DigiD/eHerkenning/eIDAS) round-trip validation against real peers.
 - Federation/config import tooling.
 - **EUDI Wallet (OpenID4VP verifier) Phase 4 — interop and stretch** (separate plan, written once Phase 3 of
@@ -32,8 +33,9 @@ paths are hardened and tested."
   wallet (the EU reference wallet is done, see below); the W3C Digital Credentials API (`dc_api`/`dc_api.jwt`)
   as the ecosystem-recommended cross-device path (today only redirect same-device and QR cross-device exist, and
   ARF guidance recommends against the latter for conformant EU wallets — see `docs/eudi-wallet.md` §8); an
-  `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being pasted PEM; a
-  Terraform resource for the wallet identity-provider connection; and a separate plan for the step-up/verify-only
+  `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being pasted PEM
+  (the Terraform resource for the wallet identity-provider connection is done — `helix_wallet_identity_provider`,
+  `terraform-provider-helix/README.md`); and a separate plan for the step-up/verify-only
   flow (`subject.strategy=NONE`), deliberately left out of the initial implementation (maintainer decision 4).
 - **EUDI Wallet follow-ups** (from the final review of the wallet branch):
   - Done (2026-10-15): **interop against the EU reference wallet** and **a third-party mdoc DeviceAuth vector**. The

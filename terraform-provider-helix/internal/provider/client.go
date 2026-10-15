@@ -216,3 +216,69 @@ func (c *Client) DeleteRole(ctx context.Context, roleID string) error {
 	_, err := c.do(ctx, http.MethodDelete, "/roles/"+url.PathEscape(roleID), nil, nil)
 	return err
 }
+
+// --- Identity provider connection ---
+//
+// The admin API models every federation connection (OIDC/SAML/eID/LDAP/EUDI wallet) as one resource:
+// an alias, a protocol, a display name, an enabled flag and a flat string "config" map whose keys are
+// protocol-specific (dotted for nested settings, e.g. "pid.requestedClaims"). A write (create/update)
+// sends config as a Map<String,String>; a read returns it as Map<String,Object> because secret config
+// keys come back as "<key>Set": true|false booleans instead of their value (never the value itself —
+// see IdentityProviderAdminView on the server). IdentityProviderWrite/IdentityProviderRead reflect that
+// asymmetry.
+
+// IdentityProviderWrite is the body of a create or update.
+type IdentityProviderWrite struct {
+	Alias       string            `json:"alias"`
+	Protocol    string            `json:"protocol"`
+	DisplayName string            `json:"displayName,omitempty"`
+	Enabled     bool              `json:"enabled"`
+	Config      map[string]string `json:"config,omitempty"`
+}
+
+// IdentityProviderRead is an identity-provider connection as GET returns it: secrets are represented by
+// "<key>Set" booleans in Config, never by their value.
+type IdentityProviderRead struct {
+	RealmID     string         `json:"realmId,omitempty"`
+	Alias       string         `json:"alias"`
+	Protocol    string         `json:"protocol"`
+	DisplayName string         `json:"displayName,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	Config      map[string]any `json:"config,omitempty"`
+}
+
+// ConfigString reads a plain (non-secret) string config value; "" when absent. Secret keys never appear
+// here under their own name (only as the "<key>Set" boolean), so this is never used for a secret.
+func (ip *IdentityProviderRead) ConfigString(key string) string {
+	if ip.Config == nil {
+		return ""
+	}
+	if s, ok := ip.Config[key].(string); ok {
+		return s
+	}
+	return ""
+}
+
+func (c *Client) CreateIdentityProvider(ctx context.Context, ip IdentityProviderWrite) error {
+	_, err := c.do(ctx, http.MethodPost, "/identity-providers", ip, nil)
+	return err
+}
+
+func (c *Client) GetIdentityProvider(ctx context.Context, alias string) (*IdentityProviderRead, bool, error) {
+	var ip IdentityProviderRead
+	nf, err := c.do(ctx, http.MethodGet, "/identity-providers/"+url.PathEscape(alias), nil, &ip)
+	if err != nil || nf {
+		return nil, nf, err
+	}
+	return &ip, false, nil
+}
+
+func (c *Client) UpdateIdentityProvider(ctx context.Context, alias string, ip IdentityProviderWrite) error {
+	_, err := c.do(ctx, http.MethodPut, "/identity-providers/"+url.PathEscape(alias), ip, nil)
+	return err
+}
+
+func (c *Client) DeleteIdentityProvider(ctx context.Context, alias string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/identity-providers/"+url.PathEscape(alias), nil, nil)
+	return err
+}

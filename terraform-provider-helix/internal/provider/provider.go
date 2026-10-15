@@ -95,6 +95,7 @@ func (p *HelixProvider) Resources(_ context.Context) []func() resource.Resource 
 	return []func() resource.Resource{
 		NewApplicationResource,
 		NewRoleResource,
+		NewWalletIdentityProviderResource,
 	}
 }
 
