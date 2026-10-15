@@ -172,6 +172,16 @@ above (the bounded issuer-revocation client, L5, L6) are not repeated. See
 
 ### Wallet-specific, parked to this final review
 
+- **DC API expected origins are interchangeable (accepted, 2026-10-15).** Over the W3C Digital Credentials API a
+  response is accepted when it is bound to *any* of the connection's expected origins (`dcApi.expectedOrigins`, or the
+  origin of `IDP_BASE_URL`), not specifically to the origin the login page was served on: the server does not record
+  per transaction which origin started it. Every origin in the list is one this server answers for (the validator
+  checks each against `IDP_BASE_URL` and `HELIX_ALLOWED_HOSTS`), so they are all the same verifier and the binding
+  still keeps out every foreign origin. Per-host binding becomes relevant with per-organisation custom domains (one
+  server, several tenants' hosts), which are deferred: when they land, bind each transaction to the host its login
+  page was served on and check the response against that one origin only. See `docs/eudi-wallet.md` §12.2 and the
+  design record `docs/superpowers/specs/2026-10-15-wallet-dc-api-design.md` (D5).
+
 - **Shared-root status-list anchor (§6.5 residual case).** When an mdoc's MSO signer and its status list's signer
   chain to a shared root that issues DS certificates directly (rather than through a dedicated intermediate per
   purpose), the §6.5 signer rule as implemented accepts it — standard for a per-issuer IACA anchor, but worth

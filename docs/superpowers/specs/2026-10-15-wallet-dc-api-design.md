@@ -76,6 +76,11 @@ the expected origins:
   handover).
 The redirect endpoint keeps its own context (no DC API origins), so a DC API presentation cannot be replayed into
 `/oid4vp/<alias>/response/<id>` either.
+The expected origins are interchangeable (review note): a response bound to any of them is accepted, because the
+transaction does not record which origin its page was served on. All of them are hosts this server answers for (D4),
+so only this deployment's own pages qualify. Per-host binding (record the page's host per transaction, accept only
+that origin) becomes relevant with per-organisation custom domains, which are deferred; recorded in
+`helix-iam-server/DEFERRED-SECURITY-WORK.md`.
 
 **D6 — Transaction lifecycle: a new flow `DC_API`, no schema change.** `WalletTransaction.Flow` gains `DC_API`
 (fits `wallet_transaction.flow varchar(16)`; no constraint). The browser asks for the DC API request without changing

@@ -578,6 +578,11 @@ What "bound" means (OpenID4VP A.4, B.2.6.2):
   other site's origin and refused here.
 - A presentation made for the redirect flows (bound to `client_id` / the `OpenID4VPHandover`) is refused over the
   DC API, and a DC API presentation is refused at the redirect `response_uri`.
+- **The expected origins are interchangeable.** A response bound to *any* origin in the list is accepted, whichever of
+  them the login page was actually served on: the transaction does not record its page's origin. They are all hosts of
+  this server, so this keeps every foreign origin out. It matters once one server serves several tenants under their
+  own domains; per-organisation custom domains are deferred, and with them per-host binding
+  (`helix-iam-server/DEFERRED-SECURITY-WORK.md`). Until then, list only origins that belong to the same deployment.
 
 ### 12.3 The flow
 
