@@ -1,0 +1,419 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.helixiam.authorization.federation.wallet.trust.tl;
+
+import io.helixiam.authorization.federation.wallet.testwallet.TestPki;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.Pointer;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.Service;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.Spec;
+import org.junit.jupiter.api.Test;
+
+import java.nio.charset.StandardCharsets;
+import java.security.cert.X509Certificate;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.GRANTED;
+import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.PID_TYPE;
+import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.RECOGNISED;
+import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.WITHDRAWN;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * {@link TrustedListLoader} on lists built and signed in the test: what counts as a current service, signature and
+ * signer checks, the LOTL pointer chain, freshness, rollback, and the hostile-XML refusals.
+ */
+class TrustedListLoaderTest {
+
+    static final String TL_URL = "https://tl.example/TL/UT.xml";
+    static final String LOTL_URL = "https://lotl.example/lotl.xml";
+    static final String NL_URL = "https://tl.example/TL/NL.xml";
+    static final String DE_URL = "https://tl.example/TL/DE.xml";
+
+    final TestPki.Leaf signer = TrustedListFixtures.signer("UT TL Signer");
+    final TestPki.Leaf other = TrustedListFixtures.signer("Somebody Else");
+    final X509Certificate issuerA = TestPki.create("PID Issuer A").root();
+    final X509Certificate issuerB = TestPki.create("PID Issuer B").root();
+    final Map<String, byte[]> served = new HashMap<>();
+    final TrustedListFetcher fetcher = (url, realm) -> {
+        final byte[] body = served.get(url);
+        if (body == null) {
+            throw new TrustedListException(TrustedListException.Kind.FETCH, "not found");
+        }
+        return body;
+    };
+    final TrustedListLoader loader = new TrustedListLoader(fetcher, Clock.systemUTC());
+
+    static TrustedListSpec spec(final String url, final TestPki.Leaf... signers) {
+        return TrustedListSpec.of(url, TrustedListSpec.Format.ETSI_119612_XML,
+                java.util.Arrays.stream(signers).map(TestPki.Leaf::certificate).toList(), Set.of(PID_TYPE));
+    }
+
+    @Test
+    void validList_yieldsTheCurrentServicesWithTheirMetadata() throws Exception {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT").sequence(12)
+                .service(Service.granted("Issuer A", issuerA)), signer));
+
+        final LoadedList loaded = loader.load(spec(TL_URL, signer), "realm");
+
+        assertThat(loaded.services()).singleElement().satisfies(s -> {
+            assertThat(s.certificate()).isEqualTo(issuerA);
+            assertThat(s.serviceType()).isEqualTo(PID_TYPE);
+            assertThat(s.serviceName()).isEqualTo("Issuer A PID issuance");
+            assertThat(s.provider()).isEqualTo("Issuer A");
+            assertThat(s.country()).isEqualTo("UT");
+            assertThat(s.status()).isEqualTo(GRANTED);
+        });
+        assertThat(loaded.sequence()).isEqualTo(12);
+        assertThat(loaded.nextUpdate()).isAfter(Instant.now());
+        assertThat(loaded.issuedAt()).isBefore(Instant.now());
+    }
+
+    @Test
+    void withdrawnService_isNotCurrent_andItsGrantedHistoryDoesNotCount() throws Exception {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA))
+                .service(Service.granted("Issuer B", issuerB).withStatus(WITHDRAWN)), signer));
+
+        assertThat(loader.load(spec(TL_URL, signer), "realm").services())
+                .extracting(ListedService::certificate).containsExactly(issuerA);
+    }
+
+    @Test
+    void recognisedAtNationalLevel_countsByDefault_butNotWhenOnlyGrantedIsAccepted() throws Exception {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer B", issuerB).withStatus(RECOGNISED)), signer));
+
+        assertThat(loader.load(spec(TL_URL, signer), "realm").services()).hasSize(1);
+        assertThat(loader.load(spec(TL_URL, signer).withAcceptedStatuses(Set.of(GRANTED)), "realm").services())
+                .isEmpty();
+    }
+
+    @Test
+    void serviceStartingInTheFuture_andOtherServiceTypes_areNotIncluded() throws Exception {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA).startingAt(Instant.now().plus(2, ChronoUnit.DAYS)))
+                .service(Service.granted("Issuer B", issuerB).withType("http://uri.etsi.org/TrstSvc/Svctype/CA/QC")),
+                signer));
+
+        assertThat(loader.load(spec(TL_URL, signer), "realm").services()).isEmpty();
+    }
+
+    @Test
+    void tamperedList_isRefused() {
+        final String signed = new String(TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA)), signer), StandardCharsets.UTF_8);
+        served.put(TL_URL, signed.replace("Issuer A PID issuance", "Issuer Z PID issuance")
+                .getBytes(StandardCharsets.UTF_8));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE);
+    }
+
+    @Test
+    void addedService_afterSigning_isRefused() {
+        final String signed = new String(TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA)), signer), StandardCharsets.UTF_8);
+        final String injected = signed.replace("</TSPServices>", "<TSPService><ServiceInformation>"
+                + "<ServiceTypeIdentifier>" + PID_TYPE + "</ServiceTypeIdentifier><ServiceName><Name xml:lang=\"en\">x"
+                + "</Name></ServiceName><ServiceDigitalIdentity><DigitalId><X509Certificate>"
+                + TrustedListFixtures.b64(issuerB) + "</X509Certificate></DigitalId></ServiceDigitalIdentity>"
+                + "<ServiceStatus>" + GRANTED + "</ServiceStatus><StatusStartingTime>2020-01-01T00:00:00Z"
+                + "</StatusStartingTime></ServiceInformation></TSPService></TSPServices>");
+        served.put(TL_URL, injected.getBytes(StandardCharsets.UTF_8));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE);
+    }
+
+    @Test
+    void listSignedByAnotherKey_isRefused_evenThoughItsKeyInfoNamesThatKey() {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA)), other));
+
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE))
+                .hasMessageContaining("does not verify with a configured signer");
+    }
+
+    @Test
+    void anyOfSeveralPinnedSigners_verifies() throws Exception {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA)), signer));
+
+        assertThat(loader.load(spec(TL_URL, other, signer), "realm").services()).hasSize(1);
+    }
+
+    @Test
+    void unsignedList_isRefused() {
+        served.put(TL_URL, TrustedListFixtures.xml(Spec.memberState("UT").service(Service.granted("A", issuerA)))
+                .getBytes(StandardCharsets.UTF_8));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE);
+    }
+
+    @Test
+    void signatureThatDoesNotCoverTheWholeList_isRefused() {
+        // a valid signature over the SignedProperties only (no reference to the list root) proves nothing about it
+        final String xml = TrustedListFixtures.xml(Spec.memberState("UT").service(Service.granted("A", issuerA)));
+        final String signed = new String(TrustedListFixtures.sign(xml, signer), StandardCharsets.UTF_8);
+        final String wrapped = signed.replace("URI=\"#TrustServiceStatusList\"", "URI=\"#elsewhere\"")
+                .replace("<SchemeInformation>", "<SchemeInformation Id=\"elsewhere\">");
+        served.put(TL_URL, wrapped.getBytes(StandardCharsets.UTF_8));
+
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE))
+                .hasMessageContaining("does not cover the whole list");
+    }
+
+    @Test
+    void nextUpdateInThePast_isRefusedAsExpired() {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .nextUpdate(Instant.now().minus(1, ChronoUnit.HOURS))
+                .service(Service.granted("Issuer A", issuerA)), signer));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.EXPIRED);
+    }
+
+    @Test
+    void closedList_withoutNextUpdate_isRefused() {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT").nextUpdate(null)
+                .service(Service.granted("Issuer A", issuerA)), signer));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.EXPIRED);
+    }
+
+    @Test
+    void lowerSequenceNumberThanTheLastGoodList_isRefusedAsRollback() {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT").sequence(4)
+                .service(Service.granted("Issuer A", issuerA)), signer));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer).withPreviousSequence(5L), "realm"),
+                TrustedListException.Kind.ROLLBACK);
+    }
+
+    @Test
+    void signerCertificateNotValidWhenTheListWasIssued_isRefused() {
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .issued(Instant.now().minus(400, ChronoUnit.DAYS))
+                .service(Service.granted("Issuer A", issuerA)), signer));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNER);
+    }
+
+    // ------------------------------------------------------------------------------------------------ LOTL chain
+
+    @Test
+    void lotl_followsItsPointers_verifyingEachListWithTheSignerTheLotlNames() throws Exception {
+        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
+        final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL TL Signer");
+        final TestPki.Leaf deSigner = TrustedListFixtures.signer("DE TL Signer");
+        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl().sequence(300)
+                .pointer(new Pointer(LOTL_URL, TrustedListFixtures.LOTL_TYPE, "EU", "application/vnd.etsi.tsl+xml",
+                        List.of(lotlSigner.certificate())))
+                .pointer(new Pointer("https://tl.example/TL/NL.pdf", TrustedListFixtures.GENERIC_TYPE, "NL",
+                        "application/pdf", List.of(nlSigner.certificate())))
+                .pointer(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()))
+                .pointer(Pointer.memberState(DE_URL, "DE", deSigner.certificate())), lotlSigner));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL").nextUpdate(
+                Instant.now().plus(5, ChronoUnit.DAYS)).service(Service.granted("NL Issuer", issuerA)), nlSigner));
+        served.put(DE_URL, TrustedListFixtures.signedXml(Spec.memberState("DE")
+                .service(Service.granted("DE Issuer", issuerB)), deSigner));
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner), "realm");
+
+        assertThat(loaded.services()).extracting(ListedService::country).containsExactlyInAnyOrder("NL", "DE");
+        assertThat(loaded.listsRead()).isEqualTo(3);
+        assertThat(loaded.sequence()).isEqualTo(300);
+        // the earliest NextUpdate of every list read
+        assertThat(loaded.nextUpdate()).isBefore(Instant.now().plus(6, ChronoUnit.DAYS));
+    }
+
+    @Test
+    void lotl_memberStateListSignedByAKeyTheLotlDoesNotName_isRefused() {
+        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
+        final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL TL Signer");
+        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl()
+                .pointer(Pointer.memberState(NL_URL, "NL", nlSigner.certificate())), lotlSigner));
+        // signed by the LOTL's own key: valid XMLDSig, but not the key the LOTL names for NL
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL")
+                .service(Service.granted("NL Issuer", issuerA)), lotlSigner));
+
+        assertKind(() -> loader.load(spec(LOTL_URL, lotlSigner), "realm"), TrustedListException.Kind.SIGNATURE);
+    }
+
+    @Test
+    void lotl_territoryFilter_readsOnlyTheChosenLists() throws Exception {
+        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
+        final TestPki.Leaf nlSigner = TrustedListFixtures.signer("NL TL Signer");
+        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl()
+                .pointer(Pointer.memberState(NL_URL, "NL", nlSigner.certificate()))
+                .pointer(Pointer.memberState(DE_URL, "DE", nlSigner.certificate())), lotlSigner));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL")
+                .service(Service.granted("NL Issuer", issuerA)), nlSigner));
+        // DE is not served at all: reading it would fail the load
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner).withTerritories(Set.of("NL")), "realm");
+
+        assertThat(loaded.services()).extracting(ListedService::country).containsExactly("NL");
+    }
+
+    @Test
+    void lotl_pointerToAPlainHttpList_isRefused() {
+        final TestPki.Leaf lotlSigner = TrustedListFixtures.signer("LOTL Signer");
+        served.put(LOTL_URL, TrustedListFixtures.signedXml(Spec.lotl()
+                .pointer(Pointer.memberState("http://tl.example/TL/SK.xml", "SK", signer.certificate())), lotlSigner));
+
+        assertKind(() -> loader.load(spec(LOTL_URL, lotlSigner), "realm"), TrustedListException.Kind.POLICY);
+    }
+
+    // ------------------------------------------------------------------------------------------------ hostile XML
+
+    @Test
+    void doctype_andExternalEntities_areRefusedBeforeAnythingIsResolved() {
+        final String xxe = "<?xml version=\"1.0\"?><!DOCTYPE TrustServiceStatusList [<!ENTITY x SYSTEM "
+                + "\"file:///etc/passwd\">]><TrustServiceStatusList xmlns=\"" + TrustedListFixtures.TSL_NS
+                + "\">&x;</TrustServiceStatusList>";
+        served.put(TL_URL, xxe.getBytes(StandardCharsets.UTF_8));
+
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.MALFORMED))
+                .hasMessageNotContaining("passwd");
+    }
+
+    @Test
+    void billionLaughs_isRefused() {
+        final String bomb = "<?xml version=\"1.0\"?><!DOCTYPE l [<!ENTITY a \"aaaaaaaaaa\"><!ENTITY b \"&a;&a;&a;&a;"
+                + "&a;&a;&a;&a;\">]><l>&b;</l>";
+        served.put(TL_URL, bomb.getBytes(StandardCharsets.UTF_8));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.MALFORMED);
+    }
+
+    @Test
+    void xinclude_isNotProcessed() {
+        final String xi = "<?xml version=\"1.0\"?><TrustServiceStatusList xmlns=\"" + TrustedListFixtures.TSL_NS
+                + "\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"><xi:include href=\"file:///etc/passwd\" "
+                + "parse=\"text\"/></TrustServiceStatusList>";
+        served.put(TL_URL, xi.getBytes(StandardCharsets.UTF_8));
+
+        // parsed without inclusion, then refused as unsigned
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE))
+                .hasMessageContaining("not signed");
+    }
+
+    @Test
+    void deeplyNestedDocument_isRefused() {
+        final StringBuilder sb = new StringBuilder("<?xml version=\"1.0\"?>");
+        sb.append("<a>".repeat(SecureXml.MAX_DEPTH + 5)).append("</a>".repeat(SecureXml.MAX_DEPTH + 5));
+        served.put(TL_URL, sb.toString().getBytes(StandardCharsets.UTF_8));
+
+        assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.MALFORMED);
+    }
+
+    @Test
+    void oversizedDocument_isRefusedByTheParserToo() {
+        final byte[] big = new byte[(int) (SecureXml.DEFAULT_MAX_BYTES + 1)];
+        java.util.Arrays.fill(big, (byte) ' ');
+        assertThatThrownBy(() -> SecureXml.parse(big, SecureXml.DEFAULT_MAX_BYTES))
+                .isInstanceOfSatisfying(TrustedListException.class,
+                        e -> assertThat(e.kind()).isEqualTo(TrustedListException.Kind.TOO_LARGE));
+    }
+
+    @Test
+    void duplicateIds_areRefused() {
+        final String signed = new String(TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA)), signer), StandardCharsets.UTF_8);
+        served.put(TL_URL, signed.replace("<SchemeInformation>", "<SchemeInformation Id=\"TrustServiceStatusList\">")
+                .getBytes(StandardCharsets.UTF_8));
+
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE))
+                .hasMessageContaining("duplicate Id");
+    }
+
+    // ------------------------------------------------------------------------------------------------ LoTE JSON
+
+    @Test
+    void loteJson_valid_yieldsItsEntities() throws Exception {
+        served.put(TL_URL, TrustedListFixtures.signedLote(TrustedListFixtures.loteJson(9,
+                Instant.now().plus(90, ChronoUnit.DAYS), List.of(
+                        TrustedListFixtures.LoteEntity.pid("Bundesdruckerei", "DE", issuerA))), signer));
+
+        final LoadedList loaded = loader.load(TrustedListSpec.of(TL_URL, TrustedListSpec.Format.ETSI_119602_JSON,
+                List.of(signer.certificate()), Set.of(TrustedListFixtures.LOTE_PID_TYPE)), "realm");
+
+        assertThat(loaded.services()).singleElement().satisfies(s -> {
+            assertThat(s.certificate()).isEqualTo(issuerA);
+            assertThat(s.provider()).isEqualTo("Bundesdruckerei");
+            assertThat(s.country()).isEqualTo("DE");
+            assertThat(s.serviceName()).isEqualTo("Bundesdruckerei PID");
+        });
+        assertThat(loaded.sequence()).isEqualTo(9);
+    }
+
+    @Test
+    void loteJson_signedByAnotherKey_isRefused() {
+        served.put(TL_URL, TrustedListFixtures.signedLote(TrustedListFixtures.loteJson(9,
+                Instant.now().plus(90, ChronoUnit.DAYS), List.of()), other));
+
+        assertKind(() -> loader.load(TrustedListSpec.of(TL_URL, TrustedListSpec.Format.ETSI_119602_JSON,
+                List.of(signer.certificate()), Set.of(TrustedListFixtures.LOTE_PID_TYPE)), "realm"),
+                TrustedListException.Kind.SIGNATURE);
+    }
+
+    @Test
+    void loteJson_unsignedOrAlgNone_isRefused() {
+        final String json = TrustedListFixtures.loteJson(9, Instant.now().plus(90, ChronoUnit.DAYS), List.of());
+        final String none = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8)) + "."
+                + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8))
+                + ".";
+        served.put(TL_URL, none.getBytes(StandardCharsets.US_ASCII));
+        served.put(NL_URL, json.getBytes(StandardCharsets.UTF_8));
+        final TrustedListSpec lote = TrustedListSpec.of(TL_URL, TrustedListSpec.Format.ETSI_119602_JSON,
+                List.of(signer.certificate()), Set.of(TrustedListFixtures.LOTE_PID_TYPE));
+
+        assertKind(() -> loader.load(lote, "realm"), TrustedListException.Kind.SIGNATURE);
+        assertKind(() -> loader.load(TrustedListSpec.of(NL_URL, TrustedListSpec.Format.ETSI_119602_JSON,
+                List.of(signer.certificate()), Set.of(TrustedListFixtures.LOTE_PID_TYPE)), "realm"),
+                TrustedListException.Kind.SIGNATURE);
+    }
+
+    @Test
+    void loteJson_pastNextUpdate_isRefusedAsExpired() {
+        served.put(TL_URL, TrustedListFixtures.signedLote(TrustedListFixtures.loteJson(9,
+                Instant.now().minus(1, ChronoUnit.DAYS), List.of()), signer));
+
+        assertKind(() -> loader.load(TrustedListSpec.of(TL_URL, TrustedListSpec.Format.ETSI_119602_JSON,
+                List.of(signer.certificate()), Set.of(TrustedListFixtures.LOTE_PID_TYPE)), "realm"),
+                TrustedListException.Kind.EXPIRED);
+    }
+
+    @Test
+    void clockIsTheLoadersClock() {
+        final Clock future = Clock.fixed(Instant.now().plus(60, ChronoUnit.DAYS), ZoneOffset.UTC);
+        served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA)), signer));
+
+        assertKind(() -> new TrustedListLoader(fetcher, future).load(spec(TL_URL, signer), "realm"),
+                TrustedListException.Kind.EXPIRED);
+    }
+
+    interface Call {
+        Object run() throws Exception;
+    }
+
+    static TrustedListException assertKind(final Call call, final TrustedListException.Kind kind) {
+        final TrustedListException[] caught = new TrustedListException[1];
+        assertThatThrownBy(call::run).isInstanceOfSatisfying(TrustedListException.class, e -> {
+            assertThat(e.kind()).as(e.getMessage()).isEqualTo(kind);
+            caught[0] = e;
+        });
+        return caught[0];
+    }
+}

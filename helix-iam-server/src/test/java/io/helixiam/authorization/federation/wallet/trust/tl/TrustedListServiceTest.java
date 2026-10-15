@@ -1,0 +1,354 @@
+/*
+ * Copyright 2026 HelixIAM contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.helixiam.authorization.federation.wallet.trust.tl;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import io.helixiam.authorization.federation.wallet.testwallet.TestPki;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.Service;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.Spec;
+import io.helixiam.authorization.messaging.email.MutableClock;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.testcontainers.containers.PostgreSQLContainer;
+
+import java.nio.charset.StandardCharsets;
+import java.security.cert.X509Certificate;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.PID_TYPE;
+import static io.helixiam.authorization.federation.wallet.trust.tl.TrustedListFixtures.WITHDRAWN;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * {@link TrustedListService} on a real PostgreSQL (the Flyway schema): refresh, the fail-safe grace rule, expiry,
+ * withdrawal, rollback, audit, settings changes, and two replicas sharing one database (one refresh, both converge).
+ */
+class TrustedListServiceTest {
+
+    @SuppressWarnings("resource")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final HikariDataSource DATA_SOURCE;
+    static final JdbcTemplate JDBC;
+    static final DataSourceTransactionManager TRANSACTIONS;
+
+    static {
+        POSTGRES.start();
+        final HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(POSTGRES.getJdbcUrl());
+        config.setUsername(POSTGRES.getUsername());
+        config.setPassword(POSTGRES.getPassword());
+        config.setMaximumPoolSize(8);
+        config.setAutoCommit(false);
+        DATA_SOURCE = new HikariDataSource(config);
+        Flyway.configure().dataSource(DATA_SOURCE).locations("classpath:db/migration").load().migrate();
+        JDBC = new JdbcTemplate(DATA_SOURCE);
+        TRANSACTIONS = new DataSourceTransactionManager(DATA_SOURCE);
+    }
+
+    @AfterAll
+    static void close() {
+        DATA_SOURCE.close();
+    }
+
+    static final String URL = "https://tl.example/TL/UT.xml";
+    final TestPki.Leaf signer = TrustedListFixtures.signer("UT TL Signer");
+    final X509Certificate issuer = TestPki.create("Listed PID Issuer").root();
+    final Map<String, byte[]> served = new ConcurrentHashMap<>();
+    final AtomicInteger fetches = new AtomicInteger();
+    final MutableClock clock = new MutableClock(Instant.now());
+    final List<String> audits = new CopyOnWriteArrayList<>();
+    final List<Map<String, String>> auditDetails = new CopyOnWriteArrayList<>();
+    final TrustedListFetcher fetcher = (url, realm) -> {
+        fetches.incrementAndGet();
+        final byte[] b = served.get(url);
+        if (b == null) {
+            throw new TrustedListException(TrustedListException.Kind.FETCH, "the list URL answered HTTP 404");
+        }
+        return b;
+    };
+    String realm;
+    TrustedListService service;
+
+    @BeforeEach
+    void setUp() {
+        realm = "tl-" + UUID.randomUUID();
+        service = newReplica(fetcher);
+    }
+
+    TrustedListService newReplica(final TrustedListFetcher f) {
+        return new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
+                new TrustedListLoader(f, clock), (r, type, id, outcome, detail) -> {
+                    if (realm.equals(r)) {
+                        audits.add(type + ":" + outcome);
+                        auditDetails.add(detail);
+                    }
+                }, clock, TrustedListService.Settings.DEFAULTS);
+    }
+
+    TrustedListSource.Config config(final String name) {
+        return new TrustedListSource.Config(name, URL, TrustedListSpec.Format.ETSI_119612_XML,
+                TestPki.pem(signer.certificate()), List.of(PID_TYPE), List.of(), List.of(), 24, true);
+    }
+
+    void serve(final Spec spec) {
+        served.put(URL, TrustedListFixtures.signedXml(spec, signer));
+    }
+
+    Spec listWith(final long sequence, final Service... services) {
+        final Spec spec = Spec.memberState("UT").sequence(sequence).issued(clock.instant().minus(1, ChronoUnit.HOURS))
+                .nextUpdate(clock.instant().plus(30, ChronoUnit.DAYS));
+        for (final Service s : services) {
+            spec.service(s);
+        }
+        return spec;
+    }
+
+    List<X509Certificate> anchors(final TrustedListService s) {
+        return s.anchors(realm, List.of("ut"), List.of());
+    }
+
+    @Test
+    void refresh_storesTheVerifiedAnchors_andAuditsIt() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        assertThat(service.status(created)).isEqualTo(TrustedListHealth.Status.NEVER);
+        assertThat(anchors(service)).isEmpty();
+
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(service.status(after)).isEqualTo(TrustedListHealth.Status.OK);
+        assertThat(after.state().sequenceNumber()).isEqualTo(3);
+        assertThat(after.state().nextRefreshAt()).isGreaterThan(clock.millis());
+        assertThat(anchors(service)).containsExactly(issuer);
+        assertThat(service.services(after)).singleElement()
+                .satisfies(s -> assertThat(s.provider()).isEqualTo("Issuer"));
+        assertThat(audits).containsExactly("TRUSTED_LIST_REFRESHED:SUCCESS");
+        assertThat(auditDetails.get(0)).containsEntry("anchors", "1").containsEntry("sequence", "3");
+    }
+
+    @Test
+    void failedRefresh_keepsTheLastGoodAnchors_untilNextUpdatePlusGrace_thenFailsClosed() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+
+        // the publisher now serves a list that does not verify
+        served.put(URL, new String(served.get(URL), StandardCharsets.UTF_8).replace("Issuer PID", "Evil PID")
+                .getBytes(StandardCharsets.UTF_8));
+        final TrustedListSource failing = service.refreshNow(realm, created.id()).orElseThrow();
+        assertThat(service.status(failing)).isEqualTo(TrustedListHealth.Status.FAILING);
+        assertThat(failing.state().lastError()).startsWith("SIGNATURE:");
+        assertThat(anchors(service)).as("unverifiable: last good kept").containsExactly(issuer);
+        assertThat(audits).contains("TRUSTED_LIST_REFRESH_FAILED:FAILURE");
+        assertThat(auditDetails.get(auditDetails.size() - 1)).containsEntry("reason", "SIGNATURE")
+                .containsKey("anchorsKeptUntil");
+
+        // past NextUpdate, within the 24 h grace: still used, STALE recorded once
+        clock.advance(Duration.ofDays(30).plusHours(1));
+        assertThat(anchors(service)).as("stale within grace").containsExactly(issuer);
+        service.checkHealth();
+        service.checkHealth();
+        assertThat(audits.stream().filter(a -> a.startsWith("TRUSTED_LIST_STALE"))).hasSize(1);
+        assertThat(service.status(service.get(realm, created.id()).orElseThrow()))
+                .isEqualTo(TrustedListHealth.Status.STALE);
+
+        // past the grace: nothing (fail closed), EXPIRED audited once
+        clock.advance(Duration.ofHours(24));
+        assertThat(anchors(service)).as("beyond grace").isEmpty();
+        service.checkHealth();
+        service.checkHealth();
+        assertThat(audits.stream().filter(a -> a.startsWith("TRUSTED_LIST_EXPIRED"))).hasSize(1);
+        assertThat(service.status(service.get(realm, created.id()).orElseThrow()))
+                .isEqualTo(TrustedListHealth.Status.EXPIRED);
+
+        // a fresh, verified list restores it
+        serve(listWith(4, Service.granted("Issuer", issuer)));
+        assertThat(service.status(service.refreshNow(realm, created.id()).orElseThrow()))
+                .isEqualTo(TrustedListHealth.Status.OK);
+        assertThat(anchors(service)).containsExactly(issuer);
+    }
+
+    @Test
+    void neverLoaded_andFailing_hasNoAnchors() {
+        final TrustedListSource created = service.create(realm, config("ut")); // nothing served
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(service.status(after)).isEqualTo(TrustedListHealth.Status.ERROR);
+        assertThat(after.state().lastError()).contains("404");
+        assertThat(anchors(service)).isEmpty();
+    }
+
+    @Test
+    void withdrawnService_disappearsAtTheNextRefresh() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        assertThat(anchors(service)).containsExactly(issuer);
+
+        serve(listWith(4, Service.granted("Issuer", issuer).withStatus(WITHDRAWN)));
+        service.refreshNow(realm, created.id());
+
+        assertThat(anchors(service)).isEmpty();
+    }
+
+    @Test
+    void olderList_isRefusedAsRollback_andTheNewerAnchorsStay() {
+        serve(listWith(9, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+
+        serve(listWith(8));
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(after.state().lastError()).startsWith("ROLLBACK:");
+        assertThat(after.state().sequenceNumber()).isEqualTo(9);
+        assertThat(anchors(service)).containsExactly(issuer);
+    }
+
+    @Test
+    void nonCaCertificateOnTheList_isNotAnAnchor_andTypeFilterNarrows() {
+        final X509Certificate leaf = TrustedListFixtures.signer("Not a CA").certificate();
+        serve(listWith(3, Service.granted("Issuer", issuer),
+                Service.granted("Leaf", leaf),
+                Service.granted("Other", TestPki.create("Other").root()).withType("http://example/other")));
+        final TrustedListSource.Config cfg = new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()),
+                List.of(PID_TYPE, "http://example/other"), List.of(), List.of(), 24, true);
+        final TrustedListSource created = service.create(realm, cfg);
+        service.refreshNow(realm, created.id());
+
+        assertThat(service.anchors(realm, List.of("ut"), List.of())).hasSize(2).contains(issuer).doesNotContain(leaf);
+        assertThat(service.anchors(realm, List.of("ut"), List.of(PID_TYPE))).containsExactly(issuer);
+        assertThat(service.anchors(realm, List.of("other-name"), List.of())).isEmpty();
+        assertThat(service.anchors("another-realm", List.of("ut"), List.of())).isEmpty();
+    }
+
+    @Test
+    void changingWhatIsLoaded_dropsTheStoredAnchors_butRenamingDoesNot() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+
+        final TrustedListSource.Config graceOnly = new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
+                List.of(), List.of(), 48, true);
+        service.update(realm, created.id(), graceOnly);
+        assertThat(anchors(service)).containsExactly(issuer);
+
+        final TrustedListSource.Config otherSigner = new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(TrustedListFixtures.signer("New").certificate()),
+                List.of(PID_TYPE), List.of(), List.of(), 48, true);
+        final TrustedListSource reset = service.update(realm, created.id(), otherSigner).orElseThrow();
+        assertThat(anchors(service)).isEmpty();
+        assertThat(service.status(reset)).isEqualTo(TrustedListHealth.Status.NEVER);
+    }
+
+    @Test
+    void disabledSource_hasNoAnchors() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        final TrustedListSource.Config off = new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
+                List.of(), List.of(), 24, false);
+        service.update(realm, created.id(), off);
+
+        assertThat(anchors(service)).isEmpty();
+    }
+
+    @Test
+    void invalidSettings_andTakenName_areFieldErrors() {
+        service.create(realm, config("ut"));
+        assertThatThrownBy(() -> service.create(realm, config("ut")))
+                .isInstanceOfSatisfying(TrustedListService.InvalidConfigException.class,
+                        e -> assertThat(e.fieldErrors()).containsKey("name"));
+        final TrustedListSource.Config bad = new TrustedListSource.Config("bad name", "http://tl.example/x.xml",
+                TrustedListSpec.Format.ETSI_119612_XML, "not pem", List.of(), List.of(WITHDRAWN), List.of("nl"), 9999,
+                true);
+        assertThatThrownBy(() -> service.create(realm, bad))
+                .isInstanceOfSatisfying(TrustedListService.InvalidConfigException.class,
+                        e -> assertThat(e.fieldErrors()).containsOnlyKeys("name", "url", "signerCertificates",
+                                "serviceTypes", "acceptedStatuses", "territories", "graceHours"));
+    }
+
+    @Test
+    void deletedSource_isGoneOnEveryReplica() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListService other = newReplica(fetcher);
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        other.sync();
+        assertThat(anchors(other)).containsExactly(issuer);
+
+        service.delete(realm, created.id());
+        other.sync();
+
+        assertThat(anchors(other)).isEmpty();
+        assertThat(other.exists(realm, "ut")).isFalse();
+    }
+
+    @Test
+    void twoReplicas_refreshOnce_andBothConverge() throws Exception {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final CountDownLatch inFetch = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final TrustedListFetcher slow = (url, r) -> {
+            inFetch.countDown();
+            try {
+                release.await(10, TimeUnit.SECONDS);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return fetcher.fetch(url, r);
+        };
+        final TrustedListService a = newReplica(slow);
+        final TrustedListService b = newReplica(slow);
+        a.create(realm, config("ut"));
+        final ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            final Future<Integer> first = pool.submit(a::refreshDue);
+            assertThat(inFetch.await(10, TimeUnit.SECONDS)).isTrue();
+            // b runs while a holds the lease: it must not fetch
+            final Future<Integer> second = pool.submit(b::refreshDue);
+            final int bRefreshed = second.get(10, TimeUnit.SECONDS);
+            release.countDown();
+            final int aRefreshed = first.get(10, TimeUnit.SECONDS);
+            assertThat(fetches.get()).isEqualTo(1);
+            assertThat(new ArrayList<>(List.of(aRefreshed, bRefreshed))).containsExactlyInAnyOrder(1, 0);
+        } finally {
+            pool.shutdownNow();
+        }
+        b.sync();
+        assertThat(anchors(a)).containsExactly(issuer);
+        assertThat(anchors(b)).containsExactly(issuer);
+        // and a refresh-now while the lease is held is refused, not run twice
+        final TrustedListSource source = a.list(realm).get(0);
+        new TrustedListRepository(JDBC, TRANSACTIONS).tryLease(source.id(), "someone-else", clock.millis(),
+                clock.millis() + 60_000);
+        assertThatThrownBy(() -> b.refreshNow(realm, source.id()))
+                .isInstanceOf(TrustedListService.RefreshBusyException.class);
+    }
+}
