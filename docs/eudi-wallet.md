@@ -883,9 +883,12 @@ stores nothing on the account.
    verify-only connection) to a sign-in flow after the first factor (Authentication → flow editor), and bind that
    flow to the application (Applications → Login flow). A flow save without `providerAlias` is refused (400).
 
+**First factors.** Password and magic-link logins run the login's flow when the flow engine is on (a magic link the
+same way a federated login does); federated logins always do. Admin impersonation is an admin action and runs no flow.
+
 **Flow engine.** A password-first login runs flow steps only when the flow engine is on
 (`helix.flow-engine.enabled=true`, default off); a federated first factor (eID, OIDC, SAML, wallet login) always runs
-them. With the engine off, nothing is skipped silently: a password login whose flow (the client's, or the realm's
+them. With the engine off, nothing is skipped silently: a password or magic-link login whose flow (the client's, or the realm's
 browser flow) has the wallet verification step is refused (`/login?error=flow`, logged as a WARN); saving such a flow,
 or binding it to a client or application, is refused (400); saving a verify-only connection logs a warning; and the
 console shows a banner on the flow editor and on the connection (`GET /admin/realms/{realm}/flow-engine`).
@@ -930,7 +933,14 @@ entries above; `verify.*` without `NONE` is refused.
    `state`, `nonce` and `redirect_uri`) for 5 minutes: any other code (another tab, another client, a later
    `prompt=none`), a denied consent or the timeout drops it. It is in the ID token of the code exchange only — never in
    a refreshed ID token, userinfo or an access token — and it is removed from the stored authorization once the code
-   is exchanged. Protocol mappers cannot set it.
+   is exchanged: the attribute, and the stored ID token's parsed claims and claims metadata. **What remains:** the
+   stored ID token *value* (the signed JWT the client already received) still encodes the claims until the
+   authorization is removed (logout, revocation, expiry clean-up); it cannot be re-signed, and `id_token_hint` finds the
+   authorization by that value. Protocol mappers cannot set it.
+
+   **Pushed authorization requests (PAR):** the step pins the release to the front-channel authorize parameters; a PAR
+   client sends only `client_id` and `request_uri` there, so no release is pinned and a PAR client gets the step-up
+   `acr` but no `verified_claims` (it fails closed). Resolving the pushed request first is deferred.
 
 ### 13.3 Stepping up a signed-in user: `acr_values`
 

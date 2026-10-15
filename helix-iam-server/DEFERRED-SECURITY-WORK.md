@@ -398,3 +398,11 @@ Deferred, by design:
   security decision.
 - **Realm import** does not apply the flow-save checks (engine, wallet step connection, SSO on a verify-only
   connection); the step fails closed at run time.
+- **Stored ID token value.** After the code exchange the stored authorization keeps no `verified_claims` (attribute,
+  parsed ID token claims, claims metadata), but the stored ID token *value* — the signed JWT already delivered — still
+  encodes them until the authorization is removed: it cannot be re-signed and `id_token_hint` looks it up by value.
+- **PAR.** A pushed authorization request's parameters are not resolved when the step pins its release, so PAR clients
+  get the step-up `acr` but no `verified_claims` (fails closed).
+- **Impersonation** runs no login flow (admin action), so it never runs the wallet step.
+- **Magic link** (fixed): with the engine on it runs the login's flow like a federated login; with it off a flow that
+  needs the engine refuses the login (`error=flow`). `FlowEngineGuard` now fails closed when the flow store errors.

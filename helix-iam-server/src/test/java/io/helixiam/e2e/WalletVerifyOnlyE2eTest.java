@@ -139,6 +139,10 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
         assertThat(stored).isNotNull();
         assertThat(stored.getAttributes()).doesNotContainKey("helix_verified_claims");
         assertThat(String.valueOf(stored.getAttributes())).doesNotContain("DE,NL").doesNotContain("age_over_18");
+        final var storedId = stored.getToken(org.springframework.security.oauth2.core.oidc.OidcIdToken.class);
+        assertThat(storedId).isNotNull();
+        assertThat(storedId.getToken().getClaims()).doesNotContainKey("verified_claims");
+        assertThat(String.valueOf(storedId.getMetadata())).doesNotContain("DE,NL").doesNotContain("age_over_18");
         assertThat(tokens.refreshToken()).isNotBlank();
         final OidcFlow.Tokens refreshed = oidc.refresh("bank", bank.secret(), tokens.refreshToken());
         if (refreshed.idToken() != null) {

@@ -118,12 +118,11 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
     }
 
     private OAuth2Authorization bindToSession(final OAuth2Authorization authorization) {
-        if (authorization != null && authorization.getAccessToken() != null
-                && authorization.getAttribute(VERIFIED_CLAIMS_ATTRIBUTE) != null) {
-            // Security review item 2: the claims are for the code exchange's ID token only; the stored authorization
-            // (refreshes included) never keeps them.
-            return OAuth2Authorization.from(authorization)
-                    .attributes(attributes -> attributes.remove(VERIFIED_CLAIMS_ATTRIBUTE)).build();
+        if (authorization != null && authorization.getAccessToken() != null) {
+            final OAuth2Authorization stripped = withoutVerifiedClaims(authorization);
+            if (stripped != authorization) {
+                return stripped;
+            }
         }
         if (authorization == null
                 || authorization.getToken(OAuth2AuthorizationCode.class) == null
@@ -192,6 +191,47 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
                 nonce instanceof String n ? n : null, request.getRedirectUri());
         return PendingVerifiedClaims.claimsFor(pending, request.getClientId(), hash, java.time.Instant.now())
                 .orElse(null);
+    }
+
+    /**
+     * Security review items 2 (and its re-review): once the code is exchanged, the stored authorization keeps no
+     * {@code verified_claims}: neither the attribute nor the ID token's parsed claims or claims metadata (every store
+     * persists those). The token VALUE (the signed JWT the client already holds) is kept as is: re-signing it is not
+     * possible and the value is how {@code id_token_hint} finds the authorization, so it still encodes the released
+     * claims until the authorization is removed (documented in docs/eudi-wallet.md §12).
+     */
+    static OAuth2Authorization withoutVerifiedClaims(final OAuth2Authorization authorization) {
+        final OAuth2Authorization.Token<org.springframework.security.oauth2.core.oidc.OidcIdToken> idToken =
+                authorization.getToken(org.springframework.security.oauth2.core.oidc.OidcIdToken.class);
+        final boolean inToken = idToken != null && idToken.getToken().getClaims() != null
+                && idToken.getToken().getClaims().containsKey(IdTokenSessionClaims.VERIFIED_CLAIMS);
+        final boolean inMetadata = idToken != null && idToken.getClaims() != null
+                && idToken.getClaims().containsKey(IdTokenSessionClaims.VERIFIED_CLAIMS);
+        if (authorization.getAttribute(VERIFIED_CLAIMS_ATTRIBUTE) == null && !inToken && !inMetadata) {
+            return authorization;
+        }
+        final OAuth2Authorization.Builder builder = OAuth2Authorization.from(authorization)
+                .attributes(attributes -> attributes.remove(VERIFIED_CLAIMS_ATTRIBUTE));
+        if (inToken || inMetadata) {
+            final org.springframework.security.oauth2.core.oidc.OidcIdToken token = idToken.getToken();
+            final Map<String, Object> claims = new LinkedHashMap<>(token.getClaims());
+            claims.remove(IdTokenSessionClaims.VERIFIED_CLAIMS);
+            final org.springframework.security.oauth2.core.oidc.OidcIdToken without =
+                    new org.springframework.security.oauth2.core.oidc.OidcIdToken(token.getTokenValue(),
+                            token.getIssuedAt(), token.getExpiresAt(), claims);
+            final Map<String, Object> metadata = new LinkedHashMap<>(idToken.getMetadata());
+            if (metadata.get(OAuth2Authorization.Token.CLAIMS_METADATA_NAME) instanceof Map<?, ?> stored) {
+                final Map<String, Object> copy = new LinkedHashMap<>();
+                stored.forEach((k, v) -> copy.put(String.valueOf(k), v));
+                copy.remove(IdTokenSessionClaims.VERIFIED_CLAIMS);
+                metadata.put(OAuth2Authorization.Token.CLAIMS_METADATA_NAME, copy);
+            }
+            builder.token(without, m -> {
+                m.clear();
+                m.putAll(metadata);
+            });
+        }
+        return builder.build();
     }
 
     private static HttpServletRequest currentRequest() {
