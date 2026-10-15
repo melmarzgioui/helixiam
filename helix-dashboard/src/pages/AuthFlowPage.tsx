@@ -24,9 +24,10 @@ import {
 } from "./flowModel";
 import { useT } from "../i18n/LocaleContext";
 import {
-  WALLET_VERIFY_ID, PROVIDER_ALIAS, setWalletVerifyProvider, verifyOnlyConnections, walletVerifyStepErrors,
-  type VerifyConnection,
+  WALLET_VERIFY_ID, PROVIDER_ALIAS, flowEngineWarning, setWalletVerifyProvider, verifyOnlyConnections,
+  walletVerifyStepErrors, type VerifyConnection,
 } from "./walletVerifyStep";
+import { Alert } from "../components/Alert";
 
 export interface AuthFlowPageProps {
   api: FlowApi;
@@ -70,6 +71,12 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
   const [idps, setIdps] = React.useState<IdpOption[]>([]);
   const [idpsKnown, setIdpsKnown] = React.useState(false);
   const [triedSave, setTriedSave] = React.useState(false);
+  const [engineEnabled, setEngineEnabled] = React.useState<boolean | undefined>(undefined);
+  React.useEffect(() => {
+    let live = true;
+    api.engine?.(realmId).then((e) => { if (live) setEngineEnabled(e.enabled); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [api, realmId]);
   const [builtIn, setBuiltIn] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const toast = useToast();
@@ -278,6 +285,9 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
         </div>
       </div>
 
+      {flowEngineWarning(engineEnabled, execs, verifyConnections) && (
+        <Alert tone="warning" title={t("authFlow.engineOff.title")}>{t("authFlow.engineOff.msg")}</Alert>
+      )}
       {loaded === null ? (
         <div className="hx-loadwrap"><Spinner size={28} label={t("authFlow.loading")} /></div>
       ) : (

@@ -26,7 +26,7 @@ import {
 import type { WalletAdminApi } from "../api/wallet";
 import {
   DEFAULT_WALLET_FORM, DEV_KEY, clearEditedErrors, firstErrorSection, splitWalletServerErrors, validateWallet,
-  walletConfigFromForm, walletFormFromConfig, type WalletForm, type WalletSection,
+  walletConfigFromForm, walletFormFromConfig, walletLinkOptions, type WalletForm, type WalletSection,
 } from "../pages/walletProvider";
 import { useT } from "../i18n/LocaleContext";
 
@@ -55,6 +55,8 @@ export interface ProviderWizardProps {
   busy?: boolean;
   /** The fieldErrors of a refused save (400): shown on the wizard's fields, opening the step that holds them. */
   serverErrors?: Record<string, string> | null;
+  /** The realm's connections: a verify-only wallet connection picks its linked sign-in connection from them. */
+  providers?: { alias: string; protocol: string; displayName: string; config?: Record<string, string> }[];
 }
 
 /** Splits a stored mapper list into the ticked presets vs the free-form custom rows. */
@@ -68,7 +70,7 @@ function seedMappers(typeId: string | null, mappers: AttributeMapper[]) {
 }
 
 /** The E8.4 "Add identity provider" wizard, composed from the design system. */
-export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletApi, busy, serverErrors }: ProviderWizardProps) {
+export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletApi, busy, serverErrors, providers }: ProviderWizardProps) {
   const { t } = useT();
   const editing = !!initial;
   const seeded = seedMappers(initial?.providerType ?? null, initial?.mappers ?? []);
@@ -100,8 +102,9 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
     onReplace: (on: boolean) => setDevKey((d) => ({ ...d, replacing: on, value: on ? d.value : "" })),
     onClear: (on: boolean) => setDevKey((d) => ({ ...d, clearing: on, value: "" })),
   };
+  const linkOptions = providers ? walletLinkOptions(providers, alias.trim()) : undefined;
   const walletLocal = isWallet ? validateWallet(walletForm, { ...walletContext(walletForm, wallet.meta, wallet.keys, devKeyState, wallet.lists),
-    alias: alias.trim() }) : {};
+    alias: alias.trim(), linkedAliases: linkOptions?.map((o) => o.alias) }) : {};
   if (isWallet && !alias.trim()) walletLocal.alias = "connectionDetail.fieldRequired";
   if (isWallet && !displayName.trim()) walletLocal.displayName = "connectionDetail.fieldRequired";
   const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
@@ -202,7 +205,7 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
       {isWallet && type && step > 0 && wallet.meta && wallet.keys && realmId && walletApi && (() => {
         const props = {
           realmId, api: walletApi, form: walletForm, onChange: patchWallet, errors: walletShown, meta: wallet.meta,
-          keys: wallet.keys, onKeyImported: wallet.addKey, original: null, devKey: devKeyState,
+          keys: wallet.keys, onKeyImported: wallet.addKey, original: null, devKey: devKeyState, linkedOptions: linkOptions,
           trustedLists: wallet.lists, trustedListsError: wallet.listsError,
         };
         return (

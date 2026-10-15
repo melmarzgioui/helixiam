@@ -29,8 +29,8 @@ const KEY: VerifierKey = {
 
 const ANCHORS = "-----BEGIN CERTIFICATE-----\nMIIB…\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIB…\n-----END CERTIFICATE-----\n";
 
-const walletApi = (devProfile = false) => createWalletMemoryClient({
-  keys: [KEY], devProfile,
+const walletApi = (devProfile = false, flowEngineEnabled = true) => createWalletMemoryClient({
+  keys: [KEY], devProfile, flowEngineEnabled,
   preview: () => [
     sampleCertificate({ subject: "CN=PID Issuer Root CA,O=Member State,C=DE", issuer: "CN=PID Issuer Root CA,O=Member State,C=DE", ca: true, selfSigned: true, notAfter: "2035-01-01T00:00:00Z" }),
     sampleCertificate({ subject: "CN=pid-issuer.example,O=Member State,C=DE", issuer: "CN=PID Issuer Root CA,O=Member State,C=DE", trustAnchorProblem: "A trust anchor is not a CA certificate" }),
@@ -76,4 +76,15 @@ const withVerifyOnly = createMemoryClient([
 
 export const DetailPageVerifyOnly: Story = {
   render: () => <ConnectionDetailPage api={withVerifyOnly} walletApi={walletApi()} realmId="gov" alias="eudi-verify" onBack={() => {}} />,
+};
+
+/** The wizard offers the realm's wallet sign-in connections as the linked connection of a verify-only one. */
+export const AddWithWizardLinkedOptions: Story = {
+  render: () => <ProviderWizard realmId="gov" walletApi={walletApi()} onComplete={(r) => console.log("create", r)}
+    onCancel={() => {}} providers={[{ alias: "eudi-wallet", protocol: "eudi-wallet", displayName: "EUDI Wallet", config: {} }]} />,
+};
+
+/** The flow engine is off on the server: the verify-only connection warns that its step cannot run after a password. */
+export const DetailPageVerifyOnlyEngineOff: Story = {
+  render: () => <ConnectionDetailPage api={withVerifyOnly} walletApi={walletApi(false, false)} realmId="gov" alias="eudi-verify" onBack={() => {}} />,
 };

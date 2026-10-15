@@ -495,7 +495,7 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
   const { form, onChange, errors, meta, original } = props;
   const { t } = useT();
   const fe = useFieldError(errors);
-  const warnings = walletWarnings(form, original);
+  const warnings = walletWarnings(form, original, meta);
   const requiredId = React.useId();
   const dcApiId = React.useId();
 
@@ -531,6 +531,9 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
       </Section>
 
       {form.subjectStrategy === "NONE" && <WalletVerifyFields {...props} />}
+      {warnings.includes("flowEngineOff") && (
+        <Alert tone="warning" title={t("wallet.warn.flowEngineOff.title")}>{t("wallet.warn.flowEngineOff")}</Alert>
+      )}
 
       <Section title={t("wallet.status.title")} description={t("wallet.status.desc")}>
         <div className="hx-switchrow">
@@ -633,7 +636,9 @@ function WalletVerifyFields({ form, onChange, errors, meta, linkedOptions }: Wal
   return (
     <Section title={t("wallet.verify.title")} description={t("wallet.verify.desc")}>
       <FormField label={t("wallet.verify.linked")} required error={fe("verify.linkedProvider")} hint={t("wallet.verify.linkedHint")}>
-        {linkedOptions && linkedOptions.length > 0 ? (
+        {linkedOptions && linkedOptions.length === 0 ? (
+          <p className="hx-help" id="walletLinkedNone">{t("wallet.verify.linkedNone")}</p>
+        ) : linkedOptions ? (
           <Select aria-label={t("wallet.verify.linked")} value={linked} placeholder={t("wallet.verify.linkedPlaceholder")}
             onChange={(v) => onChange({ verifyLinkedProvider: v })} options={options} />
         ) : (

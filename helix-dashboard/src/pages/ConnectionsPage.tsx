@@ -204,6 +204,7 @@ export function ConnectionsPage({ api, realmId, title, subtitle, addLabel, proto
           walletApi={walletApi}
           busy={busy}
           serverErrors={serverErrors}
+          providers={allRows ?? undefined}
         />
         {busy && <div className="hx-loadwrap"><Spinner size={28} label={t("connections.saving")} /></div>}
       </Modal>

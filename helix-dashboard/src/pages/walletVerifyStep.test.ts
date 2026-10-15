@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import type { FlowExecution } from "../api/flows";
 import {
-  WALLET_VERIFY_ID, setWalletVerifyProvider, verifyOnlyConnections, walletVerifyStepErrors,
+  WALLET_VERIFY_ID, flowEngineWarning, setWalletVerifyProvider, verifyOnlyConnections, walletVerifyStepErrors,
 } from "./walletVerifyStep";
 
 const step = (id: string, authenticatorId: string | null, config?: Record<string, string>): FlowExecution =>
@@ -47,5 +47,16 @@ describe("setWalletVerifyProvider", () => {
     expect(out[1].config).toEqual({ other: "1", providerAlias: "eudi-verify" });
     expect(out[0]).toBe(execs[0]);
     expect(execs[1].config).toEqual({ other: "1" });
+  });
+});
+
+describe("flowEngineWarning", () => {
+  it("is shown when the engine is off and the flow has a wallet step or the realm has a verify-only connection", () => {
+    const wallet = [step("w", WALLET_VERIFY_ID, { providerAlias: "v" })];
+    expect(flowEngineWarning(false, wallet, [])).toBe(true);
+    expect(flowEngineWarning(false, [step("p", "password")], [{ alias: "v", displayName: "V" }])).toBe(true);
+    expect(flowEngineWarning(false, [step("p", "password")], [])).toBe(false);
+    expect(flowEngineWarning(true, wallet, [{ alias: "v", displayName: "V" }])).toBe(false);
+    expect(flowEngineWarning(undefined, wallet, [])).toBe(false);
   });
 });

@@ -44,3 +44,14 @@ export function walletVerifyStepErrors(execs: FlowExecution[], connections: stri
 export function setWalletVerifyProvider(execs: FlowExecution[], executionId: string, alias: string): FlowExecution[] {
   return execs.map((e) => (e.executionId === executionId ? { ...e, config: { ...(e.config ?? {}), [PROVIDER_ALIAS]: alias } } : e));
 }
+
+/**
+ * Whether the flow editor warns that the server's flow engine is off (helix.flow-engine.enabled=false): the wallet
+ * verification step would not run after a password login, and the server refuses to save it. Shown when the flow has
+ * such a step or the realm has a verify-only connection; never when the setting is unknown.
+ */
+export function flowEngineWarning(engineEnabled: boolean | undefined, execs: FlowExecution[],
+  connections: VerifyConnection[]): boolean {
+  if (engineEnabled !== false) return false;
+  return connections.length > 0 || execs.some((e) => e.authenticatorId === WALLET_VERIFY_ID);
+}

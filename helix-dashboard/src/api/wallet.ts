@@ -45,6 +45,8 @@ export interface WalletMetadata {
   credentialFormats: string[];
   /** The server runs the dev profile: direct_post and the raw dev key are allowed. */
   devProfile: boolean;
+  /** Whether the flow engine runs after a password login (a verify-only connection's step needs it). */
+  flowEngineEnabled?: boolean;
 }
 
 /** The admin API behind the EUDI wallet provider form. Errors are AdminApiError (400 carries fieldErrors). */
@@ -90,6 +92,7 @@ export const SAMPLE_PID_CLAIMS: PidClaimInfo[] = [
 export function createWalletMemoryClient(opts: {
   keys?: VerifierKey[];
   devProfile?: boolean;
+  flowEngineEnabled?: boolean;
   preview?: (pem: string) => CertificateInfo[];
   trustedLists?: TrustedList[];
 } = {}): WalletAdminApi {
@@ -115,6 +118,7 @@ export function createWalletMemoryClient(opts: {
     metadata: async () => ({
       pidClaims: SAMPLE_PID_CLAIMS, defaultRequestedClaims: ["given_name", "family_name", "birthdate"],
       credentialFormats: ["dc+sd-jwt", "mso_mdoc"], devProfile: !!opts.devProfile,
+      flowEngineEnabled: opts.flowEngineEnabled ?? true,
     }),
     previewCertificates: async (_realmId, pem) => {
       if (!pem.includes("-----BEGIN CERTIFICATE-----")) {

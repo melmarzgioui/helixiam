@@ -500,6 +500,9 @@ describe("verify-only mode (subject.strategy NONE)", () => {
     expect(validateWallet(verify({ verifyLinkedProvider: "eudi-verify" }), ctx())["verify.linkedProvider"]).toBe("wallet.err.linkedSelf");
     expect(validateWallet(verify(), ctx({ linkedAliases: ["other"] }))["verify.linkedProvider"]).toBe("wallet.err.linkedUnknown");
     expect(validateWallet(verify(), ctx({ linkedAliases: ["eudi-wallet"] }))).toEqual({});
+    expect(validateWallet(verify(), ctx({ linkedAliases: [] }))["verify.linkedProvider"]).toBe("wallet.err.linkedNone");
+    expect(validateWallet(verify({ verifyLinkedProvider: "" }), ctx({ linkedAliases: [] }))["verify.linkedProvider"])
+      .toBe("wallet.err.linkedNone");
   });
 
   it("releases only requested releasable claims and age thresholds 1-150 with birthdate requested, no repeats", () => {
@@ -546,5 +549,15 @@ describe("walletLinkOptions", () => {
       idp("eudi-wallet", "eudi-wallet"), idp("w2", "OpenID4VP", { "subject.strategy": "ATTRIBUTE_TUPLE" }),
       idp("digid", "saml"), idp("eudi-verify", "eudi-wallet", { "subject.strategy": "none" }), idp("self", "wallet"),
     ], "self")).toEqual([{ alias: "eudi-wallet", displayName: "EUDI-WALLET" }, { alias: "w2", displayName: "W2" }]);
+  });
+});
+
+describe("flow engine warning (verify-only)", () => {
+  it("warns about a verify-only connection when the server's flow engine is off", () => {
+    const verifyForm = valid({ subjectStrategy: "NONE", verifyLinkedProvider: "eudi-wallet" });
+    expect(walletWarnings(verifyForm, null, { flowEngineEnabled: false })).toContain("flowEngineOff");
+    expect(walletWarnings(verifyForm, null, { flowEngineEnabled: true })).not.toContain("flowEngineOff");
+    expect(walletWarnings(verifyForm)).not.toContain("flowEngineOff");
+    expect(walletWarnings(valid(), null, { flowEngineEnabled: false })).not.toContain("flowEngineOff");
   });
 });

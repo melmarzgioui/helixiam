@@ -389,7 +389,8 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
   if (form.subjectStrategy === "NONE") {
     if (form.acknowledgeWeakSubject) add("subject.strategy", "wallet.err.verifyNoAck");
     const linked = form.verifyLinkedProvider.trim();
-    if (!linked) add("verify.linkedProvider", "wallet.err.linkedRequired");
+    if (ctx.linkedAliases && ctx.linkedAliases.length === 0) add("verify.linkedProvider", "wallet.err.linkedNone");
+    else if (!linked) add("verify.linkedProvider", "wallet.err.linkedRequired");
     else if (!ALIAS.test(linked)) add("verify.linkedProvider", "wallet.err.linkedAlias");
     else if (ctx.alias && linked === ctx.alias.trim()) add("verify.linkedProvider", "wallet.err.linkedSelf");
     else if (ctx.linkedAliases && !ctx.linkedAliases.includes(linked)) add("verify.linkedProvider", "wallet.err.linkedUnknown");
@@ -457,15 +458,18 @@ export function releasableClaims(form: WalletForm, catalogue?: PidClaimInfo[]): 
 
 /** Advisory, never blocking: i18n suffixes under `wallet.warn.`. */
 export type WalletWarning = "manyClaims" | "adminNumberWithoutStrategy" | "placeOfBirthOrphans" | "weakTuple" | "failOpen"
-  | "revocationSoftFail" | "revocationOff" | "dcApiUnsigned";
+  | "revocationSoftFail" | "revocationOff" | "dcApiUnsigned" | "flowEngineOff";
 
 /**
  * The warnings for a form. `original` is the stored form of an existing provider (null/undefined for a new one): adding
  * or removing place_of_birth changes every attribute-tuple subject of the provider, so existing tuple links stop
  * working (the recorded ruling in WalletProviderConfig.Subject).
  */
-export function walletWarnings(form: WalletForm, original?: WalletForm | null): WalletWarning[] {
+export function walletWarnings(form: WalletForm, original?: WalletForm | null,
+  server?: { flowEngineEnabled?: boolean }): WalletWarning[] {
   const out: WalletWarning[] = [];
+  // A verify-only connection's flow step does not run after a password login while the server's flow engine is off.
+  if (form.subjectStrategy === "NONE" && server?.flowEngineEnabled === false) out.push("flowEngineOff");
   if (form.requestedClaims.length > CLAIM_WARNING_THRESHOLD) out.push("manyClaims");
   if (form.requestedClaims.includes(ADMIN_NUMBER_CLAIM) && form.subjectStrategy === "ATTRIBUTE_TUPLE") {
     out.push("adminNumberWithoutStrategy");
