@@ -85,6 +85,15 @@ public class FlowExecutor {
     private void record(final FlowExecutionState state, final String executionId,
                         final AuthenticationContext context) {
         context.outcome().ifPresent(outcome -> state.outcomes().put(executionId, outcome));
+        if (context.outcome().orElse(null) == ExecutionOutcome.SUCCEEDED) {
+            // a step-up step (the wallet verification) proved a level of assurance / released verified claims
+            if (context.assertedLevelOfAssurance() != null && !context.assertedLevelOfAssurance().isBlank()) {
+                state.setPendingAcr(context.assertedLevelOfAssurance());
+            }
+            if (context.releasedVerifiedClaims() != null) {
+                state.setPendingVerifiedClaims(context.releasedVerifiedClaims());
+            }
+        }
         if (context.userId() != null) {
             state.setUserId(context.userId());
         }

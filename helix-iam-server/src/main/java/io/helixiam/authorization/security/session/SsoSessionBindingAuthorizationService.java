@@ -41,6 +41,8 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
      * (String), when the session has one ({@link AuthTimeStamper#ACR_SESSION_ATTRIBUTE}) — Task 3.
      */
     public static final String ACR_ATTRIBUTE = "helix_acr";
+    /** Verify-only wallet step: the {@code verified_claims} JSON released for this authorization (id_token only). */
+    public static final String VERIFIED_CLAIMS_ATTRIBUTE = "helix_verified_claims";
 
     private final OAuth2AuthorizationService delegate;
     private final AuthTimeStamper authTimeStamper = new AuthTimeStamper();
@@ -123,7 +125,10 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
         final String acr = existingSession != null
                 && existingSession.getAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE) instanceof String value
                 && !value.isBlank() ? value : null;
-        if (sid == null && authTime == null && acr == null) {
+        final String verifiedClaims = existingSession != null
+                && existingSession.getAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE) instanceof String v
+                && !v.isBlank() ? v : null;
+        if (sid == null && authTime == null && acr == null && verifiedClaims == null) {
             return authorization;
         }
         final OAuth2Authorization.Builder builder = OAuth2Authorization.from(authorization);
@@ -140,6 +145,12 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
         if (acr != null) {
             // Task 3: the brokered level of assurance (eID SAML / EUDI Wallet) — never set by a password login.
             builder.attribute(ACR_ATTRIBUTE, acr);
+        }
+        if (verifiedClaims != null) {
+            // Verify-only wallet step (design D6): the released claims go to THIS code only — the authorization
+            // request the step-up completed — never to a later code of another client in the same SSO session.
+            builder.attribute(VERIFIED_CLAIMS_ATTRIBUTE, verifiedClaims);
+            existingSession.removeAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE);
         }
         return builder.build();
     }

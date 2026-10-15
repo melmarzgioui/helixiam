@@ -34,6 +34,10 @@ public class AuthenticationContext {
     private Status status = Status.ATTEMPTING;
     private String message;
     private String challengeView;
+    /** Verify-only wallet step: the level of assurance this step proved, applied only if it succeeds. */
+    private String levelOfAssurance;
+    /** Verify-only wallet step: the {@code verified_claims} JSON this step releases, applied only if it succeeds. */
+    private String verifiedClaimsJson;
 
     public AuthenticationContext(final String executionId, final String realmId, final String userId) {
         this(executionId, realmId, userId, Map.of());
@@ -92,6 +96,33 @@ public class AuthenticationContext {
     /** The full per-execution admin config map (immutable). */
     public Map<String, String> config() {
         return config;
+    }
+
+    /**
+     * The level of assurance (an {@code acr} value, e.g. an eIDAS LoA URI) this step proves. The engine records it
+     * for the login ({@code FlowExecutionState#pendingAcr}) only when the step SUCCEEDS; the login's {@code acr} then
+     * becomes it when the flow completes.
+     */
+    public void assertLevelOfAssurance(final String acr) {
+        this.levelOfAssurance = acr;
+    }
+
+    /** What {@link #assertLevelOfAssurance} recorded, or {@code null}. */
+    public String assertedLevelOfAssurance() {
+        return levelOfAssurance;
+    }
+
+    /**
+     * The ID token {@code verified_claims} (a JSON object) this step releases; recorded for the login only when the
+     * step SUCCEEDS, like {@link #assertLevelOfAssurance}.
+     */
+    public void releaseVerifiedClaims(final String json) {
+        this.verifiedClaimsJson = json;
+    }
+
+    /** What {@link #releaseVerifiedClaims} recorded, or {@code null}. */
+    public String releasedVerifiedClaims() {
+        return verifiedClaimsJson;
     }
 
     public void success() {

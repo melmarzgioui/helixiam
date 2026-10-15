@@ -198,4 +198,52 @@ class FlowExecutorTest {
         assertThat(afterPassword.type()).isEqualTo(FlowProgress.Type.COMPLETED);
         assertThat(afterPassword.userId()).isEqualTo("user-1");
     }
+
+    /** A step that asserts a level of assurance and verified claims when it succeeds (the wallet verify step). */
+    private static Authenticator assertingAuthenticator() {
+        return new Authenticator() {
+            @Override
+            public AuthenticatorMetadata metadata() {
+                return AuthenticatorMetadata.of("assert", "Assert", FactorClass.POSSESSION, 5);
+            }
+
+            @Override
+            public void authenticate(final AuthenticationContext context) {
+                context.assertLevelOfAssurance("http://eidas.europa.eu/LoA/high");
+                context.releaseVerifiedClaims("{\"claims\":{}}");
+                context.challenge("assert-form");
+            }
+
+            @Override
+            public void action(final AuthenticationContext context) {
+                context.assertLevelOfAssurance("http://eidas.europa.eu/LoA/high");
+                context.releaseVerifiedClaims("{\"claims\":{}}");
+                if ("ok".equals(context.formParameter("answer"))) {
+                    context.success();
+                } else {
+                    context.failure("no");
+                }
+            }
+        };
+    }
+
+    @Test
+    void aSucceededStep_putsItsLevelOfAssuranceAndVerifiedClaimsOnTheState_aChallengeOrFailureDoesNot() {
+        FlowExecutor executor = executor(assertingAuthenticator());
+        AuthFlow flow = AuthFlow.of("browser", AuthExecution.authenticator("e-a", "assert", Requirement.REQUIRED));
+        FlowExecutionState state = new FlowExecutionState("master");
+        state.setUserId("user-1");
+
+        executor.begin(flow, state);
+        assertThat(state.pendingAcr()).as("not on a challenge").isNull();
+        assertThat(state.pendingVerifiedClaims()).isNull();
+        executor.submit(flow, state, "e-a", Map.of("answer", "no"));
+        assertThat(state.pendingAcr()).as("not on a failure").isNull();
+        assertThat(state.pendingVerifiedClaims()).isNull();
+
+        assertThat(executor.submit(flow, state, "e-a", Map.of("answer", "ok")).type())
+                .isEqualTo(FlowProgress.Type.COMPLETED);
+        assertThat(state.pendingAcr()).isEqualTo("http://eidas.europa.eu/LoA/high");
+        assertThat(state.pendingVerifiedClaims()).isEqualTo("{\"claims\":{}}");
+    }
 }

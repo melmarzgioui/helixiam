@@ -97,6 +97,22 @@ class SsoSessionBindingAuthorizationServiceTest {
         assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.ACR_ATTRIBUTE)).isNull();
     }
 
+    /** Verify-only: the step's verified claims go to the FIRST code issued after the login, and only to it. */
+    @Test
+    void verifiedClaims_areBoundToTheNextCodeOnly_andLeaveTheSession() {
+        final MockHttpServletRequest request = browserRequest("sid-5", 1_700_000_400L);
+        request.getSession(false).setAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE, "{\"claims\":{}}");
+
+        service.save(withCode(false));
+        assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE))
+                .isEqualTo("{\"claims\":{}}");
+        assertThat(request.getSession(false).getAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE)).isNull();
+
+        service.save(withCode(false));
+        assertThat(saved.get().<String>getAttribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE))
+                .as("another client's code in the same SSO session gets none").isNull();
+    }
+
     private static MockHttpServletRequest browserRequest(final String sid, final long authTime) {
         final MockHttpServletRequest request = new MockHttpServletRequest();
         request.getSession(true).setAttribute(AuthTimeStamper.HELIX_SID, sid);
