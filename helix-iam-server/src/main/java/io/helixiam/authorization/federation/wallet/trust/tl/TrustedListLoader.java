@@ -42,21 +42,26 @@ public final class TrustedListLoader {
     /**
      * Policy knobs.
      *
-     * @param signerExpiryGrace how long after its notAfter a signer certificate may still verify a list that was issued
-     *                          while it was valid. Lists are signed at issue and stay valid until NextUpdate, so a
-     *                          signer may lapse before the list does (the EUDI reference implementation's test LOTL of
-     *                          2026-04-30 was signed by a certificate that expired on 2026-07-04); beyond the grace the
-     *                          list is refused however it is dated, so a long-expired (possibly leaked) key cannot sign
-     *                          a backdated list. Default 180 days ({@code helix.wallet.trusted-lists.signer-expiry-grace-days}).
-     * @param maxValidity       the longest a list counts after its ListIssueDateTime: its NextUpdate is capped there
-     *                          (ETSI TS 119 612 §5.3.14: NextUpdate at most six months after issue). Default six months
-     *                          ({@code helix.wallet.trusted-lists.max-validity-months}).
+     * @param signerExpiryGrace       how long after its notAfter an <b>admin-pinned</b> signer of a top-level list (a
+     *                                trusted list or a list of trusted lists) may still verify a list issued while it was
+     *                                valid. Default <b>0</b>: ETSI TS 119 615 PRO-4.1.4-07/08 make an expired top-level
+     *                                signer without proof of existence INDETERMINATE, which stops validation. The EUDI
+     *                                reference implementation's test LOTL (issued 2026-04-30, signer expired 2026-07-04)
+     *                                needs about 120 days ({@code helix.wallet.trusted-lists.signer-expiry-grace-days}).
+     * @param memberSignerExpiryGrace the same for a member list's signer that the verified list of lists names
+     *                                (PRO-4.2.4-09: a member stops only on "failed"). Default 180 days; still bounded by
+     *                                the signer being valid at the member's issue time and by {@code maxValidity}
+     *                                ({@code helix.wallet.trusted-lists.member-signer-expiry-grace-days}).
+     * @param maxValidity             the longest a list counts after its ListIssueDateTime: its NextUpdate is capped
+     *                                there (ETSI TS 119 612 §5.3.14: at most six months after issue). Default six months
+     *                                ({@code helix.wallet.trusted-lists.max-validity-months}).
      */
-    public record Settings(Duration signerExpiryGrace, Period maxValidity) {
-        public static final Settings DEFAULTS = new Settings(Duration.ofDays(180), Period.ofMonths(6));
+    public record Settings(Duration signerExpiryGrace, Duration memberSignerExpiryGrace, Period maxValidity) {
+        public static final Settings DEFAULTS = new Settings(Duration.ZERO, Duration.ofDays(180), Period.ofMonths(6));
 
         public Settings {
             Objects.requireNonNull(signerExpiryGrace, "signerExpiryGrace");
+            Objects.requireNonNull(memberSignerExpiryGrace, "memberSignerExpiryGrace");
             Objects.requireNonNull(maxValidity, "maxValidity");
         }
     }
@@ -90,7 +95,7 @@ public final class TrustedListLoader {
     public LoadedList load(final TrustedListSpec spec, final String realm) throws TrustedListException {
         final Instant now = clock.instant();
         requireHttps(spec.url());
-        final Etsi119612List top = fetchVerified(spec.format(), spec.url(), spec.signers(), realm);
+        final Etsi119612List top = fetchVerified(spec.format(), spec.url(), spec.signers(), realm, false);
         checkFresh(top, now);
         if (spec.previousSequence() != null && top.sequence() < spec.previousSequence()) {
             throw new TrustedListException(TrustedListException.Kind.ROLLBACK,
@@ -145,7 +150,7 @@ public final class TrustedListLoader {
                         "the list of trusted lists names no signer for this list");
             }
             final Etsi119612List member = fetchVerified(TrustedListSpec.Format.ETSI_119612_XML, location,
-                    pointer.signers(), realm);
+                    pointer.signers(), realm, true);
             if (member.isListOfLists()) {
                 return null;
             }
@@ -191,8 +196,8 @@ public final class TrustedListLoader {
     }
 
     private Etsi119612List fetchVerified(final TrustedListSpec.Format format, final String url,
-                                         final List<X509Certificate> signers, final String realm)
-            throws TrustedListException {
+                                         final List<X509Certificate> signers, final String realm,
+                                         final boolean member) throws TrustedListException {
         final List<X509Certificate> usable = signers.stream().filter(c -> PemCertificates.keyProblem(c) == null)
                 .toList();
         if (usable.isEmpty()) {
@@ -205,13 +210,13 @@ public final class TrustedListLoader {
         }
         if (format == TrustedListSpec.Format.ETSI_119602_JSON) {
             final LoteJsonList.Verified verified = LoteJsonList.read(body, usable);
-            checkSigner(verified.signer(), verified.list().issued());
+            checkSigner(verified.signer(), verified.list().issued(), member);
             return capped(verified.list());
         }
         final Document doc = SecureXml.parse(body, maxBytes);
         final X509Certificate signer = XmlListSignature.verify(doc, usable);
         final Etsi119612List list = Etsi119612List.read(doc.getDocumentElement());
-        checkSigner(signer, list.issued());
+        checkSigner(signer, list.issued(), member);
         return capped(list);
     }
 
@@ -227,18 +232,27 @@ public final class TrustedListLoader {
 
     /**
      * The signer must have been valid when the list was issued (the list is signed at issue), and must not have expired
-     * longer ago than {@link Settings#signerExpiryGrace} (whatever date the list claims).
+     * longer ago than the grace for its kind (pinned top-level signer, or a member's signer named by the verified list
+     * of lists), whatever date the list claims.
      */
-    private void checkSigner(final X509Certificate signer, final Instant issued) throws TrustedListException {
+    private void checkSigner(final X509Certificate signer, final Instant issued, final boolean member)
+            throws TrustedListException {
         try {
             signer.checkValidity(Date.from(issued));
         } catch (final CertificateExpiredException | CertificateNotYetValidException e) {
             throw new TrustedListException(TrustedListException.Kind.SIGNER,
                     "the signer certificate was not valid when the list was issued");
         }
-        if (clock.instant().isAfter(signer.getNotAfter().toInstant().plus(settings.signerExpiryGrace()))) {
-            throw new TrustedListException(TrustedListException.Kind.SIGNER, "the signer certificate expired more than "
-                    + settings.signerExpiryGrace().toDays() + " days ago; pin the publisher's current certificate");
+        final Instant notAfter = signer.getNotAfter().toInstant();
+        final Duration grace = member ? settings.memberSignerExpiryGrace() : settings.signerExpiryGrace();
+        if (clock.instant().isAfter(notAfter.plus(grace))) {
+            throw new TrustedListException(TrustedListException.Kind.SIGNER, member
+                    ? "the signer certificate the list of trusted lists names for this list expired on " + notAfter
+                            + ", more than " + grace.toDays() + " days ago (helix.wallet.trusted-lists."
+                            + "member-signer-expiry-grace-days)"
+                    : "the pinned signer certificate expired on " + notAfter + " (ETSI TS 119 615 PRO-4.1.4: an "
+                            + "expired signer makes the list indeterminate); pin the publisher's current certificate, "
+                            + "or allow a grace with helix.wallet.trusted-lists.signer-expiry-grace-days");
         }
     }
 

@@ -25,7 +25,7 @@ import { useT } from "../i18n/LocaleContext";
 import { commonName, expiryState } from "./walletProvider";
 import {
   DEFAULT_TRUSTED_LIST_FORM, GRACE_RANGE, STATUS_OPTIONS, TRUSTED_LIST_PRESETS, applyPreset, formFromTrustedList,
-  signerWarnings, statusTone, trustedListWrite, validateTrustedList, type TrustedListForm,
+  pinnedSignerExpiredRefusal, signerWarnings, statusTone, trustedListWrite, validateTrustedList, type TrustedListForm,
 } from "./trustedList";
 
 // Federation → Trusted lists: the realm's published, signed lists (ETSI TS 119 612 / 119 602) whose verified service
@@ -292,6 +292,9 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
                 { name: commonName(w.subject), date: absoluteTime(w.notAfter, locale) })}
             </Alert>
           ))}
+          {pinnedSignerExpiredRefusal(list.lastError) && (
+            <Alert tone="danger" title={t("tl.alert.signerRefused.title")}>{t("tl.alert.signerRefused")}</Alert>
+          )}
           {list.lastError && (
             <Alert tone={list.anchorsInUse ? "warning" : "danger"} title={t("tl.lastError")}>
               <span className="hx-mono">{list.lastError}</span>

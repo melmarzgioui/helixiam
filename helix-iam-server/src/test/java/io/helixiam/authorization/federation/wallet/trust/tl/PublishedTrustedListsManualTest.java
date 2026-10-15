@@ -48,7 +48,15 @@ class PublishedTrustedListsManualTest {
     @Test
     void eudiReferenceImplementationTestLotl_pidProviders() throws Exception {
         final List<X509Certificate> pin = keyInfoCertificates(fetcher.fetch(EUDI_TEST_LOTL, "manual"));
-        final LoadedList loaded = loader.load(TrustedListSpec.of(EUDI_TEST_LOTL, TrustedListSpec.Format.ETSI_119612_XML,
+        // its pinned signer expired on 2026-07-04: refused under the default (grace 0, ETSI TS 119 615 PRO-4.1.4)...
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> loader.load(TrustedListSpec.of(EUDI_TEST_LOTL,
+                TrustedListSpec.Format.ETSI_119612_XML, pin, Set.of("http://uri.etsi.org/Svc/Svctype/Provider/PID")),
+                "manual")).isInstanceOf(TrustedListException.class);
+        // ...and loaded with the documented override (signer-expiry-grace-days >= ~120)
+        final TrustedListLoader withGrace = new TrustedListLoader(fetcher, Clock.systemUTC(), SecureXml.DEFAULT_MAX_BYTES,
+                new TrustedListLoader.Settings(java.time.Duration.ofDays(120), java.time.Duration.ofDays(180),
+                        java.time.Period.ofMonths(6)));
+        final LoadedList loaded = withGrace.load(TrustedListSpec.of(EUDI_TEST_LOTL, TrustedListSpec.Format.ETSI_119612_XML,
                 pin, Set.of("http://uri.etsi.org/Svc/Svctype/Provider/PID")), "manual");
         report("EUDI test LOTL (PID providers)", loaded);
         assertThat(loaded.services()).isNotEmpty();
@@ -71,8 +79,15 @@ class PublishedTrustedListsManualTest {
         final JWSObject jws = JWSObject.parse(new String(body, StandardCharsets.US_ASCII).trim());
         final X509Certificate pin = (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(
                 new ByteArrayInputStream(jws.getHeader().getX509CertChain().get(0).decode()));
-        final LoadedList loaded = loader.load(TrustedListSpec.of(EC_PID_LOTE, TrustedListSpec.Format.ETSI_119602_JSON,
-                List.of(pin), Set.of("http://uri.etsi.org/19602/SvcType/PID/Issuance")), "manual");
+        final TrustedListSpec lote = TrustedListSpec.of(EC_PID_LOTE, TrustedListSpec.Format.ETSI_119602_JSON,
+                List.of(pin), Set.of("http://uri.etsi.org/19602/SvcType/PID/Issuance"));
+        // its signer expired on 2026-09-15 (checked 2026-10-15): refused under the default grace of 0...
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> loader.load(lote, "manual"))
+                .isInstanceOf(TrustedListException.class);
+        // ...and loaded with an explicit override
+        final LoadedList loaded = new TrustedListLoader(fetcher, Clock.systemUTC(), SecureXml.DEFAULT_MAX_BYTES,
+                new TrustedListLoader.Settings(java.time.Duration.ofDays(60), java.time.Duration.ofDays(180),
+                        java.time.Period.ofMonths(6))).load(lote, "manual");
         report("EC acceptance LoTE (PID issuance)", loaded);
         assertThat(loaded.services()).isNotEmpty();
     }

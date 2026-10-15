@@ -188,8 +188,10 @@ class TrustedListLoaderTest {
     }
 
     @Test
-    void signerExpiredWithinTheGrace_isAccepted_likeTheCurrentEudiTestList() throws Exception {
-        // the EUDI reference implementation's test LOTL: signer expired ~100 days ago, list issued while it was valid
+    void anExpiredPinnedSigner_ofATopLevelList_isRefusedByDefault_andAcceptedOnlyWithAnExplicitGrace()
+            throws Exception {
+        // the EUDI reference implementation's test LOTL: signer expired ~100 days ago, list issued while it was valid.
+        // ETSI TS 119 615 PRO-4.1.4-07/08: an expired top-level signer without proof of existence is INDETERMINATE.
         final Instant now = Instant.now();
         final TestPki.Leaf expired = TrustedListFixtures.signer("EUDI-like", now.minus(400, ChronoUnit.DAYS),
                 now.minus(103, ChronoUnit.DAYS));
@@ -197,10 +199,33 @@ class TrustedListLoaderTest {
                 .issued(now.minus(168, ChronoUnit.DAYS)).nextUpdate(now.plus(12, ChronoUnit.DAYS))
                 .service(Service.granted("Issuer A", issuerA)), expired));
 
-        assertThat(loader.load(spec(TL_URL, expired), "realm").services()).hasSize(1);
-        assertKind(() -> new TrustedListLoader(fetcher, Clock.systemUTC(), SecureXml.DEFAULT_MAX_BYTES,
-                new TrustedListLoader.Settings(java.time.Duration.ZERO, java.time.Period.ofMonths(6))).load(spec(TL_URL, expired), "realm"),
-                TrustedListException.Kind.SIGNER);
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, expired), "realm"), TrustedListException.Kind.SIGNER))
+                .hasMessageContaining("signer-expiry-grace-days");
+        assertThat(new TrustedListLoader(fetcher, Clock.systemUTC(), SecureXml.DEFAULT_MAX_BYTES,
+                new TrustedListLoader.Settings(java.time.Duration.ofDays(120), java.time.Duration.ofDays(180),
+                        java.time.Period.ofMonths(6))).load(spec(TL_URL, expired), "realm").services()).hasSize(1);
+    }
+
+    @Test
+    void anExpiredSignerNamedByTheVerifiedLotl_isToleratedFor180Days_thenRefused() throws Exception {
+        // ETSI TS 119 615 PRO-4.2.4-09: a member TL stops only on "failed"; the signer the verified LOTL names is
+        // tolerated for a bounded time (still valid at issue, and the list itself counts at most six months)
+        final Instant now = Instant.now();
+        final TestPki.Leaf recent = TrustedListFixtures.signer("NL recent", now.minus(400, ChronoUnit.DAYS),
+                now.minus(100, ChronoUnit.DAYS));
+        final TestPki.Leaf old = TrustedListFixtures.signer("DE old", now.minus(600, ChronoUnit.DAYS),
+                now.minus(200, ChronoUnit.DAYS));
+        serveLotl(Pointer.memberState(NL_URL, "NL", recent.certificate()),
+                Pointer.memberState(DE_URL, "DE", old.certificate()));
+        served.put(NL_URL, TrustedListFixtures.signedXml(Spec.memberState("NL").issued(now.minus(150, ChronoUnit.DAYS))
+                .nextUpdate(now.plus(20, ChronoUnit.DAYS)).service(Service.granted("NL", issuerA)), recent));
+        served.put(DE_URL, TrustedListFixtures.signedXml(Spec.memberState("DE").issued(now.minus(170, ChronoUnit.DAYS))
+                .nextUpdate(now.plus(10, ChronoUnit.DAYS)).service(Service.granted("DE", issuerB)), old));
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner), "realm");
+
+        assertThat(member(loaded, "NL").loaded()).isTrue();
+        assertThat(member(loaded, "DE").errorKind()).isEqualTo(TrustedListException.Kind.SIGNER);
     }
 
     @Test
@@ -259,7 +284,7 @@ class TrustedListLoaderTest {
         // a longer, configured validity accepts it
         assertThat(assertDoesNotThrow(() -> new TrustedListLoader(fetcher, Clock.systemUTC(),
                 SecureXml.DEFAULT_MAX_BYTES, new TrustedListLoader.Settings(java.time.Duration.ofDays(180),
-                java.time.Period.ofMonths(12))).load(spec(TL_URL, old), "realm")).services()).hasSize(1);
+                java.time.Duration.ofDays(180), java.time.Period.ofMonths(12))).load(spec(TL_URL, old), "realm")).services()).hasSize(1);
     }
 
     @Test

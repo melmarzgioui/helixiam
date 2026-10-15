@@ -31,8 +31,10 @@ import java.util.Map;
  *   <li>{@code check-interval-seconds} (default 60, 0 = off): how often each replica looks for due sources;</li>
  *   <li>{@code poll-interval-seconds} (default 10, 0 = off): how often each replica reloads sources that moved;</li>
  *   <li>{@code max-bytes} (default 16 MB): the largest list fetched;</li>
- *   <li>{@code signer-expiry-grace-days} (default 180): how long after its expiry a signer may still verify a list
- *       issued while it was valid;</li>
+ *   <li>{@code signer-expiry-grace-days} (default 0): how long after its expiry an admin-pinned signer of a top-level
+ *       list may still verify a list issued while it was valid (ETSI TS 119 615 PRO-4.1.4-07/08);</li>
+ *   <li>{@code member-signer-expiry-grace-days} (default 180): the same for a member list's signer named by the
+ *       verified list of lists (PRO-4.2.4-09);</li>
  *   <li>{@code max-validity-months} (default 6): a list's NextUpdate is capped at its issue time plus this.</li>
  * </ul>
  * Lists are fetched with the JDK's default trust store, through the {@link OutboundUrlGuard} bean.
@@ -54,12 +56,14 @@ public class TrustedListConfiguration {
             @Value("${helix.wallet.trusted-lists.refresh-interval-minutes:360}") final long refreshMinutes,
             @Value("${helix.wallet.trusted-lists.retry-interval-minutes:15}") final long retryMinutes,
             @Value("${helix.wallet.trusted-lists.max-bytes:" + SecureXml.DEFAULT_MAX_BYTES + "}") final long maxBytes,
-            @Value("${helix.wallet.trusted-lists.signer-expiry-grace-days:180}") final long signerGraceDays,
+            @Value("${helix.wallet.trusted-lists.signer-expiry-grace-days:0}") final long signerGraceDays,
+            @Value("${helix.wallet.trusted-lists.member-signer-expiry-grace-days:180}") final long memberGraceDays,
             @Value("${helix.wallet.trusted-lists.max-validity-months:6}") final int maxValidityMonths)
             throws NoSuchAlgorithmException {
         final TrustedListLoader loader = new TrustedListLoader(
                 new PinnedTrustedListFetcher(guard, SSLContext.getDefault(), maxBytes), Clock.systemUTC(), maxBytes,
                 new TrustedListLoader.Settings(Duration.ofDays(Math.max(0, signerGraceDays)),
+                        Duration.ofDays(Math.max(0, memberGraceDays)),
                         java.time.Period.ofMonths(Math.max(1, maxValidityMonths))));
         final TrustedListService service = new TrustedListService(repository, loader, auditSink(auditLog),
                 Clock.systemUTC(),

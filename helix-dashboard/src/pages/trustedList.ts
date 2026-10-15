@@ -161,3 +161,8 @@ export function signerWarnings(signers: Pick<CertificateInfo, "subject" | "notAf
     return [{ subject: c.subject, notAfter: c.notAfter, expired: end <= now.getTime() }];
   });
 }
+
+/** Whether a refresh error is the refusal of a top-level list whose pinned signer has expired (ETSI TS 119 615). */
+export function pinnedSignerExpiredRefusal(lastError: string | null | undefined): boolean {
+  return !!lastError && lastError.startsWith("SIGNER:") && lastError.includes("pinned signer certificate expired");
+}

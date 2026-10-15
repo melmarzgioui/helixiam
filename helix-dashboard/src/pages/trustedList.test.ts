@@ -12,6 +12,7 @@ import {
   applyPreset,
   formFromTrustedList,
   splitLines,
+  pinnedSignerExpiredRefusal,
   signerWarnings,
   statusTone,
   trustedListWrite,
@@ -137,5 +138,15 @@ describe("statusTone", () => {
     expect(signerWarnings([cert("2026-07-04T00:00:00Z"), cert("2026-11-01T00:00:00Z"), cert("2027-10-01T00:00:00Z")], now))
       .toEqual([{ subject: "CN=x", notAfter: "2026-07-04T00:00:00Z", expired: true },
         { subject: "CN=x", notAfter: "2026-11-01T00:00:00Z", expired: false }]);
+  });
+});
+
+describe("pinnedSignerExpiredRefusal", () => {
+  it("recognises a top-level list refused because its pinned signer expired", () => {
+    expect(pinnedSignerExpiredRefusal("SIGNER: the pinned signer certificate expired on 2026-07-04T14:37:51Z (ETSI TS "
+      + "119 615 PRO-4.1.4: ...)")).toBe(true);
+    expect(pinnedSignerExpiredRefusal("SIGNER: the signer certificate was not valid when the list was issued")).toBe(false);
+    expect(pinnedSignerExpiredRefusal("SIGNATURE: the signature does not verify")).toBe(false);
+    expect(pinnedSignerExpiredRefusal(null)).toBe(false);
   });
 });
