@@ -60,9 +60,10 @@
              spring-boot-jackson, spring.jackson.*), Spring Security 7, Flyway 12 and webauthn4j. Kept on the 3.2.x line
              webauthn4j 0.31.11 is built against (it was 3.2.3 on Boot 3.5 too); Boot 4.1.1 manages 3.1.5. -->
         <jackson-bom.version>3.2.3</jackson-bom.version>
-        <!-- Jackson 2 (com.fasterxml.jackson) is no longer used by HelixIAM's code, but springdoc-openapi's
-             swagger-core 2.2.x still depends on jackson-databind / -datatype-jsr310 / -dataformat-yaml 2.x (it builds
-             /v3/api-docs with its own Jackson 2 mapper), so they stay on the runtime classpath. Boot 4.1.1 manages the
+        <!-- Jackson 2 (com.fasterxml.jackson) is no longer used by HelixIAM's code, but OpenSAML 5's opensaml-core-impl
+             (jackson-databind, -datatype-jsr310, and metrics-json's jackson-core) and springdoc-openapi's swagger-core
+             2.2.x (-dataformat-yaml; it builds /v3/api-docs with its own Jackson 2 mapper) still depend on it, so it
+             stays on the runtime classpath. Boot 4.1.1 manages the
              Jackson 2 BOM at 2.21.5; 2.21.7 fixes CVE-2026-89407, CVE-2026-89425 (jackson-core DoS), CVE-2026-68497,
              CVE-2026-91776, CVE-2026-91777 (jackson-databind DoS).
              httpcore5/httpcore5-h2 5.4.3 (Boot-managed) -> 5.4.4 (via OpenSAML's httpclient5): CVE-2026-54399,

@@ -23,8 +23,10 @@ are gone. Formats are unchanged:
   and the import of a Jackson 2 realm export (`*UpgradeTest`, `PlainJsonMapperUpgradeTest`, `JsonWireFormatE2eTest`).
 - Stricter: Jackson 3's nesting limit (500, Jackson 2: 1000) is kept; read limits are checked by `JsonMappersTest`.
 
-Jackson 2 stays on the runtime classpath only because springdoc-openapi's swagger-core 2.2.x depends on it (it builds
-`/v3/api-docs` with its own Jackson 2 mapper); the Jackson 2 BOM pin (2.21.7) stays for it. No HelixIAM class
+Jackson 2 stays on the runtime classpath only as a transitive dependency of OpenSAML 5 (`opensaml-core-impl`:
+`jackson-databind`, `-datatype-jsr310`, and `jackson-core` via `metrics-json`) and of springdoc-openapi's swagger-core
+2.2.x (`-dataformat-yaml`; it builds `/v3/api-docs` with its own Jackson 2 mapper); the Jackson 2 BOM pin (2.21.7)
+stays for them. No HelixIAM class
 imports Jackson 2 (`JsonMappersTest.theApplicationCode_usesOnlyJackson3`); `jackson-annotations` is shared by both lines.
 
 ## M7 — OpenSAML 4.3.2 is EOL (upgrade to 5.x)

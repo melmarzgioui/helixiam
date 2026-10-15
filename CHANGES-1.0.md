@@ -31,8 +31,9 @@ question. Newest first within each phase.
     behaviour, webhook bodies and their `X-Helix-Signature`, the outbound SCIM user, admin error bodies, member order
     and types of admin/token/userinfo/introspection responses, UTF-8 escaping, and the import of an rc.10 realm export
     (`*UpgradeTest`, `PlainJsonMapperUpgradeTest`, `JsonWireFormatE2eTest`).
-  - Jackson 2 stays on the classpath only for springdoc-openapi (swagger-core 2.2.x builds `/v3/api-docs` with Jackson
-    2); no HelixIAM class imports it (`JsonMappersTest`), and the 2.21.7 BOM pin stays for its CVE fixes.
+  - Jackson 2 stays on the classpath only as a transitive dependency of OpenSAML 5 (`opensaml-core-impl`) and
+    springdoc-openapi (swagger-core 2.2.x builds `/v3/api-docs` with Jackson 2); no HelixIAM class imports it
+    (`JsonMappersTest`), and the 2.21.7 BOM pin stays for its CVE fixes.
 
   > **Operator note:** nothing to do for an upgrade from rc.10: stored state, sessions and refresh tokens carry over,
   > and a rolling update is safe in both directions as far as JSON is concerned. Only if you configured Jackson through
