@@ -59,13 +59,6 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
-    ignore:
-      - dependency-name: "express"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "openid-client"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "otplib"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: gomod
     directory: /terraform-provider-helix
@@ -82,10 +75,6 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
-    ignore:
-      # cosign-installer 4 installs cosign 3 (new bundle/signing defaults); move deliberately with a test release.
-      - dependency-name: "sigstore/cosign-installer"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directories:
