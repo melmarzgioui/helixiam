@@ -96,7 +96,7 @@ public class FlowController {
     public String renderChallenge(final HttpSession session, final Model model) {
         final FlowExecutionState state = state(session);
         if (state == null || state.currentChallengeView() == null) {
-            return REDIRECT_PREFIX + flowPath("/login");
+            return REDIRECT_PREFIX + "/login";
         }
         // The challenge form must post back to the realm-prefixed /flow, not the flat path the
         // controller maps at — otherwise the realm-routing guard 404s the submission.
@@ -109,7 +109,7 @@ public class FlowController {
         if (execAttributes.remove(io.helixiam.authorization.flow.spi.AuthenticationContext.REDIRECT_ATTRIBUTE)
                 instanceof String target && target.startsWith("/") && !target.startsWith("//")) {
             session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
-            return REDIRECT_PREFIX + flowPath(target);
+            return REDIRECT_PREFIX + target; // context-relative: resolved under the realm like the broker's
         }
         model.addAttribute("webauthnChallenge", execAttributes.get("webauthn.challenge"));
         // (10) passwordless usernameless passkey login challenge (resident-key / conditional UI).
@@ -132,7 +132,7 @@ public class FlowController {
         final AuthFlowDefinition definition =
                 (AuthFlowDefinition) session.getAttribute(FlowLoginSuccessHandler.FLOW_DEFINITION_ATTRIBUTE);
         if (state == null || definition == null || state.currentChallengeExecutionId() == null) {
-            return REDIRECT_PREFIX + flowPath("/login");
+            return REDIRECT_PREFIX + "/login";
         }
         model.addAttribute("flowAction", flowPath("/flow"));
 
@@ -159,7 +159,7 @@ public class FlowController {
                     // (a federated login's commit, acr and outcome) stay; MfaAuthController ends them after enrolment.
                     request.changeSessionId();
                     LOG.info("Login flow completed for a user who must enrol a second factor first");
-                    yield REDIRECT_PREFIX + flowPath("/mfa/enable");
+                    yield REDIRECT_PREFIX + "/mfa/enable";
                 }
                 if (flowUser == null || !flowUser.equals(state.userId()) || !mfaService.unlockUser(flowUser)) {
                     LOG.warn("Login flow completed for another user than the pending sign-in; refusing it");
@@ -167,17 +167,17 @@ public class FlowController {
                     io.helixiam.authorization.federation.PendingFederatedLogin.clear(session);
                     session.invalidate();
                     reportFailed(state);
-                    yield REDIRECT_PREFIX + flowPath("/login") + "?error";
+                    yield REDIRECT_PREFIX + "/login?error";
                 }
                 request.changeSessionId(); // a completed sign-in gets a new session id (no fixation)
                 if (!io.helixiam.authorization.federation.PendingFederatedLogin.finish(request, state, loginCommits,
                         loginOutcomes, authTimeStamper)) {
-                    yield REDIRECT_PREFIX + flowPath("/login?error=federation");
+                    yield REDIRECT_PREFIX + "/login?error=federation";
                 }
                 sessionPolicyApplier.applyOnLogin(request, io.helixiam.authorization.security.realm.RealmContextHolder.get()); // SSO P3
                 yield savedRequestRedirect.redirectView(request, response, spBaseUrl);
             }
-            case CHALLENGE -> REDIRECT_PREFIX + flowPath("/flow"); // advanced to the next factor's screen
+            case CHALLENGE -> REDIRECT_PREFIX + "/flow"; // advanced to the next factor's screen
             case FAILED -> {
                 model.addAttribute("error", "true"); // wrong response — re-prompt with an error
                 yield VIEW_PREFIX + state.currentChallengeView();
@@ -199,7 +199,7 @@ public class FlowController {
         if (state == null || responseCode == null || responseCode.isBlank()
                 || !io.helixiam.authorization.federation.wallet.WalletVerifyAuthenticator.VIEW
                         .equals(state.currentChallengeView())) {
-            return REDIRECT_PREFIX + flowPath("/login");
+            return REDIRECT_PREFIX + "/login";
         }
         return submitChallenge(Map.of("response_code", responseCode), session, model, request, response);
     }
@@ -215,7 +215,11 @@ public class FlowController {
         return (FlowExecutionState) session.getAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE);
     }
 
-    /** Realm-prefix a controller path so browser redirects/form posts survive the realm-routing guard. */
+    /**
+     * Realm-prefix a controller path for a form's {@code action} (raw HTML). Redirects stay context-relative
+     * ({@code redirect:/flow}): Spring resolves them under the realm's virtual context path, so prefixing them too
+     * produced {@code /realms/<r>/realms/<r>/...} (403) — found by the wallet verification e2e.
+     */
     private String flowPath(final String path) {
         return io.helixiam.authorization.security.realm.RealmPaths.prefixed(
                 io.helixiam.authorization.security.realm.RealmContextHolder.get(), path);
