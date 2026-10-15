@@ -225,7 +225,7 @@ class WalletVerifyAuthenticatorTest {
     }
 
     @Test
-    void restart_startsANewVerification_andAnEmptySubmitReChallenges() {
+    void restartOrAnEmptySubmit_challengesAgain_andTheNextStartDiscardsTheEarlierVerification() {
         final AuthenticationContext started = context("user-7", VERIFY_ALIAS);
         step.authenticate(started);
         final String first = (String) started.getAttribute(WalletVerifyAuthenticator.TX_ATTRIBUTE);
@@ -235,12 +235,12 @@ class WalletVerifyAuthenticatorTest {
         again.submit(Map.of(WalletVerifyAuthenticator.RESTART_PARAM, "1"));
         step.action(again);
         assertThat(again.status()).isEqualTo(AuthenticationContext.Status.CHALLENGE);
-        assertThat(again.getAttribute(WalletVerifyAuthenticator.TX_ATTRIBUTE)).isNotEqualTo(first);
-        assertThat(store.byTransactionId(first)).as("the earlier one is discarded").isEmpty();
 
-        final AuthenticationContext empty = context("user-7", VERIFY_ALIAS);
-        empty.submit(Map.of());
-        step.action(empty);
-        assertThat(empty.status()).isEqualTo(AuthenticationContext.Status.CHALLENGE);
+        // the engine then runs authenticate() afresh
+        final AuthenticationContext rerun = context("user-7", VERIFY_ALIAS);
+        rerun.attributes().putAll(again.attributes());
+        step.authenticate(rerun);
+        assertThat(rerun.getAttribute(WalletVerifyAuthenticator.TX_ATTRIBUTE)).isNotEqualTo(first);
+        assertThat(store.byTransactionId(first)).as("the earlier one is discarded").isEmpty();
     }
 }

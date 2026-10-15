@@ -53,7 +53,8 @@ import java.util.Optional;
  *       wins); otherwise the attribute tuple, when the linked connection accepts it, must be. No link → refused. On
  *       success the step asserts the presentation's level of assurance (the login's {@code acr}) and, when the login
  *       completes an authorization request, releases the allow-listed {@code verified_claims}.</li>
- *   <li>{@link #action} with {@code restart}: a new transaction (the "try again" button).</li>
+ *   <li>{@link #action} without a code ({@code restart}, the "try again" button): challenges again, so the engine
+ *       runs {@link #authenticate} afresh (a new transaction; the earlier one is discarded).</li>
  * </ul>
  * Never creates or links an account; every end is audited ({@link WalletVerifyAudit}) without PID values.
  */
@@ -147,11 +148,9 @@ public class WalletVerifyAuthenticator implements Authenticator {
     public void action(final AuthenticationContext context) {
         final String code = context.formParameter(WalletIdentityProvider.RESPONSE_CODE_PARAM);
         if (code == null || code.isBlank()) {
-            if (context.formParameter(RESTART_PARAM) != null) {
-                authenticate(context);
-            } else {
-                context.challenge(VIEW);
-            }
+            // "try again" (restart) or an empty submit: ask again; the engine then runs authenticate(), which starts
+            // a new verification and sends the browser to the wallet page.
+            context.challenge(VIEW);
             return;
         }
         final Optional<WalletIdentityProvider> provider = provider(context);

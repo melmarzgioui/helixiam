@@ -45,6 +45,11 @@ public class FlowExecutor {
         context.submit(formData);
         authenticator.action(context);
         state.attributesFor(executionId).putAll(context.attributes());
+        if (context.status() == AuthenticationContext.Status.CHALLENGE) {
+            // The step asks again (e.g. "try again" after a refused wallet): an earlier failure of it no longer
+            // decides the flow; the engine runs the step afresh.
+            state.outcomes().remove(executionId);
+        }
         record(state, executionId, context);
 
         return drive(flow, state);
