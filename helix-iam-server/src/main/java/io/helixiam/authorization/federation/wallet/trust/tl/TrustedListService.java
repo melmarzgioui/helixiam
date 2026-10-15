@@ -213,7 +213,7 @@ public class TrustedListService implements TrustedListAnchorSource {
 
     /** The status of one member now. */
     public TrustedListHealth.Status memberStatus(final TrustedListSource source, final TrustedListSource.Member m) {
-        if (!memberIntact(source, m)) {
+        if (!memberIntact(source, m) || belowFloor(m, repository.highWaterMarks(source.id()))) {
             return TrustedListHealth.Status.INTEGRITY;
         }
         return TrustedListHealth.evaluate(source, m, clock.instant());
@@ -572,8 +572,12 @@ public class TrustedListService implements TrustedListAnchorSource {
                 }
                 final List<MemberSnapshot> members = new ArrayList<>();
                 if (intact && source.state().listOfLists()) {
+                    final List<TrustedListRepository.HighWaterMark> marks = repository.highWaterMarks(source.id());
                     for (final TrustedListSource.Member m : repository.members(source.id())) {
-                        if (memberIntact(source, m)) {
+                        if (belowFloor(m, marks)) {
+                            // defence in depth: a member row below its rollback floor is never counted
+                            reportTampering(source, "member " + m.territory() + " is below its rollback high-water mark");
+                        } else if (memberIntact(source, m)) {
                             members.add(new MemberSnapshot(m, ServicesCodec.decode(m.servicesJson())));
                         } else {
                             reportTampering(source, "the stored anchors of member " + m.territory());
@@ -734,6 +738,20 @@ public class TrustedListService implements TrustedListAnchorSource {
             repository.releaseLease(id, owner);
             sync();
         }
+    }
+
+    /**
+     * Whether a member row's sequence number is below the high-water mark of its territory and TSLType (of its
+     * territory, any type, when the row has no type).
+     */
+    private static boolean belowFloor(final TrustedListSource.Member m,
+                                      final List<TrustedListRepository.HighWaterMark> marks) {
+        if (m.servicesJson() == null || m.sequenceNumber() == null) {
+            return false;
+        }
+        final String territory = LoadedList.Member.hwmTerritory(m.territory());
+        return marks.stream().anyMatch(h -> h.territory().equals(territory)
+                && (m.tslType() == null || h.tslType().equals(m.tslType())) && m.sequenceNumber() < h.sequence());
     }
 
     /** What of the loaded state fails its check (for the audit), or null when all of it verifies. */

@@ -62,6 +62,6 @@ public record TrustedListSource(String id, String realmId, Config config, State 
     public record Member(String sourceId, String key, String location, String territory, String status,
                          String servicesJson, Long sequenceNumber, Long listIssuedAt, Long nextUpdate,
                          Long lastAttemptAt, Long lastSuccessAt, String lastError, long version,
-                         String servicesMac) {
+                         String servicesMac, String tslType) {
     }
 }

@@ -6,6 +6,8 @@
 ALTER TABLE trusted_list_source ADD COLUMN IF NOT EXISTS settings_mac character varying(64);
 ALTER TABLE trusted_list_source ADD COLUMN IF NOT EXISTS services_mac character varying(64);
 ALTER TABLE trusted_list_member ADD COLUMN IF NOT EXISTS services_mac character varying(64);
+-- The member list's own TSLType, so a member row below its territory's high-water mark is not counted.
+ALTER TABLE trusted_list_member ADD COLUMN IF NOT EXISTS tsl_type character varying(255);
 -- Rollback high-water marks of the members of a list of trusted lists: the highest sequence number accepted per
 -- territory and TSLType. They outlive the member rows (a list that moves to another URL, or is dropped and pointed at
 -- again, cannot come back older) and are MACed like the anchors.

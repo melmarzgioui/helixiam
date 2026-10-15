@@ -1064,4 +1064,31 @@ class TrustedListServiceTest {
         assertThat(JDBC.queryForObject("SELECT sequence_number FROM trusted_list_hwm WHERE source_id = ?", Long.class,
                 created.id())).isEqualTo(9);
     }
+
+    @Test
+    void aMemberRowBelowItsHighWaterMark_isNotCounted_andAudited() {
+        // without MACs (dev, no DB_ENCRYPTION) only this check stands between a lowered member row and its anchors
+        final TrustedListService dev = new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
+                new TrustedListLoader(fetcher, clock), (r, type, id, outcome, detail) -> {
+                    if (realm.equals(r)) {
+                        audits.add(type + ":" + outcome);
+                        auditDetails.add(detail);
+                    }
+                }, clock, TrustedListService.Settings.DEFAULTS, TrustedListIntegrity.none(), true);
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer));
+        final TrustedListSource created = dev.create(realm, new TrustedListSource.Config("ut", LOTL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(lotlSigner.certificate()), List.of(PID_TYPE),
+                List.of(), List.of(), 24, true));
+        dev.refreshNow(realm, created.id());
+        assertThat(dev.anchors(realm, List.of("ut"), List.of())).containsExactly(nlIssuer);
+
+        sql("UPDATE trusted_list_member SET sequence_number = 5 WHERE source_id = ?", created.id());
+        sql("UPDATE trusted_list_source SET version = version + 1 WHERE id = ?", created.id());
+        dev.sync();
+
+        assertThat(dev.anchors(realm, List.of("ut"), List.of())).isEmpty();
+        assertThat(auditDetails.stream().filter(d -> String.valueOf(d.get("message")).contains("high-water mark")))
+                .isNotEmpty();
+    }
 }

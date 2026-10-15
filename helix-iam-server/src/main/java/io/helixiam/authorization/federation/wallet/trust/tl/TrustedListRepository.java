@@ -39,7 +39,7 @@ public class TrustedListRepository {
             + "version, config_version, list_of_lists, created_at, updated_at, settings_mac, services_mac";
     private static final String MEMBER_COLUMNS = "source_id, member_key, location, territory, status, services_json, "
             + "sequence_number, list_issued_at, next_update, last_attempt_at, last_success_at, last_error, version, "
-            + "services_mac";
+            + "services_mac, tsl_type";
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
@@ -251,7 +251,7 @@ public class TrustedListRepository {
                     if (raised != 1) {
                         // refused: record it like any refused member, keeping that row's last good state
                         jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
-                                + "(?, ?, ?, ?, 'FAILING', NULL, NULL, NULL, NULL, ?, NULL, ?, 1, NULL) ON CONFLICT "
+                                + "(?, ?, ?, ?, 'FAILING', NULL, NULL, NULL, NULL, ?, NULL, ?, 1, NULL, NULL) ON CONFLICT "
                                 + "(source_id, member_key) DO UPDATE SET last_attempt_at = EXCLUDED.last_attempt_at, "
                                 + "last_error = EXCLUDED.last_error, version = trusted_list_member.version + 1",
                                 id, m.key(), m.location(), m.territory(), now, "ROLLBACK: the list's sequence number "
@@ -259,9 +259,9 @@ public class TrustedListRepository {
                         continue;
                     }
                     jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
-                            + "(?, ?, ?, ?, 'OK', ?, ?, ?, ?, ?, ?, NULL, 1, ?) ON CONFLICT (source_id, member_key) DO "
+                            + "(?, ?, ?, ?, 'OK', ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?) ON CONFLICT (source_id, member_key) DO "
                             + "UPDATE SET status = 'OK', services_json = EXCLUDED.services_json, "
-                            + "services_mac = EXCLUDED.services_mac, "
+                            + "services_mac = EXCLUDED.services_mac, tsl_type = EXCLUDED.tsl_type, "
                             + "sequence_number = EXCLUDED.sequence_number, list_issued_at = EXCLUDED.list_issued_at, "
                             + "next_update = EXCLUDED.next_update, last_attempt_at = EXCLUDED.last_attempt_at, "
                             + "last_success_at = EXCLUDED.last_success_at, last_error = NULL, "
@@ -269,11 +269,12 @@ public class TrustedListRepository {
                             + "NULL OR trusted_list_member.services_json IS NULL "
                             + "OR trusted_list_member.sequence_number <= EXCLUDED.sequence_number",
                             id, m.key(), m.location(), m.territory(), w.servicesJson(), m.sequence(),
-                            m.issuedAt().toEpochMilli(), m.nextUpdate().toEpochMilli(), now, now, w.servicesMac());
+                            m.issuedAt().toEpochMilli(), m.nextUpdate().toEpochMilli(), now, now, w.servicesMac(),
+                            m.tslType());
                 } else {
                     final String error = truncate(m.errorKind() + ": " + m.errorMessage());
                     jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
-                            + "(?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, 1, NULL) ON CONFLICT (source_id, "
+                            + "(?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, 1, NULL, NULL) ON CONFLICT (source_id, "
                             + "member_key) DO UPDATE SET status = EXCLUDED.status, last_attempt_at = "
                             + "EXCLUDED.last_attempt_at, last_error = EXCLUDED.last_error, "
                             + "version = trusted_list_member.version + 1",
@@ -415,7 +416,7 @@ public class TrustedListRepository {
             rs.getString("member_key"), rs.getString("location"), rs.getString("territory"), rs.getString("status"),
             rs.getString("services_json"), longOrNull(rs, "sequence_number"), longOrNull(rs, "list_issued_at"),
             longOrNull(rs, "next_update"), longOrNull(rs, "last_attempt_at"), longOrNull(rs, "last_success_at"),
-            rs.getString("last_error"), rs.getLong("version"), rs.getString("services_mac"));
+            rs.getString("last_error"), rs.getLong("version"), rs.getString("services_mac"), rs.getString("tsl_type"));
 
     private static final RowMapper<TrustedListSource> MAPPER = (rs, i) -> {
         final TrustedListSpec.Format format;

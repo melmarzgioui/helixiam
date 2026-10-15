@@ -1176,6 +1176,7 @@ CREATE TABLE IF NOT EXISTS trusted_list_member (
     last_error      character varying(1000),
     version         bigint                  NOT NULL,
     services_mac    character varying(64),
+    tsl_type        character varying(255),
     PRIMARY KEY (source_id, member_key)
 );
 -- Trusted lists (same as Flyway V84): rollback high-water marks per territory and TSLType of a list of lists.
