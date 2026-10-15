@@ -48,6 +48,12 @@
         return; // the QR code and "Open wallet app" are the whole page
     }
     root.hidden = false;
+    // The DC API is now the recommended path: "Open wallet app" steps back to the secondary style. Only here: without
+    // DC API support the script returned above and the link stays the page's primary button.
+    var open = document.getElementById('walletOpen');
+    if (open) {
+        open.classList.add('secondary');
+    }
 
     function say(message) {
         note.textContent = message || '';

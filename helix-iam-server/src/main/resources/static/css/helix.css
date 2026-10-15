@@ -360,11 +360,12 @@ h1, h2, h3, h4 {
 .hx-wallet-dcapi #walletDcApiNote:empty {
   display: none;
 }
-.hx-wallet-or {
+/* More specific than `.hx-wallet-dcapi p`, so the divider keeps its own spacing. */
+.hx-wallet-dcapi p.hx-wallet-or {
   display: flex;
   align-items: center;
   gap: calc(var(--hx-space) * 2);
-  margin: calc(var(--hx-space) * 4) 0 calc(var(--hx-space) * 3) !important;
+  margin: calc(var(--hx-space) * 4) 0 calc(var(--hx-space) * 3);
   color: var(--hx-ink-muted);
   font-size: 0.875rem;
 }
