@@ -143,6 +143,7 @@ public final class AuthorizationRequestFactory {
         final String requestId = switch (Objects.requireNonNull(flow, "flow")) {
             case SAME_DEVICE -> tx.sameDeviceRequestId();
             case CROSS_DEVICE -> tx.crossDeviceRequestId();
+            case DC_API -> throw new IllegalArgumentException("A DC API request has no request_uri");
         };
         return endpoint(base, tx, "request", requestId);
     }

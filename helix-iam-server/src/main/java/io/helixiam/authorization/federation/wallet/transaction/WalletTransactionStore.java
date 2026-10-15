@@ -48,6 +48,18 @@ public interface WalletTransactionStore {
     Optional<WalletTransaction> claimResponse(String responseId);
 
     /**
+     * OpenID4VP over the W3C Digital Credentials API: atomic CREATED → RESPONSE_RECEIVED with
+     * {@link WalletTransaction.Flow#DC_API}, for the response the login page received from the browser's credential
+     * API and posts back. No request id is fetched in this flow (the page gets the request itself), so a transaction
+     * that is still CREATED is claimed directly; one whose QR or same-device request a wallet already fetched is not
+     * (nor is it afterwards: its request and response ids stop working). The caller must already have checked that the
+     * transaction belongs to the posting browser.
+     *
+     * @return the claimed transaction; empty on a second call (a replay), when absent, expired or not CREATED
+     */
+    Optional<WalletTransaction> claimDcApiResponse(String transactionId);
+
+    /**
      * Task 18 fix round 1: removes a transaction that has not finished (CREATED, REQUEST_FETCHED or
      * RESPONSE_RECEIVED), atomically. The browser that started it has started another wallet login (one live login per
      * browser and provider), so its request and response ids stop working and, in the in-memory store, its slot is
@@ -62,8 +74,9 @@ public interface WalletTransactionStore {
      * <ul>
      *   <li>{@link WalletTransaction.Flow#SAME_DEVICE}: {@code responseCode} is required (the {@code direct_post}
      *       handler returns it to the wallet in the {@code redirect_uri}); it is stored as its hash only.</li>
-     *   <li>{@link WalletTransaction.Flow#CROSS_DEVICE}: {@code responseCode} must be {@code null}; the browser that
-     *       started the login gets a code from {@link #issueResponseCode}.</li>
+     *   <li>{@link WalletTransaction.Flow#CROSS_DEVICE} and {@link WalletTransaction.Flow#DC_API}:
+     *       {@code responseCode} must be {@code null}; the browser that started the login gets a code from
+     *       {@link #issueResponseCode}.</li>
      * </ul>
      *
      * @return {@code false} (and no change) when the transaction is absent, expired or not RESPONSE_RECEIVED, or the
@@ -79,7 +92,7 @@ public interface WalletTransactionStore {
     boolean fail(String transactionId, WalletErrorCode code);
 
     /**
-     * Cross-device only: atomically gives a VERIFIED transaction its response code, for the browser whose binding hash
+     * Cross-device and DC API only: atomically gives a VERIFIED transaction its response code, for the browser whose binding hash
      * matches (constant time). The code is 128-bit SecureRandom, base64url; only its hash is stored, and the raw code
      * is returned exactly once.
      *

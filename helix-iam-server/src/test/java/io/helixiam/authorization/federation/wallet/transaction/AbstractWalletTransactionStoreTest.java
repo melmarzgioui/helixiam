@@ -757,6 +757,86 @@ abstract class AbstractWalletTransactionStoreTest {
     }
 
     /** A clock tests can move. */
+    // ------------------------------------------------------------------------------------------------ DC API
+
+    /** OpenID4VP over the Digital Credentials API: the browser posts the response; one atomic CREATED claim. */
+    @Test
+    void claimDcApiResponse_takesACreatedTransaction_once() {
+        final WalletTransaction tx = created();
+
+        final WalletTransaction claimed = store.claimDcApiResponse(tx.transactionId()).orElseThrow();
+
+        assertThat(claimed.flow()).isEqualTo(Flow.DC_API);
+        assertThat(claimed.status()).isEqualTo(Status.RESPONSE_RECEIVED);
+        assertThat(claimed.nonce()).isEqualTo(tx.nonce());
+        assertThat(claimed.encryptionJwkJson()).isEqualTo(JWK);
+        assertThat(store.claimDcApiResponse(tx.transactionId())).as("single use: a replay").isEmpty();
+        assertThat(statusOf(tx)).isEqualTo(Status.RESPONSE_RECEIVED);
+    }
+
+    @Test
+    void claimDcApiResponse_isRefused_onceAWalletFetchedTheQrOrSameDeviceRequest() {
+        final WalletTransaction crossDevice = requestFetched(Flow.CROSS_DEVICE);
+        final WalletTransaction sameDevice = requestFetched(Flow.SAME_DEVICE);
+
+        assertThat(store.claimDcApiResponse(crossDevice.transactionId())).isEmpty();
+        assertThat(store.claimDcApiResponse(sameDevice.transactionId())).isEmpty();
+        assertThat(store.byTransactionId(crossDevice.transactionId()).orElseThrow().flow())
+                .isEqualTo(Flow.CROSS_DEVICE);
+    }
+
+    @Test
+    void afterADcApiClaim_theRequestIdsAndTheResponseIdAreDead() {
+        final WalletTransaction tx = created();
+        assertThat(store.claimDcApiResponse(tx.transactionId())).isPresent();
+
+        assertThat(store.claimRequest(tx.crossDeviceRequestId())).isEmpty();
+        assertThat(store.claimRequest(tx.sameDeviceRequestId())).isEmpty();
+        assertThat(store.claimResponse(tx.responseId())).isEmpty();
+    }
+
+    @Test
+    void claimDcApiResponse_unknownNullOrExpired_isEmpty() {
+        assertThat(store.claimDcApiResponse(null)).isEmpty();
+        assertThat(store.claimDcApiResponse(random())).isEmpty();
+        final WalletTransaction tx = created();
+        clock.advance(TTL);
+        assertThat(store.claimDcApiResponse(tx.transactionId())).isEmpty();
+    }
+
+    @Test
+    void dcApi_completesWithoutACode_andTheBoundBrowserGetsOneOnce() {
+        final WalletTransaction tx = created();
+        assertThat(store.claimDcApiResponse(tx.transactionId())).isPresent();
+
+        assertThat(store.complete(tx.transactionId(), random(), IDENTITY)).as("no wallet-side code").isFalse();
+        assertThat(store.complete(tx.transactionId(), null, IDENTITY)).isTrue();
+        final WalletTransaction verified = store.byTransactionId(tx.transactionId()).orElseThrow();
+        assertThat(verified.status()).isEqualTo(Status.VERIFIED);
+        assertThat(verified.encryptionJwkJson()).as("the private key is dropped").isNull();
+
+        assertThat(store.issueResponseCode(tx.transactionId(), random())).as("another browser").isEmpty();
+        final String code = store.issueResponseCode(tx.transactionId(), tx.browserBindingHash()).orElseThrow();
+        assertThat(store.issueResponseCode(tx.transactionId(), tx.browserBindingHash())).as("once").isEmpty();
+
+        final WalletTransaction redeemed = store.redeem(code, tx.helixState(), tx.browserBindingHash()).orElseThrow();
+        assertThat(redeemed.verifiedIdentityJson()).isEqualTo(IDENTITY);
+        assertThat(redeemed.flow()).isEqualTo(Flow.DC_API);
+    }
+
+    @Test
+    void dcApi_canFail_afterItsClaim() {
+        final WalletTransaction tx = created();
+        assertThat(store.claimDcApiResponse(tx.transactionId())).isPresent();
+
+        assertThat(store.fail(tx.transactionId(), WalletErrorCode.AUDIENCE_MISMATCH)).isTrue();
+
+        final WalletTransaction failed = store.byTransactionId(tx.transactionId()).orElseThrow();
+        assertThat(failed.status()).isEqualTo(Status.FAILED);
+        assertThat(failed.failureCode()).isEqualTo(WalletErrorCode.AUDIENCE_MISMATCH);
+        assertThat(failed.encryptionJwkJson()).isNull();
+    }
+
     static final class MutableClock extends Clock {
         private volatile Instant now;
 

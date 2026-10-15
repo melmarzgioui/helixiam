@@ -190,12 +190,18 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore, A
     }
 
     @Override
+    public Optional<WalletTransaction> claimDcApiResponse(final String transactionId) {
+        return transition(transactionId, entry -> entry.tx().status() == Status.CREATED
+                ? entry.with(entry.tx().dcApiResponseReceived()) : null).map(Entry::tx);
+    }
+
+    @Override
     public boolean complete(final String transactionId, final String responseCode, final String verifiedIdentityJson) {
         final String codeHash = responseCode == null ? null : SecretHash.of(responseCode);
         final Optional<Entry> done = transition(transactionId, entry -> {
             final WalletTransaction tx = entry.tx();
-            // Same-device: the direct_post handler hands the wallet the code. Cross-device: no code here; the bound
-            // browser gets one from issueResponseCode.
+            // Same-device: the direct_post handler hands the wallet the code. Cross-device and DC API: no code here;
+            // the bound browser gets one from issueResponseCode.
             final boolean codeFitsFlow = tx.flow() == Flow.SAME_DEVICE ? codeHash != null : codeHash == null;
             return tx.status() == Status.RESPONSE_RECEIVED && codeFitsFlow
                     ? entry.with(tx.verified(verifiedIdentityJson), codeHash) : null;
@@ -213,7 +219,8 @@ public class InMemoryWalletTransactionStore implements WalletTransactionStore, A
         final Optional<Entry> issued = transition(transactionId, entry -> {
             final WalletTransaction tx = entry.tx();
             final boolean bindingMatches = SecretHash.matches(browserBindingHash, tx.browserBindingHash());
-            return tx.status() == Status.VERIFIED && tx.flow() == Flow.CROSS_DEVICE && entry.codeHash() == null
+            return tx.status() == Status.VERIFIED && (tx.flow() == Flow.CROSS_DEVICE || tx.flow() == Flow.DC_API)
+                    && entry.codeHash() == null
                     && bindingMatches ? entry.with(tx, codeHash) : null;
         });
         if (issued.isEmpty()) {
