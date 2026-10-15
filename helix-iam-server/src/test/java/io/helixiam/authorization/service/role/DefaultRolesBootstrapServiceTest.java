@@ -68,15 +68,16 @@ class DefaultRolesBootstrapServiceTest {
         assertEquals(List.of("user"),
                 created.stream().filter(UserRoles::isDefaultRole).map(UserRoles::getName).toList());
 
-        // grants: admin→REALM_ADMIN (1) + auditor→view-users/view-clients/view-events (3) = 4
+        // grants: admin→REALM_ADMIN (1) + auditor→view-users/view-clients/view-events/view-identity-providers (4) = 5
         final ArgumentCaptor<AdminRolePermissionEntity> savedGrants = ArgumentCaptor.forClass(AdminRolePermissionEntity.class);
-        verify(grants, org.mockito.Mockito.times(4)).save(savedGrants.capture());
+        verify(grants, org.mockito.Mockito.times(5)).save(savedGrants.capture());
         final List<String> perms = new ArrayList<>(savedGrants.getAllValues().stream()
                 .map(AdminRolePermissionEntity::getPermission).toList());
         assertTrue(perms.contains(AdminPermission.REALM_ADMIN.name()));
         assertTrue(perms.contains(AdminPermission.VIEW_USERS.name()));
         assertTrue(perms.contains(AdminPermission.VIEW_CLIENTS.name()));
         assertTrue(perms.contains(AdminPermission.VIEW_EVENTS.name()));
+        assertTrue(perms.contains(AdminPermission.VIEW_IDENTITY_PROVIDERS.name()));
     }
 
     @Test
@@ -92,7 +93,8 @@ class DefaultRolesBootstrapServiceTest {
         when(grants.findAllByRealmIdAndRoleId("acme", "r-aud")).thenReturn(List.of(
                 grant("acme", "r-aud", AdminPermission.VIEW_USERS),
                 grant("acme", "r-aud", AdminPermission.VIEW_CLIENTS),
-                grant("acme", "r-aud", AdminPermission.VIEW_EVENTS)));
+                grant("acme", "r-aud", AdminPermission.VIEW_EVENTS),
+                grant("acme", "r-aud", AdminPermission.VIEW_IDENTITY_PROVIDERS)));
         when(grants.findAllByRealmIdAndRoleId("acme", "r-user")).thenReturn(List.of());
 
         service.ensureDefaultRoles("acme");

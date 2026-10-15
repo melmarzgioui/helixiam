@@ -1463,7 +1463,7 @@ class TokenStatusListClientTest {
             final boolean unprotectedX5chain = Boolean.TRUE.equals(options.get("unprotectedX5chain"));
             final ByteArrayOutputStream protectedOut = new ByteArrayOutputStream();
             try (CBORGenerator g = (CBORGenerator) factory.createGenerator(protectedOut)) {
-                g.writeStartObject();
+                g.writeStartObject(null, unprotectedX5chain ? 2 : 3); // 1, 16, and 33 unless it moves to unprotected
                 g.writePropertyId(1);
                 g.writeNumber(-7);
                 g.writePropertyId(16);
@@ -1477,7 +1477,7 @@ class TokenStatusListClientTest {
             final byte[] protectedBytes = protectedOut.toByteArray();
             final ByteArrayOutputStream payloadOut = new ByteArrayOutputStream();
             try (CBORGenerator g = (CBORGenerator) factory.createGenerator(payloadOut)) {
-                g.writeStartObject();
+                g.writeStartObject(null, 5); // 2 (sub), 6 (iat), 4 (exp), 65534 (ttl), 65533 (status)
                 g.writePropertyId(2);
                 g.writeString(sub);
                 g.writePropertyId(6);
@@ -1488,7 +1488,7 @@ class TokenStatusListClientTest {
                 g.writePropertyId(65534);
                 g.writeNumber(300);
                 g.writePropertyId(65533);
-                g.writeStartObject();
+                g.writeStartObject(null, 2); // bits, lst
                 g.writeNumberProperty("bits", bits);
                 g.writeBinaryProperty("lst", (byte[]) options.getOrDefault("lst", zlib(pack(bits, statuses))));
                 g.writeEndObject();
@@ -1516,9 +1516,9 @@ class TokenStatusListClientTest {
                 if (!Boolean.TRUE.equals(options.get("untagged"))) {
                     g.writeTag(18);
                 }
-                g.writeStartArray();
+                g.writeStartArray(null, 4); // COSE_Sign1: protected, unprotected, payload, signature
                 g.writeBinary(protectedBytes);
-                g.writeStartObject();
+                g.writeStartObject(null, unprotectedX5chain ? 1 : 0);
                 if (unprotectedX5chain) {
                     g.writePropertyId(33);
                     writeX5chain(g, leaf);
@@ -1535,7 +1535,7 @@ class TokenStatusListClientTest {
     }
 
     private static void writeX5chain(final CBORGenerator g, final Leaf leaf) throws Exception {
-        g.writeStartArray();
+        g.writeStartArray(null, leaf.chain().size());
         for (final X509Certificate c : leaf.chain()) {
             g.writeBinary(c.getEncoded());
         }

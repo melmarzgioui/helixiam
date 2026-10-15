@@ -105,6 +105,8 @@ export interface WalletForm {
   /** Free text: service type URIs to take from those lists (blank: every type the source extracts). */
   trustedListServiceTypes: string;
   revocationChecking: RevocationChecking;
+  /** Required when revocationChecking is OFF (pentest-a INFO-1): an explicit "I understand" confirmation. */
+  acknowledgeRevocationOff: boolean;
   credentialFormats: string[];
   requestedClaims: string[];
   subjectStrategy: SubjectStrategy;
@@ -139,6 +141,7 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
   trustedListSources: [],
   trustedListServiceTypes: "",
   revocationChecking: "HARD_FAIL",
+  acknowledgeRevocationOff: false,
   credentialFormats: [...WALLET_FORMATS],
   requestedClaims: [...DEFAULT_CLAIMS],
   subjectStrategy: "ADMINISTRATIVE_NUMBER",
@@ -161,6 +164,7 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
 /** The stored keys the form owns; any other stored key is carried over unchanged on save. */
 export const WALLET_FORM_KEYS = [
   "accessKeyRef", "clientIdScheme", "clientIdHost", "accessCertificateChain", "trustAnchors", "revocationChecking",
+  "revocationChecking.acknowledgeOff",
   "credentialFormats", "trustedLists.sources", "trustedLists.serviceTypes",
   "pid.requestedClaims", "subject.strategy", "subject.acknowledgeWeakSubject", "minimumLoa", "statusList.required",
   "statusList.onUnavailable", "statusList.maxCacheSeconds", "statusList.allowedHosts", "responseMode",
@@ -207,6 +211,7 @@ export function walletFormFromConfig(config: Record<string, string>): WalletForm
     trustedListSources: list(config["trustedLists.sources"], []),
     trustedListServiceTypes: list(config["trustedLists.serviceTypes"], []).join("\n"),
     revocationChecking: pick(config.revocationChecking, REVOCATION_MODES, "HARD_FAIL"),
+    acknowledgeRevocationOff: text(config["revocationChecking.acknowledgeOff"]).toLowerCase() === "true",
     credentialFormats: list(config.credentialFormats, WALLET_FORMATS),
     requestedClaims: list(config["pid.requestedClaims"], DEFAULT_CLAIMS),
     subjectStrategy: pick(config["subject.strategy"], ["ADMINISTRATIVE_NUMBER", "ATTRIBUTE_TUPLE", "NONE"] as const, "ADMINISTRATIVE_NUMBER"),
@@ -266,6 +271,7 @@ export function walletConfigFromForm(form: WalletForm, base: Record<string, stri
   const types = parseHostList(form.trustedListServiceTypes);
   if (types.length) out["trustedLists.serviceTypes"] = JSON.stringify(types);
   out.revocationChecking = form.revocationChecking;
+  out["revocationChecking.acknowledgeOff"] = String(form.acknowledgeRevocationOff);
   out.credentialFormats = JSON.stringify(form.credentialFormats);
   out["pid.requestedClaims"] = JSON.stringify(form.requestedClaims);
   out["subject.strategy"] = form.subjectStrategy;
@@ -394,6 +400,12 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
   // dc+sd-jwt is requested too (the server's rule, not "either format will do").
   else if (known && formatsOk && formats.includes(MDOC_FORMAT)
     && !claims.some((c) => known.get(c))) add("pid.requestedClaims", "wallet.err.claimsNoMdoc");
+
+  // pentest-a INFO-1: revocation checking OFF accepts a credential signed by a revoked issuer key, so it needs an
+  // explicit confirmation, like the attribute-tuple weak-subject acknowledgement below.
+  if (form.revocationChecking === "OFF" && !form.acknowledgeRevocationOff) {
+    add("revocationChecking", "wallet.err.revocationOffAckRequired");
+  }
 
   if (form.subjectStrategy === "ATTRIBUTE_TUPLE" && !form.acknowledgeWeakSubject) add("subject.strategy", "wallet.err.ackRequired");
   if (form.subjectStrategy === "NONE") {
@@ -528,7 +540,7 @@ const FIELD_OF: Record<keyof WalletForm, string> = {
   accessKeyRef: "accessKeyRef", clientIdScheme: "clientIdHost", clientIdHost: "clientIdHost",
   accessCertificateChain: "accessCertificateChain", trustAnchors: "trustAnchors",
   trustedListSources: "trustedLists.sources", trustedListServiceTypes: "trustedLists.serviceTypes",
-  revocationChecking: "revocationChecking", credentialFormats: "credentialFormats",
+  revocationChecking: "revocationChecking", acknowledgeRevocationOff: "revocationChecking", credentialFormats: "credentialFormats",
   requestedClaims: "pid.requestedClaims", subjectStrategy: "subject.strategy", acknowledgeWeakSubject: "subject.strategy",
   minimumLoa: "minimumLoa", statusRequired: "statusList.required", onUnavailable: "statusList.onUnavailable",
   statusMaxCacheSeconds: "statusList.maxCacheSeconds", statusAllowedHosts: "statusList.allowedHosts",

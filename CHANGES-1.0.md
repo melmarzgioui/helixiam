@@ -40,6 +40,17 @@ question. Newest first within each phase.
   > Spring properties: `spring.jackson2.*` is no longer read; use `spring.jackson.*` (Jackson 3 names, e.g.
   > `spring.jackson.datatype.datetime.*` for date features).
 
+- **Fixed (internal pentest 2026-10-15 follow-ups)** — two internal pentest reports (EUDI wallet
+  surfaces; admin API/trusted lists/core) found no exploitable Critical/High/Medium issue; this
+  batch closes the Info/Low items: a view-only admin can now read trusted lists
+  (`view-identity-providers` permission, `AdminRoutePermissions` read/write split on the
+  `trusted-lists` group); `StrictCbor` rejects indefinite-length CBOR (ISO 18013-5); the console
+  wallet-provider form requires an explicit confirmation before saving
+  `revocationChecking=OFF`; and the verify-only step-up's trust comparison
+  (`WalletVerifyLinkRules.anchorsWithin`) now covers trusted-list sources/service types, not just
+  PEM trust anchors. Also added `WalletVerifyDcApiE2eTest`, the first e2e test driving a verify-only
+  step-up through the W3C Digital Credentials API to `/flow/wallet/callback`. See
+  `docs/compliance/internal-pentest-2026-10-15.md` for the full disposition.
 - **Changed (dependencies)** — the post-1.0 platform-upgrade items from `ROADMAP.md` landed:
   - `helix-sandbox-rp`: **Express 4.22 → 5.3**, **openid-client 5.7 → 6.8** (a full API rewrite — the
     `Issuer`/`Client`/`generators` object API is replaced by the functional API: `discovery()`,

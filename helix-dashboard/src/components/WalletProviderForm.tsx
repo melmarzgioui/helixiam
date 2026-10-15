@@ -468,7 +468,11 @@ export function WalletCredentialsSection(props: WalletSectionProps) {
           <Alert tone="warning" title={t("wallet.warn.revocationSoftFail.title")}>{t("wallet.warn.revocationSoftFail")}</Alert>
         )}
         {form.revocationChecking === "OFF" && (
-          <Alert tone="warning" title={t("wallet.warn.revocationOff.title")}>{t("wallet.warn.revocationOff")}</Alert>
+          <>
+            <Alert tone="warning" title={t("wallet.warn.revocationOff.title")}>{t("wallet.warn.revocationOff")}</Alert>
+            <Checkbox checked={form.acknowledgeRevocationOff} onChange={(on) => onChange({ acknowledgeRevocationOff: on })}
+              label={t("wallet.revocation.ack")} />
+          </>
         )}
         <FormField label={t("wallet.trustedAuthorities.field")} group="radiogroup" error={fe("dcql.trustedAuthorities")}>
           <div className="hx-choicegrid">
@@ -689,7 +693,7 @@ export function WalletReview({ form, keys, linkedOptions }: {
       </Detail>
       <Detail label={t("wallet.review.claims")}>{form.requestedClaims.map((c) => t(`wallet.claim.${c}`)).join(", ") || "—"}</Detail>
       <Detail label={t("wallet.review.anchors")}>{t("wallet.review.anchorsCount", { n: anchors })}</Detail>
-      <Detail label={t("wallet.review.revocation")}>
+      <Detail label={t("wallet.review.revocation")} sub={form.revocationChecking === "OFF" ? t("wallet.revocation.ack") : undefined}>
         {t(form.revocationChecking === "HARD_FAIL" ? "wallet.revocation.hardFail"
           : form.revocationChecking === "SOFT_FAIL" ? "wallet.revocation.softFail" : "wallet.revocation.off")}
       </Detail>

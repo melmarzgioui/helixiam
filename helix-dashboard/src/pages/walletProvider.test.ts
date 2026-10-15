@@ -75,12 +75,19 @@ describe("walletFormFromConfig", () => {
     expect(f.transactionTtlSeconds).toBe("");
     expect(f.statusMaxCacheSeconds).toBe("");
     expect(f.revocationChecking).toBe("HARD_FAIL");
+    expect(f.acknowledgeRevocationOff).toBe(false);
   });
 
   it("reads revocationChecking by name, case-insensitively; an unknown value shows the HARD_FAIL default", () => {
     expect(walletFormFromConfig({ revocationChecking: "SOFT_FAIL" }).revocationChecking).toBe("SOFT_FAIL");
     expect(walletFormFromConfig({ revocationChecking: "off" }).revocationChecking).toBe("OFF");
     expect(walletFormFromConfig({ revocationChecking: "maybe" }).revocationChecking).toBe("HARD_FAIL");
+  });
+
+  it("reads the OFF acknowledgement, case-insensitively", () => {
+    expect(walletFormFromConfig({ revocationChecking: "OFF", "revocationChecking.acknowledgeOff": "TRUE" })
+      .acknowledgeRevocationOff).toBe(true);
+    expect(walletFormFromConfig({ revocationChecking: "OFF" }).acknowledgeRevocationOff).toBe(false);
   });
 
   it("reads the stored flat map: JSON lists, enums by name or wire value, booleans", () => {
@@ -118,7 +125,8 @@ describe("walletConfigFromForm", () => {
     expect(out).toEqual({
       "pid.sdJwtVcts": '["urn:eudi:pid:1"]', logoUrl: "https://x/logo.svg",
       accessKeyRef: "software:acme/access-2026", clientIdScheme: "x509_san_dns", clientIdHost: "verifier.example",
-      trustAnchors: ANCHOR, revocationChecking: "HARD_FAIL", credentialFormats: '["dc+sd-jwt","mso_mdoc"]',
+      trustAnchors: ANCHOR, revocationChecking: "HARD_FAIL", "revocationChecking.acknowledgeOff": "false",
+      credentialFormats: '["dc+sd-jwt","mso_mdoc"]',
       "pid.requestedClaims": '["given_name","family_name","birthdate"]',
       "subject.strategy": "ATTRIBUTE_TUPLE", "subject.acknowledgeWeakSubject": "true",
       minimumLoa: "http://eidas.europa.eu/LoA/high", "statusList.required": "false",
@@ -197,6 +205,15 @@ describe("validateWallet (mirrors WalletConfigValidator)", () => {
   it("ATTRIBUTE_TUPLE needs acknowledgeWeakSubject (reported on subject.strategy, as the server does)", () => {
     expect(validateWallet(valid({ subjectStrategy: "ATTRIBUTE_TUPLE" }), prod())["subject.strategy"]).toBe("wallet.err.ackRequired");
     expect(validateWallet(valid({ subjectStrategy: "ATTRIBUTE_TUPLE", acknowledgeWeakSubject: true }), prod())).toEqual({});
+  });
+
+  // pentest-a INFO-1: turning off issuer-cert revocation checking must require an explicit confirmation.
+  it("revocationChecking=OFF needs acknowledgeRevocationOff (reported on revocationChecking)", () => {
+    expect(validateWallet(valid({ revocationChecking: "OFF" }), prod()).revocationChecking).toBe("wallet.err.revocationOffAckRequired");
+    expect(validateWallet(valid({ revocationChecking: "OFF", acknowledgeRevocationOff: true }), prod())).toEqual({});
+    // HARD_FAIL/SOFT_FAIL never need it, even if the checkbox was left checked from a previous OFF selection.
+    expect(validateWallet(valid({ revocationChecking: "HARD_FAIL", acknowledgeRevocationOff: false }), prod())).toEqual({});
+    expect(validateWallet(valid({ revocationChecking: "SOFT_FAIL", acknowledgeRevocationOff: false }), prod())).toEqual({});
   });
 
   it("direct_post (unencrypted) only in the dev profile", () => {

@@ -37,8 +37,9 @@ import java.util.Map;
  * published, signed list (ETSI TS 119 612 XML or ETSI TS 119 602 LoTE JSON) whose verified service certificates
  * become wallet trust anchors for the providers that name it in {@code trustedLists.sources}.
  *
- * <p>Conventions: access needs {@code manage-identity-providers} ({@code AdminRoutePermissions}, group
- * {@code trusted-lists}); writes need the CSRF header; create/update/delete/refresh are audited by the admin audit
+ * <p>Conventions: reads need {@code view-identity-providers} and writes need {@code manage-identity-providers}
+ * ({@code AdminRoutePermissions}, group {@code trusted-lists}); writes need the CSRF header; create/update/delete/
+ * refresh are audited by the admin audit
  * filter ({@code TRUSTED_LIST_CREATE|UPDATE|DELETE|REFRESH_REQUEST}) and the refresh itself by the service
  * ({@code TRUSTED_LIST_REFRESHED|REFRESH_FAILED}). Bad settings are {@code 400 {message, fieldErrors}}; a refresh
  * while another one holds the source is {@code 409}.

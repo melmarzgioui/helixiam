@@ -58,6 +58,19 @@ class AdminRoutePermissionsTest {
     }
 
     @Test
+    void trustedLists_splitsViewVsManage() {
+        // pentest-b INFO: a view-only admin must be able to read trusted lists without manage-identity-providers.
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/trusted-lists", "GET"))
+                .contains("view-identity-providers");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/trusted-lists/tl-1", "GET"))
+                .contains("view-identity-providers");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/trusted-lists", "POST"))
+                .contains("manage-identity-providers");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/trusted-lists/tl-1", "DELETE"))
+                .contains("manage-identity-providers");
+    }
+
+    @Test
     void sessionsGroup_splitsViewVsManage() {
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/sessions", "GET")).contains("view-events");
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/sessions/s-1", "DELETE")).contains("manage-events");

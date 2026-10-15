@@ -43,7 +43,8 @@ public class DefaultRolesBootstrapService {
             new Definition(DefaultRoles.ADMIN, false, List.of(AdminPermission.REALM_ADMIN)),
             new Definition(DefaultRoles.USER, true, List.of()),
             new Definition(DefaultRoles.AUDITOR, false,
-                    List.of(AdminPermission.VIEW_USERS, AdminPermission.VIEW_CLIENTS, AdminPermission.VIEW_EVENTS)));
+                    List.of(AdminPermission.VIEW_USERS, AdminPermission.VIEW_CLIENTS, AdminPermission.VIEW_EVENTS,
+                            AdminPermission.VIEW_IDENTITY_PROVIDERS)));
 
     private final UserRolesRepository roles;
     private final AdminRolePermissionRepository grants;

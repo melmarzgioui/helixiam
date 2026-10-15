@@ -61,10 +61,81 @@ class WalletVerifyLinkRulesTest {
 
     @Test
     void trustAnchorsTheLinkedConnectionDoesNotTrust_areOnlyFlagged() {
-        assertThat(WalletVerifyLinkRules.anchorsWithin(verify(HIGH, ISSUERS.rootPem()).trustAnchors(),
-                ISSUERS.rootPem() + OTHER.rootPem())).isTrue();
-        assertThat(WalletVerifyLinkRules.anchorsWithin(verify(HIGH, OTHER.rootPem()).trustAnchors(),
-                ISSUERS.rootPem())).isFalse();
-        assertThat(WalletVerifyLinkRules.anchorsWithin("garbage", ISSUERS.rootPem())).isFalse();
+        assertThat(WalletVerifyLinkRules.anchorsWithin(verify(HIGH, ISSUERS.rootPem()),
+                linkedConfig(ISSUERS.rootPem() + OTHER.rootPem(), null, null))).isTrue();
+        assertThat(WalletVerifyLinkRules.anchorsWithin(verify(HIGH, OTHER.rootPem()),
+                linkedConfig(ISSUERS.rootPem(), null, null))).isFalse();
+        assertThat(WalletVerifyLinkRules.anchorsWithin(verifyAnchors("garbage"),
+                linkedConfig(ISSUERS.rootPem(), null, null))).isFalse();
+    }
+
+    // pentest-b LOW: anchorsWithin compared only the PEM trustAnchors, so a connection relying on trusted lists
+    // (no PEM anchors at all) always flagged a spurious warning, even against an identically-configured linked
+    // connection. It must also compare trustedLists.sources and trustedLists.serviceTypes.
+
+    @Test
+    void sameTrustedListSources_noPemAnchorsEither_isWithin() {
+        assertThat(WalletVerifyLinkRules.anchorsWithin(
+                verifyTrustedLists("[\"eu-pid\"]", null),
+                linkedConfig(null, "[\"eu-pid\"]", null))).isTrue();
+    }
+
+    @Test
+    void aTrustedListSourceTheLinkedConnectionDoesNotName_isNotWithin() {
+        assertThat(WalletVerifyLinkRules.anchorsWithin(
+                verifyTrustedLists("[\"eu-pid\",\"extra\"]", null),
+                linkedConfig(null, "[\"eu-pid\"]", null))).isFalse();
+    }
+
+    @Test
+    void aServiceTypeNarrowerThanTheLinkedConnections_isWithin_aWiderOneIsNot() {
+        assertThat(WalletVerifyLinkRules.anchorsWithin(
+                verifyTrustedLists("[\"eu-pid\"]", "[\"PID\"]"),
+                linkedConfig(null, "[\"eu-pid\"]", "[\"PID\",\"MDL\"]"))).isTrue();
+        assertThat(WalletVerifyLinkRules.anchorsWithin(
+                verifyTrustedLists("[\"eu-pid\"]", "[\"PID\",\"MDL\"]"),
+                linkedConfig(null, "[\"eu-pid\"]", "[\"PID\"]"))).isFalse();
+    }
+
+    @Test
+    void emptyServiceTypesOnTheLinkedConnection_meansEveryType_soAnyVerifyServiceTypeIsWithin() {
+        assertThat(WalletVerifyLinkRules.anchorsWithin(
+                verifyTrustedLists("[\"eu-pid\"]", "[\"PID\"]"),
+                linkedConfig(null, "[\"eu-pid\"]", null))).isTrue();
+    }
+
+    private static WalletProviderConfig verifyAnchors(final String anchors) {
+        return verify(HIGH, anchors);
+    }
+
+    private static WalletProviderConfig verifyTrustedLists(final String sources, final String serviceTypes) {
+        final Map<String, String> m = new HashMap<>();
+        m.put("subject.strategy", "NONE");
+        m.put("verify.linkedProvider", "eudi-wallet");
+        m.put("minimumLoa", HIGH);
+        if (sources != null) {
+            m.put("trustedLists.sources", sources);
+        }
+        if (serviceTypes != null) {
+            m.put("trustedLists.serviceTypes", serviceTypes);
+        }
+        return WalletProviderConfig.fromStored("eudi-verify", "Verify", m);
+    }
+
+    private static WalletProviderConfig linkedConfig(final String anchors, final String sources,
+            final String serviceTypes) {
+        final Map<String, String> m = new HashMap<>();
+        m.put("subject.strategy", "ADMINISTRATIVE_NUMBER");
+        m.put("minimumLoa", HIGH);
+        if (anchors != null) {
+            m.put("trustAnchors", anchors);
+        }
+        if (sources != null) {
+            m.put("trustedLists.sources", sources);
+        }
+        if (serviceTypes != null) {
+            m.put("trustedLists.serviceTypes", serviceTypes);
+        }
+        return WalletProviderConfig.fromStored("eudi-wallet", "Wallet", m);
     }
 }

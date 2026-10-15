@@ -20,11 +20,14 @@ accordingly:
 ## Security testing to date
 
 The project has undergone **internal** security work: an adversarial self-review
-([`helix-iam-server/SECURITY-REVIEW.md`](helix-iam-server/SECURITY-REVIEW.md)) and internal
+([`helix-iam-server/SECURITY-REVIEW.md`](helix-iam-server/SECURITY-REVIEW.md)), internal
 automated security testing runs (SAST + live DAST + direct-validator attack harnesses) recorded
-under [`docs/security/`](docs/security/). These are **internal tests on our own code — not an
-independent third-party penetration test** — and do not substitute for one. An independent
-third-party audit and penetration test remain **required before a 1.0 / production release**.
+under [`docs/security/`](docs/security/), and a further internal penetration test covering the EUDI
+wallet surfaces and the admin API / trusted lists / core
+([`docs/compliance/internal-pentest-2026-10-15.md`](docs/compliance/internal-pentest-2026-10-15.md)).
+These are **internal tests on our own code — not an independent third-party penetration test** —
+and do not substitute for one. An independent third-party audit and penetration test remain
+**required before a 1.0 / production release**.
 
 ## Reporting a vulnerability
 

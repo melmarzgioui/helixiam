@@ -215,8 +215,10 @@ public class IdentityProviderAdminController {
         if (!errors.isEmpty()) {
             throw new ProviderValidationException(errors);
         }
-        if (!io.helixiam.authorization.federation.wallet.WalletVerifyLinkRules.anchorsWithin(verify.trustAnchors(),
-                linked.config().get("trustAnchors"))) {
+        final io.helixiam.authorization.federation.wallet.WalletProviderConfig linkedConfig =
+                io.helixiam.authorization.federation.wallet.WalletProviderConfig.fromStored(
+                        verify.subject().linkedProvider(), null, linked.config());
+        if (!io.helixiam.authorization.federation.wallet.WalletVerifyLinkRules.anchorsWithin(verify, linkedConfig)) {
             LOG.warn("Verify-only wallet connection {} in realm {} trusts PID issuers its linked connection {} does not",
                     LogSafe.sanitize(alias), LogSafe.sanitize(realmId),
                     LogSafe.sanitize(verify.subject().linkedProvider()));

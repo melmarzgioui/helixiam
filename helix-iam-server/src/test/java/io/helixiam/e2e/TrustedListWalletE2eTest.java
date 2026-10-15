@@ -255,23 +255,7 @@ class TrustedListWalletE2eTest extends AbstractE2eTest {
 
     @Test
     void anAdminWithoutManageIdentityProviders_getsForbidden() {
-        final String roleName = E2eSeed.unique("tl-realm-only");
-        final E2eHttp.Response role = admin.post("/admin/realms/" + realm + "/roles", Map.of("name", roleName));
-        assertThat(role.status()).as(role.toString()).isEqualTo(201);
-        String roleId = role.json().path("roleId").asText();
-        if (roleId.isBlank()) {
-            for (final JsonNode r : admin.get("/admin/realms/" + realm + "/roles").json()) {
-                if (roleName.equals(r.path("name").asText())) {
-                    roleId = r.path("roleId").asText();
-                }
-            }
-        }
-        assertThat(admin.put("/admin/realms/" + realm + "/admin-roles/" + roleId,
-                Map.of("permissions", List.of("manage-realm"))).status()).isEqualTo(200);
-        final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("tl-scoped"), "Sc0ped-Admin-Passw0rd!");
-        assertThat(admin.post("/admin/realms/" + realm + "/users/" + user.userId() + "/roles", Map.of("roleId", roleId))
-                .status()).isEqualTo(204);
-        final E2eAdminSession realmOnly = E2eAdminSession.login(newBrowser(), realm, user.username(), user.password());
+        final E2eAdminSession realmOnly = scopedAdmin("manage-realm");
         serve(5, TrustedListFixtures.Service.granted("Listed PID Provider", wallet.wallet().pki().root()));
         final String id = createSource("guarded").path("id").asText();
 
@@ -284,7 +268,45 @@ class TrustedListWalletE2eTest extends AbstractE2eTest {
         assertThat(admin.get(lists() + "/" + id).status()).isEqualTo(200);
     }
 
+    @Test
+    void aViewOnlyAdmin_canReadButNotWrite() {
+        // pentest-b INFO: a view-only admin must be able to read trusted lists (view-identity-providers) but not
+        // write them (manage-identity-providers stays required for writes).
+        serve(5, TrustedListFixtures.Service.granted("Listed PID Provider", wallet.wallet().pki().root()));
+        final String id = createSource("view-only").path("id").asText();
+        final E2eAdminSession viewOnly = scopedAdmin("view-identity-providers");
+
+        assertThat(viewOnly.get(lists()).status()).isEqualTo(200);
+        assertThat(viewOnly.get(lists() + "/" + id).status()).isEqualTo(200);
+        assertThat(viewOnly.get(lists() + "/" + id + "/anchors").status()).isEqualTo(200);
+
+        assertThat(viewOnly.post(lists(), Map.of("name", "x")).status()).isEqualTo(403);
+        assertThat(viewOnly.post(lists() + "/" + id + "/refresh", Map.of()).status()).isEqualTo(403);
+        assertThat(viewOnly.delete(lists() + "/" + id).status()).isEqualTo(403);
+    }
+
     // ------------------------------------------------------------------------------------------------ helpers
+
+    /** A user of {@link #realm} whose only admin permission is {@code permission}, logged in. */
+    private E2eAdminSession scopedAdmin(final String permission) {
+        final String roleName = E2eSeed.unique("tl-" + permission);
+        final E2eHttp.Response role = admin.post("/admin/realms/" + realm + "/roles", Map.of("name", roleName));
+        assertThat(role.status()).as(role.toString()).isEqualTo(201);
+        String roleId = role.json().path("roleId").asText();
+        if (roleId.isBlank()) {
+            for (final JsonNode r : admin.get("/admin/realms/" + realm + "/roles").json()) {
+                if (roleName.equals(r.path("name").asText())) {
+                    roleId = r.path("roleId").asText();
+                }
+            }
+        }
+        assertThat(admin.put("/admin/realms/" + realm + "/admin-roles/" + roleId,
+                Map.of("permissions", List.of(permission))).status()).isEqualTo(200);
+        final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("tl-scoped"), "Sc0ped-Admin-Passw0rd!");
+        assertThat(admin.post("/admin/realms/" + realm + "/users/" + user.userId() + "/roles", Map.of("roleId", roleId))
+                .status()).isEqualTo(204);
+        return E2eAdminSession.login(newBrowser(), realm, user.username(), user.password());
+    }
 
     /** Presents a PID from {@code issuer} in a fresh login; returns the plain-language failure reason (or status). */
     private String presentFrom(final TestWallet issuer) {
