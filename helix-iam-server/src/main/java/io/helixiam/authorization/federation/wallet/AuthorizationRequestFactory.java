@@ -258,6 +258,90 @@ public final class AuthorizationRequestFactory {
         return metadata;
     }
 
+    // ------------------------------------------------------------------------------------------------ DC API
+
+    /** OpenID4VP 1.0 Appendix A.2: the response mode of a DC API request. */
+    public static final String DC_API = "dc_api";
+    /** OpenID4VP 1.0 Appendix A.2: the encrypted response mode of a DC API request (HAIP §5.2: the Verifier MUST). */
+    public static final String DC_API_JWT = "dc_api.jwt";
+
+    /**
+     * One {@code DigitalCredentialGetRequest}: what the page passes to
+     * {@code navigator.credentials.get({digital: {requests: [{protocol, data}]}})}.
+     */
+    public record DcApiRequest(String protocol, Map<String, Object> data) {
+    }
+
+    /**
+     * The request for OpenID4VP over the W3C Digital Credentials API (OpenID4VP 1.0 Appendix A; HAIP 1.0 §5.2).
+     *
+     * <ul>
+     *   <li>{@code response_mode}: {@value #DC_API_JWT} when the provider's response mode is {@code direct_post.jwt}
+     *       (the per-transaction encryption key and enc values go into {@code client_metadata} exactly as for the
+     *       redirect flow), {@value #DC_API} for the dev-only {@code direct_post}.</li>
+     *   <li>Signed ({@code openid4vp-v1-signed}, A.3.2.1): {@code data = {request: <JWS>}}, the same signer, header
+     *       ({@code typ}, {@code x5c}) and {@code client_id} as the redirect request object, with
+     *       {@code expected_origins} = {@code expectedOrigins} (A.2: REQUIRED), {@code aud}, {@code iat} and
+     *       {@code exp} as there. Under {@code x509_san_dns} there is no {@code response_uri} host to match
+     *       (§5.9.3: the rule does not apply over the DC API).</li>
+     *   <li>Unsigned ({@code openid4vp-v1-unsigned}, A.3.1): the parameters are {@code data} itself, without
+     *       {@code client_id} (A.2: MUST be omitted).</li>
+     * </ul>
+     * Never {@code response_uri}, {@code redirect_uri}, {@code state} (A.2: not defined) or {@code wallet_nonce}.
+     *
+     * @param expectedOrigins the verifier's own expected origins (configuration; never the caller's request)
+     * @throws IllegalStateException when the DC API is off for the provider, no origin is given, the transaction has
+     *                               expired (or expires within the current second), or the request cannot be built
+     *                               (as {@link #signedRequestObject})
+     */
+    public DcApiRequest dcApiRequest(final WalletTransaction tx, final WalletProviderConfig cfg,
+                                     final SigningKeyHandle key, final List<String> expectedOrigins) {
+        if (!cfg.dcApi().enabled()) {
+            throw new IllegalStateException("The Digital Credentials API is not enabled for this provider");
+        }
+        if (expectedOrigins == null || expectedOrigins.isEmpty()) {
+            throw new IllegalStateException("A DC API request needs at least one expected origin");
+        }
+        final Instant now = clock.instant();
+        if (tx.isExpiredAt(now)) {
+            throw new IllegalStateException("Wallet transaction has expired");
+        }
+        final long exp = tx.expiresAt().getEpochSecond();
+        if (exp <= now.getEpochSecond()) {
+            throw new IllegalStateException("Wallet transaction expires within the current second; "
+                    + "the request object's exp would not be after its iat");
+        }
+        final boolean encrypted = cfg.responseMode() == WalletProviderConfig.ResponseMode.DIRECT_POST_JWT;
+        final Map<String, Object> params = new LinkedHashMap<>();
+        params.put("response_type", "vp_token");
+        params.put("response_mode", encrypted ? DC_API_JWT : DC_API);
+        params.put("nonce", tx.nonce());
+        params.put("dcql_query", dcqlQuery(tx));
+        params.put("client_metadata", clientMetadata(tx, cfg, encrypted));
+        final WalletProviderConfig.DcApi.RequestType type = cfg.dcApi().request();
+        if (type == WalletProviderConfig.DcApi.RequestType.UNSIGNED) {
+            return new DcApiRequest(type.protocol(), Collections.unmodifiableMap(params));
+        }
+        final JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
+                .claim("client_id", clientId(cfg, key))
+                .claim("expected_origins", List.copyOf(expectedOrigins));
+        params.forEach(builder::claim);
+        builder.audience(AUDIENCE)
+                .issueTime(Date.from(Instant.ofEpochSecond(tx.createdAt().getEpochSecond())))
+                .expirationTime(Date.from(Instant.ofEpochSecond(exp)));
+        final JWSHeader header = new JWSHeader.Builder(key.algorithm())
+                .type(new JOSEObjectType(REQUEST_OBJECT_TYP))
+                .x509CertChain(x5c(key))
+                .build();
+        final SignedJWT jwt = new SignedJWT(header, builder.build());
+        try {
+            jwt.sign(key.signer());
+        } catch (final JOSEException e) {
+            throw new IllegalStateException("Could not sign the OpenID4VP DC API request", e);
+        }
+        return new DcApiRequest(type.protocol(), Map.of("request", jwt.serialize()));
+    }
+
     /**
      * The public part of the transaction's ephemeral key with {@code use=enc}, {@code alg=ECDH-ES} and its
      * {@code kid}. The stored key must be an EC P-256 key with a {@code kid} and no conflicting {@code use}/{@code alg}.
