@@ -26,8 +26,9 @@ paths are hardened and tested."
 - Live eID (DigiD/eHerkenning/eIDAS) round-trip validation against real peers.
 - Federation/config import tooling.
 - **EUDI Wallet (OpenID4VP verifier) Phase 4 — interop and stretch** (separate plan, written once Phase 3 of
-  `docs/superpowers/specs/2026-10-09-eudi-wallet-openid4vp.md` merges): an OpenID Foundation conformance run
-  (OpenID4VP 1.0 + HAIP 1.0 verifier profile) with a recorded pass/deviation list; interop against the EU
+  `docs/superpowers/specs/2026-10-09-eudi-wallet-openid4vp.md` merges): ~~an OpenID Foundation conformance run
+  (OpenID4VP 1.0 + HAIP 1.0 verifier profile) with a recorded pass/deviation list~~ — done 2026-10-15, see
+  [`docs/compliance/oid4vp-conformance/README.md`](docs/compliance/oid4vp-conformance/README.md); interop against the EU
   reference wallet plus at least one national test wallet; the W3C Digital Credentials API (`dc_api`/`dc_api.jwt`)
   as the ecosystem-recommended cross-device path (today only redirect same-device and QR cross-device exist, and
   ARF guidance recommends against the latter for conformant EU wallets — see `docs/eudi-wallet.md` §8); an
@@ -42,6 +43,10 @@ paths are hardened and tested."
     in-repo test wallet. A capture from a real EU wallet against this verifier (Phase 4) closes it.
   - Done: a PostgreSQL wallet transaction store, cross-replica identity-provider refresh, and the "wallet linked"
     notification (see `CHANGES-1.0.md`, next release).
+  - From the conformance run (`docs/compliance/oid4vp-conformance/README.md`): decide whether a claimed request
+    object may be fetched again until the response arrives (the suite's `request-uri-fetched-twice`, part of the HAIP
+    certification plan, fails on single-use request objects); support HAIP's DCQL `trusted_authorities` (`aki`) query,
+    derived from the configured trust anchors; report the nonce-entropy heuristic to the suite.
   - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
     (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
     again under the same name would inherit the previous realm's verifier access key and pepper.

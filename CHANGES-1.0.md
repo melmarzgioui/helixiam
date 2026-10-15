@@ -3,6 +3,21 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.10`)
+
+- **EUDI Wallet: OpenID Foundation conformance run** — the OpenID4VP verifier was run against the OpenID Foundation
+  conformance suite (5.3.3, revision `f0133e9`; self-run, not a certification): the HAIP plan
+  (`oid4vp-1final-verifier-haip-test-plan`) and the OpenID4VP 1.0 plan, `dc+sd-jwt` and `mso_mdoc`, `x509_hash` and
+  `x509_san_dns`, `direct_post.jwt` (and `direct_post` in `dev`), `request_uri` GET and POST, same-device and
+  cross-device; 68 modules plus 12 linking runs. Every positive test signed the linked account in and every negative
+  test was refused by the check it targets. No product change was needed. Three findings, each justified in
+  `docs/compliance/oid4vp-conformance/README.md`: the suite's nonce-entropy heuristic warns on 128-bit base64url
+  nonces; `request-uri-fetched-twice` fails because request objects are single use by design; the HAIP cross-device
+  happy flow fails a `redirect_uri` check HAIP requires only for same-device logins. Not tested by the suite and
+  recorded as a follow-up: HAIP's DCQL `trusted_authorities` (`aki`) query is not sent. Logs (secrets removed) are in
+  `docs/compliance/oid4vp-conformance/2026-10-15/`; the harness that repeats the run (suite containers, TLS proxy,
+  test PKI, Playwright driver, export with redaction) is `e2e/oid4vp-conformance/`. `docs/eudi-wallet.md` §8 and §10.
+
 ## v1.0.0-rc.10 (CodeQL follow-up to rc.9)
 
 Clears the CodeQL alerts raised by the rc.9 scan (`845fd29`). Details and the one dismissed alert are in

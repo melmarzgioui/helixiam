@@ -437,8 +437,10 @@ reach; `OFF` only for testing. Providers stored before this change without a `re
   (for example its pending wallet link was taken meanwhile) is a `WALLET_LOGIN_FAILURE`. A wrong code is a retry,
   not an end. A step-up the user **walks away from has no event**: nothing on the server marks that moment (the
   session just expires, and expiry is not observed on every session store).
-- **No independent OpenID Foundation conformance run yet.** This implementation has not been run against the
-  OpenID4VP/HAIP conformance suite; see `ROADMAP.md` Phase 4.
+- **Single-use request objects.** A wallet that fetches the `request_uri` twice gets `404` the second time; the
+  OpenID Foundation suite's `request-uri-fetched-twice` test fails on this (§10).
+- **No `trusted_authorities` in the DCQL query.** HAIP §5 asks verifiers to support the `aki` Trusted Authority
+  Query; HelixIAM does not send one and enforces issuer trust only by validating the chain to `trustAnchors` (§10).
 
 ## 9. Try it: the sandbox demo
 
@@ -447,3 +449,23 @@ wallet to an existing account) is the sandbox relying party's walkthrough:
 **[`helix-sandbox-rp/README.md`](../helix-sandbox-rp/README.md) § "EUDI Wallet (OpenID4VP) — experimental"**. It
 uses a throwaway, dev-only test wallet CLI (`TestWalletCli`) and a one-shot seed script
 (`e2e/wallet-demo/seed.sh`) — nothing in that walkthrough is suitable for production credentials or keys.
+
+## 10. OpenID Foundation conformance run
+
+The verifier was run against the OpenID Foundation conformance suite (version 5.3.3, revision `f0133e9`), with the
+suite playing the wallet, on 2026-10-15: the HAIP certification plan (`oid4vp-1final-verifier-haip-test-plan`) and
+the plain OpenID4VP 1.0 plan (`oid4vp-1final-verifier-test-plan`), for `dc+sd-jwt` and `mso_mdoc`, `x509_hash` and
+`x509_san_dns`, `direct_post.jwt` (and `direct_post` in `dev`), `request_uri` with GET and POST, same-device and
+cross-device. This is a self-run of the open-source suite, not an OpenID Certification.
+
+Every positive test ended in a sign-in and every negative test was refused by the check it targets. The suite's three
+findings are documented, not fixed, because none is a defect:
+
+- a nonce-entropy **warning** on the happy flows: a heuristic that flags most 128-bit base64url nonces;
+- **`request-uri-fetched-twice` fails**: request objects are single use by design (see §8);
+- the **HAIP cross-device** happy flow fails the "`redirect_uri` in the response to the wallet's POST" check, which
+  HAIP §5.1 requires only for same-device logins.
+
+The results per plan and module, the root cause of each finding, the logs and the harness to repeat the run are in
+**[`docs/compliance/oid4vp-conformance/README.md`](compliance/oid4vp-conformance/README.md)**
+(harness: `e2e/oid4vp-conformance/`).
