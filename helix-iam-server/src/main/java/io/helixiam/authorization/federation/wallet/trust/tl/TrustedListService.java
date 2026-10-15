@@ -24,6 +24,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The trusted list sources of every realm (the {@code EuTrustedListSource} of the roadmap): their admin settings, the
@@ -52,6 +56,14 @@ public class TrustedListService implements TrustedListAnchorSource {
     public static final String REFRESH_FAILED = "TRUSTED_LIST_REFRESH_FAILED";
     public static final String STALE = "TRUSTED_LIST_STALE";
     public static final String EXPIRED = "TRUSTED_LIST_EXPIRED";
+    public static final String DISCARDED = "TRUSTED_LIST_REFRESH_DISCARDED";
+
+    /** Renews the leases of running refreshes (one daemon thread for every service instance). */
+    private static final ScheduledExecutorService LEASE_KEEPER = Executors.newSingleThreadScheduledExecutor(r -> {
+        final Thread t = new Thread(r, "helix-trusted-list-lease");
+        t.setDaemon(true);
+        return t;
+    });
 
     /** Where refresh events go (the audit log in production). */
     @FunctionalInterface
@@ -64,7 +76,8 @@ public class TrustedListService implements TrustedListAnchorSource {
      *
      * @param refreshInterval longest time between two refreshes of a healthy source
      * @param retryInterval   wait after a failed refresh
-     * @param lease           how long a refresh may hold the source before another replica may take it over
+     * @param lease           how long a lease lasts without renewal; a running refresh renews it every third of it,
+     *                        so only a replica that died (or hung) loses it
      */
     public record Settings(Duration refreshInterval, Duration retryInterval, Duration lease) {
         public static final Settings DEFAULTS = new Settings(Duration.ofHours(6), Duration.ofMinutes(15),
@@ -191,7 +204,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         if (source.isEmpty()) {
             return source;
         }
-        if (!refresh(source.get())) {
+        if (!refresh(source.get().id())) {
             throw new RefreshBusyException();
         }
         return repository.get(realmId, id);
@@ -214,7 +227,7 @@ public class TrustedListService implements TrustedListAnchorSource {
     public int refreshDue() {
         int refreshed = 0;
         for (final TrustedListSource source : repository.due(clock.millis())) {
-            if (refresh(source)) {
+            if (refresh(source.id())) {
                 refreshed++;
             }
         }
@@ -232,7 +245,8 @@ public class TrustedListService implements TrustedListAnchorSource {
             final TrustedListHealth.Status status = TrustedListHealth.evaluate(source, now);
             if ((status == TrustedListHealth.Status.STALE || status == TrustedListHealth.Status.EXPIRED)
                     && !status.name().equals(source.state().status())
-                    && repository.transition(source.id(), status.name(), now.toEpochMilli())) {
+                    && repository.transition(source.id(), status.name(), source.state().version(),
+                            now.toEpochMilli())) {
                 final Map<String, String> detail = detail(source);
                 detail.put("nextUpdate", instant(source.state().nextUpdate()));
                 detail.put("graceHours", String.valueOf(source.config().graceHours()));
@@ -311,21 +325,52 @@ public class TrustedListService implements TrustedListAnchorSource {
 
     // ------------------------------------------------------------------------------------------------ refresh
 
-    /** One refresh under the lease; false when another holder has it. */
-    private boolean refresh(final TrustedListSource source) {
+    /**
+     * One refresh under the lease; false when another holder (another replica, or this one) has it. The row is read
+     * again after the lease is taken, so the refresh runs with the settings in force, and its result is stored only
+     * while the lease and those settings ({@code config_version}) still hold: a refresh overtaken by a settings change
+     * is dropped and audited as {@link #DISCARDED}, never as a success. The lease is renewed while the load runs.
+     */
+    private boolean refresh(final String id) {
         final Instant now = clock.instant();
-        if (!repository.tryLease(source.id(), owner, now.toEpochMilli(),
-                now.plus(settings.lease()).toEpochMilli())) {
+        if (!repository.tryLease(id, owner, now.toEpochMilli(), now.plus(settings.lease()).toEpochMilli())) {
             return false;
         }
+        final Optional<TrustedListSource> row = repository.byId(id);
+        if (row.isEmpty()) {
+            return true; // deleted meanwhile
+        }
+        final TrustedListSource source = row.get();
+        final long configVersion = source.state().configVersion();
+        final long renewEvery = Math.max(100, settings.lease().toMillis() / 3);
+        final ScheduledFuture<?> keeper = LEASE_KEEPER.scheduleAtFixedRate(() -> {
+            try {
+                repository.renewLease(id, owner, configVersion, clock.millis() + settings.lease().toMillis());
+            } catch (final RuntimeException e) {
+                LOG.debug("trusted lists: lease renewal failed: {}", e.getClass().getSimpleName());
+            }
+        }, renewEvery, renewEvery, TimeUnit.MILLISECONDS);
         final Map<String, String> detail = detail(source);
         try {
-            final LoadedList loaded = loader.load(spec(source), source.realmId());
+            final LoadedList loaded;
+            try {
+                loaded = loader.load(spec(source), source.realmId());
+            } catch (final TrustedListException e) {
+                failed(source, configVersion, now, e.kind().name(), e.getMessage(), detail);
+                return true;
+            } catch (final RuntimeException e) {
+                failed(source, configVersion, now, "INTERNAL", "unexpected error: " + e.getClass().getSimpleName(),
+                        detail);
+                return true;
+            }
             final Instant planned = now.plus(settings.refreshInterval());
             final Instant next = loaded.nextUpdate().isBefore(planned) ? loaded.nextUpdate() : planned;
             final long nextRefresh = Math.max(next.toEpochMilli(), now.plus(Duration.ofMinutes(1)).toEpochMilli());
-            repository.recordSuccess(source.id(), owner, loaded, ServicesCodec.encode(loaded.services()),
-                    now.toEpochMilli(), nextRefresh);
+            if (!repository.recordSuccess(id, owner, configVersion, loaded, ServicesCodec.encode(loaded.services()),
+                    now.toEpochMilli(), nextRefresh)) {
+                discarded(source, detail);
+                return true;
+            }
             final long usable = loaded.services().stream()
                     .filter(s -> TrustAnchors.trustAnchorProblem(s.certificate()) == null).count();
             detail.put("services", String.valueOf(loaded.services().size()));
@@ -338,24 +383,35 @@ public class TrustedListService implements TrustedListAnchorSource {
                     LogSafe.sanitize(source.realmId()), loaded.listsRead(), loaded.services().size(), usable,
                     loaded.sequence(), loaded.nextUpdate());
             audit.emit(source.realmId(), REFRESHED, source.id(), "SUCCESS", detail);
-        } catch (final TrustedListException e) {
-            failed(source, now, e.kind().name(), e.getMessage(), detail);
-        } catch (final RuntimeException e) {
-            failed(source, now, "INTERNAL", "unexpected error: " + e.getClass().getSimpleName(), detail);
+            return true;
         } finally {
+            keeper.cancel(false);
+            repository.releaseLease(id, owner);
             sync();
         }
-        return true;
     }
 
-    private void failed(final TrustedListSource source, final Instant now, final String kind, final String message,
-                        final Map<String, String> detail) {
+    /** The result was not stored: the lease was lost or the settings changed while the list was loading. */
+    private void discarded(final TrustedListSource source, final Map<String, String> detail) {
+        detail.put("reason", "DISCARDED");
+        detail.put("message", "the settings changed or the lease was lost while the list was loading; the result "
+                + "was not stored");
+        LOG.warn("trusted lists: refresh of {} of realm {} discarded: the settings changed or the lease was lost "
+                + "while it ran", LogSafe.sanitize(source.config().name()), LogSafe.sanitize(source.realmId()));
+        audit.emit(source.realmId(), DISCARDED, source.id(), "FAILURE", detail);
+    }
+
+    private void failed(final TrustedListSource source, final long configVersion, final Instant now, final String kind,
+                        final String message, final Map<String, String> detail) {
         final boolean hadGood = source.state().servicesJson() != null && source.state().nextUpdate() != null;
         final TrustedListHealth.Status status = TrustedListHealth.evaluate(source.config().enabled(),
                 hadGood ? Instant.ofEpochMilli(source.state().nextUpdate()) : null,
                 Duration.ofHours(source.config().graceHours()), true, true, now);
-        repository.recordFailure(source.id(), owner, status.name(), kind + ": " + message, now.toEpochMilli(),
-                now.plus(settings.retryInterval()).toEpochMilli());
+        if (!repository.recordFailure(source.id(), owner, configVersion, status.name(), kind + ": " + message,
+                now.toEpochMilli(), now.plus(settings.retryInterval()).toEpochMilli())) {
+            discarded(source, detail);
+            return;
+        }
         detail.put("reason", kind);
         detail.put("message", message);
         detail.put("status", status.name());

@@ -1150,6 +1150,7 @@ CREATE TABLE IF NOT EXISTS trusted_list_source (
     last_error          character varying(1000),
     services_json       text,
     version             bigint                  NOT NULL,
+    config_version      bigint                  NOT NULL DEFAULT 1,
     lease_owner         character varying(64),
     lease_until         bigint,
     created_at          bigint                  NOT NULL,

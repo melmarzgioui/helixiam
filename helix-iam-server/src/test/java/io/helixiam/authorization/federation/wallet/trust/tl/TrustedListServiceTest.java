@@ -99,13 +99,17 @@ class TrustedListServiceTest {
     }
 
     TrustedListService newReplica(final TrustedListFetcher f) {
+        return newReplica(f, TrustedListService.Settings.DEFAULTS);
+    }
+
+    TrustedListService newReplica(final TrustedListFetcher f, final TrustedListService.Settings settings) {
         return new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
                 new TrustedListLoader(f, clock), (r, type, id, outcome, detail) -> {
                     if (realm.equals(r)) {
                         audits.add(type + ":" + outcome);
                         auditDetails.add(detail);
                     }
-                }, clock, TrustedListService.Settings.DEFAULTS);
+                }, clock, settings);
     }
 
     TrustedListSource.Config config(final String name) {
@@ -350,5 +354,161 @@ class TrustedListServiceTest {
                 clock.millis() + 60_000);
         assertThatThrownBy(() -> b.refreshNow(realm, source.id()))
                 .isInstanceOf(TrustedListService.RefreshBusyException.class);
+    }
+
+    // ------------------------------------------------------------------------------------------------ races
+
+    /** A fetcher that blocks inside the fetch until released (the review's Race.java). */
+    static final class Gate implements TrustedListFetcher {
+        final CountDownLatch inFetch = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final TrustedListFetcher delegate;
+
+        Gate(final TrustedListFetcher delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public byte[] fetch(final String url, final String realm) throws TrustedListException {
+            inFetch.countDown();
+            try {
+                release.await(20, TimeUnit.SECONDS);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return delegate.fetch(url, realm);
+        }
+    }
+
+    @Test
+    void refreshInFlightWhenTheAdminRepins_isDiscarded_neverStored_neverAuditedAsSuccess() throws Exception {
+        // Race.java: the old signer is compromised; a list it signed is being fetched while the admin re-pins
+        final TestPki.Leaf oldSigner = TrustedListFixtures.signer("Old (compromised)");
+        final TestPki.Leaf newSigner = TrustedListFixtures.signer("New");
+        final X509Certificate evil = TestPki.create("Evil Issuer").root();
+        served.put(URL, TrustedListFixtures.signedXml(listWith(1000, Service.granted("Evil", evil)), oldSigner));
+        final Gate gate = new Gate(fetcher);
+        final TrustedListService replica = newReplica(gate);
+        final TrustedListSource created = replica.create(realm, new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(oldSigner.certificate()), List.of(PID_TYPE),
+                List.of(), List.of(), 24, true));
+        final ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            final Future<?> inFlight = pool.submit(() -> replica.refreshNow(realm, created.id()));
+            assertThat(gate.inFetch.await(10, TimeUnit.SECONDS)).isTrue();
+            replica.update(realm, created.id(), new TrustedListSource.Config("ut", URL,
+                    TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(newSigner.certificate()), List.of(PID_TYPE),
+                    List.of(), List.of(), 24, true));
+            gate.release.countDown();
+            inFlight.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+        replica.sync();
+        final TrustedListSource now = replica.get(realm, created.id()).orElseThrow();
+
+        assertThat(replica.anchors(realm, List.of("ut"), List.of())).doesNotContain(evil).isEmpty();
+        assertThat(now.state().servicesJson()).isNull();
+        assertThat(now.state().sequenceNumber()).isNull();
+        assertThat(now.config().signerCertificates()).isEqualTo(TestPki.pem(newSigner.certificate()));
+        assertThat(replica.status(now)).isEqualTo(TrustedListHealth.Status.NEVER);
+        assertThat(audits).doesNotContain("TRUSTED_LIST_REFRESHED:SUCCESS").contains("TRUSTED_LIST_REFRESH_DISCARDED:FAILURE");
+        // the re-pinned source is due at once, and its lease is free
+        assertThat(now.state().nextRefreshAt()).isNull();
+        assertThat(new TrustedListRepository(JDBC, TRANSACTIONS).tryLease(now.id(), "probe", clock.millis(),
+                clock.millis() + 1000)).isTrue();
+    }
+
+    @Test
+    void consoleRefresh_whileTheSchedulerRefreshesOnTheSameReplica_isBusy() throws Exception {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final Gate gate = new Gate(fetcher);
+        final TrustedListService replica = newReplica(gate);
+        final TrustedListSource created = replica.create(realm, config("ut"));
+        final ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            // the first refresh of this source (as the scheduler would run it) holds the lease
+            final Future<?> scheduled = pool.submit(() -> replica.refreshNow(realm, created.id()));
+            assertThat(gate.inFetch.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> replica.refreshNow(realm, created.id()))
+                    .isInstanceOf(TrustedListService.RefreshBusyException.class);
+            gate.release.countDown();
+            scheduled.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(fetches.get()).isEqualTo(1);
+    }
+
+    @Test
+    void leaseIsRenewedWhileALongLoadRuns() throws Exception {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListService.Settings shortLease = new TrustedListService.Settings(Duration.ofHours(6),
+                Duration.ofMinutes(15), Duration.ofMillis(900));
+        final CountDownLatch inFetch = new CountDownLatch(1);
+        final TrustedListFetcher slow = (url, r) -> {
+            inFetch.countDown();
+            try {
+                Thread.sleep(2_500); // longer than the lease
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return fetcher.fetch(url, r);
+        };
+        // the lease is real time, so this replica runs on the system clock
+        final TrustedListService replica = new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
+                new TrustedListLoader(slow, java.time.Clock.systemUTC()), (r, t, i, o, d) -> { },
+                java.time.Clock.systemUTC(), shortLease);
+        final TrustedListSource created = replica.create(realm, config("ut"));
+        final ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            final Future<?> running = pool.submit(() -> replica.refreshNow(realm, created.id()));
+            assertThat(inFetch.await(10, TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(1_500); // past the first lease
+            assertThat(new TrustedListRepository(JDBC, TRANSACTIONS).tryLease(created.id(), "other-replica",
+                    System.currentTimeMillis(), System.currentTimeMillis() + 60_000)).as("lease renewed").isFalse();
+            running.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(replica.anchors(realm, List.of("ut"), List.of())).containsExactly(issuer);
+    }
+
+    @Test
+    void lowerSequence_isRefusedBySqlToo() {
+        serve(listWith(9, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        final TrustedListRepository repo = new TrustedListRepository(JDBC, TRANSACTIONS);
+        final TrustedListSource stored = repo.byId(created.id()).orElseThrow();
+        assertThat(repo.tryLease(created.id(), "writer", clock.millis(), clock.millis() + 60_000)).isTrue();
+
+        final boolean written = repo.recordSuccess(created.id(), "writer", stored.state().configVersion(),
+                new LoadedList(List.of(), clock.instant(), clock.instant().plus(Duration.ofDays(1)), 4, 1), "[]",
+                clock.millis(), clock.millis());
+
+        assertThat(written).isFalse();
+        assertThat(repo.byId(created.id()).orElseThrow().state().sequenceNumber()).isEqualTo(9);
+    }
+
+    @Test
+    void staleReplicaHealthCheck_doesNotOverwriteANewerRefresh() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListService a = service;
+        final TrustedListService b = newReplica(fetcher);
+        final TrustedListSource created = a.create(realm, config("ut"));
+        a.refreshNow(realm, created.id());
+        b.sync();
+        clock.advance(Duration.ofDays(32)); // past NextUpdate + grace for the first list
+        serve(listWith(4, Service.granted("Issuer", issuer))); // fresh relative to the new clock
+        a.refreshNow(realm, created.id());
+
+        b.checkHealth(); // b still holds the old snapshot until it syncs
+
+        final TrustedListSource now = a.get(realm, created.id()).orElseThrow();
+        assertThat(now.state().status()).isEqualTo("OK");
+        assertThat(audits).noneMatch(x -> x.startsWith("TRUSTED_LIST_EXPIRED"));
+        b.sync();
+        assertThat(anchors(b)).containsExactly(issuer);
     }
 }

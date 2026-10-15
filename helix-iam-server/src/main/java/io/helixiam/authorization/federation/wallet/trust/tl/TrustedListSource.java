@@ -41,9 +41,11 @@ public record TrustedListSource(String id, String realmId, Config config, State 
      * @param status       the stored status ({@link TrustedListHealth.Status} name) as of the last write
      * @param nextUpdate   the last good list's (earliest) NextUpdate
      * @param servicesJson the last good list's services ({@link ServicesCodec}), null when none
+     * @param version       moves with every write (replicas reload what moved)
+     * @param configVersion moves with every settings change (a refresh started under older settings is discarded)
      */
     public record State(String status, Long lastAttemptAt, Long lastSuccessAt, Long listIssuedAt, Long nextUpdate,
                         Long nextRefreshAt, Long sequenceNumber, Integer listsRead, String lastError,
-                        String servicesJson, long version, long createdAt, long updatedAt) {
+                        String servicesJson, long version, long configVersion, long createdAt, long updatedAt) {
     }
 }

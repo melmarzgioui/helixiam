@@ -53,7 +53,7 @@ public class TrustedListConfiguration {
                 new PinnedTrustedListFetcher(guard, SSLContext.getDefault(), maxBytes), Clock.systemUTC(), maxBytes);
         return new TrustedListService(repository, loader, auditSink(auditLog), Clock.systemUTC(),
                 new TrustedListService.Settings(Duration.ofMinutes(Math.max(5, refreshMinutes)),
-                        Duration.ofMinutes(Math.max(1, retryMinutes)), Duration.ofMinutes(5)));
+                        Duration.ofMinutes(Math.max(1, retryMinutes)), Duration.ofMinutes(2)));
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

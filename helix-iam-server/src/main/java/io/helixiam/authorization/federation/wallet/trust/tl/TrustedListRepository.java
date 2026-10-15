@@ -35,7 +35,7 @@ public class TrustedListRepository {
     private static final String COLUMNS = "id, realm_id, name, url, format, signer_certificates, service_types, "
             + "accepted_statuses, territories, grace_hours, enabled, status, last_attempt_at, last_success_at, "
             + "list_issued_at, next_update, next_refresh_at, sequence_number, lists_read, last_error, services_json, "
-            + "version, created_at, updated_at";
+            + "version, config_version, created_at, updated_at";
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
@@ -109,7 +109,8 @@ public class TrustedListRepository {
                 + "lists_read = NULL, last_error = NULL, services_json = NULL" : "";
         final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET name = ?, url = ?, format = ?, "
                 + "signer_certificates = ?, service_types = ?, accepted_statuses = ?, territories = ?, "
-                + "grace_hours = ?, enabled = ?, version = version + 1, updated_at = ?" + reset
+                + "grace_hours = ?, enabled = ?, version = version + 1, config_version = config_version + 1, "
+                + "lease_owner = NULL, lease_until = NULL, updated_at = ?" + reset
                 + " WHERE realm_id = ? AND id = ?", c.name(), c.url(), c.format().name(), c.signerCertificates(),
                 json(c.serviceTypes()), json(c.acceptedStatuses()), json(c.territories()), c.graceHours(),
                 c.enabled(), now, realmId, id));
@@ -122,43 +123,70 @@ public class TrustedListRepository {
         return n != null && n == 1;
     }
 
-    /** Takes the refresh lease of {@code id} until {@code until} unless another holder's lease is still running. */
+    /**
+     * Takes the refresh lease of {@code id} until {@code until} when no lease is running. Not re-entrant: a second
+     * refresh on the same replica (the console while the scheduler runs) is refused like one on another replica.
+     */
     public boolean tryLease(final String id, final String owner, final long now, final long until) {
         final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET lease_owner = ?, lease_until = ? "
-                + "WHERE id = ? AND (lease_until IS NULL OR lease_until < ? OR lease_owner = ?)",
-                owner, until, id, now, owner));
+                + "WHERE id = ? AND (lease_owner IS NULL OR lease_until IS NULL OR lease_until < ?)",
+                owner, until, id, now));
         return n != null && n == 1;
     }
 
-    /** Stores a verified list (lease holder only) and releases the lease. */
-    public boolean recordSuccess(final String id, final String owner, final LoadedList loaded,
+    /** Extends a running lease; false when it was lost (taken over, or cleared by a settings change). */
+    public boolean renewLease(final String id, final String owner, final long configVersion, final long until) {
+        final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET lease_until = ? "
+                + "WHERE id = ? AND lease_owner = ? AND config_version = ?", until, id, owner, configVersion));
+        return n != null && n == 1;
+    }
+
+    /** Gives a lease back (no-op when it is not held by {@code owner} any more). */
+    public void releaseLease(final String id, final String owner) {
+        tx.executeWithoutResult(s -> jdbc.update("UPDATE trusted_list_source SET lease_owner = NULL, lease_until = NULL "
+                + "WHERE id = ? AND lease_owner = ?", id, owner));
+    }
+
+    /**
+     * Stores a verified list and releases the lease, only while {@code owner} still holds the lease, the settings are
+     * still those of {@code configVersion}, and the sequence number does not go down (rollback, enforced here too).
+     * False means the result was dropped.
+     */
+    public boolean recordSuccess(final String id, final String owner, final long configVersion, final LoadedList loaded,
                                  final String servicesJson, final long now, final long nextRefreshAt) {
         final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET status = ?, last_attempt_at = ?, "
                 + "last_success_at = ?, list_issued_at = ?, next_update = ?, next_refresh_at = ?, sequence_number = ?, "
                 + "lists_read = ?, last_error = NULL, services_json = ?, version = version + 1, lease_owner = NULL, "
-                + "lease_until = NULL WHERE id = ? AND lease_owner = ?",
+                + "lease_until = NULL WHERE id = ? AND lease_owner = ? AND config_version = ? "
+                + "AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
                 TrustedListHealth.Status.OK.name(), now, now, loaded.issuedAt().toEpochMilli(),
                 loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(),
-                servicesJson, id, owner));
-        return n != null && n == 1;
-    }
-
-    /** Records a failed refresh (lease holder only), keeping the last good services, and releases the lease. */
-    public boolean recordFailure(final String id, final String owner, final String status, final String error,
-                                 final long now, final long nextRefreshAt) {
-        final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET status = ?, last_attempt_at = ?, "
-                + "last_error = ?, next_refresh_at = ?, version = version + 1, lease_owner = NULL, lease_until = NULL "
-                + "WHERE id = ? AND lease_owner = ?", status, now, truncate(error), nextRefreshAt, id, owner));
+                servicesJson, id, owner, configVersion, loaded.sequence()));
         return n != null && n == 1;
     }
 
     /**
-     * Moves the stored status to {@code status} unless it already is; true for exactly one caller per transition (so
-     * one replica audits an expiry).
+     * Records a failed refresh, keeping the last good services, and releases the lease; under the same lease and
+     * settings conditions as {@link #recordSuccess}.
      */
-    public boolean transition(final String id, final String status, final long now) {
+    public boolean recordFailure(final String id, final String owner, final long configVersion, final String status,
+                                 final String error, final long now, final long nextRefreshAt) {
+        final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET status = ?, last_attempt_at = ?, "
+                + "last_error = ?, next_refresh_at = ?, version = version + 1, lease_owner = NULL, lease_until = NULL "
+                + "WHERE id = ? AND lease_owner = ? AND config_version = ?", status, now, truncate(error),
+                nextRefreshAt, id, owner, configVersion));
+        return n != null && n == 1;
+    }
+
+    /**
+     * Moves the stored status to {@code status} only when the row is still at {@code expectedVersion} (the state the
+     * caller judged) and not already there; true for exactly one caller per transition (one replica audits it), never
+     * over a newer refresh.
+     */
+    public boolean transition(final String id, final String status, final long expectedVersion, final long now) {
         final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET status = ?, "
-                + "version = version + 1, updated_at = ? WHERE id = ? AND status <> ?", status, now, id, status));
+                + "version = version + 1, updated_at = ? WHERE id = ? AND status <> ? AND version = ?", status, now, id,
+                status, expectedVersion));
         return n != null && n == 1;
     }
 
@@ -210,6 +238,6 @@ public class TrustedListRepository {
                         longOrNull(rs, "next_update"), longOrNull(rs, "next_refresh_at"),
                         longOrNull(rs, "sequence_number"), listsRead,
                         rs.getString("last_error"), rs.getString("services_json"), rs.getLong("version"),
-                        rs.getLong("created_at"), rs.getLong("updated_at")));
+                        rs.getLong("config_version"), rs.getLong("created_at"), rs.getLong("updated_at")));
     };
 }

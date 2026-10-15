@@ -25,7 +25,9 @@ public class TrustedListScheduler implements AutoCloseable {
     private final TrustedListService service;
     private final Duration poll;
     private final Duration check;
-    private ScheduledExecutorService executor;
+    /** Sync and refresh run on their own threads, so a long refresh never delays picking up changes made elsewhere. */
+    private ScheduledExecutorService syncExecutor;
+    private ScheduledExecutorService refreshExecutor;
 
     public TrustedListScheduler(final TrustedListService service, final Duration poll, final Duration check) {
         this.service = service;
@@ -34,19 +36,16 @@ public class TrustedListScheduler implements AutoCloseable {
     }
 
     public synchronized void start() {
-        if (executor != null) {
+        if (syncExecutor != null) {
             return;
         }
-        executor = Executors.newSingleThreadScheduledExecutor(r -> {
-            final Thread t = new Thread(r, "helix-trusted-lists");
-            t.setDaemon(true);
-            return t;
-        });
+        syncExecutor = daemon("helix-trusted-lists-sync");
+        refreshExecutor = daemon("helix-trusted-lists-refresh");
         if (!poll.isZero() && !poll.isNegative()) {
-            executor.scheduleWithFixedDelay(this::sync, 0, poll.toMillis(), TimeUnit.MILLISECONDS);
+            syncExecutor.scheduleWithFixedDelay(this::sync, 0, poll.toMillis(), TimeUnit.MILLISECONDS);
         }
         if (!check.isZero() && !check.isNegative()) {
-            executor.scheduleWithFixedDelay(service::tick, Math.min(check.toMillis(), 5_000), check.toMillis(),
+            refreshExecutor.scheduleWithFixedDelay(service::tick, Math.min(check.toMillis(), 5_000), check.toMillis(),
                     TimeUnit.MILLISECONDS);
             LOG.info("Helix trusted lists: checking sources every {}, polling for changes every {}", check, poll);
         } else {
@@ -63,11 +62,21 @@ public class TrustedListScheduler implements AutoCloseable {
         }
     }
 
+    private static ScheduledExecutorService daemon(final String name) {
+        return Executors.newSingleThreadScheduledExecutor(r -> {
+            final Thread t = new Thread(r, name);
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
     @Override
     public synchronized void close() {
-        if (executor != null) {
-            executor.shutdownNow();
-            executor = null;
+        if (syncExecutor != null) {
+            syncExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+            syncExecutor = null;
+            refreshExecutor = null;
         }
     }
 }
