@@ -165,6 +165,8 @@ class WalletConsoleAdminE2eTest extends AbstractE2eTest {
         assertThat(texts(meta.path("defaultRequestedClaims"))).containsExactly("given_name", "family_name", "birthdate");
         assertThat(texts(meta.path("credentialFormats"))).containsExactly("dc+sd-jwt", "mso_mdoc");
         assertThat(meta.path("devProfile").isBoolean()).isTrue();
+        assertThat(meta.path("flowEngineEnabled").isBoolean()).as("the console warns when it is off").isTrue();
+        assertThat(meta.path("flowEngineEnabled").asBoolean()).isFalse();
     }
 
     @Test
