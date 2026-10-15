@@ -515,18 +515,19 @@ grace hours, the switch and its `configVersion`), the stored services of the sou
 sequence number and NextUpdate, bound to the `configVersion` they were loaded under), and the rollback high-water
 marks. `grace_hours` is also clamped to 0-720 when read. What happens when a check fails:
 
-- **Settings fail** (modified outside HelixIAM, or `DB_ENCRYPTION` changed): the source shows `INTEGRITY`, gives no
-  anchors, `TRUSTED_LIST_INTEGRITY_FAILED` is audited, and every refresh fails with `INTEGRITY` until an admin checks
-  the settings and saves them again (settings are never adopted automatically).
+- **Settings fail**: the MAC is wrong or missing (modified outside HelixIAM, stored before V84, or `DB_ENCRYPTION`
+  changed). The source shows `INTEGRITY`, gives no anchors, `TRUSTED_LIST_INTEGRITY_FAILED` is audited, and every
+  refresh fails with `INTEGRITY` (audited) until an admin checks the settings and saves them again. Settings are never
+  adopted automatically.
 - **Anchors, a member's anchors or high-water marks fail** (or have no MAC) while the settings verify: they give no
   anchors, and the **next refresh discards all loaded state and reloads it from the signed list** with full
   verification, rebuilding the high-water marks from that list; audited as `TRUSTED_LIST_INTEGRITY_RESET`, naming
   what failed.
 - So after **changing `DB_ENCRYPTION`**: save each source again (new settings MAC), then refresh it (the anchors are
   reloaded).
-- **Sources stored before V84** (no MACs; only possible on a database that ran this branch's V81-V83) are marked by
-  V84; their first refresh with `DB_ENCRYPTION` adopts their settings and reloads their anchors, audited as
-  `TRUSTED_LIST_INTEGRITY_RESET` with reason `LEGACY_ADOPTED` (see `SECURITY-REVIEW.md` B.11 for the residual risk).
+- **Sources stored before V84** (no MACs; V81-V84 ship together, so only a database that ran this branch before its
+  release can hold them) are integrity failures like any other: an admin saves each one again, then a refresh
+  reloads its anchors.
 
 Outside the `dev` profile a source cannot be saved without `DB_ENCRYPTION`; in `dev` without it there is no MAC and
 nothing is checked.

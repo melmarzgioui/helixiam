@@ -767,11 +767,12 @@ A re-review of those fixes held for the race, digest, NULL-MAC and state-propaga
 (member rollback across URL moves, integrity recovery, MAC coverage, lost updates, delete in use, lease tokens,
 tampered member view, split signer grace); all are fixed.
 
-**Residual risks (also in `DEFERRED-SECURITY-WORK.md`).** Sources stored before V84 (only on databases that ran this
-unreleased branch's V81-V83) are marked `legacy-unprotected` and adopted, audited, at their first refresh: someone who
-can write the database could mark a row that way to have their settings adopted. That adoption is audited
-(`TRUSTED_LIST_INTEGRITY_RESET`, reason `LEGACY_ADOPTED`) and the row's anchors are reloaded from a list that must
-still verify against the adopted signers. No LOTL pivot chain: a publisher's signer rotation needs a
+A row without a MAC is an integrity failure like a wrong MAC; nothing is ever adopted. V81-V84 ship together, so no
+released database holds pre-V84 rows; a dev database that does gets `INTEGRITY` until an admin saves each source
+again (`FlywayTrustedListIntegrityUpgradeTest`). An earlier design adopted such rows on their first refresh; it was
+removed because a database writer could have marked a row to get its settings adopted.
+
+**Residual risks (also in `DEFERRED-SECURITY-WORK.md`).** No LOTL pivot chain: a publisher's signer rotation needs a
 manual re-pin (fails closed after grace, it never fails open). XAdES signed properties (signing time, signing
 certificate digest) are covered by the signature but not interpreted. LoTE pointers are not followed. Realm
 export/import does not carry sources. A list publisher can still list any CA it wants: pinning a publisher is

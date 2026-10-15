@@ -567,7 +567,7 @@ public class TrustedListService implements TrustedListAnchorSource {
                 final TrustedListSource source = row.get();
                 // a row whose MAC does not match is not used: no anchors from it (fail closed)
                 final boolean intact = settingsIntact(source) && servicesIntact(source);
-                if (!intact && !TrustedListRepository.LEGACY_SETTINGS_MAC.equals(source.state().settingsMac())) {
+                if (!intact) {
                     reportTampering(source, settingsIntact(source) ? "the stored anchors" : "the stored settings");
                 }
                 final List<MemberSnapshot> members = new ArrayList<>();
@@ -667,26 +667,11 @@ public class TrustedListService implements TrustedListAnchorSource {
         final Map<String, String> detail = detail(source);
         try {
             if (!settingsIntact(source)) {
-                if (!(integrity.enabled()
-                        && TrustedListRepository.LEGACY_SETTINGS_MAC.equals(source.state().settingsMac()))) {
-                    // settings that fail their check are never adopted: an admin must check and save them again
-                    failed(source, owner, configVersion, now, "INTEGRITY", "the stored settings failed the integrity "
-                            + "check (modified outside HelixIAM, or DB_ENCRYPTION changed); check and save them "
-                            + "again", detail);
-                    return true;
-                }
-                // a source stored before integrity protection (V84): adopt its settings, reload everything
-                if (!repository.adoptLegacySettings(id, owner, configVersion, settingsMac(id, source.realmId(),
-                        source.config(), configVersion))) {
-                    discarded(source, detail);
-                    return true;
-                }
-                if (!resetLoaded(source, owner, configVersion, "LEGACY_ADOPTED", "the source was stored before "
-                        + "integrity protection: its settings were adopted and its anchors are reloaded from the "
-                        + "signed list", detail)) {
-                    return true;
-                }
-                source = repository.byId(id).orElse(source);
+                // settings that fail their check (or have no MAC) are never adopted: an admin checks and saves them
+                failed(source, owner, configVersion, now, "INTEGRITY", "the stored settings failed the integrity "
+                        + "check (missing or wrong MAC: modified outside HelixIAM, stored before integrity "
+                        + "protection, or DB_ENCRYPTION changed); check and save them again", detail);
+                return true;
             } else {
                 final String broken = brokenLoadedState(source);
                 if (broken != null) {

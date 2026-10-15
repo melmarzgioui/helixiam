@@ -159,8 +159,8 @@ question. Newest first within each phase.
 - **security (trusted lists, re-review).** Rollback high-water marks per territory and TSLType that outlive member rows
   (a moved or re-added list cannot come back older; `trusted_list_hwm`, folded into V84); a failed integrity check of
   the stored anchors, member anchors or marks now resets and reloads them from the signed list at the next refresh
-  (`TRUSTED_LIST_INTEGRITY_RESET`), failing settings still need an admin re-save, and V84 adopts pre-V84 rows at their
-  first refresh (audited); the settings MAC covers name, grace, switch and `config_version` too, anchors are bound to
+  (`TRUSTED_LIST_INTEGRITY_RESET`), and failing or missing settings MACs (including rows stored before V84) need an
+  admin re-save, nothing is adopted; the settings MAC covers name, grace, switch and `config_version` too, anchors are bound to
   `config_version`, grace is clamped on read, and a tampered member shows `INTEGRITY`; updates need the `configVersion`
   read (`409` on a concurrent edit; console "changed by someone else, reload"); deleting a source in use is a `409`;
   one lease token per refresh. **Behaviour change:** the signer-expiry grace is split per ETSI TS 119 615 —

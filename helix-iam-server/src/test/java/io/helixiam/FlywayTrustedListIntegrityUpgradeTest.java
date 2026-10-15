@@ -30,14 +30,15 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Re-review finding 2: a trusted list source stored before V84 (no MACs) must not be stuck in INTEGRITY after the
- * upgrade. After V84 and one refresh with DB_ENCRYPTION set, it is healthy, and the adoption is audited.
+ * A trusted list source stored before V84 (no MACs) is never adopted: after the upgrade it is an integrity failure
+ * (no anchors, refreshes refused, audited), and only an admin re-save followed by a refresh makes it healthy, the
+ * stored anchors then being reloaded from the signed list (audited as well).
  */
 class FlywayTrustedListIntegrityUpgradeTest {
 
     @Test
     @SuppressWarnings("resource")
-    void aV81EraSource_isHealthyAfterTheUpgradeAndOneRefresh() {
+    void aV81EraSource_isAnIntegrityFailure_untilAnAdminSavesItAgain() {
         try (PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:16-alpine")) {
             pg.start();
             final HikariConfig hc = new HikariConfig();
@@ -72,13 +73,25 @@ class FlywayTrustedListIntegrityUpgradeTest {
                         TrustedListService.Settings.DEFAULTS,
                         TrustedListIntegrity.fromSecret("0123456789abcdef0123456789abcdef"), false);
                 service.sync();
-                assertThat(service.anchors("r", List.of("ut"), List.of())).isEmpty(); // unprotected: not trusted yet
+                final TrustedListSource upgraded = service.get("r", "legacy").orElseThrow();
+                assertThat(service.status(upgraded)).isEqualTo(TrustedListHealth.Status.INTEGRITY);
+                assertThat(service.anchors("r", List.of("ut"), List.of())).isEmpty();
+                assertThat(audits).contains("TRUSTED_LIST_INTEGRITY_FAILED:INTEGRITY");
 
+                // a refresh does not adopt it
+                assertThat(service.refreshNow("r", "legacy").orElseThrow().state().lastError()).startsWith("INTEGRITY:");
+                assertThat(audits).contains("TRUSTED_LIST_REFRESH_FAILED:INTEGRITY");
+                assertThat(service.anchors("r", List.of("ut"), List.of())).isEmpty();
+
+                // an admin checks the settings and saves them again; the next refresh reloads the anchors
+                final TrustedListSource current = service.get("r", "legacy").orElseThrow();
+                service.update("r", "legacy", current.config(), current.state().configVersion());
                 final TrustedListSource after = service.refreshNow("r", "legacy").orElseThrow();
 
                 assertThat(service.status(after)).isEqualTo(TrustedListHealth.Status.OK);
                 assertThat(service.anchors("r", List.of("ut"), List.of())).containsExactly(issuer);
-                assertThat(audits).contains("TRUSTED_LIST_INTEGRITY_RESET:LEGACY_ADOPTED");
+                assertThat(audits).contains("TRUSTED_LIST_INTEGRITY_RESET:INTEGRITY_RESET",
+                        "TRUSTED_LIST_REFRESHED:null");
             }
         }
     }

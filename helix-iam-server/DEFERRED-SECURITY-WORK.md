@@ -372,11 +372,6 @@ fail-open path:
   until the source exists in the target realm. Reasoning: pinned signers are trust roots and should be pinned
   deliberately in each realm, not copied by an import.
 
-Accepted (not deferred): rows stored before V84 (no MAC) are adopted, audited, at their first refresh, so a database
-writer could mark a row as such to have its settings adopted. Only databases that ran this unreleased branch's V81-V83
-can hold such rows; the adoption is audited and visible, and the anchors are still reloaded from a list that must
-verify.
-
 Accepted (not deferred): the pinned signers are not checked for revocation. They are pinned explicitly, are refused
 once expired (default grace 0 for top-level lists, ETSI TS 119 615), are audited when expiring, and a compromised one is removed by re-pinning, which
 discards any in-flight refresh. The EUDI reference implementation's test LOTL signer expired on 2026-07-04 and the Commission's acceptance LoTE
