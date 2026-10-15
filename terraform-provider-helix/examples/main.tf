@@ -52,4 +52,9 @@ resource "helix_wallet_identity_provider" "eudi_wallet" {
 
   pid_requested_claims = ["given_name", "family_name", "birthdate"]
   minimum_loa          = "http://eidas.europa.eu/LoA/high"
+
+  # Left unset here: the server defaults this to on for x509_hash + direct_post.jwt (both defaults
+  # above), off otherwise. Set explicitly only if every certificate in trust_anchors carries a
+  # SubjectKeyIdentifier extension — otherwise `true` is refused.
+  # dcql_trusted_authorities = true
 }

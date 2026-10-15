@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -282,9 +283,139 @@ func TestApplyRead_SparseConfigRoundTrips(t *testing.T) {
 	if m.TransactionTTLSeconds.IsNull() == false {
 		t.Fatalf("transactionTtlSeconds absent server-side must read back as null, got %v", m.TransactionTTLSeconds)
 	}
+	if m.DcqlTrustedAuthorities.IsNull() == false {
+		t.Fatalf("dcql_trusted_authorities absent server-side (server default applies) must read back as null, got %v", m.DcqlTrustedAuthorities)
+	}
 	var formats []string
 	if diags := m.CredentialFormats.ElementsAs(ctx, &formats, false); diags.HasError() || len(formats) != 1 || formats[0] != "dc+sd-jwt" {
 		t.Fatalf("unexpected credential_formats: %v (diags %v)", formats, diags)
+	}
+}
+
+// --- dcql_trusted_authorities (master 201cb40e: WalletProviderConfig's "dcql.trustedAuthorities", a
+// nullable boolean read via Reader.optionalBool — unset is a real, distinct state from false, since the
+// server default (on for x509_hash + direct_post.jwt, off otherwise) only applies when the key is absent
+// entirely) ---------------------------------------------------------------------------------------------
+
+func TestToWrite_DcqlTrustedAuthorities_OmittedWhenUnset(t *testing.T) {
+	ctx := context.Background()
+	m := walletIdentityProviderModel{Alias: types.StringValue("w"), DcqlTrustedAuthorities: types.BoolNull()}
+	w, diags := m.toWrite(ctx)
+	if diags.HasError() {
+		t.Fatalf("toWrite: %v", diags)
+	}
+	if _, ok := w.Config["dcql.trustedAuthorities"]; ok {
+		t.Fatalf("unset dcql_trusted_authorities must be omitted so the server default applies, got %q",
+			w.Config["dcql.trustedAuthorities"])
+	}
+}
+
+func TestToWrite_DcqlTrustedAuthorities_EncodesExplicitValue(t *testing.T) {
+	ctx := context.Background()
+	for _, want := range []bool{true, false} {
+		m := walletIdentityProviderModel{Alias: types.StringValue("w"), DcqlTrustedAuthorities: types.BoolValue(want)}
+		w, diags := m.toWrite(ctx)
+		if diags.HasError() {
+			t.Fatalf("toWrite: %v", diags)
+		}
+		if got := w.Config["dcql.trustedAuthorities"]; got != strconv.FormatBool(want) {
+			t.Fatalf("expected dcql.trustedAuthorities=%v, got %q", want, got)
+		}
+	}
+}
+
+func TestApplyRead_DcqlTrustedAuthorities_RoundTrips(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		ip   *IdentityProviderRead
+		want types.Bool
+	}{
+		{"absent", &IdentityProviderRead{Config: map[string]any{}}, types.BoolNull()},
+		{"true", &IdentityProviderRead{Config: map[string]any{"dcql.trustedAuthorities": "true"}}, types.BoolValue(true)},
+		{"false", &IdentityProviderRead{Config: map[string]any{"dcql.trustedAuthorities": "false"}}, types.BoolValue(false)},
+	} {
+		var m walletIdentityProviderModel
+		applyRead(ctx, &m, tc.ip)
+		if !m.DcqlTrustedAuthorities.Equal(tc.want) {
+			t.Fatalf("%s: expected %v, got %v", tc.name, tc.want, m.DcqlTrustedAuthorities)
+		}
+	}
+}
+
+// TestResource_DcqlTrustedAuthorities_NoDrift: leaving the attribute unset through a full
+// create+read+no-op-update cycle must never introduce a diff — the server never stores a default for it
+// (it is computed at use time, not at save time, same as every other defaulted field), so an omitted
+// write must read back exactly as unset, every time.
+func TestResource_DcqlTrustedAuthorities_NoDrift(t *testing.T) {
+	srv, _ := newFakeIdentityProviderServer(t)
+	defer srv.Close()
+	c := newWalletClient(srv.URL)
+	ctx := context.Background()
+	r := &walletIdentityProviderResource{client: c}
+	sch := walletSchema(ctx, t)
+
+	createResp := &resource.CreateResponse{State: newState(ctx, t, sch, &walletIdentityProviderModel{})}
+	r.Create(ctx, resource.CreateRequest{Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+		Alias:        types.StringValue("trusted-authorities-wallet"),
+		AccessKeyRef: types.StringValue("software:gov/primary"),
+		// dcql_trusted_authorities left unset.
+	})}, createResp)
+	if createResp.Diagnostics.HasError() {
+		t.Fatalf("create: %v", createResp.Diagnostics)
+	}
+	var afterCreate walletIdentityProviderModel
+	createResp.State.Get(ctx, &afterCreate)
+	if !afterCreate.DcqlTrustedAuthorities.IsNull() {
+		t.Fatalf("expected dcql_trusted_authorities to stay null after create, got %v", afterCreate.DcqlTrustedAuthorities)
+	}
+
+	noOpResp := &resource.UpdateResponse{State: createResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: createResp.State,
+		Plan:  newPlan(ctx, t, sch, &afterCreate), // the plan is exactly what Create just produced
+	}, noOpResp)
+	if noOpResp.Diagnostics.HasError() {
+		t.Fatalf("no-op update: %v", noOpResp.Diagnostics)
+	}
+	var afterNoOp walletIdentityProviderModel
+	noOpResp.State.Get(ctx, &afterNoOp)
+	if !afterNoOp.DcqlTrustedAuthorities.Equal(afterCreate.DcqlTrustedAuthorities) {
+		t.Fatalf("a no-op plan must not drift dcql_trusted_authorities: before=%v after=%v",
+			afterCreate.DcqlTrustedAuthorities, afterNoOp.DcqlTrustedAuthorities)
+	}
+
+	// Setting it explicitly must round-trip too, and stay stable on a second no-op update.
+	explicitResp := &resource.UpdateResponse{State: noOpResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: noOpResp.State,
+		Plan: newPlan(ctx, t, sch, &walletIdentityProviderModel{
+			Alias:                  types.StringValue("trusted-authorities-wallet"),
+			AccessKeyRef:           types.StringValue("software:gov/primary"),
+			DcqlTrustedAuthorities: types.BoolValue(true),
+		}),
+	}, explicitResp)
+	if explicitResp.Diagnostics.HasError() {
+		t.Fatalf("update (set true): %v", explicitResp.Diagnostics)
+	}
+	var afterExplicit walletIdentityProviderModel
+	explicitResp.State.Get(ctx, &afterExplicit)
+	if !afterExplicit.DcqlTrustedAuthorities.Equal(types.BoolValue(true)) {
+		t.Fatalf("expected dcql_trusted_authorities=true after setting it, got %v", afterExplicit.DcqlTrustedAuthorities)
+	}
+
+	stableResp := &resource.UpdateResponse{State: explicitResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State: explicitResp.State,
+		Plan:  newPlan(ctx, t, sch, &afterExplicit),
+	}, stableResp)
+	if stableResp.Diagnostics.HasError() {
+		t.Fatalf("no-op update (explicit true): %v", stableResp.Diagnostics)
+	}
+	var afterStable walletIdentityProviderModel
+	stableResp.State.Get(ctx, &afterStable)
+	if !afterStable.DcqlTrustedAuthorities.Equal(types.BoolValue(true)) {
+		t.Fatalf("expected dcql_trusted_authorities to stay true, got %v", afterStable.DcqlTrustedAuthorities)
 	}
 }
 

@@ -12,8 +12,9 @@ question. Newest first within each phase.
   admin API never returns a secret's value, though it is stored in plaintext in Terraform state, same as
   any other attribute), `credential_formats`, the `pid_*` PID-request settings, `trust_anchors`,
   `revocation_checking`, the `status_list_*` Token Status List policy, the `subject_*` subject-derivation
-  strategy, `minimum_loa`, `clock_skew_seconds`, `allow_legacy_vc_sd_jwt_typ` and the `limits_*` parser
-  bounds). An attribute left unset is left out of the write so the server's own default applies, with no
+  strategy, `minimum_loa`, `clock_skew_seconds`, `allow_legacy_vc_sd_jwt_typ`, the `limits_*` parser
+  bounds, and (master `201cb40e`) `dcql_trusted_authorities`, the nullable `dcql.trustedAuthorities`
+  DCQL Trusted Authorities Query toggle. An attribute left unset is left out of the write so the server's own default applies, with no
   perpetual diff; import is supported (`terraform import helix_wallet_identity_provider.<name> <alias>`).
   A 400 from the admin API (field-level validation) is reported as one Terraform diagnostic per field,
   attributed to the right attribute where known (`client.go`'s `AdminError`). Removing

@@ -82,6 +82,7 @@ import helix_wallet_identity_provider.<name> <alias>`.
 | `clock_skew_seconds` | optional | 0–60, default 60 |
 | `allow_legacy_vc_sd_jwt_typ` | optional | default false |
 | `limits_max_jwt_bytes` / `limits_cbor_max_depth` / `limits_cbor_max_items` / `limits_cbor_max_bytes` | optional | parser bounds |
+| `dcql_trusted_authorities` | optional | whether the DCQL query carries the `aki` Trusted Authorities Query naming `trust_anchors`' key identifiers. Unset (the default): server decides — on for `client_id_scheme = "x509_hash"` + `response_mode = "direct_post.jwt"`, off otherwise. `true` requires every trust anchor to carry a SubjectKeyIdentifier extension |
 | `id` | computed | the connection alias |
 
 Every attribute above maps to a key of the connection's `config` map on the server
