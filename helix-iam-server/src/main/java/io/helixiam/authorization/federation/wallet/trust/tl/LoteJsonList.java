@@ -23,7 +23,6 @@ import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -35,8 +34,9 @@ import java.util.Set;
  * not change what is signed.
  *
  * <p>A LoTE has no per-service status in the PID provider list (its {@code StatusDeterminationApproach} makes listing
- * itself the trust decision); a service that does carry a {@code ServiceStatus} ending in {@code withdrawn} or
- * {@code deprecated...} is not current. Pointers to other LoTEs are not followed.
+ * itself the trust decision), so a service without {@code ServiceStatus} counts; one that carries a status counts only
+ * when that status is one of the source's accepted statuses (an allowlist, as for XML). Pointers to other LoTEs are
+ * not followed.
  */
 final class LoteJsonList {
 
@@ -135,9 +135,6 @@ final class LoteJsonList {
             for (final JsonNode svc : entity.path("TrustedEntityServices")) {
                 final JsonNode si = svc.path("ServiceInformation");
                 final String status = si.path("ServiceStatus").asText(null);
-                if (status != null && !current(status)) {
-                    continue;
-                }
                 final List<X509Certificate> certs = new ArrayList<>();
                 for (final JsonNode c : si.path("ServiceDigitalIdentity").path("X509Certificates")) {
                     if (certs.size() >= MAX_CERTS) {
@@ -151,11 +148,6 @@ final class LoteJsonList {
         }
         return new Etsi119612List(info.path("LoTEType").asText(null), territory, seq.asLong(), issued, nextUpdate,
                 List.of(), services);
-    }
-
-    private static boolean current(final String status) {
-        final String s = status.toLowerCase(Locale.ROOT);
-        return !s.endsWith("/withdrawn") && !s.contains("deprecated");
     }
 
     private static String multilingual(final JsonNode values) {

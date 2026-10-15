@@ -303,10 +303,14 @@ public final class TrustedListFixtures {
 
     /** One LoTE trusted entity with one service. */
     public record LoteEntity(String name, String country, String serviceName, String serviceType,
-                             X509Certificate certificate) {
+                             X509Certificate certificate, String status) {
 
         public static LoteEntity pid(final String name, final String country, final X509Certificate cert) {
-            return new LoteEntity(name, country, name + " PID", LOTE_PID_TYPE, cert);
+            return new LoteEntity(name, country, name + " PID", LOTE_PID_TYPE, cert, null);
+        }
+
+        public LoteEntity withStatus(final String value) {
+            return new LoteEntity(name, country, serviceName, serviceType, certificate, value);
         }
     }
 
@@ -333,7 +337,11 @@ public final class TrustedListFixtures {
                     .append(e.country()).append("\"}]}},\"TrustedEntityServices\":[{\"ServiceInformation\":{")
                     .append("\"ServiceName\":[{\"lang\":\"en\",\"value\":\"").append(e.serviceName()).append("\"}],")
                     .append("\"ServiceDigitalIdentity\":{\"X509Certificates\":[{\"val\":\"").append(b64(e.certificate()))
-                    .append("\"}]},\"ServiceTypeIdentifier\":\"").append(e.serviceType()).append("\"}}]}");
+                    .append("\"}]},\"ServiceTypeIdentifier\":\"").append(e.serviceType()).append('"');
+            if (e.status() != null) {
+                sb.append(",\"ServiceStatus\":\"").append(e.status()).append('"');
+            }
+            sb.append("}}]}");
         }
         sb.append("]}}");
         return sb.toString();

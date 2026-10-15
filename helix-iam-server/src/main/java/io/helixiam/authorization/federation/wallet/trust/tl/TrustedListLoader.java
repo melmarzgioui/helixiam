@@ -261,6 +261,10 @@ public final class TrustedListLoader {
                     || s.statusStart() != null && s.statusStart().isAfter(now))) {
                 continue;
             }
+            // LoTE: no status means listing is the trust decision; a status must be an accepted one
+            if (!xml && s.status() != null && !spec.acceptedStatuses().contains(s.status())) {
+                continue;
+            }
             for (final X509Certificate cert : s.certificates()) {
                 if (out.size() >= MAX_SERVICES) {
                     throw new TrustedListException(TrustedListException.Kind.POLICY,

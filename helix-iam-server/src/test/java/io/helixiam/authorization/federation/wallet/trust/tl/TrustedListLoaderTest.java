@@ -559,6 +559,28 @@ class TrustedListLoaderTest {
     }
 
     @Test
+    void loteJson_aServiceStatus_mustBeAnAcceptedOne_andNoStatusMeansListed() throws Exception {
+        final X509Certificate issuerC = TestPki.create("PID Issuer C").root();
+        final X509Certificate issuerD = TestPki.create("PID Issuer D").root();
+        served.put(TL_URL, TrustedListFixtures.signedLote(TrustedListFixtures.loteJson(9,
+                Instant.now().plus(90, ChronoUnit.DAYS), List.of(
+                        TrustedListFixtures.LoteEntity.pid("Listed", "DE", issuerA),
+                        TrustedListFixtures.LoteEntity.pid("Withdrawn", "DE", issuerB)
+                                .withStatus("http://uri.etsi.org/19602/SvcStatus/withdrawn"),
+                        TrustedListFixtures.LoteEntity.pid("Suspended", "DE", issuerC)
+                                .withStatus("http://example.org/status/suspended"),
+                        TrustedListFixtures.LoteEntity.pid("Granted", "DE", issuerD)
+                                .withStatus("http://uri.etsi.org/19602/SvcStatus/granted"))), signer));
+        final TrustedListSpec lote = TrustedListSpec.of(TL_URL, TrustedListSpec.Format.ETSI_119602_JSON,
+                List.of(signer.certificate()), Set.of(TrustedListFixtures.LOTE_PID_TYPE));
+
+        assertThat(loader.load(lote, "realm").services()).extracting(ListedService::certificate)
+                .containsExactly(issuerA);
+        assertThat(loader.load(lote.withAcceptedStatuses(Set.of("http://uri.etsi.org/19602/SvcStatus/granted")),
+                "realm").services()).extracting(ListedService::certificate).containsExactly(issuerA, issuerD);
+    }
+
+    @Test
     void loteJson_signedByAnotherKey_isRefused() {
         served.put(TL_URL, TrustedListFixtures.signedLote(TrustedListFixtures.loteJson(9,
                 Instant.now().plus(90, ChronoUnit.DAYS), List.of()), other));
