@@ -184,10 +184,43 @@ class WalletIdentityProviderTest {
         assertThat(enc.getKeyUse()).isEqualTo(KeyUse.ENCRYPTION);
         final JsonNode dcql = StrictJson.MAPPER.readTree(tx.dcqlQueryJson());
         assertThat(dcql).isEqualTo(new DcqlQueryBuilder().pidQuery(provider.config().pid().toQuerySpec(),
-                provider.config().credentialFormats()));
+                provider.config().credentialFormats(), provider.trustAnchors().authorityKeyIdentifiers()));
         assertThat(Duration.between(tx.createdAt(), tx.expiresAt()))
                 .isEqualTo(Duration.ofSeconds(WalletProviderConfig.DEFAULT_TRANSACTION_TTL_SECONDS));
     }
+
+    /**
+     * HAIP §5: under the HAIP profile (the default x509_hash + direct_post.jwt) every Credential Query names the trust
+     * anchors' key identifiers as an aki Trusted Authorities Query, so the wallet offers a PID from an issuer the
+     * provider trusts. A certificate the anchor issued carries that value as its AuthorityKeyIdentifier.
+     */
+    @Test
+    void underHaip_theQueryNamesTheTrustAnchorsKeyIdentifiers_andCanBeTurnedOff() throws Exception {
+        final String issuedAki = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                org.bouncycastle.asn1.x509.AuthorityKeyIdentifier.getInstance(
+                        org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils.parseExtensionValue(
+                                ISSUERS.intermediate().getExtensionValue("2.5.29.35"))).getKeyIdentifier());
+
+        final JsonNode on = dcqlOf(provider());
+        assertThat(on.path("credentials")).isNotEmpty().allSatisfy(credential -> {
+            assertThat(credential.path("trusted_authorities")).hasSize(1);
+            assertThat(credential.path("trusted_authorities").get(0).path("type").asText()).isEqualTo("aki");
+            assertThat(credential.path("trusted_authorities").get(0).path("values"))
+                    .extracting(JsonNode::asText).containsExactly(issuedAki);
+        });
+
+        final Map<String, String> off = valid();
+        off.put("dcql.trustedAuthorities", "false");
+        assertThat(dcqlOf(providers(keys, DeploymentProfile.production()).build(REALM, config(off)))
+                .path("credentials")).allSatisfy(c -> assertThat(c.has("trusted_authorities")).isFalse());
+    }
+
+    private JsonNode dcqlOf(final WalletIdentityProvider provider) throws Exception {
+        final IdentityProvider.RedirectResponse redirect = provider.start(startContext(binding("b-" + UUID_SEQ++)));
+        return StrictJson.MAPPER.readTree(store.byTransactionId(txId(redirect)).orElseThrow().dcqlQueryJson());
+    }
+
+    private static int UUID_SEQ;
 
     @Test
     void eachStartIsANewTransactionWithItsOwnSecrets() throws Exception {

@@ -617,7 +617,7 @@ class WalletConfigValidatorTest {
                 base.customCredentialQueries(), base.trustAnchors(), base.revocationChecking(),
                 new WalletProviderConfig.StatusList(false, null, null, Arrays.asList((String) null)),
                 base.subject(), base.minimumLoa(), base.clockSkewSeconds(), base.allowLegacyVcSdJwtTyp(),
-                base.limits());
+                base.limits(), base.trustedAuthorities());
         assertThat(production.validate(REALM, c))
                 .containsEntry("credentialFormats", "credentialFormats must not contain empty entries")
                 .containsEntry("pid.requestedClaims", "pid.requestedClaims must not contain empty entries")

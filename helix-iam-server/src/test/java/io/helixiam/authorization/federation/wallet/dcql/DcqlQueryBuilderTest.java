@@ -82,6 +82,34 @@ class DcqlQueryBuilderTest {
                 .formatted(SD_JWT_QUERY, MDOC_QUERY)));
     }
 
+    /** HAIP §5 / OpenID4VP §6.1.1.1: every Credential Query carries the aki Trusted Authorities Query. */
+    @Test
+    void trustedAuthorities_areAddedToEveryCredentialQuery_asOneAkiQuery() throws Exception {
+        final ObjectNode query = new DcqlQueryBuilder().pidQuery(PRESET, List.of(SD_JWT, MDOC),
+                List.of("s9tIpPmhxdiuNkHMEWNpYim8S8Y", "eBESrtDIpKesE9fcfTkq7lmtHwdg"));
+
+        final JsonNode expected = json("""
+                [ { "type": "aki", "values": ["s9tIpPmhxdiuNkHMEWNpYim8S8Y", "eBESrtDIpKesE9fcfTkq7lmtHwdg"] } ]""");
+        assertThat(query.path("credentials")).hasSize(2)
+                .allSatisfy(credential -> assertThat(credential.get("trusted_authorities")).isEqualTo(expected));
+        // everything else is the plain preset
+        query.withArray("credentials").forEach(credential -> ((ObjectNode) credential).remove("trusted_authorities"));
+        assertThat((JsonNode) query).isEqualTo(build(PRESET, List.of(SD_JWT, MDOC)));
+    }
+
+    @Test
+    void noAuthorityKeyIdentifiers_meansNoTrustedAuthorities() {
+        final ObjectNode query = new DcqlQueryBuilder().pidQuery(PRESET, List.of(SD_JWT, MDOC), List.of());
+
+        assertThat(query.path("credentials")).allSatisfy(c -> assertThat(c.has("trusted_authorities")).isFalse());
+    }
+
+    @Test
+    void aBlankAuthorityKeyIdentifier_isRefused() {
+        assertThatThrownBy(() -> new DcqlQueryBuilder().pidQuery(PRESET, List.of(SD_JWT), List.of(" ")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void credentialOrderFollowsTheFormatOrder() throws Exception {
         assertThat((JsonNode) build(PRESET, List.of(MDOC, SD_JWT))).isEqualTo(json("""

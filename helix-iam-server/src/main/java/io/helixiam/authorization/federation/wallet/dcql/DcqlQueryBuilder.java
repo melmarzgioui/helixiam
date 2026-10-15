@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.federation.wallet.dcql;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -24,8 +25,9 @@ import java.util.Set;
  * ({@code dc+sd-jwt}, {@code meta.vct_values} = every configured vct, national PIDs included) and {@code pid_mdoc}
  * ({@code mso_mdoc}, {@code meta.doctype_value} = the configured doctype, used as given). With two formats a single
  * required {@code credential_sets} entry lets either one satisfy the request; with one format there is no
- * {@code credential_sets}, so that query is simply required (§6.4.2). Nothing else is emitted: no {@code multiple},
- * claim {@code values}, {@code trusted_authorities} or {@code require_cryptographic_holder_binding} (its default,
+ * {@code credential_sets}, so that query is simply required (§6.4.2). An {@code aki} {@code trusted_authorities} query
+ * is added when asked for (HAIP §5, see {@link #pidQuery(PidQuerySpec, List, List)}). Nothing else is emitted: no
+ * {@code multiple}, claim {@code values} or {@code require_cryptographic_holder_binding} (its default,
  * {@code true}, is what we want), and claim paths are only strings (at most two), never {@code null} wildcards or
  * array indexes.
  *
@@ -131,6 +133,50 @@ public final class DcqlQueryBuilder {
      *                                  type is not configured, or an mdoc query left without any claim
      */
     public ObjectNode pidQuery(final PidQuerySpec spec, final List<String> formats) {
+        return pidQuery(spec, formats, List.of());
+    }
+
+    /**
+     * As {@link #pidQuery(PidQuerySpec, List)}, and when {@code authorityKeyIds} is not empty every Credential Query
+     * also carries {@code "trusted_authorities": [{"type": "aki", "values": authorityKeyIds}]} (OpenID4VP §6.1.1.1,
+     * HAIP §5): the base64url key identifiers of the provider's trust anchors
+     * ({@link io.helixiam.authorization.federation.wallet.trust.TrustAnchors#authorityKeyIdentifiers}), placed after
+     * {@code meta}. It tells the wallet which issuers are acceptable; the PKIX validation of the presentation still
+     * decides.
+     *
+     * @throws IllegalArgumentException additionally for a null or blank key identifier
+     */
+    public ObjectNode pidQuery(final PidQuerySpec spec, final List<String> formats,
+                               final List<String> authorityKeyIds) {
+        if (authorityKeyIds == null || authorityKeyIds.stream().anyMatch(v -> v == null || v.isBlank())) {
+            throw new IllegalArgumentException("authority key identifiers must not be null or blank");
+        }
+        final ObjectNode query = presetQuery(spec, formats);
+        if (!authorityKeyIds.isEmpty()) {
+            for (final JsonNode credential : query.withArray("credentials")) {
+                final ObjectNode q = (ObjectNode) credential;
+                final ObjectNode reordered = JsonNodeFactory.instance.objectNode();
+                final List<String> names = new ArrayList<>();
+                q.fieldNames().forEachRemaining(names::add);
+                for (final String name : names) {
+                    reordered.set(name, q.get(name));
+                    if ("meta".equals(name)) {
+                        final ArrayNode values = reordered.putArray(TRUSTED_AUTHORITIES).addObject()
+                                .put("type", "aki").putArray("values");
+                        authorityKeyIds.forEach(values::add);
+                    }
+                }
+                q.removeAll();
+                q.setAll(reordered);
+            }
+        }
+        return query;
+    }
+
+    /** The DCQL Credential Query member of the Trusted Authorities Query (OpenID4VP §6.1). */
+    public static final String TRUSTED_AUTHORITIES = "trusted_authorities";
+
+    private ObjectNode presetQuery(final PidQuerySpec spec, final List<String> formats) {
         if (formats == null || formats.isEmpty() || new HashSet<>(formats).size() != formats.size()) {
             throw new IllegalArgumentException("formats must be a non-empty list without duplicates");
         }

@@ -20,6 +20,7 @@ import {
   walletFormFromConfig,
   walletFormsEqual,
   walletWarnings,
+  trustedAuthoritiesEffective,
   type WalletForm,
   type WalletValidationContext,
 } from "./walletProvider";
@@ -381,3 +382,28 @@ describe("clearEditedErrors", () => {
     expect(clearEditedErrors(errors, { minimumLoa: "x" })).toBe(errors);
   });
 });
+
+describe("DCQL trusted_authorities (HAIP §5)", () => {
+  it("reads an unset value as the default, and true/false as on/off", () => {
+    expect(walletFormFromConfig({}).trustedAuthorities).toBe("default");
+    expect(walletFormFromConfig({ "dcql.trustedAuthorities": "TRUE" }).trustedAuthorities).toBe("on");
+    expect(walletFormFromConfig({ "dcql.trustedAuthorities": "false" }).trustedAuthorities).toBe("off");
+    expect(walletFormFromConfig({ "dcql.trustedAuthorities": "maybe" }).trustedAuthorities).toBe("default");
+  });
+
+  it("writes on/off, and leaves the key out for the default (which the server decides)", () => {
+    expect(walletConfigFromForm(valid({ trustedAuthorities: "on" }))["dcql.trustedAuthorities"]).toBe("true");
+    expect(walletConfigFromForm(valid({ trustedAuthorities: "off" }))["dcql.trustedAuthorities"]).toBe("false");
+    const stored = walletConfigFromForm(valid({ trustedAuthorities: "default" }), { "dcql.trustedAuthorities": "false" });
+    expect(stored).not.toHaveProperty("dcql.trustedAuthorities");
+  });
+
+  it("is on by default under the HAIP profile (x509_hash + direct_post.jwt) only, like the server", () => {
+    expect(trustedAuthoritiesEffective(valid({ trustedAuthorities: "default" }))).toBe(true);
+    expect(trustedAuthoritiesEffective(valid({ trustedAuthorities: "default", clientIdScheme: "x509_san_dns" }))).toBe(false);
+    expect(trustedAuthoritiesEffective(valid({ trustedAuthorities: "default", responseMode: "direct_post" }))).toBe(false);
+    expect(trustedAuthoritiesEffective(valid({ trustedAuthorities: "on", clientIdScheme: "x509_san_dns" }))).toBe(true);
+    expect(trustedAuthoritiesEffective(valid({ trustedAuthorities: "off" }))).toBe(false);
+  });
+});
+

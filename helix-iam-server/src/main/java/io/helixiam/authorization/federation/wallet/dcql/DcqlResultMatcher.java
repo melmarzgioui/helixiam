@@ -76,7 +76,8 @@ import java.util.regex.Pattern;
  * {@link #MAX_PATH_DEPTH} deep, exactly {@code [namespace, element]} for mdoc; {@code claim_sets} as a non-empty array
  * of non-empty arrays of known claim ids; and {@code credential_sets}. SD-JWT paths are applied to the verifier's
  * claims map member by member; integer (array index) and {@code null} (wildcard) segments, claim {@code values},
- * {@code trusted_authorities} and a malformed {@code claim_sets} are refused with {@link IllegalArgumentException}: the
+ * a {@code trusted_authorities} query other than one well-formed {@code aki} query and a malformed {@code claim_sets}
+ * are refused with {@link IllegalArgumentException}: the
  * query is ours, so such a query is a programming error, never a wallet error.
  */
 public final class DcqlResultMatcher {
@@ -92,7 +93,8 @@ public final class DcqlResultMatcher {
     private static final Pattern QUERY_ID = Pattern.compile("[A-Za-z0-9_-]+");
     private static final Set<String> QUERY_MEMBERS = Set.of("credentials", "credential_sets");
     private static final Set<String> CREDENTIAL_MEMBERS = Set.of("id", "format", "multiple", "meta", "claims",
-            "claim_sets");
+            "claim_sets", DcqlQueryBuilder.TRUSTED_AUTHORITIES);
+    private static final Set<String> TRUSTED_AUTHORITY_MEMBERS = Set.of("type", "values");
     private static final Set<String> CLAIM_MEMBERS = Set.of("id", "path");
     private static final Set<String> SET_MEMBERS = Set.of("options", "required");
 
@@ -351,6 +353,31 @@ public final class DcqlResultMatcher {
         return new Query(byId, List.copyOf(parsed));
     }
 
+    /**
+     * HAIP §5: the builder may add one {@code aki} Trusted Authorities Query (OpenID4VP §6.1.1.1). It is a hint for the
+     * wallet only and is not enforced here: the presentation verifiers' PKIX validation to the trust anchors decides
+     * which issuers are accepted. Anything but a well-formed {@code aki} query is a programming error.
+     */
+    private static void checkTrustedAuthorities(final JsonNode node) {
+        if (node == null) {
+            return;
+        }
+        if (!node.isArray() || node.isEmpty()) {
+            throw new IllegalArgumentException("trusted_authorities must be a non-empty array");
+        }
+        for (final JsonNode authority : node) {
+            onlyMembers(authority, TRUSTED_AUTHORITY_MEMBERS, "trusted authorities query");
+            if (!"aki".equals(text(authority.get("type"), "trusted authorities type"))) {
+                throw new IllegalArgumentException("only the aki trusted authorities query is supported");
+            }
+            final JsonNode values = authority.get("values");
+            if (values == null || !values.isArray() || values.isEmpty()) {
+                throw new IllegalArgumentException("trusted authorities values must be a non-empty array");
+            }
+            values.forEach(value -> text(value, "trusted authorities value"));
+        }
+    }
+
     private static CredentialQuery credentialQuery(final JsonNode node) {
         onlyMembers(node, CREDENTIAL_MEMBERS, "credential query");
         final String id = text(node.get("id"), "credential query id");
@@ -358,6 +385,7 @@ public final class DcqlResultMatcher {
             throw new IllegalArgumentException("credential query id is not alphanumeric, '_' or '-'");
         }
         final String format = text(node.get("format"), "credential query format");
+        checkTrustedAuthorities(node.get(DcqlQueryBuilder.TRUSTED_AUTHORITIES));
         final JsonNode multiple = node.get("multiple");
         if (multiple != null && !multiple.isBoolean()) {
             throw new IllegalArgumentException("credential query multiple must be a boolean");

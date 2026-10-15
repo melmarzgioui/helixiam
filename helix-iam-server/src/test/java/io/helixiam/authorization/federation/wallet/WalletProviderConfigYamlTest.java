@@ -168,4 +168,20 @@ class WalletProviderConfigYamlTest {
         assertThat(validator.validate("acme", c)).containsEntry("accessCertificateKeyRef",
                 "accessCertificateKeyRef was renamed to accessKeyRef");
     }
+
+    @Test
+    void trustedAuthorities_bindsFromYaml_andIsUnsetByDefault() throws Exception {
+        final FederationProviderProperties p = bind("""
+                helix:
+                  federation:
+                    wallet:
+                      - alias: off
+                        trustedAuthorities: false
+                      - alias: default
+                """);
+        assertThat(p.getWallet().get(0).trustedAuthorities()).isFalse();
+        assertThat(p.getWallet().get(0).sendsTrustedAuthorities()).isFalse();
+        assertThat(p.getWallet().get(1).trustedAuthorities()).isNull();
+        assertThat(p.getWallet().get(1).sendsTrustedAuthorities()).isTrue();
+    }
 }

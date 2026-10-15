@@ -37,6 +37,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -207,7 +208,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
     private String dcqlQuery() {
         try {
             return StrictJson.MAPPER.writeValueAsString(
-                    queryBuilder.pidQuery(config.pid().toQuerySpec(), config.credentialFormats()));
+                    queryBuilder.pidQuery(config.pid().toQuerySpec(), config.credentialFormats(),
+                            config.sendsTrustedAuthorities() ? trustAnchors.authorityKeyIdentifiers() : List.of()));
         } catch (final JsonProcessingException e) {
             throw new IllegalStateException("Could not encode the DCQL query", e);
         }

@@ -20,7 +20,8 @@ import { AdminApiError } from "../api/adminError";
 import type { CertificateInfo, VerifierKey, WalletAdminApi, WalletMetadata } from "../api/wallet";
 import {
   LOA_LADDER, MDOC_FORMAT, SD_JWT_FORMAT, TTL_RANGE, commonName, expiryState, parseHostList, sanCheck,
-  validateKeyImport, walletWarnings, type KeyImportForm, type WalletForm, type WalletValidationContext,
+  trustedAuthoritiesEffective, validateKeyImport, walletWarnings, type KeyImportForm, type WalletForm,
+  type WalletValidationContext,
 } from "../pages/walletProvider";
 
 // The EUDI Wallet (OpenID4VP) provider form, shared by the "Add identity provider" wizard (one group per step) and
@@ -401,6 +402,20 @@ export function WalletCredentialsSection(props: WalletSectionProps) {
         {form.revocationChecking === "OFF" && (
           <Alert tone="warning" title={t("wallet.warn.revocationOff.title")}>{t("wallet.warn.revocationOff")}</Alert>
         )}
+        <FormField label={t("wallet.trustedAuthorities.field")} group="radiogroup" error={fe("dcql.trustedAuthorities")}>
+          <div className="hx-choicegrid">
+            <RadioCard roving selected={form.trustedAuthorities === "default"} onSelect={() => onChange({ trustedAuthorities: "default" })}
+              title={t("wallet.trustedAuthorities.default")}
+              description={t("wallet.trustedAuthorities.defaultDesc", {
+                state: t(trustedAuthoritiesEffective({ ...form, trustedAuthorities: "default" })
+                  ? "wallet.trustedAuthorities.stateOn" : "wallet.trustedAuthorities.stateOff"),
+              })} />
+            <RadioCard roving selected={form.trustedAuthorities === "on"} onSelect={() => onChange({ trustedAuthorities: "on" })}
+              title={t("wallet.trustedAuthorities.on")} description={t("wallet.trustedAuthorities.onDesc")} />
+            <RadioCard roving selected={form.trustedAuthorities === "off"} onSelect={() => onChange({ trustedAuthorities: "off" })}
+              title={t("wallet.trustedAuthorities.off")} description={t("wallet.trustedAuthorities.offDesc")} />
+          </div>
+        </FormField>
       </Section>
     </>
   );
@@ -518,6 +533,9 @@ export function WalletReview({ form, keys }: { form: WalletForm; keys: VerifierK
       <Detail label={t("wallet.review.revocation")}>
         {t(form.revocationChecking === "HARD_FAIL" ? "wallet.revocation.hardFail"
           : form.revocationChecking === "SOFT_FAIL" ? "wallet.revocation.softFail" : "wallet.revocation.off")}
+      </Detail>
+      <Detail label={t("wallet.review.trustedAuthorities")}>
+        {t(trustedAuthoritiesEffective(form) ? "wallet.trustedAuthorities.on" : "wallet.trustedAuthorities.off")}
       </Detail>
       <Detail label={t("wallet.review.subject")}>
         {form.subjectStrategy === "ADMINISTRATIVE_NUMBER" ? t("wallet.subject.adminNumber") : t("wallet.subject.tuple")}

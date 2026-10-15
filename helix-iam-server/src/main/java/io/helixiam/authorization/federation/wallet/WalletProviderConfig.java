@@ -67,7 +67,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         RequestUriMethod requestUriMethod, Integer transactionTtlSeconds, List<String> credentialFormats, Pid pid,
         List<String> customCredentialQueries, String trustAnchors, TrustAnchors.RevocationMode revocationChecking,
         StatusList statusList, Subject subject, String minimumLoa, Integer clockSkewSeconds,
-        boolean allowLegacyVcSdJwtTyp, Limits limits) {
+        boolean allowLegacyVcSdJwtTyp, Limits limits, Boolean trustedAuthorities) {
 
     public static final String DEFAULT_INVOCATION_SCHEME = "haip-vp";
     public static final int DEFAULT_TRANSACTION_TTL_SECONDS = 300;
@@ -95,6 +95,17 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         minimumLoa = isBlank(minimumLoa) ? DEFAULT_MINIMUM_LOA : minimumLoa.trim();
         clockSkewSeconds = clockSkewSeconds == null ? DEFAULT_CLOCK_SKEW_SECONDS : clockSkewSeconds;
         limits = limits == null ? new Limits(null, null, null, null) : limits;
+    }
+
+    /**
+     * Whether the DCQL query carries the {@code aki} Trusted Authorities Query (HAIP §5, OpenID4VP §6.1.1.1) naming the
+     * trust anchors' key identifiers (stored {@code dcql.trustedAuthorities}). Unset: on under the HAIP profile
+     * ({@code x509_hash} with {@code direct_post.jwt}), off otherwise, since a wallet outside HAIP need not understand
+     * it. It only helps the wallet choose a credential; the PKIX validation to {@code trustAnchors} decides.
+     */
+    public boolean sendsTrustedAuthorities() {
+        return trustedAuthorities != null ? trustedAuthorities
+                : clientIdScheme == ClientIdScheme.X509_HASH && responseMode == ResponseMode.DIRECT_POST_JWT;
     }
 
     /** {@code client_id} prefix (OpenID4VP §5.9.3). */
@@ -295,7 +306,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
                         r.bool("subject.acknowledgeWeakSubject")),
                 r.text("minimumLoa"), r.integer("clockSkewSeconds"), r.bool("allowLegacyVcSdJwtTyp"),
                 new Limits(r.integer("limits.maxJwtBytes"), r.integer("limits.cborMaxDepth"),
-                        r.integer("limits.cborMaxItems"), r.integer("limits.cborMaxBytes")));
+                        r.integer("limits.cborMaxItems"), r.integer("limits.cborMaxBytes")),
+                r.optionalBool("dcql.trustedAuthorities"));
         return new Parsed(config, Collections.unmodifiableMap(r.errors));
     }
 
@@ -367,6 +379,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         put(m, "limits.cborMaxDepth", String.valueOf(limits.cborMaxDepth()));
         put(m, "limits.cborMaxItems", String.valueOf(limits.cborMaxItems()));
         put(m, "limits.cborMaxBytes", String.valueOf(limits.cborMaxBytes()));
+        put(m, "dcql.trustedAuthorities", trustedAuthorities == null ? null : String.valueOf(trustedAuthorities));
         return m;
     }
 
@@ -439,6 +452,18 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
             }
             fail(key, key + " must be true or false");
             return false;
+        }
+
+        /** {@code null} when unset (the setting then takes its documented default). */
+        Boolean optionalBool(final String key) {
+            final String v = text(key);
+            if (v == null) {
+                return null;
+            }
+            if ("true".equalsIgnoreCase(v.trim()) || "false".equalsIgnoreCase(v.trim())) {
+                return Boolean.valueOf(v.trim().toLowerCase(java.util.Locale.ROOT));
+            }
+            return fail(key, key + " must be true or false");
         }
 
         <E extends Enum<E>> E enumValue(final String key, final Class<E> type, final Function<E, String> wire) {
