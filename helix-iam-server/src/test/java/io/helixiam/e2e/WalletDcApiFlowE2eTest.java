@@ -250,6 +250,37 @@ class WalletDcApiFlowE2eTest extends AbstractE2eTest {
         assertThat(poll(login).path("status").asText()).isEqualTo("PENDING");
     }
 
+    /** Review fix: the request is signed once per transaction, and fetched at most ten times. */
+    @Test
+    void theRequestIsSignedOnce_andFetchedAtMostTenTimes() {
+        final Login login = startLogin(newBrowser(), alias);
+        final Page page = login.dcApi();
+
+        final E2eHttp.Response first = post(login, page.requestUrl(), null);
+        assertThat(first.status()).isEqualTo(200);
+        for (int i = 2; i <= 10; i++) {
+            final E2eHttp.Response again = post(login, page.requestUrl(), null);
+            assertThat(again.status()).as("fetch " + i).isEqualTo(200);
+            assertThat(again.json().path("data").path("request").asText()).as("the same JWS, not signed again")
+                    .isEqualTo(first.json().path("data").path("request").asText());
+        }
+        assertThat(post(login, page.requestUrl(), null).status()).isEqualTo(429);
+    }
+
+    /** Review fix: the size limit runs before the CSRF and session filters read the body. */
+    @Test
+    void aTwoMegabyteFormPostWithoutCsrf_isRefusedForItsSize() {
+        final Login login = startLogin(newBrowser(), alias);
+        final Page page = login.dcApi();
+
+        for (final String url : List.of(page.requestUrl(), page.responseUrl())) {
+            final E2eHttp.Response tooBig = newBrowser().postBytes(url, "application/x-www-form-urlencoded",
+                    ("_csrf=x&data=" + "a".repeat(2 * 1024 * 1024)).getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            assertThat(tooBig.status()).as(url).isEqualTo(413);
+        }
+        assertThat(poll(login).path("status").asText()).isEqualTo("PENDING");
+    }
+
     @Test
     void aProviderWithoutTheDcApi_offersNothing_andItsEndpointsAre404() {
         final String plain = E2eSeed.unique("eudi-plain");

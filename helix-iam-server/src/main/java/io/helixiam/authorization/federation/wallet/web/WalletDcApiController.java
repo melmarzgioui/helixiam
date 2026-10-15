@@ -49,7 +49,9 @@ import java.util.Optional;
  *       "data": {...}}} for {@code navigator.credentials.get} ({@link AuthorizationRequestFactory#dcApiRequest}), with
  *       the provider's expected origins from configuration ({@code dcApi.expectedOrigins}, else the origin of
  *       {@code idp.base.url}). The transaction is not changed and must still be CREATED (a wallet has not fetched its
- *       QR or same-device request): a user who cancels the browser's credential sheet can still scan the QR code.</li>
+ *       QR or same-device request): a user who cancels the browser's credential sheet can still scan the QR code. The
+ *       request is signed once per transaction and served again from {@link DcApiRequestCache}; the 11th fetch of a
+ *       transaction is {@code 429}.</li>
  *   <li>{@code POST …/wallet/dc-api/response?tx=} ({@code application/json}, at most
  *       {@code helix.wallet.max-request-bytes}): the {@code DigitalCredential} as {@code {"protocol", "data"}}, handled
  *       by {@link WalletResponseHandler#handleDcApi}. Verified: {@code 200 {"status":"COMPLETED","next":<the broker
@@ -69,6 +71,8 @@ public class WalletDcApiController {
     private final String idpBaseUrl;
     private final int maxBytes;
     private final AuthorizationRequestFactory requests = new AuthorizationRequestFactory();
+    /** One signature per transaction, at most {@link DcApiRequestCache#MAX_FETCHES} fetches (review fix). */
+    private final DcApiRequestCache cache = new DcApiRequestCache();
 
     public WalletDcApiController(final IdentityProviderRegistry registry, final WalletResponseHandler responses,
                                  @Value("${idp.base.url}") final String idpBaseUrl,
@@ -91,12 +95,18 @@ public class WalletDcApiController {
         final WalletIdentityProvider provider = bound.provider();
         final AuthorizationRequestFactory.DcApiRequest dcApi;
         try {
-            dcApi = requests.dcApiRequest(bound.tx(), provider.config(), provider.signingKey(),
-                    provider.config().dcApi().effectiveOrigins(idpBaseUrl));
+            dcApi = cache.fetch(bound.tx().transactionId(), bound.tx().expiresAt(), () -> requests.dcApiRequest(
+                    bound.tx(), provider.config(), provider.signingKey(),
+                    provider.config().dcApi().effectiveOrigins(idpBaseUrl))).orElse(null);
         } catch (final RuntimeException e) {
             LOG.warn("Wallet DC API request not issued: alias={} realm={} tx={} error={}", LogSafe.sanitize(alias),
                     LogSafe.sanitize(bound.tx().realmId()), bound.tx().transactionId(), e.getClass().getSimpleName());
             return json(HttpStatus.NOT_FOUND, Map.of());
+        }
+        if (dcApi == null) {
+            LOG.warn("Wallet DC API request refused, too many fetches: alias={} realm={} tx={}",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(bound.tx().realmId()), bound.tx().transactionId());
+            return json(HttpStatus.TOO_MANY_REQUESTS, Map.of());
         }
         LOG.info("Wallet DC API request issued: alias={} realm={} tx={} protocol={}", LogSafe.sanitize(alias),
                 LogSafe.sanitize(bound.tx().realmId()), bound.tx().transactionId(), dcApi.protocol());

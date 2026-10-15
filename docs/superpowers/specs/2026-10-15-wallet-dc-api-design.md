@@ -92,11 +92,16 @@ session's `BrowserBinding` must hash to the transaction's, constant time; anythi
 Security's CSRF check (`X-XSRF-TOKEN` header, double-submit cookie; these paths are *not* CSRF-exempt):
 - `POST …/wallet/dc-api/request?tx=` → `200 {"protocol": "...", "data": {...}}` (no-store). `404` when DC API is off
   for the provider, the transaction is not this browser's/realm's/provider's, or it is no longer `CREATED`.
-- `POST …/wallet/dc-api/response?tx=` with `application/json` `{"protocol": "...", "data": {...}}` (body limit: the
-  same 256 KiB wallet filter now also covers this path) → verified: `200 {"status":"COMPLETED","next":"<callback with
+- `POST …/wallet/dc-api/response?tx=` with `application/json` `{"protocol": "...", "data": {...}}` → verified: `200 {"status":"COMPLETED","next":"<callback with
   a fresh response code>"}`; a wallet error object: `200 {"status":"FAILED","reason":"declined"|"technical"}`;
   refused: `400 {"status":"FAILED","reason":<plain-language class>}`; wrong browser/tx: `404`. `protocol` must be the
   one the server offered. The specific check is logged and audited, never returned.
+Body limit (review fix): `WalletRequestBodyLimitFilter` also matches `/realms/*/broker/*/wallet/dc-api/*`. It runs
+first, before Spring Security, so an oversized post (declared length or a body read up to the limit + 1 byte) is
+`413` before the CSRF and session filters read or parse anything; for these paths the filter passes the query string
+on as the only parameters (`tx`) and the body unparsed. Request cost (review fix): the request is signed once per
+transaction and served again from an in-memory per-instance cache (`DcApiRequestCache`, entries until the
+transaction's expiry, bounded); the 11th fetch of one transaction is `429`.
 The code goes straight to the bound browser, which follows `next` to the broker callback; redemption is unchanged
 (code + session state + browser binding, single use).
 
