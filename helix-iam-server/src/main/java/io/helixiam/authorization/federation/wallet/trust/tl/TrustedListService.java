@@ -132,7 +132,6 @@ public class TrustedListService implements TrustedListAnchorSource {
     private final AuditSink audit;
     private final Clock clock;
     private final Settings settings;
-    private final String owner = "helix-" + UUID.randomUUID();
     private final Map<String, Snapshot> snapshots = new ConcurrentHashMap<>();
 
     private final TrustedListIntegrity integrity;
@@ -549,6 +548,8 @@ public class TrustedListService implements TrustedListAnchorSource {
      */
     private boolean refresh(final String id) {
         final Instant now = clock.instant();
+        // a fresh token per refresh: a refresh can only renew, release or write under its own lease
+        final String owner = "helix-" + UUID.randomUUID();
         if (!repository.tryLease(id, owner, now.toEpochMilli(), now.plus(settings.lease()).toEpochMilli())) {
             return false;
         }
@@ -570,7 +571,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         try {
             if (!settingsIntact(source) || !servicesIntact(source)
                     || members(source).stream().anyMatch(m -> !memberIntact(m))) {
-                failed(source, configVersion, now, "INTEGRITY", "the stored settings or anchors failed the integrity "
+                failed(source, owner, configVersion, now, "INTEGRITY", "the stored settings or anchors failed the integrity "
                         + "check (modified outside HelixIAM, or DB_ENCRYPTION changed); re-save the settings", detail);
                 return true;
             }
@@ -578,10 +579,10 @@ public class TrustedListService implements TrustedListAnchorSource {
             try {
                 loaded = loader.load(spec(source), source.realmId());
             } catch (final TrustedListException e) {
-                failed(source, configVersion, now, e.kind().name(), e.getMessage(), detail);
+                failed(source, owner, configVersion, now, e.kind().name(), e.getMessage(), detail);
                 return true;
             } catch (final RuntimeException e) {
-                failed(source, configVersion, now, "INTERNAL", "unexpected error: " + e.getClass().getSimpleName(),
+                failed(source, owner, configVersion, now, "INTERNAL", "unexpected error: " + e.getClass().getSimpleName(),
                         detail);
                 return true;
             }
@@ -593,7 +594,7 @@ public class TrustedListService implements TrustedListAnchorSource {
                     ? repository.recordListOfListsSuccess(id, owner, configVersion, loaded,
                             servicesMac(id, "[]", loaded.sequence(), loaded.nextUpdate().toEpochMilli(), true),
                             memberWrites(source, before, loaded, now), now.toEpochMilli(), nextRefresh)
-                    : storeSingle(id, configVersion, loaded, now, nextRefresh);
+                    : storeSingle(id, owner, configVersion, loaded, now, nextRefresh);
             if (!stored) {
                 discarded(source, detail);
                 return true;
@@ -622,8 +623,8 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
     }
 
-    private boolean storeSingle(final String id, final long configVersion, final LoadedList loaded, final Instant now,
-                                final long nextRefresh) {
+    private boolean storeSingle(final String id, final String owner, final long configVersion, final LoadedList loaded,
+                                final Instant now, final long nextRefresh) {
         final String json = ServicesCodec.encode(loaded.services());
         return repository.recordSuccess(id, owner, configVersion, loaded, json,
                 servicesMac(id, json, loaded.sequence(), loaded.nextUpdate().toEpochMilli(), false), now.toEpochMilli(),
@@ -722,8 +723,8 @@ public class TrustedListService implements TrustedListAnchorSource {
         audit.emit(source.realmId(), DISCARDED, source.id(), "FAILURE", detail);
     }
 
-    private void failed(final TrustedListSource source, final long configVersion, final Instant now, final String kind,
-                        final String message, final Map<String, String> detail) {
+    private void failed(final TrustedListSource source, final String owner, final long configVersion,
+                        final Instant now, final String kind, final String message, final Map<String, String> detail) {
         final boolean hadGood = source.state().servicesJson() != null && source.state().nextUpdate() != null;
         final TrustedListHealth.Status status = TrustedListHealth.evaluate(source.config().enabled(),
                 hadGood ? Instant.ofEpochMilli(source.state().nextUpdate()) : null,

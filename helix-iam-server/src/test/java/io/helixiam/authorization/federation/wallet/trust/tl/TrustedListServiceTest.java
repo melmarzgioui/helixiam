@@ -768,4 +768,23 @@ class TrustedListServiceTest {
         assertThat(dev.get(realm, created.id()).orElseThrow().state().servicesMac()).isNull();
         assertThat(dev.anchors(realm, List.of("ut"), List.of())).containsExactly(issuer);
     }
+
+    @Test
+    void everyRefreshTakesTheLeaseWithItsOwnToken() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final List<String> tokens = new CopyOnWriteArrayList<>();
+        final String[] id = new String[1];
+        final TrustedListService replica = newReplica((url, r) -> {
+            tokens.add(JDBC.queryForObject("SELECT lease_owner FROM trusted_list_source WHERE id = ?", String.class,
+                    id[0]));
+            return fetcher.fetch(url, r);
+        });
+        id[0] = replica.create(realm, config("ut")).id();
+
+        replica.refreshNow(realm, id[0]);
+        replica.refreshNow(realm, id[0]);
+
+        assertThat(tokens).hasSize(2).doesNotContainNull();
+        assertThat(tokens.get(0)).isNotEqualTo(tokens.get(1));
+    }
 }
