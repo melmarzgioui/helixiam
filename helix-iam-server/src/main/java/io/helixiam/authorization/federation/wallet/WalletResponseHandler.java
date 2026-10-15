@@ -214,8 +214,7 @@ public class WalletResponseHandler {
             LOG.warn("Wallet DC API response refused before claim: alias={} realm={} tx={} reason={}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(realmId), bound.transactionId(),
                     WalletErrorCode.INVALID_RESPONSE.reason());
-            audit.emit(WalletLoginAudit.failure(realmId, bound.transactionId(), alias, null, null,
-                    WalletErrorCode.INVALID_RESPONSE, WalletLoginAudit.DC_API));
+            audit.emit(dcApiFailure(bound, realmId, alias, null, null, WalletErrorCode.INVALID_RESPONSE));
             return new Result.Rejected(WalletErrorCode.INVALID_RESPONSE);
         }
         final WalletTransactionStore store = provider.transactions();
@@ -223,16 +222,14 @@ public class WalletResponseHandler {
         if (tx == null) {
             LOG.warn("Wallet DC API response refused: alias={} realm={} tx={} reason={}", LogSafe.sanitize(alias),
                     LogSafe.sanitize(realmId), bound.transactionId(), WalletErrorCode.REPLAY.reason());
-            audit.emit(WalletLoginAudit.failure(realmId, bound.transactionId(), alias, null, null,
-                    WalletErrorCode.REPLAY, WalletLoginAudit.DC_API));
+            audit.emit(dcApiFailure(bound, realmId, alias, null, null, WalletErrorCode.REPLAY));
             return new Result.Rejected(WalletErrorCode.REPLAY);
         }
         try {
             return WalletStatusAudit.duringTransaction(tx.transactionId(), () -> verifyDcApi(provider, tx, parsed));
         } catch (final WalletVerificationException e) {
             store.fail(tx.transactionId(), e.code());
-            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, e.format(), e.issuerDn(),
-                    e.code(), WalletLoginAudit.DC_API));
+            audit.emit(dcApiFailure(tx, realmId, alias, e.format(), e.issuerDn(), e.code()));
             if (e.code() == WalletErrorCode.WALLET_ERROR || e.code() == WalletErrorCode.WALLET_ACCESS_DENIED) {
                 LOG.info("Wallet answered the DC API request with an error: alias={} realm={} tx={}",
                         LogSafe.sanitize(alias), LogSafe.sanitize(realmId), tx.transactionId());
@@ -244,8 +241,7 @@ public class WalletResponseHandler {
             return new Result.Rejected(e.code());
         } catch (final RuntimeException e) {
             store.fail(tx.transactionId(), WalletErrorCode.INVALID_RESPONSE);
-            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, null, null,
-                    WalletErrorCode.INVALID_RESPONSE, WalletLoginAudit.DC_API));
+            audit.emit(dcApiFailure(tx, realmId, alias, null, null, WalletErrorCode.INVALID_RESPONSE));
             LOG.error("Wallet DC API response could not be processed: alias={} realm={} tx={} error={}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(realmId), tx.transactionId(),
                     e.getClass().getSimpleName());
@@ -399,6 +395,15 @@ public class WalletResponseHandler {
             return new WalletSubject.Unavailable(WalletSubject.Reason.STRATEGY_NOT_SUPPORTED);
         }
         return subjects.resolve(realmId, matched, linked.get().config());
+    }
+
+    /** As {@link #failure} for the DC API path: a verification's refusal is a verification failure, else a login's. */
+    private static io.helixiam.authorization.security.audit.AuditEvent dcApiFailure(final WalletTransaction tx,
+            final String realmId, final String alias, final String format, final String issuerDn,
+            final WalletErrorCode code) {
+        return tx.purpose() == WalletTransaction.Purpose.VERIFY ? failure(tx, realmId, alias, format, issuerDn, code)
+                : WalletLoginAudit.failure(realmId, tx.transactionId(), alias, format, issuerDn, code,
+                        WalletLoginAudit.DC_API);
     }
 
     /** The failure event of {@code tx}'s purpose: a verification's is never a login failure. */
