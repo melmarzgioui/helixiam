@@ -100,7 +100,7 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
     onReplace: (on: boolean) => setDevKey((d) => ({ ...d, replacing: on, value: on ? d.value : "" })),
     onClear: (on: boolean) => setDevKey((d) => ({ ...d, clearing: on, value: "" })),
   };
-  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKeyState)) : {};
+  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKeyState, wallet.lists)) : {};
   if (isWallet && !alias.trim()) walletLocal.alias = "connectionDetail.fieldRequired";
   if (isWallet && !displayName.trim()) walletLocal.displayName = "connectionDetail.fieldRequired";
   const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
@@ -202,6 +202,7 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
         const props = {
           realmId, api: walletApi, form: walletForm, onChange: patchWallet, errors: walletShown, meta: wallet.meta,
           keys: wallet.keys, onKeyImported: wallet.addKey, original: null, devKey: devKeyState,
+          trustedLists: wallet.lists, trustedListsError: wallet.listsError,
         };
         return (
           <div className="hx-stack hx-wallet">

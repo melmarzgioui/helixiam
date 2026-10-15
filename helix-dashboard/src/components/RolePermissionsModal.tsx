@@ -4,6 +4,7 @@
  */
 
 import React from "react";
+import { Alert } from "./Alert";
 import { Modal } from "./Modal";
 import { Button } from "./Button";
 import { Switch } from "./Switch";
@@ -95,7 +96,7 @@ export function RolePermissionsModal({ open, api, realmId, roleId, roleName, onC
         this scoped admin access. <strong>Full realm administration</strong> implies every permission.
       </p>
 
-      {error && <div className="hx-alert hx-alert--danger" role="alert">{error}</div>}
+      {error && <Alert tone="danger">{error}</Alert>}
 
       {catalog === null ? (
         <div className="hx-loadwrap">

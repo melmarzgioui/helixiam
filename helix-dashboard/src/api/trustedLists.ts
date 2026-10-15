@@ -8,7 +8,24 @@ import type { CertificateInfo } from "./wallet";
 
 export type TrustedListFormat = "ETSI_119612_XML" | "ETSI_119602_JSON";
 /** TrustedListHealth.Status on the server, evaluated now. */
-export type TrustedListStatus = "NEVER" | "ERROR" | "OK" | "FAILING" | "STALE" | "EXPIRED" | "DISABLED";
+export type TrustedListStatus = "NEVER" | "ERROR" | "OK" | "FAILING" | "STALE" | "EXPIRED" | "DISABLED" | "DEGRADED";
+
+/** One member of a list of trusted lists, judged on its own (server MemberView). */
+export interface TrustedListMember {
+  territory: string | null;
+  location: string;
+  status: TrustedListStatus;
+  anchorsInUse: boolean;
+  sequenceNumber: number | null;
+  listIssuedAt: string | null;
+  nextUpdate: string | null;
+  anchorsUsableUntil: string | null;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  serviceCount: number;
+  anchorCount: number;
+}
 
 /** A trusted list source of the realm (server TrustedListView). Times are ISO-8601 or null. */
 export interface TrustedList {
@@ -40,6 +57,9 @@ export interface TrustedList {
   lastError: string | null;
   serviceCount: number;
   anchorCount: number;
+  /** The last good list is a list of trusted lists: its anchors come from its members. */
+  listOfLists: boolean;
+  members: TrustedListMember[];
 }
 
 /** One verified service of the last good list (server TrustedListAnchorView). */
@@ -152,6 +172,7 @@ export function sampleTrustedList(over: Partial<TrustedList> = {}): TrustedList 
     lastAttemptAt: "2026-10-15T08:00:00Z", lastSuccessAt: "2026-10-15T08:00:00Z", listIssuedAt: "2026-04-30T14:28:34Z",
     nextUpdate: "2026-10-27T14:28:34Z", anchorsUsableUntil: "2026-10-28T14:28:34Z", nextRefreshAt: "2026-10-15T14:00:00Z",
     sequenceNumber: 2, listsRead: 17, lastError: null, serviceCount: 33, anchorCount: 29,
+    listOfLists: false, members: [],
     ...over,
   };
 }

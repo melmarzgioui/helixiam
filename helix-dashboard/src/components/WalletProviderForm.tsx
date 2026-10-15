@@ -55,6 +55,10 @@ export interface WalletSectionProps {
   /** The stored form of an existing provider (drives the place-of-birth warning); null for a new one. */
   original?: WalletForm | null;
   devKey: WalletDevKey;
+  /** The realm's trusted list sources (useWalletData); null while loading or when not offered. */
+  trustedLists?: TrustedList[] | null;
+  /** Why the trusted list sources could not be loaded. */
+  trustedListsError?: string | null;
 }
 
 /** Loads what the wallet form needs from the server: the metadata (claim catalogue, dev profile) and the realm's keys. */
@@ -62,6 +66,9 @@ export function useWalletData(api: WalletAdminApi | undefined, realmId: string |
   const [meta, setMeta] = React.useState<WalletMetadata | null>(null);
   const [keys, setKeys] = React.useState<VerifierKey[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  // The realm's trusted list sources: null while loading, not offered, or when they could not be loaded.
+  const [lists, setLists] = React.useState<TrustedList[] | null>(null);
+  const [listsError, setListsError] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!enabled || !api || !realmId) return;
     let live = true;
@@ -69,21 +76,30 @@ export function useWalletData(api: WalletAdminApi | undefined, realmId: string |
     Promise.all([api.metadata(realmId), api.listKeys(realmId)])
       .then(([m, k]) => { if (live) { setMeta(m); setKeys(k); } })
       .catch((e: unknown) => { if (live) setError(String((e as Error).message ?? e)); });
+    if (api.listTrustedLists) {
+      setListsError(null);
+      api.listTrustedLists(realmId).then((l) => { if (live) setLists(l); })
+        .catch((e: unknown) => { if (live) { setLists(null); setListsError(String((e as Error).message ?? e)); } });
+    }
     return () => { live = false; };
   }, [api, realmId, enabled]);
   const addKey = React.useCallback((k: VerifierKey) => setKeys((ks) => [...(ks ?? []).filter((x) => x.keyRef !== k.keyRef), k]), []);
-  return { meta, keys, error, addKey };
+  return { meta, keys, error, addKey, lists, listsError };
 }
 
-/** The validation context for a form: the server profile, the claim catalogue, the chosen key's SANs, the dev key. */
+/**
+ * The validation context for a form: the server profile, the claim catalogue, the chosen key's SANs, the dev key, and
+ * the realm's trusted list names once loaded (an unknown source is then refused before saving).
+ */
 export function walletContext(form: WalletForm, meta: WalletMetadata | null, keys: VerifierKey[] | null,
-  devKey?: Pick<WalletDevKey, "stored" | "value" | "clearing">): WalletValidationContext {
+  devKey?: Pick<WalletDevKey, "stored" | "value" | "clearing">, trustedLists?: TrustedList[] | null): WalletValidationContext {
   const key = keys?.find((k) => k.keyRef === form.accessKeyRef.trim());
   return {
     devProfile: !!meta?.devProfile,
     pidClaims: meta?.pidClaims,
     keyDnsNames: key ? key.certificate.dnsNames : undefined,
     devKey: devKey ? { stored: devKey.stored, pending: !!devKey.value.trim(), clearing: devKey.clearing } : undefined,
+    trustedListNames: trustedLists ? trustedLists.map((l) => l.name) : undefined,
   };
 }
 
@@ -294,16 +310,9 @@ export function WalletCredentialsSection(props: WalletSectionProps) {
   const toggleClaim = (c: string, on: boolean) =>
     onChange({ requestedClaims: on ? [...form.requestedClaims.filter((x) => x !== c), c] : form.requestedClaims.filter((x) => x !== c) });
 
-  // The realm's trusted list sources (a choice next to pasted anchors); null while loading or when not offered.
-  const [lists, setLists] = React.useState<TrustedList[] | null>(null);
-  const [listsError, setListsError] = React.useState<string | null>(null);
-  React.useEffect(() => {
-    if (!api.listTrustedLists) return;
-    let live = true;
-    api.listTrustedLists(realmId).then((l) => { if (live) setLists(l); })
-      .catch((e: unknown) => { if (live) { setLists([]); setListsError(String((e as Error).message ?? e)); } });
-    return () => { live = false; };
-  }, [api, realmId]);
+  // The realm's trusted list sources (a choice next to pasted anchors), loaded by useWalletData.
+  const lists = props.trustedLists ?? null;
+  const listsError = props.trustedListsError ?? null;
   const listOptions = [
     ...(lists ?? []).map((l) => ({ value: l.name, label: l.name,
       description: `${t(`tl.status.${l.status}`)} · ${t("tl.anchorCount", { n: l.anchorCount })}` })),
@@ -372,7 +381,7 @@ export function WalletCredentialsSection(props: WalletSectionProps) {
           <>
             <FormField label={t("wallet.tl.field")} error={fe("trustedLists.sources")} hint={t("wallet.tl.hint")} group>
               <MultiCombobox aria-label={t("wallet.tl.field")} values={form.trustedListSources} options={listOptions}
-                loading={lists === null} placeholder={t("wallet.tl.placeholder")} emptyText={t("wallet.tl.none")}
+                loading={lists === null && !listsError} placeholder={t("wallet.tl.placeholder")} emptyText={t("wallet.tl.none")}
                 onChange={(v) => onChange({ trustedListSources: v })} />
             </FormField>
             {listsError && <Alert tone="warning" title={t("wallet.tl.loadFailed")}>{listsError}</Alert>}

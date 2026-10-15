@@ -209,7 +209,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
     return m;
   };
   const errs = missing();
-  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKey)) : {};
+  const walletLocal = isWallet ? validateWallet(walletForm, walletContext(walletForm, wallet.meta, wallet.keys, devKey, wallet.lists)) : {};
   for (const k of errs) walletLocal[k] = "connectionDetail.fieldRequired";
   const walletShown = { ...walletServer.fields, ...(attempted ? walletLocal : {}) };
   const fieldErr = (k: string) => (isWallet
@@ -329,6 +329,7 @@ export function ConnectionDetailPage({ api, realmId, alias, onBack, onDeleted, w
           const props = {
             realmId, api: walletApi, form: walletForm, onChange: patchWallet, errors: walletShown, meta: wallet.meta,
             keys: wallet.keys, onKeyImported: wallet.addKey, original: walletOriginal, devKey,
+            trustedLists: wallet.lists, trustedListsError: wallet.listsError,
           };
           return (
             <div className="hx-stack hx-wallet">

@@ -10,6 +10,7 @@
 
 import type { BadgeTone } from "../components/Badge";
 import type { TrustedList, TrustedListFormat, TrustedListStatus, TrustedListWrite } from "../api/trustedLists";
+import type { CertificateInfo } from "../api/wallet";
 
 export const GRANTED = "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted";
 export const RECOGNISED = "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/recognisedatnationallevel";
@@ -139,9 +140,23 @@ export function statusTone(status: TrustedListStatus | string): BadgeTone {
   switch (status) {
     case "OK": return "success";
     case "FAILING":
+    case "DEGRADED":
     case "STALE": return "warning";
     case "EXPIRED":
     case "ERROR": return "danger";
     default: return "neutral";
   }
+}
+
+/** A pinned signer expiring within this many days is flagged (the server audits the same). */
+export const SIGNER_WARNING_DAYS = 30;
+
+/** The pinned signers that expired, or expire within {@link SIGNER_WARNING_DAYS}: re-pin before the list stops verifying. */
+export function signerWarnings(signers: Pick<CertificateInfo, "subject" | "notAfter">[], now: Date = new Date())
+  : { subject: string; notAfter: string; expired: boolean }[] {
+  return signers.flatMap((c) => {
+    const end = Date.parse(c.notAfter);
+    if (Number.isNaN(end) || end - now.getTime() > SIGNER_WARNING_DAYS * 24 * 3600 * 1000) return [];
+    return [{ subject: c.subject, notAfter: c.notAfter, expired: end <= now.getTime() }];
+  });
 }

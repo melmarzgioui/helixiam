@@ -515,9 +515,6 @@
   padding: .6rem .1rem; border-bottom: 1px solid var(--border); }
 .hx-togglerow:last-child { border-bottom: none; }
 .hx-togglerow__label { color: var(--fg); font: 500 .9rem var(--font); }
-/* Inline alert banner */
-.hx-alert { padding: .6rem .8rem; border-radius: var(--radius-sm, 8px); font-size: .85rem; border: 1px solid; }
-.hx-alert--danger { background: var(--danger-soft, #fdecec); color: var(--danger-fg, #9a2b2b); border-color: #f1c9c9; }
 .hx-mono { font-family: var(--mono); }
 /* Phones: a card's actions move to their own row, so the name and status badges keep the full width. */
 @media (max-width: 560px) {

@@ -12,6 +12,7 @@ import {
   applyPreset,
   formFromTrustedList,
   splitLines,
+  signerWarnings,
   statusTone,
   trustedListWrite,
   validateTrustedList,
@@ -126,5 +127,14 @@ describe("statusTone", () => {
     expect(statusTone("ERROR")).toBe("danger");
     expect(statusTone("NEVER")).toBe("neutral");
     expect(statusTone("DISABLED")).toBe("neutral");
+    expect(statusTone("DEGRADED")).toBe("warning");
+  });
+
+  it("warns about pinned signers that expired or expire within 30 days", () => {
+    const now = new Date("2026-10-15T00:00:00Z");
+    const cert = (notAfter: string) => ({ subject: "CN=x", notAfter }) as never;
+    expect(signerWarnings([cert("2026-07-04T00:00:00Z"), cert("2026-11-01T00:00:00Z"), cert("2027-10-01T00:00:00Z")], now))
+      .toEqual([{ subject: "CN=x", notAfter: "2026-07-04T00:00:00Z", expired: true },
+        { subject: "CN=x", notAfter: "2026-11-01T00:00:00Z", expired: false }]);
   });
 });

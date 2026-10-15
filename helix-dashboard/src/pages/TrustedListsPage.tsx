@@ -20,12 +20,12 @@ import { Table, type Column } from "../components/Table";
 import { useToast } from "../components/ToastProvider";
 import { AdminApiError } from "../api/adminError";
 import { absoluteTime } from "../api/datetime";
-import type { TrustedList, TrustedListAnchor, TrustedListApi } from "../api/trustedLists";
+import type { TrustedList, TrustedListAnchor, TrustedListApi, TrustedListMember } from "../api/trustedLists";
 import { useT } from "../i18n/LocaleContext";
 import { commonName, expiryState } from "./walletProvider";
 import {
   DEFAULT_TRUSTED_LIST_FORM, GRACE_RANGE, STATUS_OPTIONS, TRUSTED_LIST_PRESETS, applyPreset, formFromTrustedList,
-  statusTone, trustedListWrite, validateTrustedList, type TrustedListForm,
+  signerWarnings, statusTone, trustedListWrite, validateTrustedList, type TrustedListForm,
 } from "./trustedList";
 
 // Federation → Trusted lists: the realm's published, signed lists (ETSI TS 119 612 / 119 602) whose verified service
@@ -240,6 +240,26 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
       : <Badge tone="neutral">{t("tl.anchor.notCa")}</Badge> },
   ];
 
+  const memberColumns: Column<TrustedListMember>[] = [
+    { key: "territory", header: t("tl.member.territory"), render: (m) => <strong>{m.territory ?? "—"}</strong> },
+    { key: "location", header: t("tl.member.list"), render: (m) => (
+      <span className="hx-stack-tight">
+        <span className="hx-mono hx-muted hx-wrap-anywhere">{hostOf(m.location)}</span>
+        {m.sequenceNumber !== null && <span className="hx-faint">{`${t("tl.d.sequence")} ${m.sequenceNumber}`}</span>}
+      </span>
+    ) },
+    { key: "status", header: t("tl.th.status"), render: (m) => <Badge tone={statusTone(m.status)}>{t(`tl.status.${m.status}`)}</Badge> },
+    { key: "anchors", header: t("tl.th.anchors"), align: "right", render: (m) => String(m.anchorCount) },
+    { key: "nextUpdate", header: t("tl.th.nextUpdate"), render: (m) => (
+      <span className="hx-stack-tight">
+        <span>{absoluteTime(m.nextUpdate, locale)}</span>
+        {m.anchorsUsableUntil && <span className="hx-faint">{`${t("tl.d.usableUntil")} ${absoluteTime(m.anchorsUsableUntil, locale)}`}</span>}
+      </span>
+    ) },
+    { key: "error", header: t("tl.member.error"), render: (m) => m.lastError
+      ? <span className="hx-mono hx-faint hx-wrap-anywhere">{m.lastError}</span> : <span className="hx-faint">—</span> },
+  ];
+
   return (
     <Page>
       <PageHeader
@@ -259,6 +279,13 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
           actions={<StatusBadge list={list} />}>
           <div className="hx-formblock">
           <StatusAlert list={list} />
+          {signerWarnings(list.signers).map((w) => (
+            <Alert key={`${w.subject}-${w.notAfter}`} tone={w.expired ? "danger" : "warning"}
+              title={w.expired ? t("tl.signer.expiredTitle") : t("tl.signer.expiringTitle")}>
+              {t(w.expired ? "tl.signer.expired" : "tl.signer.expiring",
+                { name: commonName(w.subject), date: absoluteTime(w.notAfter, locale) })}
+            </Alert>
+          ))}
           {list.lastError && (
             <Alert tone={list.anchorsInUse ? "warning" : "danger"} title={t("tl.lastError")}>
               <span className="hx-mono">{list.lastError}</span>
@@ -285,6 +312,35 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
           </DetailList>
           </div>
         </Section>
+
+        {list.listOfLists && (
+          <Section title={t("tl.members.title")} description={t("tl.members.desc")}
+            actions={<Badge tone="neutral">{t("tl.members.count", { n: list.members.length })}</Badge>}>
+            {list.members.length === 0 ? <EmptyState title={t("tl.members.emptyTitle")} message={t("tl.members.empty")} /> : (
+              <>
+                <div className="hx-show-desktop">
+                  <Table columns={memberColumns} rows={list.members} rowKey={(m) => `${m.territory}-${m.location}`} />
+                </div>
+                <ul className="hx-certlist hx-show-mobile">
+                  {list.members.map((m) => (
+                    <li key={`${m.territory}-${m.location}`} className="hx-certlist__item">
+                      <div className="hx-certlist__head">
+                        <strong>{m.territory ?? "—"}</strong>
+                        <Badge tone={statusTone(m.status)}>{t(`tl.status.${m.status}`)}</Badge>
+                      </div>
+                      <div className="hx-certlist__meta">
+                        <span className="hx-mono hx-wrap-anywhere">{hostOf(m.location)}</span>
+                        <span>{t("tl.anchorCount", { n: m.anchorCount })}</span>
+                        <span>{t("tl.th.nextUpdate")}: {absoluteTime(m.nextUpdate, locale)}</span>
+                      </div>
+                      {m.lastError && <div className="hx-field__error hx-mono hx-wrap-anywhere">{m.lastError}</div>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Section>
+        )}
 
         <Section title={t("tl.anchors.title")} description={t("tl.anchors.desc")}
           actions={<Badge tone="neutral">{t("tl.anchorCount", { n: anchors?.filter((a) => a.usable).length ?? 0 })}</Badge>}>
@@ -337,6 +393,8 @@ function StatusAlert({ list }: { list: TrustedList }) {
   const { t } = useT();
   switch (list.status) {
     case "NEVER": return <Alert tone="info" title={t("tl.alert.never.title")}>{t("tl.alert.never")}</Alert>;
+    case "FAILING": return <Alert tone="warning" title={t("tl.alert.failing.title")}>{t("tl.alert.failing")}</Alert>;
+    case "DEGRADED": return <Alert tone="warning" title={t("tl.alert.degraded.title")}>{t("tl.alert.degraded")}</Alert>;
     case "STALE": return <Alert tone="warning" title={t("tl.alert.stale.title")}>{t("tl.alert.stale")}</Alert>;
     case "EXPIRED": return <Alert tone="danger" title={t("tl.alert.expired.title")}>{t("tl.alert.expired")}</Alert>;
     case "ERROR": return <Alert tone="danger" title={t("tl.alert.error.title")}>{t("tl.alert.error")}</Alert>;
@@ -452,16 +510,17 @@ function TrustedListEditor({ initial, withPresets, signers, submitLabel, onSubmi
         <Textarea className="hx-mono" rows={2} value={form.serviceTypes} spellCheck={false}
           onChange={(e) => set({ serviceTypes: e.target.value })} placeholder="http://uri.etsi.org/Svc/Svctype/Provider/PID" />
       </FormField>
-      {form.format === "ETSI_119612_XML" && (
-        <>
-          <FormField label={t("tl.form.statuses")} required error={fe("acceptedStatuses")} hint={t("tl.form.statusesHint")} group>
+      <FormField label={t("tl.form.statuses")} required error={fe("acceptedStatuses")}
+        hint={form.format === "ETSI_119602_JSON" ? t("tl.form.statusesHintLote") : t("tl.form.statusesHint")} group>
             <div className="hx-optiongrid">
               {STATUS_OPTIONS.map((s) => (
                 <Checkbox key={s.value} checked={form.acceptedStatuses.includes(s.value)} onChange={(on) => toggleStatus(s.value, on)}
                   label={<span className="hx-optlabel"><span>{t(`tl.statusOpt.${s.key}`)}</span><span className="hx-optlabel__sub hx-mono">{`…/${s.value.slice(s.value.lastIndexOf("/") + 1)}`}</span></span>} />
               ))}
             </div>
-          </FormField>
+      </FormField>
+      {form.format === "ETSI_119612_XML" && (
+        <>
           <FormField label={t("tl.form.territories")} error={fe("territories")} hint={t("tl.form.territoriesHint")}>
             <Input value={form.territories} onChange={(e) => set({ territories: e.target.value })} placeholder="NL DE AT"
               spellCheck={false} autoComplete="off" />
