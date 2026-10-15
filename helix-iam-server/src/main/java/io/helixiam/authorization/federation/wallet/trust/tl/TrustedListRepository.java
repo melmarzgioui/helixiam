@@ -119,20 +119,41 @@ public class TrustedListRepository {
     public record Rebind(String servicesMac, Map<String, String> memberMacs, Map<HighWaterMark, String> hwmMacs) {
     }
 
-    public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
-                                final boolean resetState, final long now, final String settingsMac,
-                                final long expectedConfigVersion) {
-        return updateConfig(realmId, id, c, resetState, now, settingsMac, expectedConfigVersion, null);
+    /** A source's rows as locked ({@code SELECT ... FOR UPDATE}) inside an update's transaction. */
+    public record Locked(TrustedListSource source, List<Member> members, List<HighWaterMark> marks) {
     }
 
     public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
                                 final boolean resetState, final long now, final String settingsMac,
-                                final long expectedConfigVersion, final Rebind rebind) {
+                                final long expectedConfigVersion) {
+        return updateConfig(realmId, id, c, resetState, now, settingsMac, expectedConfigVersion, locked -> null);
+    }
+
+    /**
+     * Saves the settings over the {@code expectedConfigVersion} the caller read. The source, its members and its
+     * high-water marks are locked first ({@code FOR UPDATE}) and {@code rebind} computes the new MACs from those
+     * locked rows, so a refresh that committed after the caller's read can never be left with stale MACs.
+     */
+    public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
+                                final boolean resetState, final long now, final String settingsMac,
+                                final long expectedConfigVersion,
+                                final java.util.function.Function<Locked, Rebind> rebind) {
         final String reset = resetState ? ", status = 'NEVER', last_attempt_at = NULL, last_success_at = NULL, "
                 + "list_issued_at = NULL, next_update = NULL, next_refresh_at = NULL, sequence_number = NULL, "
                 + "lists_read = NULL, last_error = NULL, services_json = NULL, services_mac = NULL, list_of_lists = FALSE"
                 : "";
         final Boolean ok = tx.execute(s -> {
+            final List<TrustedListSource> rows = jdbc.query("SELECT " + COLUMNS + " FROM trusted_list_source "
+                    + "WHERE realm_id = ? AND id = ? FOR UPDATE", MAPPER, realmId, id);
+            if (rows.isEmpty() || rows.get(0).state().configVersion() != expectedConfigVersion) {
+                return false;
+            }
+            final Rebind newMacs = resetState ? null : rebind.apply(new Locked(rows.get(0),
+                    jdbc.query("SELECT " + MEMBER_COLUMNS + " FROM trusted_list_member WHERE source_id = ? FOR UPDATE",
+                            MEMBER_MAPPER, id),
+                    jdbc.query("SELECT territory, tsl_type, sequence_number, mac FROM trusted_list_hwm "
+                            + "WHERE source_id = ? FOR UPDATE", (rs, i) -> new HighWaterMark(rs.getString(1),
+                            rs.getString(2), rs.getLong(3), rs.getString(4)), id)));
             // only over the settings the caller read: a concurrent edit is never overwritten
             final int n = jdbc.update("UPDATE trusted_list_source SET name = ?, url = ?, format = ?, "
                     + "signer_certificates = ?, service_types = ?, accepted_statuses = ?, territories = ?, "
@@ -145,11 +166,12 @@ public class TrustedListRepository {
                 return false;
             }
             resetMembers(resetState, id);
-            if (!resetState && rebind != null) {
-                jdbc.update("UPDATE trusted_list_source SET services_mac = ? WHERE id = ?", rebind.servicesMac(), id);
-                rebind.memberMacs().forEach((key, mac) -> jdbc.update("UPDATE trusted_list_member SET services_mac = ? "
+            if (newMacs != null) {
+                final Rebind rebindMacs = newMacs;
+                jdbc.update("UPDATE trusted_list_source SET services_mac = ? WHERE id = ?", rebindMacs.servicesMac(), id);
+                rebindMacs.memberMacs().forEach((key, mac) -> jdbc.update("UPDATE trusted_list_member SET services_mac = ? "
                         + "WHERE source_id = ? AND member_key = ?", mac, id, key));
-                rebind.hwmMacs().forEach((h, mac) -> jdbc.update("UPDATE trusted_list_hwm SET mac = ? WHERE "
+                rebindMacs.hwmMacs().forEach((h, mac) -> jdbc.update("UPDATE trusted_list_hwm SET mac = ? WHERE "
                         + "source_id = ? AND territory = ? AND tsl_type = ? AND sequence_number = ?", mac, id,
                         h.territory(), h.tslType(), h.sequence()));
             }

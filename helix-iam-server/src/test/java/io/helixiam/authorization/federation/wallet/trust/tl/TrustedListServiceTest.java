@@ -1091,4 +1091,29 @@ class TrustedListServiceTest {
         assertThat(auditDetails.stream().filter(d -> String.valueOf(d.get("message")).contains("high-water mark")))
                 .isNotEmpty();
     }
+
+    @Test
+    void aRefreshThatCommitsWhileSettingsAreSaved_leavesValidMacs() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        final X509Certificate second = TestPki.create("Second issuer").root();
+        // between the admin's save reading the source and writing it, a refresh stores a newer list
+        service.beforeUpdateWrite = () -> {
+            serve(listWith(4, Service.granted("Issuer", issuer), Service.granted("Second", second)));
+            service.refreshNow(realm, created.id());
+        };
+        try {
+            service.update(realm, created.id(), new TrustedListSource.Config("ut", URL,
+                    TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
+                    List.of(), List.of(), 48, true), cv(created));
+        } finally {
+            service.beforeUpdateWrite = () -> { };
+        }
+
+        final TrustedListSource now = service.get(realm, created.id()).orElseThrow();
+        assertThat(service.status(now)).isEqualTo(TrustedListHealth.Status.OK);
+        assertThat(anchors(service)).containsExactlyInAnyOrder(issuer, second);
+        assertThat(now.config().graceHours()).isEqualTo(48);
+    }
 }

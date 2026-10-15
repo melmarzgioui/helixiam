@@ -143,6 +143,8 @@ public class TrustedListService implements TrustedListAnchorSource {
     private final Map<String, Snapshot> snapshots = new ConcurrentHashMap<>();
 
     private final TrustedListIntegrity integrity;
+    /** Test seam: runs between an update's read and its write (to race a refresh against it). */
+    Runnable beforeUpdateWrite = () -> { };
     private volatile References references = References.NONE;
     /** Whether sources may be saved without a MAC key (the dev profile only). */
     private final boolean allowWithoutIntegrity;
@@ -276,6 +278,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         if (existing.get().state().configVersion() != expectedConfigVersion) {
             throw new ConcurrentUpdateException();
         }
+        beforeUpdateWrite.run();
         final TrustedListSource.Config c = normalize(config);
         final Map<String, String> errors = new LinkedHashMap<>(TrustedListConfigValidator.validate(c));
         if (!errors.containsKey("name") && !c.name().equals(existing.get().config().name())) {
@@ -295,7 +298,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         final boolean reset = !existing.get().config().sameList(c);
         if (!repository.updateConfig(realmId, id, c, reset, clock.millis(),
                 settingsMac(id, realmId, c, expectedConfigVersion + 1), expectedConfigVersion,
-                reset ? null : rebind(existing.get(), expectedConfigVersion + 1))) {
+                locked -> rebind(locked, expectedConfigVersion + 1))) {
             throw new ConcurrentUpdateException();
         }
         sync();
@@ -383,11 +386,12 @@ public class TrustedListService implements TrustedListAnchorSource {
     }
 
     /**
-     * New MACs binding the stored services of {@code s} to {@code newConfigVersion}, when they verify under the
-     * current one (a settings change that keeps them); null otherwise (they stay unverifiable: the next refresh
+     * New MACs, computed from the rows locked by the update's transaction, binding the stored services of the source
+     * to {@code newConfigVersion}, when they verify under the current one (a settings change that keeps them); null otherwise (they stay unverifiable: the next refresh
      * reloads them).
      */
-    private TrustedListRepository.Rebind rebind(final TrustedListSource s, final long newConfigVersion) {
+    private TrustedListRepository.Rebind rebind(final TrustedListRepository.Locked locked, final long newConfigVersion) {
+        final TrustedListSource s = locked.source();
         if (!integrity.enabled() || !servicesIntact(s)) {
             return null;
         }
@@ -395,14 +399,14 @@ public class TrustedListService implements TrustedListAnchorSource {
         final String sourceMac = st.servicesJson() == null ? null : servicesMac(s.id(), newConfigVersion,
                 st.servicesJson(), st.sequenceNumber(), st.nextUpdate(), st.listOfLists());
         final Map<String, String> members = new LinkedHashMap<>();
-        for (final TrustedListSource.Member m : members(s)) {
+        for (final TrustedListSource.Member m : locked.members()) {
             if (m.servicesJson() != null && memberIntact(s, m)) {
                 members.put(m.key(), memberMac(s.id(), newConfigVersion, m.key(), m.territory(), m.servicesJson(),
                         m.sequenceNumber(), m.nextUpdate()));
             }
         }
         final Map<TrustedListRepository.HighWaterMark, String> marks = new LinkedHashMap<>();
-        for (final TrustedListRepository.HighWaterMark h : repository.highWaterMarks(s.id())) {
+        for (final TrustedListRepository.HighWaterMark h : locked.marks()) {
             if (hwmIntact(s, h)) {
                 marks.put(h, hwmMac(s.id(), newConfigVersion, h.territory(), h.tslType(), h.sequence()));
             }
