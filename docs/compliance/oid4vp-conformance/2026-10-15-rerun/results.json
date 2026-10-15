@@ -1,0 +1,1438 @@
+[
+  {
+    "label": "rerun-haip-hash-mdoc-jwt-cross",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "LwjiTlRSfdY0q",
+    "variant": {
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-hash",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "y6YrclO7aJJOu3n",
+        "alias": "w-mdoc-hash",
+        "status": "FINISHED",
+        "result": "FAILED",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          },
+          {
+            "result": "FAILURE",
+            "src": "VP1FinalEnsureDirectPostResponseHasRedirectUriForHaip",
+            "msg": "HAIP 1.0 §5.1 requires the verifier to include redirect_uri in the response to the wallet's POST to response_uri, but it is missing",
+            "requirements": [
+              "HAIP-5.1"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-haip-hash-mdoc-jwt-same",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "Yv3qZBWB7MZzw",
+    "variant": {
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-hash",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "UoB5hD7mPPT0UNd",
+        "alias": "w-mdoc-hash",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "dtF4imkniQobCRv",
+        "alias": "w-mdoc-hash-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "IUayGWuHU4zg79K",
+        "alias": "w-mdoc-hash",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-session-transcript",
+        "testId": "0TOxg8gInJ6aj0O",
+        "alias": "w-mdoc-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-haip-hash-sdjwt-jwt-cross",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "q2l6BsuEBRKVD",
+    "variant": {
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-hash",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "ZYbxKX4ogoQeEj2",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "FAILED",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          },
+          {
+            "result": "FAILURE",
+            "src": "VP1FinalEnsureDirectPostResponseHasRedirectUriForHaip",
+            "msg": "HAIP 1.0 §5.1 requires the verifier to include redirect_uri in the response to the wallet's POST to response_uri, but it is missing",
+            "requirements": [
+              "HAIP-5.1"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-haip-hash-sdjwt-jwt-same",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "WC8reGu9cIEV4",
+    "variant": {
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-hash",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "iHli00wG9J2wwOl",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-minimal-cnf-jwk",
+        "testId": "QIFsWYsSvqwUeiD",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "1aFFEozlVQ5Qsec",
+        "alias": "w-sdjwt-hash-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "E7aomNxxEWqJoKt",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-signature",
+        "testId": "WsXkVEcvHkQD2tw",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-credential-signature",
+        "testId": "lnwNsQ1sQTMZL7g",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-sd-hash",
+        "testId": "oPWMOAxx41nDbIj",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-nonce",
+        "testId": "5pFdW2joOT3LKBk",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-aud",
+        "testId": "gcrR5oEJFNVj7YZ",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-past",
+        "testId": "0wLv6DXyKYwonO6",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-future",
+        "testId": "3NZIuoykesN2xjn",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-hash-mdoc-directpost-cross",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "EQwGz6tlkuNvL",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_hash",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-mdoc-hash-plain",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "rZb736r6WabUPQh",
+        "alias": "w-mdoc-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-hash-mdoc-directpost-same",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "1rHaTweNGTVmr",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_hash",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-mdoc-hash-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "yHDwJJykGzARJfB",
+        "alias": "w-mdoc-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "YHmLQ0xDedgv1Te",
+        "alias": "w-mdoc-hash-plain",
+        "status": "FINISHED",
+        "result": "SKIPPED",
+        "helixFinalUrl": null,
+        "findings": [
+          {
+            "result": "SKIPPED",
+            "src": "oid4vp-1final-verifier-request-uri-method-post",
+            "msg": "The test was skipped: The verifier's authorization request does not include request_uri_method=post, so this test is not applicable."
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "t8rl6E49jOKId9q",
+        "alias": "w-mdoc-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-session-transcript",
+        "testId": "Rvl06E2NKXYED5u",
+        "alias": "w-mdoc-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-hash-sdjwt-directpost-cross",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "pfxHElEnbSqLz",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_hash",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-sdjwt-hash-plain",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "VMLMAVAWCZW1t46",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-hash-sdjwt-directpost-same",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "WkOQp1v5be0wf",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_hash",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-sdjwt-hash-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "cV0QhXShMMd2bE3",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-minimal-cnf-jwk",
+        "testId": "ivkDyXYbVt6oIjN",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "cCkJymCTLz0zF9U",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "SKIPPED",
+        "helixFinalUrl": null,
+        "findings": [
+          {
+            "result": "SKIPPED",
+            "src": "oid4vp-1final-verifier-request-uri-method-post",
+            "msg": "The test was skipped: The verifier's authorization request does not include request_uri_method=post, so this test is not applicable."
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "jcRMdx4b0xkl2rJ",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-signature",
+        "testId": "QCw0eBzLQP6Wtx9",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-credential-signature",
+        "testId": "RKFdOuY6CM1maD9",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-sd-hash",
+        "testId": "EMeids3qgqz27vZ",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-nonce",
+        "testId": "hWnxbbyXwt12gyK",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-aud",
+        "testId": "17h2blBVZjlQLdu",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-past",
+        "testId": "bQLuUlmY5BS4S61",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-future",
+        "testId": "rdO8HdBu0cFJXbd",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-mdoc-directpost-cross",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "AR7lQgB91G4rt",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-mdoc-san-plain",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "wI1rJrHRYVApwJk",
+        "alias": "w-mdoc-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-mdoc-directpost-same",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "IbBHS7Dq6WGJ0",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-mdoc-san-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "VukIpXWRJU6LlYv",
+        "alias": "w-mdoc-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "hcdnBX5RHT16ihq",
+        "alias": "w-mdoc-san-plain",
+        "status": "FINISHED",
+        "result": "SKIPPED",
+        "helixFinalUrl": null,
+        "findings": [
+          {
+            "result": "SKIPPED",
+            "src": "oid4vp-1final-verifier-request-uri-method-post",
+            "msg": "The test was skipped: The verifier's authorization request does not include request_uri_method=post, so this test is not applicable."
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "XEIpQt054jN7d6L",
+        "alias": "w-mdoc-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-session-transcript",
+        "testId": "CfDZrePXVC2krlf",
+        "alias": "w-mdoc-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-mdoc-jwt-cross",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "bkEUJYKIbxQgB",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-san",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "LoiK8fEKz30KCS7",
+        "alias": "w-mdoc-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-mdoc-jwt-same",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "Le08FpaFpjzK1",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-san",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "6wciZ4oXWMBMaTK",
+        "alias": "w-mdoc-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "WJNPJJKnMJDce0b",
+        "alias": "w-mdoc-san-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "JP4RJGIiXtWtiqJ",
+        "alias": "w-mdoc-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-session-transcript",
+        "testId": "ypiaiURXkaF0aKv",
+        "alias": "w-mdoc-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-sdjwt-directpost-cross",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "tjsvQXlB2ofVi",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-sdjwt-san-plain",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "3qzwA03VedEZGMg",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-sdjwt-directpost-same",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "MayvNmlWbiBey",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-sdjwt-san-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "GmxpDFYNctyC4Xn",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-minimal-cnf-jwk",
+        "testId": "RF0aGNBzP0uAsiZ",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "uPrmpOhDPZX5QsS",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "SKIPPED",
+        "helixFinalUrl": null,
+        "findings": [
+          {
+            "result": "SKIPPED",
+            "src": "oid4vp-1final-verifier-request-uri-method-post",
+            "msg": "The test was skipped: The verifier's authorization request does not include request_uri_method=post, so this test is not applicable."
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "KcifKVB8MbhESeF",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-signature",
+        "testId": "oM2dxcKKxkN59F2",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-credential-signature",
+        "testId": "82eJsqdCJnepnVr",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-sd-hash",
+        "testId": "0Ixv8pKdz6Ui9eX",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-nonce",
+        "testId": "9Kn13CnDd4Pt9LW",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-aud",
+        "testId": "pC6fmJu675jpLmy",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-past",
+        "testId": "g5RMFZSH5Go8hJR",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-future",
+        "testId": "vmBdgG1yPSnI6OR",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-sdjwt-jwt-cross",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "RULY9bKZeh7lD",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-san",
+    "flow": "cross",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "P69nayJO8DdjXkO",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-plain-san-sdjwt-jwt-same",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "z2b4Yqt4xztNk",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-san",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "Y5NNSTcyla7ytxR",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      },
+      {
+        "module": "oid4vp-1final-verifier-minimal-cnf-jwk",
+        "testId": "gLiXhwZNhb22YhX",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-method-post",
+        "testId": "m7s4IP8A24ajjOy",
+        "alias": "w-sdjwt-san-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-request-uri-fetched-twice",
+        "testId": "yK8SGdeCFgXFkBR",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account",
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-signature",
+        "testId": "yN0SaQJaJy47nof",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-credential-signature",
+        "testId": "a2ZOebtmxvkrijj",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-sd-hash",
+        "testId": "GlIeU4EyiBSpl73",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-nonce",
+        "testId": "MSf7EY0oJMxaAIH",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-invalid-kb-jwt-aud",
+        "testId": "9b9bfxoiFHTR1ga",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-past",
+        "testId": "7GFD9NGprxwqWPb",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      },
+      {
+        "module": "oid4vp-1final-verifier-kb-jwt-iat-in-future",
+        "testId": "ZaiGwPw0fCjlCfB",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "PASSED",
+        "helixFinalUrl": null,
+        "findings": []
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-mdoc-hash-plain",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "kjnEX1gYnVugP",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_hash",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-mdoc-hash-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "uMud7i7NEnKJ5ll",
+        "alias": "w-mdoc-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-mdoc-hash-post",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "YGlsWyve8eCmv",
+    "variant": {
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-hash-post",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "7iFRRLfeGtqaOQn",
+        "alias": "w-mdoc-hash-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-mdoc-hash",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "gwPgckFARQoX0",
+    "variant": {
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-hash",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "zBqrJaInC4O6tEI",
+        "alias": "w-mdoc-hash",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-mdoc-san-plain",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "sN9mAD40gJ5k2",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-mdoc-san-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "BvSixbyaw2rh8KP",
+        "alias": "w-mdoc-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-mdoc-san-post",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "PvkDi788DGqQI",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-san-post",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "HPvfLXYY8E6jTor",
+        "alias": "w-mdoc-san-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-mdoc-san",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "NfJGA8fFexZA3",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "iso_mdl",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-mdoc-san",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "1TvLaVBzBdlOGrL",
+        "alias": "w-mdoc-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-sdjwt-hash-plain",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "kBGIJzCb6T64k",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_hash",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-sdjwt-hash-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "gg3kT9yE41pq1Zc",
+        "alias": "w-sdjwt-hash-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-sdjwt-hash-post",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "qOFfdK6VI3nQn",
+    "variant": {
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-hash-post",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "73biVqzHMuEurNQ",
+        "alias": "w-sdjwt-hash-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-sdjwt-hash",
+    "planName": "oid4vp-1final-verifier-haip-test-plan",
+    "planId": "aa4DZ7v0UqRce",
+    "variant": {
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-hash",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "UqghEqAorHhx02y",
+        "alias": "w-sdjwt-hash",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-sdjwt-san-plain",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "DtguHza2vuCjF",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post"
+    },
+    "alias": "w-sdjwt-san-plain",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "bBAkZaGHpgGdqIJ",
+        "alias": "w-sdjwt-san-plain",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-sdjwt-san-post",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "wLQZWlvyV9RhM",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-san-post",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "FkYEK7ILJsqKj3v",
+        "alias": "w-sdjwt-san-post",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "rerun-setup-link-w-sdjwt-san",
+    "planName": "oid4vp-1final-verifier-test-plan",
+    "planId": "pwjhG21CnYfa6",
+    "variant": {
+      "vp_profile": "plain_vp",
+      "client_id_prefix": "x509_san_dns",
+      "request_method": "request_uri_signed",
+      "credential_format": "sd_jwt_vc",
+      "response_mode": "direct_post.jwt"
+    },
+    "alias": "w-sdjwt-san",
+    "flow": "same",
+    "modules": [
+      {
+        "module": "oid4vp-1final-verifier-happy-flow",
+        "testId": "R6w8XP7YX7eD9ra",
+        "alias": "w-sdjwt-san",
+        "status": "FINISHED",
+        "result": "REVIEW",
+        "helixFinalUrl": "https://helix-oidf.localtest.me:18943/realms/oidf/account#wallets",
+        "findings": [
+          {
+            "result": "WARNING",
+            "src": "VP1FinalEnsureMinimumNonceEntropy",
+            "msg": "Nonce does not appear to have sufficient entropy (calculated Shannon entropy is below the threshold). Section 5.2 of OID4VP 1.0 Final requires the nonce to be a \"fresh, cryptographically random number with sufficient entropy\"; OpenID4VP PR #722 (https://github.com/openid/OpenID4VP/pull/722/changes) recommends at least 128 bits.",
+            "requirements": [
+              "OID4VP-1FINAL-5.2"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

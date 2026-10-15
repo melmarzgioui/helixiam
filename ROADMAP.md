@@ -43,10 +43,12 @@ paths are hardened and tested."
     in-repo test wallet. A capture from a real EU wallet against this verifier (Phase 4) closes it.
   - Done: a PostgreSQL wallet transaction store, cross-replica identity-provider refresh, and the "wallet linked"
     notification (see `CHANGES-1.0.md`, next release).
-  - From the conformance run (`docs/compliance/oid4vp-conformance/README.md`): decide whether a claimed request
-    object may be fetched again until the response arrives (the suite's `request-uri-fetched-twice`, part of the HAIP
-    certification plan, fails on single-use request objects); support HAIP's DCQL `trusted_authorities` (`aki`) query,
-    derived from the configured trust anchors; report the nonce-entropy heuristic to the suite.
+  - Done, from the conformance run (`docs/compliance/oid4vp-conformance/README.md`):
+    - request objects may be fetched again until the response arrives (ruling on D2);
+    - HAIP's DCQL `trusted_authorities` (`aki`) query is sent, derived from the configured trust anchors;
+    - the status-list connect-timeout test no longer depends on the network.
+  - Still open: file the nonce-entropy issue with the suite
+    (`docs/compliance/oid4vp-conformance/upstream-issue-nonce-entropy.md`).
   - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
     (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
     again under the same name would inherit the previous realm's verifier access key and pepper.

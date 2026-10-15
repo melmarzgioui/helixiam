@@ -138,7 +138,8 @@ curl -s -X POST "https://helix.example/admin/realms/$REALM/identity-providers" \
 `limits.maxJwtBytes`, …), lists are JSON arrays of strings. Everything not shown above takes a documented default:
 `clientIdScheme` → `x509_hash`; `invocationScheme` → `haip-vp`; `responseMode` → `direct_post.jwt`;
 `transactionTtlSeconds` → `300` (60–900 allowed); `pid.requestedClaims` → `given_name`, `family_name`, `birthdate`;
-`revocationChecking` → `HARD_FAIL` (see §7.2); `statusList.required` → `false`; `subject.strategy` →
+`revocationChecking` → `HARD_FAIL` (see §7.2); `dcql.trustedAuthorities` → on for `x509_hash` with
+`direct_post.jwt` (the HAIP profile), off otherwise (see §10); `statusList.required` → `false`; `subject.strategy` →
 `ADMINISTRATIVE_NUMBER`; `minimumLoa` → `http://eidas.europa.eu/LoA/high`. `WalletConfigValidator` rejects an
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
@@ -437,10 +438,10 @@ reach; `OFF` only for testing. Providers stored before this change without a `re
   (for example its pending wallet link was taken meanwhile) is a `WALLET_LOGIN_FAILURE`. A wrong code is a retry,
   not an end. A step-up the user **walks away from has no event**: nothing on the server marks that moment (the
   session just expires, and expiry is not observed on every session store).
-- **Single-use request objects.** A wallet that fetches the `request_uri` twice gets `404` the second time; the
-  OpenID Foundation suite's `request-uri-fetched-twice` test fails on this (§10).
-- **No `trusted_authorities` in the DCQL query.** HAIP §5 asks verifiers to support the `aki` Trusted Authority
-  Query; HelixIAM does not send one and enforces issuer trust only by validating the chain to `trustAnchors` (§10).
+- **Request objects: re-fetch until the response, one flow only.** The first fetch of a `request_uri` binds the
+  login to that flow (same-device or cross-device); the other invocation is `404` from then on. The same `request_uri`
+  can be fetched again, and returns the same request (same claims), until the wallet has posted its response; after
+  that, or once the login ended or expired, it is `404`. The response itself is single use.
 
 ## 9. Try it: the sandbox demo
 
@@ -453,19 +454,35 @@ uses a throwaway, dev-only test wallet CLI (`TestWalletCli`) and a one-shot seed
 ## 10. OpenID Foundation conformance run
 
 The verifier was run against the OpenID Foundation conformance suite (version 5.3.3, revision `f0133e9`), with the
-suite playing the wallet, on 2026-10-15: the HAIP certification plan (`oid4vp-1final-verifier-haip-test-plan`) and
-the plain OpenID4VP 1.0 plan (`oid4vp-1final-verifier-test-plan`), for `dc+sd-jwt` and `mso_mdoc`, `x509_hash` and
-`x509_san_dns`, `direct_post.jwt` (and `direct_post` in `dev`), `request_uri` with GET and POST, same-device and
-cross-device. This is a self-run of the open-source suite, not an OpenID Certification.
+suite playing the wallet, on 2026-10-15, covering:
+- the HAIP certification plan (`oid4vp-1final-verifier-haip-test-plan`) and the plain OpenID4VP 1.0 plan
+  (`oid4vp-1final-verifier-test-plan`);
+- `dc+sd-jwt` and `mso_mdoc`;
+- `x509_hash` and `x509_san_dns`;
+- `direct_post.jwt` (and `direct_post` in `dev`);
+- `request_uri` with GET and POST;
+- same-device and cross-device.
 
-Every positive test ended in a sign-in and every negative test was refused by the check it targets. The suite's three
-findings are documented, not fixed, because none is a defect:
+This is a self-run of the open-source suite, not an OpenID Certification. Every positive test ended in a sign-in, and
+every negative test was refused by the check it targets.
 
-- a nonce-entropy **warning** on the happy flows: a heuristic that flags most 128-bit base64url nonces;
-- **`request-uri-fetched-twice` fails**: request objects are single use by design (see §8);
-- the **HAIP cross-device** happy flow fails the "`redirect_uri` in the response to the wallet's POST" check, which
-  HAIP §5.1 requires only for same-device logins.
+The first run reported three findings:
+- **`request-uri-fetched-twice` failed** because request objects were single use. **Fixed:** the same `request_uri` can
+  now be fetched again until the response (§8), and the re-run passes it in every plan.
+- **A nonce-entropy warning** on the happy flows. It comes from a suite heuristic that flags most 128-bit base64url
+  nonces, so it is not changed; an issue for the suite is drafted.
+- **The HAIP cross-device happy flow** fails the "`redirect_uri` in the response to the wallet's POST" check. HAIP §5.1
+  requires that only for same-device logins, so it is not changed.
 
-The results per plan and module, the root cause of each finding, the logs and the harness to repeat the run are in
-**[`docs/compliance/oid4vp-conformance/README.md`](compliance/oid4vp-conformance/README.md)**
-(harness: `e2e/oid4vp-conformance/`).
+The suite does not test HAIP §5's DCQL `trusted_authorities`, but HAIP requires verifiers to support it, so it was
+added after the run:
+- **What is sent.** Each PID Credential Query carries `{"type": "aki", "values": [...]}`. The values are the key
+  identifiers of the trust anchors and pinned intermediates, the AuthorityKeyIdentifier of the certificates they issue.
+- **Default.** Per provider, `dcql.trustedAuthorities` (console: Credentials → "Name the trusted issuers in the
+  request"). Unset means on for the HAIP profile (`x509_hash` with `direct_post.jwt`) and off otherwise.
+- **Enforcement.** It only tells the wallet which issuers to offer; validating the chain to `trustAnchors` still
+  decides.
+
+The results per plan and module, the root cause of each finding, the logs of both runs and the harness to repeat them
+are in **[`docs/compliance/oid4vp-conformance/README.md`](compliance/oid4vp-conformance/README.md)** (harness:
+`e2e/oid4vp-conformance/`).

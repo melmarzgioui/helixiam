@@ -110,10 +110,12 @@ async function runModule(browser, planId, mod) {
           await page.waitForLoadState('load');
           await sleep(1500);
           rec.helixFinalUrl = page.url().replace(/response_code=[^&]+/, 'response_code=<redacted>').replace(/tx=[^&]+/, 'tx=<redacted>');
-          const shot = await page.screenshot({ fullPage: true });
-          fs.writeFileSync(path.join(out, `${spec.label}-${mod.testModule}.png`), shot);
+          // JPEG of the viewport: the suite refuses uploads over 500 KB, which a full-page PNG of an account page
+          // with many sessions exceeds
+          const shot = await page.screenshot({ type: 'jpeg', quality: 70 });
+          fs.writeFileSync(path.join(out, `${spec.label}-${mod.testModule}.jpg`), shot);
           if (needsUpload) {
-            await api('POST', `/log/${id}/images/${needsUpload.upload}`, 'data:image/png;base64,' + shot.toString('base64'), 'text/plain');
+            await api('POST', `/log/${id}/images/${needsUpload.upload}`, 'data:image/jpeg;base64,' + shot.toString('base64'), 'text/plain');
             rec.notes.push('uploaded HelixIAM result screenshot to placeholder');
           }
           break;
