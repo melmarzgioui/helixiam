@@ -156,6 +156,18 @@ question. Newest first within each phase.
   signer fingerprints. Console: FAILING and DEGRADED explained, "Never verified" for ERROR, members table, signer
   expiry warnings, unknown trusted lists caught before saving, and dark-mode danger alerts fixed (a legacy
   `.hx-alert` rule in `app.css` overrode the themed one).
+- **security (trusted lists, re-review).** Rollback high-water marks per territory and TSLType that outlive member rows
+  (a moved or re-added list cannot come back older; `trusted_list_hwm`, folded into V84); a failed integrity check of
+  the stored anchors, member anchors or marks now resets and reloads them from the signed list at the next refresh
+  (`TRUSTED_LIST_INTEGRITY_RESET`), failing settings still need an admin re-save, and V84 adopts pre-V84 rows at their
+  first refresh (audited); the settings MAC covers name, grace, switch and `config_version` too, anchors are bound to
+  `config_version`, grace is clamped on read, and a tampered member shows `INTEGRITY`; updates need the `configVersion`
+  read (`409` on a concurrent edit; console "changed by someone else, reload"); deleting a source in use is a `409`;
+  one lease token per refresh. **Behaviour change:** the signer-expiry grace is split per ETSI TS 119 615 —
+  `signer-expiry-grace-days` (admin-pinned top-level signers) now defaults to **0**, and the new
+  `member-signer-expiry-grace-days` (signers named by a verified LOTL) to 180. As of 2026-10-15 the EUDI test LOTL
+  needs `signer-expiry-grace-days` ≥ ~120 and the EC acceptance LoTE ≥ ~30; the console says when a list is refused
+  for an expired pinned signer.
 - **admin API:** `trustAnchors` on a wallet connection is no longer required when `trustedLists.sources` is set;
   an unknown source name is a `400` on `config.trustedLists.sources`.
 

@@ -438,12 +438,23 @@ anchors are read at every verification, so a refresh, a withdrawal or an expiry 
   final URL; at most `helix.wallet.trusted-lists.max-bytes`, 16 MB; connect 5 s, 30 s in total; slots of the
   `WALLET` fetch-limiter group, per realm);
 - its signature verifies with **one of the pinned signer certificates** (never with the certificate the list carries
-  in its own `KeyInfo` or `x5c`). That certificate must have an RSA (≥ 2048 bits) or EC (P-256 or stronger) key, must
-  have been valid at the list's `ListIssueDateTime`, and must not have expired more than
-  `helix.wallet.trusted-lists.signer-expiry-grace-days` (180) ago, whatever date the list claims. (Lists are signed
-  at issue and stay valid until NextUpdate, so a signer can lapse before its list does: the EUDI test LOTL issued on
-  2026-04-30 is signed by a certificate that expired on 2026-07-04, which the default grace accepts; set the grace to
-  `0` to refuse it.) XML: exactly one enveloped `ds:Signature` under the root, one reference covering the whole list
+  in its own `KeyInfo` or `x5c`). That certificate must have an RSA (≥ 2048 bits) or EC (P-256 or stronger) key and
+  must have been valid at the list's `ListIssueDateTime`. It must also not have expired, whatever date the list
+  claims, beyond a grace that differs by who vouches for the signer (ETSI TS 119 615):
+  - an **admin-pinned signer of a top-level list** (a trusted list, or a list of trusted lists): grace
+    `helix.wallet.trusted-lists.signer-expiry-grace-days`, **default 0**. PRO-4.1.4-07/08 make an expired signer
+    without proof of existence INDETERMINATE, which stops validation; the console then says the pinned signer has
+    expired. Lists are signed at issue and stay valid until NextUpdate, so a test publisher's signer can lapse first:
+    as of 2026-10-15 the EUDI reference implementation's test LOTL (issued 2026-04-30, signer expired 2026-07-04)
+    loads only with `signer-expiry-grace-days` ≥ about **120**, and the Commission's acceptance LoTE (signer expired
+    2026-09-15) with ≥ about **30**. Set it deliberately for such test lists; there is no lenient default, also not
+    in `dev`;
+  - a **member list's signer named by the verified list of lists**: grace
+    `helix.wallet.trusted-lists.member-signer-expiry-grace-days`, **default 180 days** (PRO-4.2.4-09: a member TL
+    stops only on "failed"), still bounded by the signer being valid at the member's issue time and by the
+    six-month NextUpdate cap below.
+
+  XML: exactly one enveloped `ds:Signature` under the root, one reference covering the whole list
   (`URI=""` or the root's `Id`), only same-document references, only enveloped-signature and canonicalization
   transforms, unique `Id` attributes; signature RSA PKCS#1 v1.5, RSASSA-PSS with MGF1 (the fixed-hash
   `sha*-rsa-MGF1` identifiers only; the parameterised `rsa-pss` identifier is refused) or ECDSA with SHA-256/384/512,
@@ -457,7 +468,9 @@ anchors are read at every verification, so a refresh, a withdrawal or an expiry 
 - for a list of trusted lists: each XML pointer to a non-list-of-lists list in the chosen territories is a
   **member**, judged on its own: it must be https, verify with the signer certificates **the list of lists names for
   it**, carry the `SchemeTerritory` and `TSLType` the pointer names, be fresh, and not have a lower sequence number
-  than that member's last accepted list. A member that fails (a plain-http pointer is skipped and reported the same
+  than the **high-water mark** of its territory and TSLType: the highest sequence number accepted for them, kept
+  per source even when the member's URL changes or the list of lists stops pointing at it for a while (enforced in
+  the loader and in SQL, MACed like the anchors). A member that fails (a plain-http pointer is skipped and reported the same
   way) keeps its own last good anchors until its own NextUpdate plus grace, then gives none; the other members are
   not affected. Members the list no longer points at are dropped. PDF renditions and pointers to other lists of
   lists are skipped.
@@ -487,18 +500,36 @@ moved every `poll-interval-seconds` (10).
 | `EXPIRED` | **no** | Past NextUpdate plus grace: fail closed until a new list verifies |
 | `DEGRADED` | yes (the good members) | A list of trusted lists that is itself fine, with some members failing, stale, expired or never verified; each member has its own status |
 | `NEVER` / `ERROR` | no | Never loaded / never verified (console: "Never verified") |
+| `INTEGRITY` | **no** | The stored settings or anchors failed their integrity check (see below) |
 | `DISABLED` | no | Switched off |
 
 Changing what a source loads (URL, format, signers, types, statuses, territories) drops its stored anchors at once.
-Deleting a source drops its anchors from every provider that names it. Providers name a source, so **renaming a source
-that providers use is refused** (remove it from them first) rather than silently re-pointing them.
+Providers name a source, so **renaming or deleting a source that providers use is refused** (`409`; remove it from
+them first) rather than silently re-pointing or orphaning them. Every update must send the `configVersion` of the
+source it edited: when another admin saved in between, the update is a `409` (the console says the list was changed
+by someone else and offers to reload) instead of overwriting their change.
 
-**Integrity of the stored rows.** A source's settings (URL, format, pinned signers, types, statuses, territories) and
-the stored services of each source and member carry an HMAC-SHA256 keyed from `DB_ENCRYPTION`. A row whose MAC does
-not match (modified outside HelixIAM, or `DB_ENCRYPTION` changed) is not used: its anchors are dropped, a refresh is
-refused until the settings are saved again, and `TRUSTED_LIST_INTEGRITY_FAILED` is audited. Outside the `dev` profile a
-source cannot be saved without `DB_ENCRYPTION`; in `dev` without it there is no MAC and nothing is checked. After
-changing `DB_ENCRYPTION`, save each source again and refresh it.
+**Integrity of the stored rows.** HMAC-SHA256, keyed from `DB_ENCRYPTION`, covers every stored value that decides
+trust: a source's settings (realm, name, URL, format, pinned signers, service types, accepted statuses, territories,
+grace hours, the switch and its `configVersion`), the stored services of the source and of each member (with their
+sequence number and NextUpdate, bound to the `configVersion` they were loaded under), and the rollback high-water
+marks. `grace_hours` is also clamped to 0-720 when read. What happens when a check fails:
+
+- **Settings fail** (modified outside HelixIAM, or `DB_ENCRYPTION` changed): the source shows `INTEGRITY`, gives no
+  anchors, `TRUSTED_LIST_INTEGRITY_FAILED` is audited, and every refresh fails with `INTEGRITY` until an admin checks
+  the settings and saves them again (settings are never adopted automatically).
+- **Anchors, a member's anchors or high-water marks fail** (or have no MAC) while the settings verify: they give no
+  anchors, and the **next refresh discards all loaded state and reloads it from the signed list** with full
+  verification, rebuilding the high-water marks from that list; audited as `TRUSTED_LIST_INTEGRITY_RESET`, naming
+  what failed.
+- So after **changing `DB_ENCRYPTION`**: save each source again (new settings MAC), then refresh it (the anchors are
+  reloaded).
+- **Sources stored before V84** (no MACs; only possible on a database that ran this branch's V81-V83) are marked by
+  V84; their first refresh with `DB_ENCRYPTION` adopts their settings and reloads their anchors, audited as
+  `TRUSTED_LIST_INTEGRITY_RESET` with reason `LEGACY_ADOPTED` (see `SECURITY-REVIEW.md` B.11 for the residual risk).
+
+Outside the `dev` profile a source cannot be saved without `DB_ENCRYPTION`; in `dev` without it there is no MAC and
+nothing is checked.
 
 **Audit and logs.** `TRUSTED_LIST_REFRESHED` (services, usable anchors, lists verified, sequence, NextUpdate, members
 loaded and failed), `TRUSTED_LIST_REFRESH_FAILED` (reason, message, status, until when the last good anchors are kept),
@@ -524,7 +555,8 @@ certificates before the grace period ends. Automatic signer rotation (the LOTL "
 | `helix.wallet.trusted-lists.check-interval-seconds` | `60` | How often each replica looks for due sources (`0`: only "Refresh now") |
 | `helix.wallet.trusted-lists.poll-interval-seconds` | `10` | How often each replica reloads sources that changed elsewhere |
 | `helix.wallet.trusted-lists.max-bytes` | `16777216` (16 MB) | Largest list fetched |
-| `helix.wallet.trusted-lists.signer-expiry-grace-days` | `180` | How long after its expiry a signer may still verify a list issued while it was valid (`0`: never) |
+| `helix.wallet.trusted-lists.signer-expiry-grace-days` | `0` | How long after its expiry an admin-pinned signer of a top-level list may still verify a list issued while it was valid (ETSI TS 119 615 PRO-4.1.4; the EUDI test LOTL needs ≥ ~120) |
+| `helix.wallet.trusted-lists.member-signer-expiry-grace-days` | `180` | The same for a member list's signer named by the verified list of lists (PRO-4.2.4-09) |
 | `helix.wallet.trusted-lists.max-validity-months` | `6` | A list counts at most this long after its issue time, whatever its NextUpdate says |
 
 Not exported or imported with a realm: a realm import whose wallet provider names a trusted list fails validation
