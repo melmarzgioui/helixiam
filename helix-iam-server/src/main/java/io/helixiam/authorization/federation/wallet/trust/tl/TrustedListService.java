@@ -215,10 +215,31 @@ public class TrustedListService implements TrustedListAnchorSource {
 
     /** The status of one member now. */
     public TrustedListHealth.Status memberStatus(final TrustedListSource source, final TrustedListSource.Member m) {
-        if (!memberIntact(source, m) || belowFloor(m, repository.highWaterMarks(source.id()))) {
+        return memberStatus(source, m, repository.highWaterMarks(source.id()), clock.instant());
+    }
+
+    /** The status of each member now, by member key (the high-water marks are read once for all of them). */
+    public Map<String, TrustedListHealth.Status> memberStatuses(final TrustedListSource source,
+                                                               final List<TrustedListSource.Member> members) {
+        if (members.isEmpty()) {
+            return Map.of();
+        }
+        final List<TrustedListRepository.HighWaterMark> marks = repository.highWaterMarks(source.id());
+        final Instant now = clock.instant();
+        final Map<String, TrustedListHealth.Status> out = new LinkedHashMap<>();
+        for (final TrustedListSource.Member m : members) {
+            out.put(m.key(), memberStatus(source, m, marks, now));
+        }
+        return out;
+    }
+
+    private TrustedListHealth.Status memberStatus(final TrustedListSource source, final TrustedListSource.Member m,
+                                                  final List<TrustedListRepository.HighWaterMark> marks,
+                                                  final Instant now) {
+        if (!memberIntact(source, m) || belowFloor(m, marks)) {
             return TrustedListHealth.Status.INTEGRITY;
         }
-        return TrustedListHealth.evaluate(source, m, clock.instant());
+        return TrustedListHealth.evaluate(source, m, now);
     }
 
     /**
@@ -226,18 +247,19 @@ public class TrustedListService implements TrustedListAnchorSource {
      * list of lists some of whose members are not.
      */
     public TrustedListHealth.Status status(final TrustedListSource source) {
-        return aggregate(source, members(source));
+        final List<TrustedListSource.Member> members = members(source);
+        return status(source, memberStatuses(source, members).values());
     }
 
-    private TrustedListHealth.Status aggregate(final TrustedListSource source,
-                                               final List<TrustedListSource.Member> members) {
+    /** As {@link #status(TrustedListSource)}, given the member statuses already computed. */
+    public TrustedListHealth.Status status(final TrustedListSource source,
+                                           final java.util.Collection<TrustedListHealth.Status> memberStatuses) {
         if (!settingsIntact(source) || !servicesIntact(source)) {
             return TrustedListHealth.Status.INTEGRITY;
         }
-        final Instant now = clock.instant();
-        final TrustedListHealth.Status own = TrustedListHealth.evaluate(source, now);
-        if (own == TrustedListHealth.Status.OK && members.stream()
-                .anyMatch(m -> memberStatus(source, m) != TrustedListHealth.Status.OK)) {
+        final TrustedListHealth.Status own = TrustedListHealth.evaluate(source, clock.instant());
+        if (own == TrustedListHealth.Status.OK
+                && memberStatuses.stream().anyMatch(x -> x != TrustedListHealth.Status.OK)) {
             return TrustedListHealth.Status.DEGRADED;
         }
         return own;

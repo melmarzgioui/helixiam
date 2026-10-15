@@ -228,9 +228,12 @@ public class TrustedListAdminController {
     private TrustedListView view(final TrustedListSource s) {
         final TrustedListSource.Config c = s.config();
         final TrustedListSource.State st = s.state();
-        final TrustedListHealth.Status status = service.status(s);
+        // the members' statuses (and the source's, which depends on them) come from one high-water-mark read
+        final List<TrustedListSource.Member> rows = service.members(s);
+        final Map<String, TrustedListHealth.Status> memberStatuses = service.memberStatuses(s, rows);
+        final TrustedListHealth.Status status = service.status(s, memberStatuses.values());
         final List<ListedService> services = service.services(s);
-        final List<MemberView> members = service.members(s).stream().map(m -> member(s, m)).toList();
+        final List<MemberView> members = rows.stream().map(m -> member(s, m, memberStatuses.get(m.key()))).toList();
         List<CertificateView> signers;
         try {
             signers = PemCertificates.parse(c.signerCertificates()).stream().map(CertificateView::of).toList();
@@ -251,8 +254,8 @@ public class TrustedListAdminController {
                 anchors, st.listOfLists(), members);
     }
 
-    private MemberView member(final TrustedListSource source, final TrustedListSource.Member m) {
-        final TrustedListHealth.Status status = service.memberStatus(source, m);
+    private MemberView member(final TrustedListSource source, final TrustedListSource.Member m,
+                              final TrustedListHealth.Status status) {
         // a member whose stored anchors fail the integrity check shows none, and is not in use
         final List<ListedService> services = status == TrustedListHealth.Status.INTEGRITY ? List.of()
                 : TrustedListService.decode(m.servicesJson());

@@ -1206,4 +1206,32 @@ class TrustedListServiceTest {
         assertThat(service.refreshNow(realm, created.id()).orElseThrow().state().lastError()).isNull();
         assertThat(anchors(service)).containsExactly(issuer);
     }
+
+    @Test
+    void memberStatuses_readTheHighWaterMarksOnce_notOncePerMember() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate()));
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+        serveMember(DE, "DE", 5, 30, deSigner, Service.granted("DE", deIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        final java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        final TrustedListService counted = new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS) {
+            @Override
+            public List<HighWaterMark> highWaterMarks(final String sourceId) {
+                reads.incrementAndGet();
+                return super.highWaterMarks(sourceId);
+            }
+        }, new TrustedListLoader(fetcher, clock), (r, t, i, o, d) -> { }, clock, TrustedListService.Settings.DEFAULTS,
+                INTEGRITY, false);
+        final TrustedListSource source = counted.get(realm, created.id()).orElseThrow();
+
+        final Map<String, TrustedListHealth.Status> statuses = counted.memberStatuses(source, counted.members(source));
+
+        assertThat(statuses).hasSize(2).allSatisfy((k, v) -> assertThat(v).isEqualTo(TrustedListHealth.Status.OK));
+        assertThat(reads).hasValue(1);
+        reads.set(0);
+        assertThat(counted.status(source)).isEqualTo(TrustedListHealth.Status.OK);
+        assertThat(reads).hasValue(1);
+    }
 }
