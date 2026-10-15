@@ -226,6 +226,12 @@ public final class TrustedListFixtures {
 
     /** Signs an XML document (its root must carry {@code Id="TrustServiceStatusList"}). */
     public static byte[] sign(final String xml, final TestPki.Leaf signer) {
+        return sign(xml, signer, XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA256, "http://www.w3.org/2001/04/xmlenc#sha256");
+    }
+
+    /** As {@link #sign(String, TestPki.Leaf)} with another signature algorithm and reference digest. */
+    public static byte[] sign(final String xml, final TestPki.Leaf signer, final String signatureAlgorithm,
+                              final String digestAlgorithm) {
         try {
             org.apache.xml.security.Init.init();
             final DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
@@ -233,13 +239,13 @@ public final class TrustedListFixtures {
             final Document doc = f.newDocumentBuilder().parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
             final Element root = doc.getDocumentElement();
             root.setIdAttributeNS(null, "Id", true);
-            final XMLSignature sig = new XMLSignature(doc, "", XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA256,
+            final XMLSignature sig = new XMLSignature(doc, "", signatureAlgorithm,
                     Transforms.TRANSFORM_C14N_EXCL_OMIT_COMMENTS);
             root.appendChild(sig.getElement());
             final Transforms whole = new Transforms(doc);
             whole.addTransform(Transforms.TRANSFORM_ENVELOPED_SIGNATURE);
             whole.addTransform(Transforms.TRANSFORM_C14N_EXCL_OMIT_COMMENTS);
-            sig.addDocument("#TrustServiceStatusList", whole, "http://www.w3.org/2001/04/xmlenc#sha256");
+            sig.addDocument("#TrustServiceStatusList", whole, digestAlgorithm);
             // XAdES-style signed properties, referenced by Id like the published lists do
             final ObjectContainer object = new ObjectContainer(doc);
             final Element qualifying = doc.createElementNS(XADES_NS, "xades:QualifyingProperties");

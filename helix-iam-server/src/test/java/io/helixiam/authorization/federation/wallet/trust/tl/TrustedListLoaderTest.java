@@ -173,6 +173,46 @@ class TrustedListLoaderTest {
     }
 
     @Test
+    void sha1ReferenceDigest_isRefused() {
+        final String xml = TrustedListFixtures.xml(Spec.memberState("UT").service(Service.granted("Issuer A", issuerA)));
+        served.put(TL_URL, TrustedListFixtures.sign(xml, signer,
+                org.apache.xml.security.signature.XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA256,
+                "http://www.w3.org/2000/09/xmldsig#sha1"));
+
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE))
+                .hasMessageContaining("digest");
+    }
+
+    @Test
+    void sha384AndSha512ReferenceDigests_areAccepted() throws Exception {
+        final String xml = TrustedListFixtures.xml(Spec.memberState("UT").service(Service.granted("Issuer A", issuerA)));
+        for (final String digest : List.of("http://www.w3.org/2001/04/xmldsig-more#sha384",
+                "http://www.w3.org/2001/04/xmlenc#sha512")) {
+            served.put(TL_URL, TrustedListFixtures.sign(xml, signer,
+                    org.apache.xml.security.signature.XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA256, digest));
+            assertThat(loader.load(spec(TL_URL, signer), "realm").services()).hasSize(1);
+        }
+    }
+
+    @Test
+    void ecdsaSha1Signature_andParameterisedRsaPss_areRefused() {
+        final String xml = TrustedListFixtures.xml(Spec.memberState("UT").service(Service.granted("Issuer A", issuerA)));
+        served.put(TL_URL, TrustedListFixtures.sign(xml, signer,
+                org.apache.xml.security.signature.XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA1,
+                "http://www.w3.org/2001/04/xmlenc#sha256"));
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE))
+                .hasMessageContaining("signature algorithm");
+        // the generic RSASSA-PSS identifier takes its hash and salt from parameters: not accepted
+        final String pss = new String(TrustedListFixtures.signedXml(Spec.memberState("UT")
+                .service(Service.granted("Issuer A", issuerA)), signer), StandardCharsets.UTF_8)
+                .replace("http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256",
+                        "http://www.w3.org/2007/05/xmldsig-more#rsa-pss");
+        served.put(TL_URL, pss.getBytes(StandardCharsets.UTF_8));
+        assertThat(assertKind(() -> loader.load(spec(TL_URL, signer), "realm"), TrustedListException.Kind.SIGNATURE))
+                .hasMessageContaining("signature algorithm");
+    }
+
+    @Test
     void nextUpdateInThePast_isRefusedAsExpired() {
         served.put(TL_URL, TrustedListFixtures.signedXml(Spec.memberState("UT")
                 .nextUpdate(Instant.now().minus(1, ChronoUnit.HOURS))

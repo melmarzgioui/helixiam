@@ -37,8 +37,11 @@ import java.util.Set;
  *   <li><b>No reach outside the document, no subsetting.</b> Every reference is same-document ({@code ""} or
  *       {@code #id}); the only transforms allowed are enveloped-signature and canonicalization (no XPath, XSLT or
  *       Base64), so a reference cannot select less than it appears to.</li>
- *   <li><b>Algorithms.</b> RSA (PKCS#1 v1.5 or PSS) and ECDSA with SHA-256/384/512 only; Santuario's secure validation
- *       additionally refuses MD5/SHA-1 digests and bounds references and transforms.</li>
+ *   <li><b>Algorithms.</b> Signatures: RSA PKCS#1 v1.5, RSASSA-PSS with MGF1 and a fixed hash (the {@code sha*-rsa-MGF1}
+ *       identifiers; the generic, parameterised {@code rsa-pss} identifier is refused) and ECDSA, each with
+ *       SHA-256/384/512. Reference digests: SHA-256/384/512 only, checked here (Santuario's secure validation refuses
+ *       MD5 but still accepts SHA-1 digests). Secure validation also bounds the number of references and
+ *       transforms.</li>
  * </ul>
  */
 final class XmlListSignature {
@@ -52,9 +55,12 @@ final class XmlListSignature {
             XMLSignature.ALGO_ID_SIGNATURE_RSA_SHA256, XMLSignature.ALGO_ID_SIGNATURE_RSA_SHA384,
             XMLSignature.ALGO_ID_SIGNATURE_RSA_SHA512, XMLSignature.ALGO_ID_SIGNATURE_RSA_SHA256_MGF1,
             XMLSignature.ALGO_ID_SIGNATURE_RSA_SHA384_MGF1, XMLSignature.ALGO_ID_SIGNATURE_RSA_SHA512_MGF1,
-            XMLSignature.ALGO_ID_SIGNATURE_RSA_PSS,
             XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA256, XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA384,
             XMLSignature.ALGO_ID_SIGNATURE_ECDSA_SHA512);
+
+    /** Reference digests: SHA-256/384/512 only (Santuario's secure validation alone still accepts SHA-1). */
+    private static final Set<String> ALLOWED_DIGESTS = Set.of("http://www.w3.org/2001/04/xmlenc#sha256",
+            "http://www.w3.org/2001/04/xmldsig-more#sha384", "http://www.w3.org/2001/04/xmlenc#sha512");
 
     static {
         org.apache.xml.security.Init.init();
@@ -87,6 +93,12 @@ final class XmlListSignature {
         if (sigElement.getParentNode() != root) {
             throw signature("the signature is not enveloped in the list root");
         }
+        // the algorithm is checked on the DOM first, before Santuario builds anything for it
+        final NodeList methods = sigElement.getElementsByTagNameNS(DSIG_NS, "SignatureMethod");
+        if (methods.getLength() != 1
+                || !ALLOWED_SIGNATURE_ALGORITHMS.contains(((Element) methods.item(0)).getAttribute("Algorithm"))) {
+            throw signature("the signature algorithm is not allowed");
+        }
         final XMLSignature signature;
         try {
             signature = new XMLSignature(sigElement, "", true);
@@ -118,6 +130,9 @@ final class XmlListSignature {
                 final String uri = ref.getURI();
                 if (uri == null || !(uri.isEmpty() || uri.startsWith("#"))) {
                     throw signature("a signature reference points outside the list");
+                }
+                if (!ALLOWED_DIGESTS.contains(ref.getMessageDigestAlgorithm().getAlgorithmURI())) {
+                    throw signature("a signature reference uses a digest algorithm that is not allowed");
                 }
                 boolean enveloped = false;
                 final Transforms transforms = ref.getTransforms();
