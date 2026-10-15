@@ -93,6 +93,14 @@ public class ClaimScopeAdminService {
                 new SeedClaim("phone_number_verified", "Phone verified", null)));
     }
 
+    /**
+     * The standard scope a client requests to receive the verify-only EUDI wallet step's {@code verified_claims}
+     * (docs/eudi-wallet.md §12); without it the step still raises {@code acr}, but releases nothing.
+     */
+    static final String VERIFIED_CLAIMS_SCOPE = "verified_claims";
+    private static final String VERIFIED_CLAIMS_DESCRIPTION =
+            "Verified EU Digital Identity Wallet claims (verify-only wallet step)";
+
     /** Default subject source when a realm has not chosen one: the {@code sub} claim itself. */
     static final String DEFAULT_SUBJECT_CLAIM = "sub";
 
@@ -329,6 +337,11 @@ public class ClaimScopeAdminService {
     /** Seeds the default catalogue + scopes for a realm that has none yet. Idempotent. */
     private void ensureSeeded(final String realmId) {
         if (scopes.countByTenantId(realmId) > 0) {
+            // A realm seeded before the verified_claims scope existed gets it once (no claims of the catalogue: the
+            // verify-only EUDI wallet step releases them).
+            if (!scopes.existsByTenantIdAndName(realmId, VERIFIED_CLAIMS_SCOPE)) {
+                scopes.save(new ClientScope(realmId, VERIFIED_CLAIMS_SCOPE, VERIFIED_CLAIMS_DESCRIPTION));
+            }
             return;
         }
         ensureTenant(realmId);
@@ -341,6 +354,7 @@ public class ClaimScopeAdminService {
                 scopeClaims.save(new ScopeClaim(scope.getScopeId(), claim.getClaimId()));
             }
         });
+        scopes.save(new ClientScope(realmId, VERIFIED_CLAIMS_SCOPE, VERIFIED_CLAIMS_DESCRIPTION));
         LOG.info("Seeded default client scopes + claim catalogue for realm {}", LogSafe.sanitize(realmId));
     }
 

@@ -88,4 +88,21 @@ class ClaimScopeAdminServiceSeedTest {
         assertThat(mandatoryByKey).containsEntry("email", true);
         assertThat(mandatoryByKey).containsEntry("nickname", false);
     }
+
+    @Test
+    void theVerifiedClaimsScope_isSeeded_andBackfilledIntoRealmsSeededBefore() {
+        service.listClaims("seedrealm");
+        org.mockito.Mockito.verify(scopes).save(org.mockito.ArgumentMatchers.argThat(
+                (ClientScope s) -> "verified_claims".equals(s.getName())));
+
+        // a realm seeded before this scope existed gets it on its next access, once
+        final ClientScopeRepository older = mock(ClientScopeRepository.class);
+        when(older.countByTenantId(anyString())).thenReturn(5L);
+        when(older.existsByTenantIdAndName("oldrealm", "verified_claims")).thenReturn(false);
+        when(older.save(any(ClientScope.class))).thenAnswer(inv -> inv.getArgument(0));
+        new ClaimScopeAdminService(claims, older, scopeClaims, tenants, realmConfigs, serviceProviders,
+                mock(ApplicationRepository.class)).listClaims("oldrealm");
+        org.mockito.Mockito.verify(older).save(org.mockito.ArgumentMatchers.argThat(
+                (ClientScope s) -> "verified_claims".equals(s.getName())));
+    }
 }

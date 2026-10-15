@@ -88,6 +88,7 @@ class ClaimScopeAdminServiceTest {
     @Test
     void listScopes_doesNotReseed_whenRealmAlreadyHasScopes() {
         when(scopes.countByTenantId("gov")).thenReturn(4L);
+        when(scopes.existsByTenantIdAndName("gov", "verified_claims")).thenReturn(true);
         when(scopes.findAllByTenantId("gov")).thenReturn(List.of());
 
         service.listScopes("gov");
