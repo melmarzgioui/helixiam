@@ -19,7 +19,7 @@ import { absoluteTime } from "../api/datetime";
 import { AdminApiError } from "../api/adminError";
 import type { CertificateInfo, VerifierKey, WalletAdminApi, WalletMetadata } from "../api/wallet";
 import {
-  LOA_LADDER, MDOC_FORMAT, SD_JWT_FORMAT, TTL_RANGE, commonName, expiryState, parseHostList, sanCheck,
+  LOA_LADDER, MDOC_FORMAT, SD_JWT_FORMAT, TTL_RANGE, commonName, expiryState, parseHostList, parseOriginList, sanCheck,
   trustedAuthoritiesEffective, validateKeyImport, walletWarnings, type KeyImportForm, type WalletForm,
   type WalletValidationContext,
 } from "../pages/walletProvider";
@@ -429,6 +429,7 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
   const fe = useFieldError(errors);
   const warnings = walletWarnings(form, original);
   const requiredId = React.useId();
+  const dcApiId = React.useId();
 
   return (
     <>
@@ -505,6 +506,35 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
           </FormField>
         </div>
       </Section>
+
+      <Section title={t("wallet.dcApi.title")} description={t("wallet.dcApi.desc")}>
+        <div className="hx-switchrow">
+          <div className="hx-switchrow__text">
+            <span className="hx-switchrow__title" id={dcApiId}>{t("wallet.dcApi.enabled")}</span>
+            <span className="hx-help">{t("wallet.dcApi.enabledHint")}</span>
+          </div>
+          <Switch checked={form.dcApiEnabled} onChange={(on) => onChange({ dcApiEnabled: on })} ariaLabelledby={dcApiId} />
+        </div>
+        {form.dcApiEnabled && (
+          <>
+            <FormField label={t("wallet.dcApi.request")} group="radiogroup" error={fe("dcApi.request")}>
+              <div className="hx-choicegrid">
+                <RadioCard roving selected={form.dcApiRequest === "signed"} onSelect={() => onChange({ dcApiRequest: "signed" })}
+                  title={t("wallet.dcApi.signed")} description={t("wallet.dcApi.signedDesc")} />
+                <RadioCard roving selected={form.dcApiRequest === "unsigned"} onSelect={() => onChange({ dcApiRequest: "unsigned" })}
+                  title={t("wallet.dcApi.unsigned")} description={t("wallet.dcApi.unsignedDesc")} />
+              </div>
+            </FormField>
+            {warnings.includes("dcApiUnsigned") && (
+              <Alert tone="warning" title={t("wallet.warn.dcApiUnsigned.title")}>{t("wallet.warn.dcApiUnsigned")}</Alert>
+            )}
+          </>
+        )}
+        <FormField label={t("wallet.dcApi.origins")} error={fe("dcApi.expectedOrigins")} hint={t("wallet.dcApi.originsHint")}>
+          <Textarea className="hx-mono" rows={3} value={form.dcApiExpectedOrigins} spellCheck={false}
+            placeholder="https://login.example.eu" onChange={(e) => onChange({ dcApiExpectedOrigins: e.target.value })} />
+        </FormField>
+      </Section>
     </>
   );
 }
@@ -544,6 +574,11 @@ export function WalletReview({ form, keys }: { form: WalletForm; keys: VerifierK
         {`${form.statusRequired ? t("wallet.review.statusRequired") : t("wallet.review.statusOptional")} · ${form.onUnavailable === "FAIL_CLOSED" ? t("wallet.status.failClosed") : t("wallet.status.failOpen")}`}
       </Detail>
       <Detail label={t("wallet.review.response")}>{form.responseMode === "direct_post.jwt" ? t("wallet.response.jwt") : t("wallet.response.plain")}</Detail>
+      <Detail label={t("wallet.review.dcApi")} sub={form.dcApiEnabled && parseOriginList(form.dcApiExpectedOrigins).length
+        ? parseOriginList(form.dcApiExpectedOrigins).join(", ") : undefined}>
+        {form.dcApiEnabled ? t(form.dcApiRequest === "signed" ? "wallet.dcApi.signed" : "wallet.dcApi.unsigned")
+          : t("wallet.review.dcApiOff")}
+      </Detail>
       <Detail label={t("wallet.review.ttl")}>{t("wallet.review.ttlValue", { n: form.transactionTtlSeconds.trim() || TTL_RANGE.default })}</Detail>
     </DetailList>
   );
