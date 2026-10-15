@@ -116,7 +116,7 @@ public class TrustedListRepository {
      * New MACs for the stored services of a source whose settings change without reloading them (bound to the new
      * config_version): the source's own, and member key → member MAC. Null when they did not verify (left alone).
      */
-    public record Rebind(String servicesMac, Map<String, String> memberMacs) {
+    public record Rebind(String servicesMac, Map<String, String> memberMacs, Map<HighWaterMark, String> hwmMacs) {
     }
 
     public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
@@ -149,6 +149,9 @@ public class TrustedListRepository {
                 jdbc.update("UPDATE trusted_list_source SET services_mac = ? WHERE id = ?", rebind.servicesMac(), id);
                 rebind.memberMacs().forEach((key, mac) -> jdbc.update("UPDATE trusted_list_member SET services_mac = ? "
                         + "WHERE source_id = ? AND member_key = ?", mac, id, key));
+                rebind.hwmMacs().forEach((h, mac) -> jdbc.update("UPDATE trusted_list_hwm SET mac = ? WHERE "
+                        + "source_id = ? AND territory = ? AND tsl_type = ? AND sequence_number = ?", mac, id,
+                        h.territory(), h.tslType(), h.sequence()));
             }
             return true;
         });
@@ -205,7 +208,8 @@ public class TrustedListRepository {
     }
 
     /** What to write for one member of a verified list of lists. */
-    public record MemberWrite(LoadedList.Member member, String servicesJson, String servicesMac, String failureStatus) {
+    public record MemberWrite(LoadedList.Member member, String servicesJson, String servicesMac, String hwmMac,
+                              String failureStatus) {
     }
 
     /**
@@ -236,6 +240,24 @@ public class TrustedListRepository {
                 final LoadedList.Member m = w.member();
                 keep.add(m.key());
                 if (m.loaded()) {
+                    // the high-water mark first, conditionally: a lower sequence than accepted for this territory and
+                    // type (wherever it was found) writes nothing
+                    final int raised = jdbc.update("INSERT INTO trusted_list_hwm (source_id, territory, tsl_type, "
+                            + "sequence_number, mac) VALUES (?, ?, ?, ?, ?) ON CONFLICT (source_id, territory, tsl_type) "
+                            + "DO UPDATE SET sequence_number = EXCLUDED.sequence_number, mac = EXCLUDED.mac "
+                            + "WHERE trusted_list_hwm.sequence_number <= EXCLUDED.sequence_number", id,
+                            m.territory() == null ? "" : m.territory(), m.tslType() == null ? "" : m.tslType(),
+                            m.sequence(), w.hwmMac());
+                    if (raised != 1) {
+                        // refused: record it like any refused member, keeping that row's last good state
+                        jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
+                                + "(?, ?, ?, ?, 'FAILING', NULL, NULL, NULL, NULL, ?, NULL, ?, 1, NULL) ON CONFLICT "
+                                + "(source_id, member_key) DO UPDATE SET last_attempt_at = EXCLUDED.last_attempt_at, "
+                                + "last_error = EXCLUDED.last_error, version = trusted_list_member.version + 1",
+                                id, m.key(), m.location(), m.territory(), now, "ROLLBACK: the list's sequence number "
+                                        + "is lower than the highest accepted for its territory and type");
+                        continue;
+                    }
                     jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
                             + "(?, ?, ?, ?, 'OK', ?, ?, ?, ?, ?, ?, NULL, 1, ?) ON CONFLICT (source_id, member_key) DO "
                             + "UPDATE SET status = 'OK', services_json = EXCLUDED.services_json, "
@@ -299,8 +321,19 @@ public class TrustedListRepository {
     private int resetMembers(final boolean reset, final String id) {
         if (reset) {
             jdbc.update("DELETE FROM trusted_list_member WHERE source_id = ?", id);
+            jdbc.update("DELETE FROM trusted_list_hwm WHERE source_id = ?", id);
         }
         return 0;
+    }
+
+    /** One rollback high-water mark: the highest sequence number accepted for a territory and TSLType. */
+    public record HighWaterMark(String territory, String tslType, long sequence, String mac) {
+    }
+
+    public List<HighWaterMark> highWaterMarks(final String sourceId) {
+        return readTx.execute(s -> jdbc.query("SELECT territory, tsl_type, sequence_number, mac FROM trusted_list_hwm "
+                + "WHERE source_id = ?", (rs, i) -> new HighWaterMark(rs.getString(1), rs.getString(2),
+                rs.getLong(3), rs.getString(4)), sourceId));
     }
 
     /**

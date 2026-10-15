@@ -895,4 +895,67 @@ class TrustedListServiceTest {
         assertThat(service.memberStatus(source, nl).anchorsUsable()).isFalse();
         assertThat(service.services(source)).isEmpty();
     }
+
+    @Test
+    void lotl_aMemberDroppedAndReAdded_cannotComeBackOlder() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer).withStatus(WITHDRAWN));
+        serveMember(DE, "DE", 5, 30, deSigner, Service.granted("DE", deIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        serveLotl(11, TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate())); // NL dropped
+        service.refreshNow(realm, created.id());
+
+        // NL comes back, serving its older sequence 3 that still granted the issuer
+        serveLotl(12, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate()));
+        serveMember(NL, "NL", 3, 30, nlSigner, Service.granted("NL", nlIssuer));
+        service.refreshNow(realm, created.id());
+
+        assertThat(anchors(service)).containsExactly(deIssuer);
+        assertThat(member(created, "NL").lastError()).startsWith("ROLLBACK:");
+    }
+
+    @Test
+    void lotl_aMemberMovedToAnotherUrl_cannotServeAnOlderList() {
+        final String moved = "https://tl.example/NL-moved.xml";
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer).withStatus(WITHDRAWN));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+
+        serveLotl(11, TrustedListFixtures.Pointer.memberState(moved, "NL", nlSigner.certificate()));
+        serveMember(moved, "NL", 3, 30, nlSigner, Service.granted("NL", nlIssuer));
+        service.refreshNow(realm, created.id());
+
+        assertThat(anchors(service)).isEmpty();
+        assertThat(member(created, "NL").lastError()).startsWith("ROLLBACK:");
+    }
+
+    @Test
+    void theHighWaterMarkIsEnforcedInSqlToo() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer).withStatus(WITHDRAWN));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        final TrustedListRepository repo = new TrustedListRepository(JDBC, TRANSACTIONS);
+        final TrustedListSource stored = repo.byId(created.id()).orElseThrow();
+        assertThat(repo.tryLease(created.id(), "writer", clock.millis(), clock.millis() + 60_000)).isTrue();
+        final LoadedList.Member older = new LoadedList.Member(LoadedList.Member.key("https://elsewhere/NL.xml", "NL"),
+                "https://elsewhere/NL.xml", "NL", TrustedListFixtures.GENERIC_TYPE, true,
+                List.of(new ListedService(nlIssuer, PID_TYPE, "x", "x", "NL", null)), 3L, clock.instant(),
+                clock.instant().plus(Duration.ofDays(10)), null, null);
+
+        repo.recordListOfListsSuccess(created.id(), "writer", stored.state().configVersion(),
+                new LoadedList(older.services(), clock.instant(), clock.instant().plus(Duration.ofDays(10)), 13, 2, true,
+                        List.of(older)), null,
+                List.of(new TrustedListRepository.MemberWrite(older, "[]", null, null, null)), clock.millis(),
+                clock.millis());
+
+        assertThat(JDBC.queryForObject("SELECT count(*) FROM trusted_list_member WHERE source_id = ? AND location = ? "
+                + "AND services_json IS NOT NULL", Integer.class, created.id(), "https://elsewhere/NL.xml")).isZero();
+        assertThat(JDBC.queryForObject("SELECT sequence_number FROM trusted_list_hwm WHERE source_id = ?", Long.class,
+                created.id())).isEqualTo(9);
+    }
 }

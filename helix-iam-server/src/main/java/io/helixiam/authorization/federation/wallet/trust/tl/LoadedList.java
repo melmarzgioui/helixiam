@@ -44,7 +44,8 @@ public record LoadedList(List<ListedService> services, Instant issuedAt, Instant
      * One pointed-to list of a list of trusted lists. Loaded: its services and facts; not loaded: why
      * ({@code errorKind}, {@code errorMessage}).
      */
-    public record Member(String key, String location, String territory, boolean loaded, List<ListedService> services,
+    public record Member(String key, String location, String territory, String tslType, boolean loaded,
+                         List<ListedService> services,
                          Long sequence, Instant issuedAt, Instant nextUpdate, TrustedListException.Kind errorKind,
                          String errorMessage) {
 
@@ -53,15 +54,24 @@ public record LoadedList(List<ListedService> services, Instant issuedAt, Instant
             services = services == null ? List.of() : List.copyOf(services);
         }
 
-        static Member loaded(final String location, final String territory, final List<ListedService> services,
-                             final long sequence, final Instant issuedAt, final Instant nextUpdate) {
-            return new Member(key(location, territory), location, territory, true, services, sequence, issuedAt,
-                    nextUpdate, null, null);
+        static Member loaded(final String location, final String territory, final String tslType,
+                             final List<ListedService> services, final long sequence, final Instant issuedAt,
+                             final Instant nextUpdate) {
+            return new Member(key(location, territory), location, territory, tslType, true, services, sequence,
+                    issuedAt, nextUpdate, null, null);
         }
 
         static Member failed(final String location, final String territory, final TrustedListException e) {
-            return new Member(key(location, territory), location, territory, false, List.of(), null, null, null,
-                    e.kind(), e.getMessage());
+            return new Member(key(location, territory), location, territory, null, false, List.of(), null, null,
+                    null, e.kind(), e.getMessage());
+        }
+
+        /**
+         * The rollback high-water mark's identity: territory and TSLType, not the URL, so a list that moves, or is
+         * dropped and pointed at again, must still not go below the highest sequence number accepted for it.
+         */
+        public static String highWaterKey(final String territory, final String tslType) {
+            return (territory == null ? "" : territory) + "\n" + (tslType == null ? "" : tslType);
         }
 
         /** The member's identity: SHA-256 (hex) of its location and territory, so a moved list is a new member. */

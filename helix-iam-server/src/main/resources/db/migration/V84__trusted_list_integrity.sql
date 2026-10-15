@@ -5,3 +5,14 @@
 ALTER TABLE trusted_list_source ADD COLUMN IF NOT EXISTS settings_mac character varying(64);
 ALTER TABLE trusted_list_source ADD COLUMN IF NOT EXISTS services_mac character varying(64);
 ALTER TABLE trusted_list_member ADD COLUMN IF NOT EXISTS services_mac character varying(64);
+-- Rollback high-water marks of the members of a list of trusted lists: the highest sequence number accepted per
+-- territory and TSLType. They outlive the member rows (a list that moves to another URL, or is dropped and pointed at
+-- again, cannot come back older) and are MACed like the anchors.
+CREATE TABLE IF NOT EXISTS trusted_list_hwm (
+    source_id       character varying(36)  NOT NULL REFERENCES trusted_list_source (id) ON DELETE CASCADE,
+    territory       character varying(16)  NOT NULL,
+    tsl_type        character varying(255) NOT NULL,
+    sequence_number bigint                 NOT NULL,
+    mac             character varying(64),
+    PRIMARY KEY (source_id, territory, tsl_type)
+);

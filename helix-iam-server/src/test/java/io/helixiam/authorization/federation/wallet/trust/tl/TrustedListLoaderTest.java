@@ -406,11 +406,29 @@ class TrustedListLoaderTest {
                 .service(Service.granted("NL Issuer", issuerA)), nlSigner));
 
         final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner)
-                .withPreviousMemberSequences(Map.of(LoadedList.Member.key(NL_URL, "NL"), 9L)), "realm");
+                .withPreviousMemberSequences(Map.of(LoadedList.Member.highWaterKey("NL",
+                        TrustedListFixtures.GENERIC_TYPE), 9L)), "realm");
 
         assertThat(member(loaded, "NL").loaded()).isFalse();
         assertThat(member(loaded, "NL").errorKind()).isEqualTo(TrustedListException.Kind.ROLLBACK);
         assertThat(loaded.services()).isEmpty();
+    }
+
+    @Test
+    void lotl_theHighWaterMarkFollowsTerritoryAndType_notTheUrl() throws Exception {
+        // the NL list moved to another URL and serves an older sequence: still refused
+        serveLotl(Pointer.memberState(DE_URL, "NL", nlSigner.certificate()));
+        served.put(DE_URL, TrustedListFixtures.signedXml(Spec.memberState("NL").sequence(3)
+                .service(Service.granted("NL Issuer", issuerA)), nlSigner));
+
+        final LoadedList loaded = loader.load(spec(LOTL_URL, lotlSigner).withPreviousMemberSequences(Map.of(
+                LoadedList.Member.highWaterKey("NL", TrustedListFixtures.GENERIC_TYPE), 9L)), "realm");
+
+        assertThat(member(loaded, "NL").errorKind()).isEqualTo(TrustedListException.Kind.ROLLBACK);
+        assertThat(member(loaded, "NL").tslType()).isNull();
+        // a list of another type for the same territory has its own mark
+        assertThat(LoadedList.Member.highWaterKey("NL", "x")).isNotEqualTo(
+                LoadedList.Member.highWaterKey("NL", TrustedListFixtures.GENERIC_TYPE));
     }
 
     @Test

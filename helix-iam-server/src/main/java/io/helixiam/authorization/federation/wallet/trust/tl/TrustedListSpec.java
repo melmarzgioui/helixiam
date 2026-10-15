@@ -21,8 +21,9 @@ import java.util.Set;
  * @param acceptedStatuses  current statuses that count (XML only); default {@link #DEFAULT_STATUSES}
  * @param territories       for a list of trusted lists: the territories whose lists are read (empty: all)
  * @param previousSequence  the sequence number of the last list accepted, or null: a lower one is refused (rollback)
- * @param previousMemberSequences for a list of lists: member key ({@link LoadedList.Member#key}) → the sequence number
- *                          of that member's last list accepted; a member with a lower one is refused (rollback)
+ * @param previousMemberSequences for a list of lists: high-water key ({@link LoadedList.Member#highWaterKey}, territory
+ *                          and TSLType) → the highest sequence number accepted for it; a member with a lower one is
+ *                          refused (rollback), whatever URL it is found at
  */
 public record TrustedListSpec(String url, Format format, List<X509Certificate> signers, Set<String> serviceTypes,
                               Set<String> acceptedStatuses, Set<String> territories, Long previousSequence,

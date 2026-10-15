@@ -370,6 +370,17 @@ public class TrustedListService implements TrustedListAnchorSource {
                 m.nextUpdate());
     }
 
+    private String hwmMac(final String sourceId, final long configVersion, final String territory,
+                          final String tslType, final long sequence) {
+        return integrity.mac("hwm", sourceId, configVersion, territory == null ? "" : territory,
+                tslType == null ? "" : tslType, sequence);
+    }
+
+    private boolean hwmIntact(final TrustedListSource source, final TrustedListRepository.HighWaterMark h) {
+        return integrity.verify(h.mac(), "hwm", source.id(), source.state().configVersion(), h.territory(),
+                h.tslType(), h.sequence());
+    }
+
     /**
      * New MACs binding the stored services of {@code s} to {@code newConfigVersion}, when they verify under the
      * current one (a settings change that keeps them); null otherwise (they stay unverifiable: the next refresh
@@ -389,7 +400,13 @@ public class TrustedListService implements TrustedListAnchorSource {
                         m.sequenceNumber(), m.nextUpdate()));
             }
         }
-        return new TrustedListRepository.Rebind(sourceMac, members);
+        final Map<TrustedListRepository.HighWaterMark, String> marks = new LinkedHashMap<>();
+        for (final TrustedListRepository.HighWaterMark h : repository.highWaterMarks(s.id())) {
+            if (hwmIntact(s, h)) {
+                marks.put(h, hwmMac(s.id(), newConfigVersion, h.territory(), h.tslType(), h.sequence()));
+            }
+        }
+        return new TrustedListRepository.Rebind(sourceMac, members, marks);
     }
 
     /** Logs and audits (once per row version on this replica) a row that failed its integrity check. */
@@ -720,7 +737,8 @@ public class TrustedListService implements TrustedListAnchorSource {
                 final String json = ServicesCodec.encode(m.services());
                 out.add(new TrustedListRepository.MemberWrite(m, json, memberMac(source.id(),
                         source.state().configVersion(), m.key(), m.territory(), json, m.sequence(),
-                        m.nextUpdate().toEpochMilli()), null));
+                        m.nextUpdate().toEpochMilli()), hwmMac(source.id(), source.state().configVersion(),
+                        m.territory(), m.tslType(), m.sequence()), null));
             } else {
                 final TrustedListSource.Member old = before.stream().filter(b -> b.key().equals(m.key())).findFirst()
                         .orElse(null);
@@ -728,7 +746,7 @@ public class TrustedListService implements TrustedListAnchorSource {
                         : Instant.ofEpochMilli(old.nextUpdate());
                 final TrustedListHealth.Status status = TrustedListHealth.evaluate(true, lastGood,
                         Duration.ofHours(source.config().graceHours()), true, true, now);
-                out.add(new TrustedListRepository.MemberWrite(m, null, null, status.name()));
+                out.add(new TrustedListRepository.MemberWrite(m, null, null, null, status.name()));
             }
         }
         return out;
@@ -841,9 +859,10 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
         final boolean hadGood = source.state().servicesJson() != null;
         final Map<String, Long> memberSequences = new java.util.HashMap<>();
-        for (final TrustedListSource.Member m : members(source)) {
-            if (m.servicesJson() != null && m.sequenceNumber() != null) {
-                memberSequences.put(m.key(), m.sequenceNumber());
+        for (final TrustedListRepository.HighWaterMark h : repository.highWaterMarks(source.id())) {
+            if (hwmIntact(source, h)) {
+                memberSequences.merge(LoadedList.Member.highWaterKey(h.territory().isEmpty() ? null : h.territory(),
+                        h.tslType().isEmpty() ? null : h.tslType()), h.sequence(), Math::max);
             }
         }
         return new TrustedListSpec(c.url(), c.format(), signers, Set.copyOf(c.serviceTypes()),

@@ -158,15 +158,17 @@ public final class TrustedListLoader {
                         "the list's TSLType does not match the type the list of lists names for it");
             }
             checkFresh(member, now);
-            final Long previous = spec.previousMemberSequences().get(LoadedList.Member.key(location, territory));
+            // the high-water mark of this territory and type, wherever the list was found before
+            final Long previous = spec.previousMemberSequences()
+                    .get(LoadedList.Member.highWaterKey(territory, member.type()));
             if (previous != null && member.sequence() < previous) {
                 throw new TrustedListException(TrustedListException.Kind.ROLLBACK,
-                        "the list's sequence number is lower than that of its last list accepted");
+                        "the list's sequence number is lower than the highest accepted for its territory and type");
             }
             final List<ListedService> services = new ArrayList<>();
             extract(member, spec, now, services);
-            return LoadedList.Member.loaded(location, territory, services, member.sequence(), member.issued(),
-                    member.nextUpdate());
+            return LoadedList.Member.loaded(location, territory, member.type(), services, member.sequence(),
+                    member.issued(), member.nextUpdate());
         } catch (final TrustedListException e) {
             return LoadedList.Member.failed(location, territory, e);
         }

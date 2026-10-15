@@ -1178,3 +1178,12 @@ CREATE TABLE IF NOT EXISTS trusted_list_member (
     services_mac    character varying(64),
     PRIMARY KEY (source_id, member_key)
 );
+-- Trusted lists (same as Flyway V84): rollback high-water marks per territory and TSLType of a list of lists.
+CREATE TABLE IF NOT EXISTS trusted_list_hwm (
+    source_id       character varying(36)  NOT NULL REFERENCES trusted_list_source (id) ON DELETE CASCADE,
+    territory       character varying(16)  NOT NULL,
+    tsl_type        character varying(255) NOT NULL,
+    sequence_number bigint                 NOT NULL,
+    mac             character varying(64),
+    PRIMARY KEY (source_id, territory, tsl_type)
+);
