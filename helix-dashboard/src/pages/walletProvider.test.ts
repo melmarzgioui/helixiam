@@ -23,6 +23,7 @@ import {
   trustedAuthoritiesEffective,
   releasableClaims,
   walletLinkOptions,
+  defaultWalletAlias,
   type WalletForm,
   type WalletValidationContext,
 } from "./walletProvider";
@@ -559,5 +560,21 @@ describe("flow engine warning (verify-only)", () => {
     expect(walletWarnings(verifyForm, null, { flowEngineEnabled: true })).not.toContain("flowEngineOff");
     expect(walletWarnings(verifyForm)).not.toContain("flowEngineOff");
     expect(walletWarnings(valid(), null, { flowEngineEnabled: false })).not.toContain("flowEngineOff");
+  });
+});
+
+describe("defaultWalletAlias", () => {
+  it("is eudi-wallet, else the first free eudi-wallet-N; eudi-wallet-verify for a verify-only connection", () => {
+    expect(defaultWalletAlias([], false)).toBe("eudi-wallet");
+    expect(defaultWalletAlias(["eudi-wallet"], false)).toBe("eudi-wallet-2");
+    expect(defaultWalletAlias(["eudi-wallet", "eudi-wallet-2"], false)).toBe("eudi-wallet-3");
+    expect(defaultWalletAlias(["eudi-wallet"], true)).toBe("eudi-wallet-verify");
+    expect(defaultWalletAlias(["eudi-wallet-verify"], true)).toBe("eudi-wallet-verify-2");
+  });
+
+  it("never makes the existing sign-in connection look like itself in the link options", () => {
+    const existing = [{ alias: "eudi-wallet", protocol: "eudi-wallet", displayName: "Wallet", config: {} }];
+    const own = defaultWalletAlias(existing.map((p) => p.alias), true);
+    expect(walletLinkOptions(existing, own)).toEqual([{ alias: "eudi-wallet", displayName: "Wallet" }]);
   });
 });

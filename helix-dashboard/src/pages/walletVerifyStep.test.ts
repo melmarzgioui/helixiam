@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import type { FlowExecution } from "../api/flows";
 import {
-  WALLET_VERIFY_ID, flowEngineWarning, setWalletVerifyProvider, verifyOnlyConnections, walletVerifyStepErrors,
+  WALLET_VERIFY_ID, firstStepError, flowEngineWarning, setWalletVerifyProvider, stepFieldId, verifyOnlyConnections, walletVerifyStepErrors,
 } from "./walletVerifyStep";
 
 const step = (id: string, authenticatorId: string | null, config?: Record<string, string>): FlowExecution =>
@@ -58,5 +58,14 @@ describe("flowEngineWarning", () => {
     expect(flowEngineWarning(false, [step("p", "password")], [])).toBe(false);
     expect(flowEngineWarning(true, wallet, [{ alias: "v", displayName: "V" }])).toBe(false);
     expect(flowEngineWarning(undefined, wallet, [])).toBe(false);
+  });
+});
+
+describe("firstStepError", () => {
+  it("is the first erroneous step in flow order (focused when a save is blocked), else null", () => {
+    const execs = [step("a", "password"), { ...step("b", WALLET_VERIFY_ID), priority: 30 }, { ...step("c", WALLET_VERIFY_ID), priority: 20 }];
+    expect(firstStepError(execs, { b: "x", c: "y" })).toBe("c");
+    expect(firstStepError(execs, {})).toBeNull();
+    expect(stepFieldId("c")).toBe("wallet-verify-c");
   });
 });

@@ -26,7 +26,7 @@ import {
 import type { WalletAdminApi } from "../api/wallet";
 import {
   DEFAULT_WALLET_FORM, DEV_KEY, clearEditedErrors, firstErrorSection, splitWalletServerErrors, validateWallet,
-  walletConfigFromForm, walletFormFromConfig, walletLinkOptions, type WalletForm, type WalletSection,
+  walletConfigFromForm, walletFormFromConfig, walletLinkOptions, defaultWalletAlias, type WalletForm, type WalletSection,
 } from "../pages/walletProvider";
 import { useT } from "../i18n/LocaleContext";
 
@@ -112,7 +112,15 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
     const section = firstErrorSection({ [k]: "x" });
     return section !== null && WALLET_STEP_OF[section] === s;
   });
+  const existingAliases = (providers ?? []).map((p) => p.alias);
+  // The alias the wizard proposed (unique in the realm); it follows the strategy until the admin edits it.
+  const [autoAlias, setAutoAlias] = React.useState<string | null>(null);
   const patchWallet = (patch: Partial<WalletForm>) => {
+    if (patch.subjectStrategy !== undefined && !editing && autoAlias !== null && alias === autoAlias) {
+      const next = defaultWalletAlias(existingAliases, patch.subjectStrategy === "NONE");
+      setAlias(next);
+      setAutoAlias(next);
+    }
     setWalletForm((f) => ({ ...f, ...patch }));
     setWalletServer((sv) => ({ ...sv, fields: clearEditedErrors(sv.fields, patch) }));
   };
@@ -126,7 +134,9 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
 
   const pickType = (t: ProviderType) => {
     setTypeId(t.id);
-    setAlias(t.protocol === "wallet" ? "eudi-wallet" : t.id);
+    const proposed = t.protocol === "wallet" ? defaultWalletAlias(existingAliases, false) : t.id;
+    setAlias(proposed);
+    setAutoAlias(t.protocol === "wallet" ? proposed : null);
     setDisplayName(t.protocol === "wallet" ? "EUDI Wallet" : t.name);
     setWalletForm(DEFAULT_WALLET_FORM);
     setConfig(t.defaultLoaValue ? { minimumLoa: t.defaultLoaValue } : {});
@@ -228,7 +238,7 @@ export function ProviderWizard({ onComplete, onCancel, initial, realmId, walletA
             {step === 3 && <WalletPoliciesSection {...props} />}
             {step === 4 && (
               <Section title={type.name}>
-                <WalletReview form={walletForm} keys={wallet.keys} />
+                <WalletReview form={walletForm} keys={wallet.keys} linkedOptions={linkOptions} />
                 <Switch checked={enabled} onChange={setEnabled} label="Enable immediately after creation" />
               </Section>
             )}

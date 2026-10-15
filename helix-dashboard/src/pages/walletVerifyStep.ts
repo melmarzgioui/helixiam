@@ -55,3 +55,15 @@ export function flowEngineWarning(engineEnabled: boolean | undefined, execs: Flo
   if (engineEnabled !== false) return false;
   return connections.length > 0 || execs.some((e) => e.authenticatorId === WALLET_VERIFY_ID);
 }
+
+/** The DOM id of a wallet verification step's connection picker (focused when a save is blocked). */
+export function stepFieldId(executionId: string): string {
+  return `wallet-verify-${executionId}`;
+}
+
+/** The first step (in flow order: priority, then position) that has an error, or null. */
+export function firstStepError(execs: FlowExecution[], errors: Record<string, string>): string | null {
+  const withErrors = execs.map((e, i) => ({ e, i })).filter(({ e }) => e.executionId in errors)
+    .sort((a, b) => a.e.priority - b.e.priority || a.i - b.i);
+  return withErrors.length ? withErrors[0].e.executionId : null;
+}

@@ -669,7 +669,9 @@ function WalletVerifyFields({ form, onChange, errors, meta, linkedOptions }: Wal
 // ---------------------------------------------------------------------------------------------------- review
 
 /** The wizard's last step: what will be saved, in words (raw ids only as muted technical lines). */
-export function WalletReview({ form, keys }: { form: WalletForm; keys: VerifierKey[] }) {
+export function WalletReview({ form, keys, linkedOptions }: {
+  form: WalletForm; keys: VerifierKey[]; linkedOptions?: { alias: string; displayName: string }[];
+}) {
   const { t } = useT();
   const key = keys.find((k) => k.keyRef === form.accessKeyRef.trim());
   const anchors = (form.trustAnchors.match(/-----BEGIN CERTIFICATE-----/g) ?? []).length;
@@ -698,6 +700,20 @@ export function WalletReview({ form, keys }: { form: WalletForm; keys: VerifierK
         {form.subjectStrategy === "ADMINISTRATIVE_NUMBER" ? t("wallet.subject.adminNumber")
           : form.subjectStrategy === "NONE" ? t("wallet.subject.verify") : t("wallet.subject.tuple")}
       </Detail>
+      {form.subjectStrategy === "NONE" && (() => {
+        const linked = form.verifyLinkedProvider.trim();
+        const name = linkedOptions?.find((o) => o.alias === linked)?.displayName;
+        const released = form.verifyReleasedClaims.map((c) => {
+          const age = /^age_over_(\d+)$/.exec(c);
+          return age ? t("wallet.verify.age", { n: Number(age[1]) }) : t(`wallet.claim.${c}`);
+        });
+        return (
+          <>
+            <Detail label={t("wallet.review.linked")} mono={linked || undefined}>{name || linked || "—"}</Detail>
+            <Detail label={t("wallet.review.released")}>{released.length ? released.join(", ") : t("wallet.review.none")}</Detail>
+          </>
+        );
+      })()}
       <Detail label={t("wallet.review.status")} sub={hosts.length ? hosts.join(", ") : undefined}>
         {`${form.statusRequired ? t("wallet.review.statusRequired") : t("wallet.review.statusOptional")} · ${form.onUnavailable === "FAIL_CLOSED" ? t("wallet.status.failClosed") : t("wallet.status.failOpen")}`}
       </Detail>

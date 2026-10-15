@@ -29,6 +29,16 @@ export function walletLinkOptions(idps: { alias: string; protocol: string; displ
     .map((p) => ({ alias: p.alias, displayName: p.displayName }));
 }
 
+/**
+ * The wizard's default alias for a new wallet connection, unique among {@code existing}: {@code eudi-wallet} (or
+ * {@code eudi-wallet-verify} for a verify-only one), else the first free {@code -2}, {@code -3}, …
+ */
+export function defaultWalletAlias(existing: string[], verifyOnly: boolean): string {
+  const base = verifyOnly ? "eudi-wallet-verify" : "eudi-wallet";
+  if (!existing.includes(base)) return base;
+  for (let n = 2; ; n++) if (!existing.includes(`${base}-${n}`)) return `${base}-${n}`;
+}
+
 export const SD_JWT_FORMAT = "dc+sd-jwt";
 export const MDOC_FORMAT = "mso_mdoc";
 export const WALLET_FORMATS = [SD_JWT_FORMAT, MDOC_FORMAT];

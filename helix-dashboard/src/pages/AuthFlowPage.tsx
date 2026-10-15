@@ -24,7 +24,8 @@ import {
 } from "./flowModel";
 import { useT } from "../i18n/LocaleContext";
 import {
-  WALLET_VERIFY_ID, PROVIDER_ALIAS, flowEngineWarning, setWalletVerifyProvider, verifyOnlyConnections,
+  WALLET_VERIFY_ID, PROVIDER_ALIAS, firstStepError, flowEngineWarning, setWalletVerifyProvider, stepFieldId,
+  verifyOnlyConnections,
   walletVerifyStepErrors, type VerifyConnection,
 } from "./walletVerifyStep";
 import { Alert } from "../components/Alert";
@@ -185,6 +186,14 @@ export function AuthFlowPage({ api, realmId, idpApi }: AuthFlowPageProps) {
     if (Object.keys(stepErrors).length > 0) {
       setTriedSave(true);
       toast.show({ tone: "error", title: t("authFlow.error.save"), message: t("authFlow.walletVerify.err.blocked") });
+      // Block + inline errors (as every console form): the button stays enabled, the first field gets the focus.
+      const first = firstStepError(execs, stepErrors);
+      if (first) {
+        window.requestAnimationFrame(() => {
+          const el = document.getElementById(stepFieldId(first));
+          (el?.querySelector<HTMLElement>("button, input, select") ?? el)?.focus();
+        });
+      }
       return;
     }
     setBusy(true);
@@ -683,7 +692,7 @@ function WalletVerifyStepConfig({ execId, config, connections, errors, onChange 
     ...(value && !connections.some((c) => c.alias === value) ? [{ value, label: value }] : []),
   ];
   return (
-    <div className="hx-walletverify">
+    <div className="hx-walletverify" id={stepFieldId(execId)}>
       <FormField label={t("authFlow.walletVerify.field")} required error={error} hint={t("authFlow.walletVerify.hint")}>
         <Select aria-label={t("authFlow.walletVerify.field")} value={value || undefined} options={options}
           placeholder={t("authFlow.walletVerify.placeholder")} onChange={(v) => onChange(execId, v)} />
