@@ -10,7 +10,8 @@
  *   1. POST data-request-url (same origin, session cookie, CSRF header) -> {protocol, data}
  *   2. navigator.credentials.get({mediation: 'required', digital: {requests: [{protocol, data}]}})
  *   3. POST data-response-url with {protocol, data} of the returned DigitalCredential
- *   4. COMPLETED -> follow `next` (a same-origin path: the broker callback with this browser's response code);
+ *   4. COMPLETED -> follow `next` (a same-origin path: the broker callback with this browser's response code); a
+ *      COMPLETED without `next` means the status poll got the one code first, so wallet-poll.js navigates;
  *      FAILED -> show the plain-language reason; the server decides, this page never trusts the wallet's answer.
  * A cancelled browser sheet (AbortError / NotAllowedError) changes nothing on the server: the QR code and the link
  * still work, and the button can be pressed again.
@@ -130,11 +131,15 @@
                 });
             })
             .then(function (result) {
-                if (result && result.status === 'COMPLETED' && isLocalPath(result.next)) {
+                if (result && result.status === 'COMPLETED') {
                     if (status) {
                         status.textContent = status.dataset.msgCompleted || '';
                     }
-                    window.location.assign(result.next);
+                    if (isLocalPath(result.next)) {
+                        window.location.assign(result.next);
+                    }
+                    // COMPLETED without `next`: the status poll (wallet-poll.js) raced us and was issued this
+                    // browser's one response code; it navigates. Stay in the waiting state, never show an error.
                     return;
                 }
                 failed(result && result.reason);
