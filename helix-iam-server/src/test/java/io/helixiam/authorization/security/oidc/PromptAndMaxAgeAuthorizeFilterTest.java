@@ -186,4 +186,67 @@ class PromptAndMaxAgeAuthorizeFilterTest {
                 SecurityContextHolder.getContext().getAuthentication().getPrincipal());
         verify(chain).doFilter(req, res);
     }
+
+    // ------------------------------------------------------------------ acr_values (verify-only wallet step-up)
+
+    private static final String HIGH = "http://eidas.europa.eu/LoA/high";
+    private static final String SUBSTANTIAL = "http://eidas.europa.eu/LoA/substantial";
+
+    private MockHttpServletRequest signedIn(final String query, final String sessionAcr) {
+        authenticate(NOW);
+        final MockHttpServletRequest req = authorize(query);
+        req.getSession(true).setAttribute(AuthTimeStamper.HELIX_AUTH_TIME, NOW);
+        if (sessionAcr != null) {
+            req.getSession().setAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE, sessionAcr);
+        }
+        return req;
+    }
+
+    @Test
+    void acrValues_notMetByTheSession_forceOneReAuthentication_thenPassOnce() throws Exception {
+        final MockHttpServletRequest req = signedIn("client_id=app&redirect_uri=" + REDIRECT + "&acr_values=" + HIGH,
+                null);
+        filter.doFilter(req, new MockHttpServletResponse(), chain);
+        org.junit.jupiter.api.Assertions.assertNull(SecurityContextHolder.getContext().getAuthentication(),
+                "a session without the requested acr signs in again (step-up)");
+
+        // the resumed request after the step-up passes, even if the acr is still not met (acr_values is voluntary)
+        final var session = req.getSession(false);
+        authenticate(NOW);
+        session.setAttribute(AuthTimeStamper.HELIX_AUTH_TIME, NOW);
+        final MockHttpServletRequest resumed = authorize("client_id=app&redirect_uri=" + REDIRECT + "&acr_values="
+                + HIGH);
+        resumed.setSession(session);
+        filter.doFilter(resumed, new MockHttpServletResponse(), chain);
+        org.junit.jupiter.api.Assertions.assertNotNull(SecurityContextHolder.getContext().getAuthentication(),
+                "no loop");
+    }
+
+    @Test
+    void acrValues_metOrExceededOnTheEidasLadder_passWithoutReAuthentication() throws Exception {
+        filter.doFilter(signedIn("client_id=app&redirect_uri=" + REDIRECT + "&acr_values=" + HIGH, HIGH),
+                new MockHttpServletResponse(), chain);
+        org.junit.jupiter.api.Assertions.assertNotNull(SecurityContextHolder.getContext().getAuthentication());
+        filter.doFilter(signedIn("client_id=app&redirect_uri=" + REDIRECT + "&acr_values=urn:other " + SUBSTANTIAL,
+                HIGH), new MockHttpServletResponse(), chain);
+        org.junit.jupiter.api.Assertions.assertNotNull(SecurityContextHolder.getContext().getAuthentication(),
+                "high satisfies a request for substantial");
+    }
+
+    @Test
+    void acrValues_aboveTheSessionsLevel_forceReAuthentication() throws Exception {
+        filter.doFilter(signedIn("client_id=app&redirect_uri=" + REDIRECT + "&acr_values=" + HIGH, SUBSTANTIAL),
+                new MockHttpServletResponse(), chain);
+        org.junit.jupiter.api.Assertions.assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    void acrSatisfied_isExactOrHigherOnTheEidasLadder() {
+        org.junit.jupiter.api.Assertions.assertTrue(PromptAndMaxAgeAuthorizeFilter.acrSatisfied(HIGH, "urn:x " + HIGH));
+        org.junit.jupiter.api.Assertions.assertTrue(PromptAndMaxAgeAuthorizeFilter.acrSatisfied("urn:x", "urn:x"));
+        org.junit.jupiter.api.Assertions.assertFalse(PromptAndMaxAgeAuthorizeFilter.acrSatisfied("urn:x", HIGH));
+        org.junit.jupiter.api.Assertions.assertFalse(PromptAndMaxAgeAuthorizeFilter.acrSatisfied(null, HIGH));
+        org.junit.jupiter.api.Assertions.assertFalse(PromptAndMaxAgeAuthorizeFilter.acrSatisfied(SUBSTANTIAL, HIGH));
+        org.junit.jupiter.api.Assertions.assertFalse(PromptAndMaxAgeAuthorizeFilter.acrSatisfied(HIGH, "urn:y"));
+    }
 }
