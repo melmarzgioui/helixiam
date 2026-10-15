@@ -163,7 +163,10 @@ question. Newest first within each phase.
   admin re-save, nothing is adopted; the settings MAC covers name, grace, switch and `config_version` too, anchors are bound to
   `config_version`, grace is clamped on read, and a tampered member shows `INTEGRITY`; updates need the `configVersion`
   read (`409` on a concurrent edit; console "changed by someone else, reload"); deleting a source in use is a `409`;
-  one lease token per refresh. **Behaviour change:** the signer-expiry grace is split per ETSI TS 119 615 —
+  one lease token per refresh; an integrity reset keeps the rollback floors (top-level sequence number and high-water
+  marks, re-MACed by the next verified load), a member row below its floor is not counted, settings saves compute
+  their MACs from locked rows, and high-water-mark territories are upper-cased. Scope (maintainer ruling): the MACs are
+  best-effort tamper detection, not a defence against database writers; the high-water marks stop network rollback. **Behaviour change:** the signer-expiry grace is split per ETSI TS 119 615 —
   `signer-expiry-grace-days` (admin-pinned top-level signers) now defaults to **0**, and the new
   `member-signer-expiry-grace-days` (signers named by a verified LOTL) to 180. As of 2026-10-15 the EUDI test LOTL
   needs `signer-expiry-grace-days` ≥ ~120 and the EC acceptance LoTE ≥ ~30; the console says when a list is refused

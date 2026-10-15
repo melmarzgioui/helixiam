@@ -767,6 +767,24 @@ A re-review of those fixes held for the race, digest, NULL-MAC and state-propaga
 (member rollback across URL moves, integrity recovery, MAC coverage, lost updates, delete in use, lease tokens,
 tampered member view, split signer grace); all are fixed.
 
+**Scope of the MACs and the high-water marks (maintainer ruling).** HelixIAM does not defend against someone who can
+write its database anywhere else: a wallet provider's pasted `trustAnchors` PEM is plain configuration, so a database
+writer can add their own CA there and bypass trusted lists entirely. The trusted-list MACs are therefore best-effort
+tamper *detection*, not a security boundary against database writers. The high-water marks exist to stop **network**
+rollback (a man in the middle, or a stale mirror serving an older, validly signed list). A database writer who deletes
+high-water-mark rows can re-open rollback; that is out of scope, consistent with `trustAnchors` and the rest of the
+configuration. Within that scope: an integrity reset drops anchors and member state but never the rollback floors (the
+top-level `sequence_number` and the high-water marks stay, whatever their MACs; a floor is only raised, by a verified
+load, which also re-MACs it, so a key change never opens a rollback window); a member row below its floor is never
+counted (audited); a settings save computes its MACs from rows it locked (`FOR UPDATE`), so a concurrent refresh is
+never left with stale MACs; the high-water-mark territory is upper-cased.
+
+**Delete vs. a concurrent provider write.** Deleting a source checks the providers that name it and then deletes;
+a provider saved naming the source between the check and the delete is not caught by that check. The window is
+small and fails closed: provider writes are validated against the realm's sources, and a provider naming a source
+that no longer exists gets no anchors from it. Not made conditional in SQL (the reference lives inside the
+provider's config map).
+
 A row without a MAC is an integrity failure like a wrong MAC; nothing is ever adopted. V81-V84 ship together, so no
 released database holds pre-V84 rows; a dev database that does gets `INTEGRITY` until an admin saves each source
 again (`FlywayTrustedListIntegrityUpgradeTest`). An earlier design adopted such rows on their first refresh; it was

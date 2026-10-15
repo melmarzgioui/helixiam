@@ -532,6 +532,16 @@ marks. `grace_hours` is also clamped to 0-720 when read. What happens when a che
 Outside the `dev` profile a source cannot be saved without `DB_ENCRYPTION`; in `dev` without it there is no MAC and
 nothing is checked.
 
+An integrity reset drops anchors and member state but **keeps the rollback floors**: the top-level sequence number
+and every high-water mark stay, whatever their MACs, and a floor is only ever raised, by a verified load (which
+re-MACs it under the current key). So changing `DB_ENCRYPTION` never lets an older signed list back in. A member row
+below its floor is not counted (audited).
+
+**Scope.** These MACs are best-effort tamper detection, not a defence against someone who can write the database:
+HelixIAM does not defend against that anywhere else either (a wallet provider's pasted `trustAnchors` PEM is plain
+configuration). The high-water marks stop **network** rollback (a man in the middle, or a stale mirror serving an
+older signed list); a database writer who deletes high-water-mark rows can re-open rollback, which is out of scope.
+
 **Audit and logs.** `TRUSTED_LIST_REFRESHED` (services, usable anchors, lists verified, sequence, NextUpdate, members
 loaded and failed), `TRUSTED_LIST_REFRESH_FAILED` (reason, message, status, until when the last good anchors are kept),
 `TRUSTED_LIST_REFRESH_DISCARDED`, `TRUSTED_LIST_MEMBER_REFRESH_FAILED` (per member), `TRUSTED_LIST_STALE`,
