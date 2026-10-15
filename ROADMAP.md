@@ -30,9 +30,12 @@ paths are hardened and tested."
   `docs/superpowers/specs/2026-10-09-eudi-wallet-openid4vp.md` merges): ~~an OpenID Foundation conformance run
   (OpenID4VP 1.0 + HAIP 1.0 verifier profile) with a recorded pass/deviation list~~ — done 2026-10-15, see
   [`docs/compliance/oid4vp-conformance/README.md`](docs/compliance/oid4vp-conformance/README.md); interop against at least one national test
-  wallet (the EU reference wallet is done, see below); the W3C Digital Credentials API (`dc_api`/`dc_api.jwt`)
+  wallet (the EU reference wallet is done, see below); ~~the W3C Digital Credentials API (`dc_api`/`dc_api.jwt`)
   as the ecosystem-recommended cross-device path (today only redirect same-device and QR cross-device exist, and
-  ARF guidance recommends against the latter for conformant EU wallets — see `docs/eudi-wallet.md` §8); an
+  ARF guidance recommends against the latter for conformant EU wallets — see `docs/eudi-wallet.md` §8)~~ — done
+  2026-10-15 (signed and unsigned requests, `dc_api.jwt`, opt-in per connection; see `docs/eudi-wallet.md` §12).
+  Still open there: a live run with a real wallet over the DC API (not yet done, see §12.6) and multi-signed
+  requests; an
   `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being pasted PEM
   (the Terraform resource for the wallet identity-provider connection is done — `helix_wallet_identity_provider`,
   `terraform-provider-helix/README.md`); and a separate plan for the step-up/verify-only

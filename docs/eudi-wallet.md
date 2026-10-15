@@ -140,7 +140,8 @@ curl -s -X POST "https://helix.example/admin/realms/$REALM/identity-providers" \
 `transactionTtlSeconds` → `300` (60–900 allowed); `pid.requestedClaims` → `given_name`, `family_name`, `birthdate`;
 `revocationChecking` → `HARD_FAIL` (see §7.2); `dcql.trustedAuthorities` → on for `x509_hash` with
 `direct_post.jwt` (the HAIP profile), off otherwise (see §11); `statusList.required` → `false`; `subject.strategy` →
-`ADMINISTRATIVE_NUMBER`; `minimumLoa` → `http://eidas.europa.eu/LoA/high`. `WalletConfigValidator` rejects an
+`ADMINISTRATIVE_NUMBER`; `minimumLoa` → `http://eidas.europa.eu/LoA/high`; `dcApi.enabled` → `false` (the W3C
+Digital Credentials API, §12). `WalletConfigValidator` rejects an
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
 
@@ -392,13 +393,15 @@ reach; `OFF` only for testing. Providers stored before this change without a `re
 
 ## 8. Limitations
 
-- **No W3C Digital Credentials API (`dc_api`/`dc_api.jwt`) yet.** Only the redirect-based (same-device) and QR
-  (cross-device) OpenID4VP flows are implemented. The DC API is the EU wallet ecosystem's own recommended
-  cross-device path and is planned for a later phase (see "Roadmap" in `ROADMAP.md`).
+- **Three ways to reach the wallet.** Same-device redirect (`haip-vp://`, "Open wallet app"), cross-device QR
+  (`request_uri` + `direct_post.jwt`), and, when a connection turns it on, the **W3C Digital Credentials API**
+  (`dc_api.jwt`, §12), which the browser offers for a wallet on the same device or a phone nearby. The DC API is opt-in
+  per connection and appears only in browsers that support it; the other two stay as the fallback. It has not yet been
+  run against a real wallet (§12.6).
 - **Cross-device QR vs ARF guidance.** The spec this feature was built against requires cross-device QR support;
   separate EUDI ARF guidance (OIA_08c) recommends that conformant EU wallets *not* support redirect-based
-  cross-device flows at all. The EU reference wallet (2026.10.43-Demo) does accept HelixIAM's cross-device request
-  (§10); whether national wallets will is still open.
+  cross-device flows at all, and points to the Digital Credentials API instead (§12). The EU reference wallet
+  (2026.10.43-Demo) does accept HelixIAM's cross-device request (§10); whether national wallets will is still open.
 - **No trusted-list automation.** Trust anchors (`trustAnchors`) are PEM certificates you paste in yourself; there
   is no ETSI TS 119 612 trusted-list fetcher. Keep your configured anchors current manually.
 - **`deviceMac` is rejected outright** (`HOLDER_BINDING_INVALID`,
@@ -524,3 +527,109 @@ added after the run:
 The results per plan and module, the root cause of each finding, the logs of both runs and the harness to repeat them
 are in **[`docs/compliance/oid4vp-conformance/README.md`](compliance/oid4vp-conformance/README.md)** (harness:
 `e2e/oid4vp-conformance/`).
+
+## 12. The W3C Digital Credentials API (`dc_api` / `dc_api.jwt`)
+
+OpenID4VP 1.0 Appendix A defines how a verifier's web page asks for a credential through the browser itself:
+`navigator.credentials.get({digital: {requests: [{protocol, data}]}})`. The browser and the operating system show the
+user which wallets can answer and who is asking (the page's origin, which the browser vouches for), and hand the
+answer back to the same page. Cross-device works through the platform (a phone nearby, via the FIDO hybrid
+transport), with proximity checked by the platform rather than by a QR code anyone can relay. HAIP 1.0 §5.2 makes it
+the HAIP way to present over the web, with `dc_api.jwt`. Design record:
+`docs/superpowers/specs/2026-10-15-wallet-dc-api-design.md`.
+
+### 12.1 Turning it on
+
+Per connection, off by default:
+
+| Setting (stored key) | Default | Meaning |
+|---|---|---|
+| `dcApi.enabled` | `false` | Offer the DC API on the wallet page. |
+| `dcApi.request` | `signed` | `signed` (`openid4vp-v1-signed`: a JWS by the access certificate, `client_id` = `x509_hash:` or `x509_san_dns:`, with `expected_origins`) or `unsigned` (`openid4vp-v1-unsigned`: plain parameters, no `client_id`). |
+| `dcApi.expectedOrigins` | empty | JSON list of the web origins the page is served on; empty means the origin of `IDP_BASE_URL`. |
+
+Console: the connection's **Policies** tab (or the wizard's Policies step) → **Digital Credentials API**: a switch,
+Signed/Unsigned, and the expected origins (one per line). Unsigned shows a warning: the wallet can then only check the
+browser-reported origin, not the access certificate. Prefer signed.
+
+The response is encrypted (`dc_api.jwt`, ECDH-ES P-256, `A128GCM`/`A256GCM`, to the transaction's own ephemeral key,
+the same as for `direct_post.jwt`) whenever `responseMode` is `direct_post.jwt`. With the dev-only `direct_post` it is
+`dc_api` (plain).
+
+### 12.2 Origins: from configuration, never from the request
+
+The response is accepted only if it is bound to one of the **expected origins**, and that list comes only from
+configuration:
+- `dcApi.expectedOrigins`, or else the origin of `IDP_BASE_URL` (lower-case scheme and host, no default port).
+- Each configured origin must be written exactly as a browser serialises it (`https://login.example.eu`,
+  `https://login.example.eu:8443`; no path, no trailing slash, no `:443`), at most 10, and on a host this server
+  answers for: the host of `IDP_BASE_URL` or one listed in `HELIX_ALLOWED_HOSTS` (§4). Plain `http` only for
+  `localhost` in `dev`.
+- The page's `Origin` header, its URL and anything in the wallet's answer are never used to pick it.
+
+What "bound" means (OpenID4VP A.4, B.2.6.2):
+- SD-JWT VC: the Key Binding JWT `aud` is `origin:<expected origin>` (never the `client_id`, even for signed
+  requests). Otherwise `AUDIENCE_MISMATCH`.
+- mdoc: DeviceAuth verifies over the SessionTranscript `[null, null, ["OpenID4VPDCAPIHandover",
+  sha256(cbor([origin, nonce, jwkThumbprint]))]]` of an expected origin (`jwkThumbprint` is `null` for `dc_api`).
+  Otherwise `HOLDER_BINDING_INVALID`. The transcript code matches the spec's example byte for byte.
+- A signed request also lists the expected origins in `expected_origins`, so the wallet itself refuses a request
+  replayed by another site. For an unsigned request the wallet cannot do that, but its answer is then bound to the
+  other site's origin and refused here.
+- A presentation made for the redirect flows (bound to `client_id` / the `OpenID4VPHandover`) is refused over the
+  DC API, and a DC API presentation is refused at the redirect `response_uri`.
+
+### 12.3 The flow
+
+1. The wallet page (`/realms/<realm>/broker/<alias>/wallet?tx=…`) loads `/js/wallet-dcapi.js`. It shows **Continue
+   with your wallet** only if the browser has `DigitalCredential` and `navigator.credentials.get`, and (where the
+   browser can say) `DigitalCredential.userAgentAllowsProtocol(<protocol>)`. Otherwise nothing changes on the page.
+2. On click, the page POSTs `…/wallet/dc-api/request?tx=…` and gets `{"protocol": …, "data": …}`. No `response_uri`,
+   no `state`, no `request_uri`. This does not change the transaction: if the user closes the browser's wallet
+   chooser, the QR code and "Open wallet app" still work.
+3. The page calls `navigator.credentials.get` with it and POSTs the returned `DigitalCredential` as
+   `{"protocol", "data"}` to `…/wallet/dc-api/response?tx=…`.
+4. The server verifies it. The answer is `200 {"status": "COMPLETED", "next": "<broker callback>?response_code=…"}`, or
+   `{"status": "FAILED", "reason": "declined" | "not_accepted" | "expired" | "technical"}`. The page follows `next`,
+   which redeems the code exactly as the cross-device flow does (code + session state + browser binding, single use).
+
+### 12.4 Protections
+
+- **Browser binding and CSRF.** Both endpoints sit under the wallet page: they need the session that started the login
+  (its browser binding must match the transaction's, else `404`) and Spring Security's CSRF token (`X-XSRF-TOKEN`,
+  rendered into the page; else `403`). They are not CSRF-exempt, unlike the wallet-facing `/oid4vp/**` endpoints.
+- **Single use.** The response claims the transaction atomically (`WalletTransactionStore.claimDcApiResponse`:
+  `CREATED` → `RESPONSE_RECEIVED`, flow `DC_API`; in-memory, PostgreSQL and Redis stores). A second post, or a post
+  after a wallet already fetched the QR or same-device request, is refused (`REPLAY`). Conversely, once the DC API
+  answer is in, the QR and same-device request ids are dead.
+- **Wrong transaction.** A response made for another transaction carries that transaction's nonce and encryption key,
+  so it cannot decrypt or verify; the transaction it was posted to fails.
+- **Body.** `application/json`, strict JSON (duplicate members refused), exactly `protocol` and `data`, `protocol` equal
+  to the one offered, `data` with exactly one of `response` / `vp_token` / `error`; at most
+  `helix.wallet.max-request-bytes` (256 KiB), else `413`.
+- **Audit.** Refusals on this path are `WALLET_LOGIN_FAILURE` events with `invocation=dc_api` added to the detail; a
+  successful login is the usual `WALLET_LOGIN_SUCCESS` when the code is redeemed (same `transactionId`). The server
+  log shows `flow=DC_API`.
+
+### 12.5 Not supported
+
+Multi-signed requests (`openid4vp-v1-multisigned`), `transaction_data`, `verifier_info`, the ISO `org-iso-mdoc`
+protocol (ISO 18013-7 Annex C), and native apps as callers.
+
+### 12.6 Real-wallet status
+
+Not yet run against a real wallet over the DC API. The automated coverage is: unit tests against the spec's
+Appendix B.2.6.2 vector, and `WalletDcApiFlowE2eTest`, where the in-repo test wallet plays both the browser and the
+wallet (`DcApiWalletClient` checks `expected_origins` against the origin as a wallet must). An attempt to repeat the
+§10 emulator run over the DC API on 2026-10-15 stopped before it started, for these reasons:
+- The Android 15 `google_apis` emulator image used for §10 ships Chrome 124. Chrome on Android shipped
+  `navigator.credentials.get({digital: …})` later (Chrome 141); 124 has neither this shape nor the protocol
+  identifiers. That image has no Play Store, so Chrome cannot be updated there except by sideloading Chrome and
+  Trichrome APKs from an unofficial mirror, which this project does not do.
+- The `google_apis_playstore` image could update Chrome and Google Play services (Credential Manager), but does not
+  allow `adb root`, which the run needs to put the local TLS CA into the system store (§10 step 5).
+- The verifier access certificate of the §10 run is not on the test machine any more, and the AVD and the wallet's
+  test PIDs were deleted, so a new run also has to register again with the EU test registrar (§10 step 4).
+
+A live check needs a physical Android phone with a current Chrome and the reference wallet (which, per the §10 notes,
+supports the DC API), or an emulator image with Play Store plus a TLS certificate from a public CA for the verifier.
