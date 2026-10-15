@@ -171,6 +171,105 @@ public class WalletResponseHandler {
         }
     }
 
+    /**
+     * OpenID4VP over the W3C Digital Credentials API (OpenID4VP 1.0 Appendix A): the login page posts what
+     * {@code navigator.credentials.get} returned, {@code {"protocol": ..., "data": {...}}}. The caller has already
+     * established that {@code bound} is this browser's live transaction of this realm and provider (session binding,
+     * CSRF).
+     *
+     * <ol>
+     *   <li>The body is strict JSON with exactly {@code protocol} and {@code data}; {@code protocol} must be the one
+     *       the provider offers; {@code data} holds exactly one of {@code response} ({@code dc_api.jwt}),
+     *       {@code vp_token} ({@code dc_api}, dev only) or {@code error} (with an optional
+     *       {@code error_description}). Checked before the transaction is touched.</li>
+     *   <li>{@link WalletTransactionStore#claimDcApiResponse} (single use: a second post, or one after a wallet
+     *       fetched the QR / same-device request, is {@code REPLAY}).</li>
+     *   <li>A wallet error fails the transaction ({@link Result.WalletErrorRecorded}); otherwise the response must fit
+     *       the response mode, is decrypted with the transaction's own key, and is verified against a
+     *       {@link VerificationContext#forDcApi} context holding the provider's expected origins
+     *       ({@link WalletProviderConfig.DcApi#effectiveOrigins}; configuration only, never this request). There is
+     *       no {@code state} in this flow (A.2).</li>
+     *   <li>Verified: completed without a code ({@link Result.Accepted} with no redirect); the caller issues the
+     *       bound browser its code.</li>
+     * </ol>
+     * Every refusal after the claim fails the transaction and emits {@code WALLET_LOGIN_FAILURE} with
+     * {@code invocation=dc_api}.
+     */
+    public Result handleDcApi(final WalletIdentityProvider provider, final String realmId,
+                              final WalletTransaction bound, final String body) {
+        final WalletProviderConfig config = provider.config();
+        final String alias = config.alias();
+        if (!config.dcApi().enabled() || bound == null || !Objects.equals(bound.realmId(), realmId)
+                || !Objects.equals(bound.providerAlias(), alias)) {
+            return new Result.NotFound();
+        }
+        final DcApiBody parsed = DcApiBody.parse(body, config.dcApi().request().protocol());
+        if (parsed == null) {
+            LOG.warn("Wallet DC API response refused before claim: alias={} realm={} tx={} reason={}",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(realmId), bound.transactionId(),
+                    WalletErrorCode.INVALID_RESPONSE.reason());
+            audit.emit(WalletLoginAudit.failure(realmId, bound.transactionId(), alias, null, null,
+                    WalletErrorCode.INVALID_RESPONSE, WalletLoginAudit.DC_API));
+            return new Result.Rejected(WalletErrorCode.INVALID_RESPONSE);
+        }
+        final WalletTransactionStore store = provider.transactions();
+        final WalletTransaction tx = store.claimDcApiResponse(bound.transactionId()).orElse(null);
+        if (tx == null) {
+            LOG.warn("Wallet DC API response refused: alias={} realm={} tx={} reason={}", LogSafe.sanitize(alias),
+                    LogSafe.sanitize(realmId), bound.transactionId(), WalletErrorCode.REPLAY.reason());
+            audit.emit(WalletLoginAudit.failure(realmId, bound.transactionId(), alias, null, null,
+                    WalletErrorCode.REPLAY, WalletLoginAudit.DC_API));
+            return new Result.Rejected(WalletErrorCode.REPLAY);
+        }
+        try {
+            return WalletStatusAudit.duringTransaction(tx.transactionId(), () -> verifyDcApi(provider, tx, parsed));
+        } catch (final WalletVerificationException e) {
+            store.fail(tx.transactionId(), e.code());
+            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, e.format(), e.issuerDn(),
+                    e.code(), WalletLoginAudit.DC_API));
+            if (e.code() == WalletErrorCode.WALLET_ERROR || e.code() == WalletErrorCode.WALLET_ACCESS_DENIED) {
+                LOG.info("Wallet answered the DC API request with an error: alias={} realm={} tx={}",
+                        LogSafe.sanitize(alias), LogSafe.sanitize(realmId), tx.transactionId());
+                return new Result.WalletErrorRecorded();
+            }
+            LOG.warn("Wallet DC API response refused: alias={} realm={} tx={} reason={} detail={}",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(realmId), tx.transactionId(), e.code().reason(),
+                    LogSafe.sanitize(e.getMessage()));
+            return new Result.Rejected(e.code());
+        } catch (final RuntimeException e) {
+            store.fail(tx.transactionId(), WalletErrorCode.INVALID_RESPONSE);
+            audit.emit(WalletLoginAudit.failure(realmId, tx.transactionId(), alias, null, null,
+                    WalletErrorCode.INVALID_RESPONSE, WalletLoginAudit.DC_API));
+            LOG.error("Wallet DC API response could not be processed: alias={} realm={} tx={} error={}",
+                    LogSafe.sanitize(alias), LogSafe.sanitize(realmId), tx.transactionId(),
+                    e.getClass().getSimpleName());
+            return new Result.Rejected(WalletErrorCode.INVALID_RESPONSE);
+        }
+    }
+
+    private Result verifyDcApi(final WalletIdentityProvider provider, final WalletTransaction tx,
+                               final DcApiBody body) {
+        final WalletProviderConfig config = provider.config();
+        if (body.error() != null) {
+            throw new WalletVerificationException("access_denied".equals(body.error())
+                    ? WalletErrorCode.WALLET_ACCESS_DENIED : WalletErrorCode.WALLET_ERROR,
+                    "wallet returned an error response");
+        }
+        final boolean encrypted = config.responseMode() == WalletProviderConfig.ResponseMode.DIRECT_POST_JWT;
+        if (encrypted ? body.response() == null : body.vpToken() == null) {
+            throw new WalletVerificationException(WalletErrorCode.INVALID_RESPONSE,
+                    "the response does not use the requested response mode");
+        }
+        final ECKey key = encrypted ? encryptionKey(tx) : null;
+        final DecryptedResponse response = encrypted
+                ? provider.decryptor().decrypt(body.response(), key, AuthorizationRequestFactory.RESPONSE_ENC_VALUES)
+                : new DecryptedResponse(body.vpToken(), null);
+        // A.2: state is not defined for the DC API; one the wallet adds anyway is ignored, never trusted.
+        final VerificationContext context = provider.verificationContext(tx, null, encrypted ? thumbprint(key) : null)
+                .forDcApi(config.dcApi().effectiveOrigins(idpBaseUrl));
+        return verifyPresentation(provider, tx, response, context);
+    }
+
     private Result verify(final WalletIdentityProvider provider, final WalletTransaction tx, final Form form) {
         final WalletProviderConfig config = provider.config();
         final String expectedState = AuthorizationRequestFactory.walletState(tx.transactionId());
@@ -195,6 +294,16 @@ public class WalletResponseHandler {
         final String responseUri = AuthorizationRequestFactory.responseUri(idpBaseUrl, tx);
         final VerificationContext context = provider.verificationContext(tx, responseUri,
                 encrypted ? thumbprint(key) : null);
+        return verifyPresentation(provider, tx, response, context);
+    }
+
+    /**
+     * The common tail of both response paths: DCQL + verification against {@code context}, mapping, subject and
+     * decision, then complete (same-device with a fresh code, cross-device and DC API without).
+     */
+    private Result verifyPresentation(final WalletIdentityProvider provider, final WalletTransaction tx,
+                                      final DecryptedResponse response, final VerificationContext context) {
+        final WalletProviderConfig config = provider.config();
         final MatchedPresentations matched = provider.matcher().match(response.vpToken(), query(tx),
                 provider.verifiers(), context);
         final BrokeredIdentity mapped = WalletAttributeMapper.map(config.alias(), null, matched, config.minimumLoa());
@@ -222,6 +331,7 @@ public class WalletResponseHandler {
         }
 
         final boolean sameDevice = tx.flow() == WalletTransaction.Flow.SAME_DEVICE;
+        // Cross-device and DC API: no code here; the bound browser gets one (issueResponseCode).
         final String code = sameDevice ? token() : null;
         if (!provider.transactions().complete(tx.transactionId(), code, identityJson)) {
             throw new WalletVerificationException(WalletErrorCode.TRANSACTION_EXPIRED,
@@ -309,6 +419,55 @@ public class WalletResponseHandler {
         final byte[] bytes = new byte[CODE_BYTES];
         random.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** The page's DC API post: {@code {protocol, data}}, {@code data} holding exactly one kind of answer. */
+    private record DcApiBody(String response, JsonNode vpToken, String error) {
+
+        private static final Set<String> TOP = Set.of("protocol", "data");
+        private static final Set<String> DATA = Set.of("response", "vp_token", "error", "error_description");
+
+        /** {@code null} for anything else (not strict JSON, extra members, wrong protocol, mixed answers). */
+        static DcApiBody parse(final String body, final String expectedProtocol) {
+            if (body == null || body.isBlank()) {
+                return null;
+            }
+            final JsonNode root;
+            try {
+                root = StrictJson.MAPPER.readTree(body);
+            } catch (final JsonProcessingException e) {
+                return null;
+            }
+            if (root == null || !root.isObject() || !onlyKnown(root, TOP)
+                    || !root.path("protocol").isTextual() || !expectedProtocol.equals(root.get("protocol").asText())
+                    || !root.path("data").isObject() || !onlyKnown(root.get("data"), DATA)) {
+                return null;
+            }
+            final JsonNode data = root.get("data");
+            final JsonNode response = data.get("response");
+            final JsonNode vpToken = data.get("vp_token");
+            final JsonNode error = data.get("error");
+            final JsonNode description = data.get("error_description");
+            final int kinds = (response != null ? 1 : 0) + (vpToken != null ? 1 : 0) + (error != null ? 1 : 0);
+            if (kinds != 1 || response != null && (!response.isTextual() || response.asText().isEmpty())
+                    || vpToken != null && !vpToken.isObject()
+                    || error != null && (!error.isTextual() || error.asText().isEmpty())
+                    || description != null && (error == null || !description.isTextual())) {
+                return null;
+            }
+            return new DcApiBody(response == null ? null : response.asText(), vpToken,
+                    error == null ? null : error.asText());
+        }
+
+        private static boolean onlyKnown(final JsonNode node, final Set<String> known) {
+            final java.util.Iterator<String> names = node.fieldNames();
+            while (names.hasNext()) {
+                if (!known.contains(names.next())) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     /** The wallet's form, each parameter at most once. */
