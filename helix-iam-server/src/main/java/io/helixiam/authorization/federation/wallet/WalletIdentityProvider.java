@@ -94,9 +94,11 @@ public final class WalletIdentityProvider implements IdentityProvider {
     /** The realm a stored provider (and its key) belongs to; null for a YAML provider, which serves every realm. */
     private final String keyRealm;
     private final SigningKeyHandle signingKey;
-    private final TrustAnchors trustAnchors;
-    /** The aki values every query of this provider carries; empty: no trusted_authorities (computed once). */
-    private final List<String> trustedAuthorityValues;
+    /** Read at every verification: pasted anchors are fixed, trusted-list anchors follow their refreshes. */
+    private final java.util.function.Supplier<TrustAnchors> trustAnchors;
+    /** Whether the "anchor without SubjectKeyIdentifier" WARN was logged (once per built provider, never per login). */
+    private final java.util.concurrent.atomic.AtomicBoolean warnedMissingSki =
+            new java.util.concurrent.atomic.AtomicBoolean();
     private final StatusPolicy statusPolicy;
     private final TokenStatusListClient statusClient;
     private final Map<String, PresentationVerifier> verifiers;
@@ -112,11 +114,19 @@ public final class WalletIdentityProvider implements IdentityProvider {
                            final TrustAnchors trustAnchors, final StatusPolicy statusPolicy,
                            final TokenStatusListClient statusClient, final Map<String, PresentationVerifier> verifiers,
                            final WalletTransactionStore transactions, final Clock clock, final AuditLog audit) {
+        this(config, keyRealm, signingKey, fixed(trustAnchors), statusPolicy, statusClient, verifiers, transactions,
+                clock, audit);
+    }
+
+    WalletIdentityProvider(final WalletProviderConfig config, final String keyRealm, final SigningKeyHandle signingKey,
+                           final java.util.function.Supplier<TrustAnchors> trustAnchors,
+                           final StatusPolicy statusPolicy, final TokenStatusListClient statusClient,
+                           final Map<String, PresentationVerifier> verifiers,
+                           final WalletTransactionStore transactions, final Clock clock, final AuditLog audit) {
         this.config = Objects.requireNonNull(config, "config");
         this.keyRealm = keyRealm;
         this.signingKey = Objects.requireNonNull(signingKey, "signingKey");
         this.trustAnchors = Objects.requireNonNull(trustAnchors, "trustAnchors");
-        this.trustedAuthorityValues = trustedAuthorityValues(config, trustAnchors);
         this.statusPolicy = Objects.requireNonNull(statusPolicy, "statusPolicy");
         this.statusClient = Objects.requireNonNull(statusClient, "statusClient");
         this.verifiers = Map.copyOf(verifiers);
@@ -214,15 +224,19 @@ public final class WalletIdentityProvider implements IdentityProvider {
      * built provider (each config load builds one), never per login. An explicit On is refused at save time instead
      * ({@link WalletConfigValidator}); this covers the default and anchors that changed underneath.
      */
-    private static List<String> trustedAuthorityValues(final WalletProviderConfig config, final TrustAnchors anchors) {
+    private List<String> trustedAuthorityValues() {
         if (!config.sendsTrustedAuthorities()) {
             return List.of();
         }
+        // the anchors as of now: trusted-list anchors follow their refreshes
+        final TrustAnchors anchors = trustAnchors.get();
         final List<java.security.cert.X509Certificate> missing = anchors.withoutSubjectKeyIdentifier();
         if (!missing.isEmpty()) {
-            LOG.warn("Wallet provider '{}': trusted_authorities left out of the DCQL query: trust anchor '{}' has no "
-                    + "SubjectKeyIdentifier (the PKIX validation is unchanged)", LogSafe.sanitize(config.alias()),
-                    LogSafe.sanitize(missing.get(0).getSubjectX500Principal().getName()));
+            if (warnedMissingSki.compareAndSet(false, true)) {
+                LOG.warn("Wallet provider '{}': trusted_authorities left out of the DCQL query: trust anchor '{}' has "
+                        + "no SubjectKeyIdentifier (the PKIX validation is unchanged)", LogSafe.sanitize(config.alias()),
+                        LogSafe.sanitize(missing.get(0).getSubjectX500Principal().getName()));
+            }
             return List.of();
         }
         return anchors.authorityKeyIdentifiers();
@@ -232,7 +246,7 @@ public final class WalletIdentityProvider implements IdentityProvider {
         try {
             return StrictJson.MAPPER.writeValueAsString(
                     queryBuilder.pidQuery(config.pid().toQuerySpec(), config.credentialFormats(),
-                            trustedAuthorityValues));
+                            trustedAuthorityValues()));
         } catch (final JsonProcessingException e) {
             throw new IllegalStateException("Could not encode the DCQL query", e);
         }
@@ -383,8 +397,14 @@ public final class WalletIdentityProvider implements IdentityProvider {
         return decryptor;
     }
 
+    /** The issuer trust as of now (trusted-list anchors included). */
     public TrustAnchors trustAnchors() {
-        return trustAnchors;
+        return trustAnchors.get();
+    }
+
+    private static java.util.function.Supplier<TrustAnchors> fixed(final TrustAnchors anchors) {
+        final TrustAnchors value = Objects.requireNonNull(anchors, "trustAnchors");
+        return () -> value;
     }
 
     /** The provider's status policy: the instance its {@link #statusClient()} enforces. */
@@ -406,7 +426,7 @@ public final class WalletIdentityProvider implements IdentityProvider {
     public VerificationContext verificationContext(final WalletTransaction tx, final String responseUri,
                                                    final byte[] encryptionJwkThumbprint) {
         return new VerificationContext(clientId(), tx.nonce(), responseUri, encryptionJwkThumbprint, clock.instant(),
-                Duration.ofSeconds(config.clockSkewSeconds()), trustAnchors, statusPolicy,
+                Duration.ofSeconds(config.clockSkewSeconds()), trustAnchors.get(), statusPolicy,
                 config.pid().acceptedVcts(), config.pid().acceptedDoctype(), config.allowLegacyVcSdJwtTyp());
     }
 

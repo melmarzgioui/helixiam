@@ -141,7 +141,8 @@ curl -s -X POST "https://helix.example/admin/realms/$REALM/identity-providers" \
 `revocationChecking` → `HARD_FAIL` (see §7.2); `dcql.trustedAuthorities` → on for `x509_hash` with
 `direct_post.jwt` (the HAIP profile), off otherwise (see §11); `statusList.required` → `false`; `subject.strategy` →
 `ADMINISTRATIVE_NUMBER`; `minimumLoa` → `http://eidas.europa.eu/LoA/high`; `dcApi.enabled` → `false` (the W3C
-Digital Credentials API, §12). `WalletConfigValidator` rejects an
+Digital Credentials API, §12). Instead of `trustAnchors`, or as well, `trustedLists.sources` names the realm's
+trusted lists (§7.3). `WalletConfigValidator` rejects an
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
 
@@ -391,6 +392,187 @@ whose certificates name no CRL or OCSP endpoint (they are refused under `HARD_FA
 reach; `OFF` only for testing. Providers stored before this change without a `revocationChecking` value now run
 `HARD_FAIL` (see `CHANGES-1.0.md`).
 
+### 7.3 Trust anchors from trusted lists
+
+Instead of (or as well as) pasting PEM anchors, a wallet provider can take its PID issuer anchors from **published,
+signed trusted lists** that HelixIAM fetches, verifies and refreshes itself (`TrustedListService`,
+`helix-iam-server/src/main/java/io/helixiam/authorization/federation/wallet/trust/tl/`). Console: **Federation →
+Trusted lists**; admin API: `/admin/realms/{realm}/trusted-lists`.
+
+**What is published (checked 15 October 2026).**
+
+| Source | Format | What it lists | Status |
+|---|---|---|---|
+| EUDI Wallet reference implementation, `https://trustedlist.serviceproviders.eudiw.dev/LOTL/01.xml` | ETSI TS 119 612 v2 XML, a list of trusted lists (16 test lists), XAdES enveloped (ECDSA) | PID providers (`http://uri.etsi.org/Svc/Svctype/Provider/PID`), wallet providers, access-certificate CAs, (Q)EAA, with status `recognisedatnationallevel` | **Test only.** Its signer certificate expired on 4 July 2026 (it was valid when the current list was issued); NextUpdate 27 October 2026 |
+| European Commission, `https://acceptance.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json` | ETSI TS 119 602 V1.1.1 List of Trusted Entities, JSON in a JWS compact serialization (JAdES, RS512, `x5c`) | PID providers (`http://uri.etsi.org/19602/SvcType/PID/Issuance` and `/Revocation`) | **Acceptance environment.** The production path (`trust.tech.ec.europa.eu/lists/eudiw/…`) answers 404: no production list of PID providers is published yet |
+| EU list of trusted lists, `https://ec.europa.eu/tools/lotl/eu-lotl.xml` | ETSI TS 119 612 v2 XML (TSL version 6), XAdES (RSA-SHA512), pointing at ~30 national lists | Qualified trust services under eIDAS (CA/QC, QTST, …) | Production, but it does **not** list PID providers |
+
+HelixIAM reads both formats: **ETSI TS 119 612 XML** (a trusted list, or a list of trusted lists whose pointers are
+followed one level) and **ETSI TS 119 602 LoTE JSON**. Nothing is specific to one publisher: the URL, the pinned
+signer certificates, the service types and the accepted statuses are configuration, so a list published later in
+either format works without code changes. All three lists above were fetched and verified with this code
+(`PublishedTrustedListsManualTest`, opt-in with `-Dhelix.tl.live=true`; never run in CI).
+
+**A source** (per realm) has: a name, the https URL, the format, the **pinned signer certificates** (PEM), the
+service types to extract, the statuses that count (default `granted` and `recognisedatnationallevel`; `withdrawn` and
+`deprecatedatnationallevel` can never be chosen), for a list of lists optionally the territories whose lists are read
+(`NL`, `DE`, …), and a **grace period** (hours, default 24, at most 720).
+
+**A provider** names sources in `trustedLists.sources` (a JSON array of source names) and may narrow them with
+`trustedLists.serviceTypes`. `trustAnchors` (pasted PEM) is then optional; both may be set and are combined. The
+anchors are read at every verification, so a refresh, a withdrawal or an expiry takes effect at once.
+`IssuerTrustValidator` is unchanged: it gets one `TrustAnchors` as before.
+
+```json
+"config": {
+  "accessKeyRef": "software:gov/primary",
+  "trustedLists.sources": "[\"eudi-pid-providers\"]",
+  "trustedLists.serviceTypes": "[\"http://uri.etsi.org/19602/SvcType/PID/Issuance\"]"
+}
+```
+
+**Verification.** A list counts only when:
+
+- it was fetched over https through the pinned transport (`OutboundUrlGuard` checks the host, the connection goes
+  to the checked address, the certificate is verified against the host name, no redirect is followed: configure the
+  final URL; at most `helix.wallet.trusted-lists.max-bytes`, 16 MB; connect 5 s, 30 s in total; slots of the
+  `WALLET` fetch-limiter group, per realm);
+- its signature verifies with **one of the pinned signer certificates** (never with the certificate the list carries
+  in its own `KeyInfo` or `x5c`). That certificate must have an RSA (≥ 2048 bits) or EC (P-256 or stronger) key and
+  must have been valid at the list's `ListIssueDateTime`. It must also not have expired, whatever date the list
+  claims, beyond a grace that differs by who vouches for the signer (ETSI TS 119 615):
+  - an **admin-pinned signer of a top-level list** (a trusted list, or a list of trusted lists): grace
+    `helix.wallet.trusted-lists.signer-expiry-grace-days`, **default 0**. PRO-4.1.4-07/08 make an expired signer
+    without proof of existence INDETERMINATE, which stops validation; the console then says the pinned signer has
+    expired. Lists are signed at issue and stay valid until NextUpdate, so a test publisher's signer can lapse first:
+    as of 2026-10-15 the EUDI reference implementation's test LOTL (issued 2026-04-30, signer expired 2026-07-04)
+    loads only with `signer-expiry-grace-days` ≥ about **120**, and the Commission's acceptance LoTE (signer expired
+    2026-09-15) with ≥ about **30**. Set it deliberately for such test lists; there is no lenient default, also not
+    in `dev`;
+  - a **member list's signer named by the verified list of lists**: grace
+    `helix.wallet.trusted-lists.member-signer-expiry-grace-days`, **default 180 days** (PRO-4.2.4-09: a member TL
+    stops only on "failed"), still bounded by the signer being valid at the member's issue time and by the
+    six-month NextUpdate cap below.
+
+  XML: exactly one enveloped `ds:Signature` under the root, one reference covering the whole list
+  (`URI=""` or the root's `Id`), only same-document references, only enveloped-signature and canonicalization
+  transforms, unique `Id` attributes; signature RSA PKCS#1 v1.5, RSASSA-PSS with MGF1 (the fixed-hash
+  `sha*-rsa-MGF1` identifiers only; the parameterised `rsa-pss` identifier is refused) or ECDSA with SHA-256/384/512,
+  and reference digests SHA-256/384/512 only (checked by HelixIAM: Santuario's secure validation alone still accepts
+  SHA-1 digests). JSON: RS/PS/ES 256/384/512, no `alg=none`, no detached or unencoded payload;
+- it was parsed without a DOCTYPE (so no entities), without XInclude or external DTD/schema access, at most 64
+  levels deep;
+- its `NextUpdate` has not passed (a list without one is a closed list and is refused), counting it at most until
+  `ListIssueDateTime` plus six months (ETSI TS 119 612 §5.3.14; `helix.wallet.trusted-lists.max-validity-months`),
+  and its sequence number is not lower than that of the last list accepted (rollback; also enforced in SQL);
+- for a list of trusted lists: each XML pointer to a non-list-of-lists list in the chosen territories is a
+  **member**, judged on its own: it must be https, verify with the signer certificates **the list of lists names for
+  it**, carry the `SchemeTerritory` and `TSLType` the pointer names, be fresh, and not have a lower sequence number
+  than the **high-water mark** of its territory and TSLType: the highest sequence number accepted for them, kept
+  per source even when the member's URL changes or the list of lists stops pointing at it for a while (enforced in
+  the loader and in SQL, MACed like the anchors). A member that fails (a plain-http pointer is skipped and reported the same
+  way) keeps its own last good anchors until its own NextUpdate plus grace, then gives none; the other members are
+  not affected. Members the list no longer points at are dropped. PDF renditions and pointers to other lists of
+  lists are skipped.
+
+From a verified list HelixIAM keeps every service of the configured types whose **current** status is accepted and
+started (service history is ignored; in a LoTE, a service without a status counts, as listing is the trust decision
+there, and one with a status counts only when it is accepted), and stores the services; only **CA certificates** that pass the usual anchor
+rule (EC P-256/384/521 or RSA ≥ 2048, `keyCertSign`) become anchors. A listed end-entity certificate is shown in the
+preview as "not a CA" and not used.
+
+**Refresh and fail-safe.** Each replica checks every `helix.wallet.trusted-lists.check-interval-seconds` (60) for
+sources that are due; the one that takes the row's lease (a conditional update on `trusted_list_source`) refreshes,
+the others wait. The lease is renewed while a load runs, is not re-entrant (the console and the scheduler of one
+replica cannot refresh the same source together), and is cleared by a settings change: a refresh stores its result
+only if it still holds the lease and the settings it started with are unchanged, otherwise the result is dropped and
+audited as `TRUSTED_LIST_REFRESH_DISCARDED`. A healthy source is refreshed at the earlier of its NextUpdate and
+`helix.wallet.trusted-lists.refresh-interval-minutes` (360) after the last refresh; a failed one after
+`retry-interval-minutes` (15). **Refresh now** in the console does the same at once (`409` while another refresh
+holds the lease). The verified services are stored in the database; every replica reloads the sources whose version
+moved every `poll-interval-seconds` (10).
+
+| Status | Anchors used | When |
+|---|---|---|
+| `OK` | yes | The last refresh verified a list whose NextUpdate has not passed |
+| `FAILING` | yes (last good) | The last refresh failed (unreachable, bad signature, rollback, …) but the last good list is before its NextUpdate |
+| `STALE` | yes (last good) | Past the last good list's NextUpdate, within the grace period |
+| `EXPIRED` | **no** | Past NextUpdate plus grace: fail closed until a new list verifies |
+| `DEGRADED` | yes (the good members) | A list of trusted lists that is itself fine, with some members failing, stale, expired or never verified; each member has its own status |
+| `NEVER` / `ERROR` | no | Never loaded / never verified (console: "Never verified") |
+| `INTEGRITY` | **no** | The stored settings or anchors failed their integrity check (see below) |
+| `DISABLED` | no | Switched off |
+
+Changing what a source loads (URL, format, signers, types, statuses, territories) drops its stored anchors at once.
+Providers name a source, so **renaming or deleting a source that providers use is refused** (`409`; remove it from
+them first) rather than silently re-pointing or orphaning them. Every update must send the `configVersion` of the
+source it edited: when another admin saved in between, the update is a `409` (the console says the list was changed
+by someone else and offers to reload) instead of overwriting their change.
+
+**Integrity of the stored rows.** HMAC-SHA256, keyed from `DB_ENCRYPTION`, covers every stored value that decides
+trust: a source's settings (realm, name, URL, format, pinned signers, service types, accepted statuses, territories,
+grace hours, the switch and its `configVersion`), the stored services of the source and of each member (with their
+sequence number and NextUpdate, bound to the `configVersion` they were loaded under), and the rollback high-water
+marks. `grace_hours` is also clamped to 0-720 when read. What happens when a check fails:
+
+- **Settings fail**: the MAC is wrong or missing (modified outside HelixIAM, stored before V84, or `DB_ENCRYPTION`
+  changed). The source shows `INTEGRITY`, gives no anchors, `TRUSTED_LIST_INTEGRITY_FAILED` is audited, and every
+  refresh fails with `INTEGRITY` (audited) until an admin checks the settings and saves them again. Settings are never
+  adopted automatically.
+- **Anchors, a member's anchors or high-water marks fail** (or have no MAC) while the settings verify: they give no
+  anchors, and the **next refresh discards all loaded state and reloads it from the signed list** with full
+  verification, rebuilding the high-water marks from that list; audited as `TRUSTED_LIST_INTEGRITY_RESET`, naming
+  what failed.
+- So after **changing `DB_ENCRYPTION`**: save each source again (new settings MAC), then refresh it (the anchors are
+  reloaded).
+- **Sources stored before V84** (no MACs; V81-V84 ship together, so only a database that ran this branch before its
+  release can hold them) are integrity failures like any other: an admin saves each one again, then a refresh
+  reloads its anchors.
+
+Outside the `dev` profile a source cannot be saved without `DB_ENCRYPTION`; in `dev` without it there is no MAC and
+nothing is checked.
+
+An integrity reset drops anchors and member state but **keeps the rollback floors**: the top-level sequence number
+and every high-water mark stay, whatever their MACs, and a floor is only ever raised, by a verified load (which
+re-MACs it under the current key). So changing `DB_ENCRYPTION` never lets an older signed list back in. A member row
+below its floor is not counted (audited).
+
+**Scope.** These MACs are best-effort tamper detection, not a defence against someone who can write the database:
+HelixIAM does not defend against that anywhere else either (a wallet provider's pasted `trustAnchors` PEM is plain
+configuration). The high-water marks stop **network** rollback (a man in the middle, or a stale mirror serving an
+older signed list); a database writer who deletes high-water-mark rows can re-open rollback, which is out of scope.
+
+**Audit and logs.** `TRUSTED_LIST_REFRESHED` (services, usable anchors, lists verified, sequence, NextUpdate, members
+loaded and failed), `TRUSTED_LIST_REFRESH_FAILED` (reason, message, status, until when the last good anchors are kept),
+`TRUSTED_LIST_REFRESH_DISCARDED`, `TRUSTED_LIST_MEMBER_REFRESH_FAILED` (per member), `TRUSTED_LIST_STALE`,
+`TRUSTED_LIST_EXPIRED`, `TRUSTED_LIST_MEMBER_STALE` and `TRUSTED_LIST_MEMBER_EXPIRED` (each once, on one replica),
+`TRUSTED_LIST_SIGNER_EXPIRING` / `_EXPIRED` (a pinned signer expiring within 30 days, at every refresh) and
+`TRUSTED_LIST_INTEGRITY_FAILED`, all ADMIN-category with actor `system`; the admin writes are
+`TRUSTED_LIST_CREATE|UPDATE|DELETE|REFRESH_REQUEST`, with the name, URL and SHA-256 fingerprints of the pinned
+signers (and the previous values on an update). Each is also logged (refresh INFO,
+failure and stale WARN, expiry ERROR).
+
+**Pinning the signer.** The signer certificates must come from the publisher through a channel you trust, never from
+the list itself (the console's presets fill in the URL, format and service types, never a signer). For the EU list of
+trusted lists that is the Official Journal publication of the LOTL signing certificates. When a publisher rotates its
+signing key, the list stops verifying: the source goes `FAILING`, then `STALE`, then `EXPIRED`; update the pinned
+certificates before the grace period ends. Automatic signer rotation (the LOTL "pivot" mechanism) is not implemented
+(see `DEFERRED-SECURITY-WORK.md`).
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `helix.wallet.trusted-lists.refresh-interval-minutes` | `360` | Longest time between refreshes of a healthy source |
+| `helix.wallet.trusted-lists.retry-interval-minutes` | `15` | Wait after a failed refresh |
+| `helix.wallet.trusted-lists.check-interval-seconds` | `60` | How often each replica looks for due sources (`0`: only "Refresh now") |
+| `helix.wallet.trusted-lists.poll-interval-seconds` | `10` | How often each replica reloads sources that changed elsewhere |
+| `helix.wallet.trusted-lists.max-bytes` | `16777216` (16 MB) | Largest list fetched |
+| `helix.wallet.trusted-lists.signer-expiry-grace-days` | `0` | How long after its expiry an admin-pinned signer of a top-level list may still verify a list issued while it was valid (ETSI TS 119 615 PRO-4.1.4; the EUDI test LOTL needs ≥ ~120) |
+| `helix.wallet.trusted-lists.member-signer-expiry-grace-days` | `180` | The same for a member list's signer named by the verified list of lists (PRO-4.2.4-09) |
+| `helix.wallet.trusted-lists.max-validity-months` | `6` | A list counts at most this long after its issue time, whatever its NextUpdate says |
+
+Not exported or imported with a realm: a realm import whose wallet provider names a trusted list fails validation
+until the source exists in the target realm.
+
 ## 8. Limitations
 
 - **Three ways to reach the wallet.** Same-device redirect (`haip-vp://`, "Open wallet app"), cross-device QR
@@ -402,8 +584,10 @@ reach; `OFF` only for testing. Providers stored before this change without a `re
   separate EUDI ARF guidance (OIA_08c) recommends that conformant EU wallets *not* support redirect-based
   cross-device flows at all, and points to the Digital Credentials API instead (§12). The EU reference wallet
   (2026.10.43-Demo) does accept HelixIAM's cross-device request (§10); whether national wallets will is still open.
-- **No trusted-list automation.** Trust anchors (`trustAnchors`) are PEM certificates you paste in yourself; there
-  is no ETSI TS 119 612 trusted-list fetcher. Keep your configured anchors current manually.
+- **Trusted lists: what is not automated.** Trust anchors can come from signed trusted lists (§7.3), but the lists'
+  own signer certificates are pinned by hand (no LOTL pivot / signer rotation), LoTE pointers to other LoTEs are not
+  followed, and no production EU list of PID providers is published yet (only the EUDI test list and the
+  Commission's acceptance list).
 - **`deviceMac` is rejected outright** (`HOLDER_BINDING_INVALID`,
   `MdocPresentationVerifier.java:469-470`) — only `deviceSignature` (asymmetric holder binding) is accepted for
   mdoc. This is deliberate: MAC-based device authentication needs a reader key the redirect-based flow here has
@@ -513,6 +697,7 @@ The suite does not test HAIP §5's DCQL `trusted_authorities`, but HAIP requires
 added after the run:
 - **What is sent.** Each PID Credential Query carries `{"type": "aki", "values": [...]}`. The values are the key
   identifiers of the trust anchors and pinned intermediates, the AuthorityKeyIdentifier of the certificates they issue.
+  With trusted lists (§7.3), the values follow the lists' current anchors at each request.
 - **Default.** Per provider, `dcql.trustedAuthorities` (console: Credentials → "Name the trusted issuers in the
   request"). Unset means on for the HAIP profile (`x509_hash` with `direct_post.jwt`) and off otherwise.
 - **Enforcement.** It only tells the wallet which issuers to offer; validating the chain to `trustAnchors` still

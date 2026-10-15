@@ -52,7 +52,8 @@ import java.util.function.Function;
  * <h2>Stored form</h2>
  * A flat {@code Map<String,String>}: nested members dotted ({@code pid.mdocDoctype}, {@code statusList.required},
  * {@code limits.maxJwtBytes}, ...), lists as JSON arrays of strings ({@code credentialFormats}, {@code pid.sdJwtVcts},
- * {@code pid.requestedClaims}, {@code statusList.allowedHosts}, {@code customCredentialQueries}), PEM bundles as plain
+ * {@code pid.requestedClaims}, {@code statusList.allowedHosts}, {@code customCredentialQueries},
+ * {@code trustedLists.sources}, {@code trustedLists.serviceTypes}), PEM bundles as plain
  * strings, enums case-insensitive by name or wire value ({@code x509_hash}, {@code direct_post.jwt}). An absent or
  * blank value means the default. Malformed values are collected per field: {@link #fromStored} throws them together as
  * a {@link WalletConfigFormatException}, {@link WalletConfigValidator#validateStored} returns them as field errors.
@@ -67,7 +68,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         RequestUriMethod requestUriMethod, Integer transactionTtlSeconds, List<String> credentialFormats, Pid pid,
         List<String> customCredentialQueries, String trustAnchors, TrustAnchors.RevocationMode revocationChecking,
         StatusList statusList, Subject subject, String minimumLoa, Integer clockSkewSeconds,
-        boolean allowLegacyVcSdJwtTyp, Limits limits, Boolean trustedAuthorities, DcApi dcApi) {
+        boolean allowLegacyVcSdJwtTyp, Limits limits, Boolean trustedAuthorities, DcApi dcApi,
+        TrustedLists trustedLists) {
 
     public static final String DEFAULT_INVOCATION_SCHEME = "haip-vp";
     public static final int DEFAULT_TRANSACTION_TTL_SECONDS = 300;
@@ -98,6 +100,25 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         clockSkewSeconds = clockSkewSeconds == null ? DEFAULT_CLOCK_SKEW_SECONDS : clockSkewSeconds;
         limits = limits == null ? new Limits(null, null, null, null) : limits;
         dcApi = dcApi == null ? new DcApi(false, null, null) : dcApi;
+        trustedLists = trustedLists == null ? new TrustedLists(null, null) : trustedLists;
+    }
+
+    /** The shape before trusted lists: {@code trustedLists} takes its defaults (none). */
+    public WalletProviderConfig(final String alias, final String displayName, final ClientIdScheme clientIdScheme,
+            final String clientIdHost, final String accessCertificateChain, final String accessKeyRef,
+            final String accessCertificateKeyRef, final String accessCertificatePrivateKey,
+            final String registrationCertificate, final String invocationScheme, final ResponseMode responseMode,
+            final RequestUriMethod requestUriMethod, final Integer transactionTtlSeconds,
+            final List<String> credentialFormats, final Pid pid, final List<String> customCredentialQueries,
+            final String trustAnchors, final TrustAnchors.RevocationMode revocationChecking,
+            final StatusList statusList, final Subject subject, final String minimumLoa,
+            final Integer clockSkewSeconds, final boolean allowLegacyVcSdJwtTyp, final Limits limits,
+            final Boolean trustedAuthorities, final DcApi dcApi) {
+        this(alias, displayName, clientIdScheme, clientIdHost, accessCertificateChain, accessKeyRef,
+                accessCertificateKeyRef, accessCertificatePrivateKey, registrationCertificate, invocationScheme,
+                responseMode, requestUriMethod, transactionTtlSeconds, credentialFormats, pid, customCredentialQueries,
+                trustAnchors, revocationChecking, statusList, subject, minimumLoa, clockSkewSeconds,
+                allowLegacyVcSdJwtTyp, limits, trustedAuthorities, dcApi, null);
     }
 
     /** The shape before the Digital Credentials API settings: {@code dcApi} takes its defaults (off). */
@@ -115,7 +136,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
                 accessCertificateKeyRef, accessCertificatePrivateKey, registrationCertificate, invocationScheme,
                 responseMode, requestUriMethod, transactionTtlSeconds, credentialFormats, pid, customCredentialQueries,
                 trustAnchors, revocationChecking, statusList, subject, minimumLoa, clockSkewSeconds,
-                allowLegacyVcSdJwtTyp, limits, trustedAuthorities, null);
+                allowLegacyVcSdJwtTyp, limits, trustedAuthorities, null, null);
     }
 
     /**
@@ -349,6 +370,26 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         }
     }
 
+    /**
+     * Trust anchors from the realm's trusted list sources (see {@code TrustedListService}), in addition to or instead
+     * of the pasted {@code trustAnchors}: the current, verified service certificates of the named sources, read at
+     * every verification (so a refresh, a withdrawal or an expiry takes effect without rebuilding the provider).
+     *
+     * @param sources      names of trusted list sources of the provider's realm (empty: none)
+     * @param serviceTypes service type URIs to take from them (empty: every type the source extracts)
+     */
+    public record TrustedLists(List<String> sources, List<String> serviceTypes) {
+
+        public TrustedLists {
+            sources = sources == null ? List.of() : copy(sources);
+            serviceTypes = serviceTypes == null ? List.of() : copy(serviceTypes);
+        }
+
+        public boolean isEmpty() {
+            return sources.isEmpty();
+        }
+    }
+
     // ------------------------------------------------------------------------------------------------ stored form
 
     /** A config from the stored flat map; {@code alias} and {@code displayName} are read from the map. */
@@ -401,7 +442,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
                 r.optionalBool("dcql.trustedAuthorities"),
                 new DcApi(r.bool("dcApi.enabled"),
                         r.enumValue("dcApi.request", DcApi.RequestType.class, DcApi.RequestType::value),
-                        r.list("dcApi.expectedOrigins")));
+                        r.list("dcApi.expectedOrigins")),
+                new TrustedLists(r.list("trustedLists.sources"), r.list("trustedLists.serviceTypes")));
         return new Parsed(config, Collections.unmodifiableMap(r.errors));
     }
 
@@ -478,6 +520,12 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         put(m, "dcApi.enabled", dcApi.enabled() ? "true" : null);
         put(m, "dcApi.request", dcApi.request() == DcApi.RequestType.SIGNED ? null : dcApi.request().value());
         put(m, "dcApi.expectedOrigins", dcApi.expectedOrigins().isEmpty() ? null : json(dcApi.expectedOrigins()));
+        if (!trustedLists.sources().isEmpty()) {
+            put(m, "trustedLists.sources", json(trustedLists.sources()));
+        }
+        if (!trustedLists.serviceTypes().isEmpty()) {
+            put(m, "trustedLists.serviceTypes", json(trustedLists.serviceTypes()));
+        }
         return m;
     }
 
@@ -490,7 +538,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
                 + invocationScheme + ", responseMode=" + responseMode.value() + ", credentialFormats="
                 + credentialFormats + ", pid=" + pid + ", statusList=" + statusList + ", subject=" + subject
                 + ", minimumLoa=" + minimumLoa + ", transactionTtlSeconds=" + transactionTtlSeconds + ", dcApi=" + dcApi
-                + "]";
+                + ", trustedLists=" + trustedLists + "]";
     }
 
     // ------------------------------------------------------------------------------------------------ helpers

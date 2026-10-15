@@ -57,6 +57,17 @@ class AuditEventMapperTest {
     }
 
     @Test
+    void mapsTrustedListWrites() {
+        assertEquals("TRUSTED_LIST_CREATE", map("POST", "/admin/realms/gov/trusted-lists", 201).type());
+        assertEquals("TRUSTED_LIST_UPDATE", map("PUT", "/admin/realms/gov/trusted-lists/abc", 200).type());
+        assertEquals("TRUSTED_LIST_DELETE", map("DELETE", "/admin/realms/gov/trusted-lists/abc", 204).type());
+        final AuditEventMapper.AdminAudit refresh = map("POST", "/admin/realms/gov/trusted-lists/abc/refresh", 200);
+        assertEquals("TRUSTED_LIST_REFRESH_REQUEST", refresh.type());
+        assertEquals("trusted-list", refresh.resourceType());
+        assertEquals("abc", refresh.resourceId());
+    }
+
+    @Test
     void mapsVerifierKeyImport() {
         final AuditEventMapper.AdminAudit a = map("POST", "/admin/realms/gov/verifier-keys", 201);
         assertEquals("VERIFIER_KEY_IMPORT", a.type());

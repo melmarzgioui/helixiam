@@ -14,10 +14,14 @@ import io.helixiam.authorization.federation.eid.EidScheme;
 import io.helixiam.authorization.federation.ProviderSecretKeys;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
 import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListAnchorSource;
 import io.helixiam.authorization.service.key.RealmSigningKeys;
 import io.helixiam.authorization.service.key.SigningKeyHandle;
 import io.helixiam.authorization.service.key.SoftwareRealmSigningKeys;
+import io.helixiam.common.log.LogSafe;
 import io.helixiam.common.startup.DeploymentProfile;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -70,6 +74,7 @@ public class WalletConfigValidator {
             "about");
     private static final Pattern HOST_NAME = Pattern.compile(
             "(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*");
+    private static final Pattern SERVICE_TYPE = Pattern.compile("(?i)(https?|urn):[^\\s]{1,500}");
     private static final Set<String> FORMATS = Set.of(DcqlQueryBuilder.SD_JWT_FORMAT, DcqlQueryBuilder.MDOC_FORMAT);
     private static final byte[] KEY_PROBE = "helix-wallet-access-key-check".getBytes(StandardCharsets.US_ASCII);
     private static final int DNS_NAME = 2;
@@ -91,10 +96,12 @@ public class WalletConfigValidator {
     private final DeploymentProfile profile;
     /** Lower-case host names this server answers for; null when unknown (then the DC API host rule is skipped). */
     private final Set<String> servedHosts;
+    /** The realm's trusted list sources, for {@code trustedLists.sources} (NONE: every name is accepted). */
+    private final TrustedListAnchorSource trustedLists;
 
     /** Without the served hosts: a DC API expected origin is checked for its form only. */
     public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile) {
-        this(keys, profile, (Set<String>) null);
+        this(keys, profile, (Set<String>) null, TrustedListAnchorSource.NONE);
     }
 
     /**
@@ -103,19 +110,33 @@ public class WalletConfigValidator {
      */
     public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile,
                                  final Set<String> servedHosts) {
+        this(keys, profile, servedHosts, TrustedListAnchorSource.NONE);
+    }
+
+    /** Without the served hosts, with the realm's trusted list sources. */
+    public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile,
+                                 final TrustedListAnchorSource trustedLists) {
+        this(keys, profile, null, trustedLists);
+    }
+
+    public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile,
+                                 final Set<String> servedHosts, final TrustedListAnchorSource trustedLists) {
         this.keys = keys;
         this.profile = profile;
         this.servedHosts = servedHosts == null ? null : Set.copyOf(servedHosts);
+        this.trustedLists = trustedLists == null ? TrustedListAnchorSource.NONE : trustedLists;
     }
 
     /** The Spring bean: the served hosts are the host of {@code idp.base.url} plus {@code HELIX_ALLOWED_HOSTS}. */
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public WalletConfigValidator(final RealmSigningKeys keys, final DeploymentProfile profile,
                                  @org.springframework.beans.factory.annotation.Value("${idp.base.url}")
                                  final String idpBaseUrl,
                                  @org.springframework.beans.factory.annotation.Value("${helix.security.allowed-hosts:}")
-                                 final String allowedHosts) {
-        this(keys, profile, servedHosts(idpBaseUrl, allowedHosts));
+                                 final String allowedHosts,
+                                 final ObjectProvider<TrustedListAnchorSource> trustedLists) {
+        this(keys, profile, servedHosts(idpBaseUrl, allowedHosts),
+                trustedLists.getIfAvailable(() -> TrustedListAnchorSource.NONE));
     }
 
     /**
@@ -281,11 +302,7 @@ public class WalletConfigValidator {
         if (!c.customCredentialQueries().isEmpty()) {
             e.add("customCredentialQueries", "customCredentialQueries are not supported yet");
         }
-        try {
-            TrustAnchors.fromPem(c.trustAnchors(), null, c.revocationChecking());
-        } catch (final IllegalArgumentException ex) {
-            e.add("trustAnchors", message(ex, "The trust anchors are not acceptable")); // field-safe by contract
-        }
+        checkTrust(realmId, c, e);
         checkStatusList(c.statusList(), e);
         checkSubject(c.subject(), e);
         if (EidLevelOfAssurance.rung(EidScheme.EUDI_WALLET, c.minimumLoa()) == 0) {
@@ -298,6 +315,57 @@ public class WalletConfigValidator {
         positive(e, "limits.cborMaxBytes", c.limits().cborMaxBytes());
         checkDcApi(c.dcApi(), e);
         return e.fields;
+    }
+
+    /**
+     * Trust: pasted PEM anchors, trusted list sources of the realm, or both; at least one of them. Pasted anchors, when
+     * given, must be acceptable CA certificates; each source must exist in the realm, once; each service type must be
+     * an absolute URI.
+     */
+    private void checkTrust(final String realmId, final WalletProviderConfig c, final Errors e) {
+        final boolean pasted = c.trustAnchors() != null && !c.trustAnchors().isBlank();
+        final WalletProviderConfig.TrustedLists lists = c.trustedLists();
+        if (pasted || lists.isEmpty()) {
+            try {
+                TrustAnchors.fromPem(c.trustAnchors(), null, c.revocationChecking());
+            } catch (final IllegalArgumentException ex) {
+                e.add("trustAnchors", !pasted
+                        ? "Paste at least one PEM trust anchor or choose a trusted list (trustedLists.sources)"
+                        : message(ex, "The trust anchors are not acceptable")); // field-safe by contract
+            }
+        }
+        final java.util.Set<String> seen = new java.util.HashSet<>();
+        String sourcesProblem = null;
+        for (final String name : lists.sources()) {
+            if (name == null || name.isBlank()) {
+                sourcesProblem = "trustedLists.sources must not contain empty entries";
+                break;
+            }
+            if (!seen.add(name)) {
+                sourcesProblem = "trustedLists.sources must not repeat a trusted list";
+                break;
+            }
+        }
+        if (sourcesProblem == null && realmId != null) {
+            for (final String name : lists.sources()) {
+                if (!trustedLists.exists(realmId, name)) {
+                    sourcesProblem = "trustedLists.sources names a trusted list this realm does not have: "
+                            + LogSafe.sanitize(name);
+                    break;
+                }
+            }
+        }
+        if (sourcesProblem != null) {
+            e.add("trustedLists.sources", sourcesProblem);
+        }
+        for (final String type : lists.serviceTypes()) {
+            if (type == null || !SERVICE_TYPE.matcher(type).matches()) {
+                e.add("trustedLists.serviceTypes",
+                        "trustedLists.serviceTypes must be absolute URIs (http, https or urn), such as "
+                                + "http://uri.etsi.org/Svc/Svctype/Provider/PID");
+                break;
+            }
+        }
     }
 
     /** @throws IllegalArgumentException naming the alias and every {@code field: message} when the config is invalid */

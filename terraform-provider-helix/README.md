@@ -86,6 +86,8 @@ import helix_wallet_identity_provider.<name> <alias>`.
 | `dc_api_enabled` | optional | also offer the W3C Digital Credentials API (OpenID4VP Appendix A, HAIP §5.2) on the wallet page where the browser supports it. Unset: server default `false`. The response is `dc_api.jwt` when `response_mode` is `direct_post.jwt` |
 | `dc_api_request` | optional | `signed` (server default: `openid4vp-v1-signed`, access certificate + `expected_origins`) or `unsigned` (`openid4vp-v1-unsigned`) |
 | `dc_api_expected_origins` | optional | list of web origins a DC API response may be bound to, written as a browser reports them (`https://login.example.eu`); at most 10, each on a host the server answers for (`IDP_BASE_URL` or `HELIX_ALLOWED_HOSTS`). Unset: the origin of `IDP_BASE_URL` |
+| `trusted_lists` | optional, list | names of the realm's trusted list sources (Federation → Trusted lists, `/admin/realms/{realm}/trusted-lists`) whose verified PID issuer anchors are trusted in addition to `trust_anchors`; each must exist in the realm. Unset: none (an empty list is refused) |
+| `trusted_list_service_types` | optional, list | narrows `trusted_lists` to these service type URIs. Unset: every type the sources load |
 | `id` | computed | the connection alias |
 
 Every attribute above maps to a key of the connection's `config` map on the server

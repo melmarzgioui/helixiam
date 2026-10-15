@@ -36,7 +36,7 @@ public class HarnessEgressGuard extends OutboundUrlGuard {
     }
 
     /** Lets the server call {@code http://127.0.0.1:port/…} (a harness-owned listener). */
-    static void allow(final int port) {
+    public static void allow(final int port) {
         HARNESS_PORTS.add(port);
     }
 

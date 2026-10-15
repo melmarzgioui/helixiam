@@ -1,6 +1,7 @@
 import type { Preview } from "@storybook/react";
 import "../src/styles/tokens.css";
 import "../src/styles/components.css";
+import "../src/styles/app.css";
 
 /** Theme switcher so every story can be reviewed in light + the Black Cat / Jade dark mode. */
 const preview: Preview = {

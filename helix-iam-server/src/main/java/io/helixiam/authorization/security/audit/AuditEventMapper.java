@@ -79,6 +79,8 @@ public final class AuditEventMapper {
             case "sessions" -> "DELETE".equals(method) ? "SESSION_REVOKE" : null;
             // Task 24: a verifier access key imported for the EUDI wallet (the detail names the key, never its PEM).
             case "verifier-keys" -> "POST".equals(method) ? "VERIFIER_KEY_IMPORT" : null;
+            // EUDI wallet trusted list sources; the refresh's outcome is audited separately (TRUSTED_LIST_REFRESHED...)
+            case "trusted-lists" -> "refresh".equals(sub) ? "TRUSTED_LIST_REFRESH_REQUEST" : crud(method, "TRUSTED_LIST");
             case "flow" -> "PUT".equals(method) ? "FLOW_UPDATE" : null;
             case "groups" -> {
                 if ("members".equals(sub)) {
@@ -115,6 +117,7 @@ public final class AuditEventMapper {
             case "settings" -> "realm";
             case "flow" -> "flow";
             case "verifier-keys" -> "verifier-key";
+            case "trusted-lists" -> "trusted-list";
             default -> resource;
         };
     }

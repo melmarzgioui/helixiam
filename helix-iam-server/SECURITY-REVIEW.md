@@ -721,3 +721,78 @@ connect / read errors, timeouts (DNS included), 5xx and unresolvable hosts are t
 **Latency.** Worst case per credential, all endpoints slow: about 25 s — 10 s for the issuer chain's revocation
 budget, 5 s for the status-list fetch, and 10 s for the revocation budget of the status-list signer's chain. Cached
 answers make the common case a few milliseconds.
+
+### B.11 Trusted lists (`EuTrustedListSource`): fetching and XML signature verification (2026-10-15)
+
+Internal self-review, not an independent audit. Scope: `io.helixiam.authorization.federation.wallet.trust.tl.*`,
+`TrustedListAdminController`, and the `trustedLists.*` path in `WalletIdentityProviders` / `WalletConfigValidator`.
+A trusted list is a **trust root input**: whoever can make HelixIAM accept a forged list can mint PIDs it trusts.
+
+**Assets.** The set of PID issuer anchors per realm; the pinned signer certificates; the availability of wallet
+sign-in.
+
+**Threats and mitigations.**
+
+| Threat | Mitigation | Test |
+|---|---|---|
+| Forged or modified list (network attacker, compromised host, malicious mirror) | Signature must verify with an **admin-pinned** signer certificate; the list's own `KeyInfo`/`x5c` is never trusted; for a LOTL each pointed-to list must verify with the signer **the verified LOTL** names for it, and carry the `SchemeTerritory` and `TSLType` the pointer names | `TrustedListLoaderTest` tampered / added service / other signer / member wrong signer / territory-type mismatch |
+| XML signature wrapping (valid signature over one element, data read from another) | Exactly one `ds:Signature` in the document, a direct child of the root; a reference with the enveloped-signature transform must cover the whole document (`URI=""`) or the root by its `Id`; the list is then read from that same root; duplicate `Id` attributes refused | `signatureThatDoesNotCoverTheWholeList_isRefused`, `duplicateIds_areRefused` |
+| Reference tricks (external URIs, XPath/XSLT subsetting, weak algorithms) | Only same-document references; only enveloped-signature and canonicalization transforms; signature RSA, RSASSA-PSS with MGF1 and a fixed hash (`sha*-rsa-MGF1`; the parameterised `rsa-pss` identifier refused) or ECDSA with SHA-256/384/512, checked on the DOM before Santuario parses it; reference digests SHA-256/384/512 only, checked by HelixIAM (Santuario `secureValidation=true` refuses MD5 but **not** SHA-1 digests; it bounds references/transforms) | `sha1ReferenceDigest_isRefused`, `ecdsaSha1Signature_andParameterisedRsaPss_areRefused` |
+| XXE, entity expansion, XInclude, deep nesting, huge documents | JDK built-in parser with `disallow-doctype-decl`, no external entities/DTD/schema, XInclude off, secure processing, `jdk.xml.maxElementDepth` 64 plus an explicit depth walk, byte cap before parsing | `doctype_andExternalEntities…`, `billionLaughs…`, `xinclude…`, `deeplyNested…`, `oversized…` |
+| JWS (LoTE) tricks | `alg=none` cannot parse as JWS; algorithms allow-listed; `b64=false` and `sigD` (detached) refused; unknown `crit` refused except JAdES parameters that do not change the payload | `loteJson_unsignedOrAlgNone_isRefused`, `…signedByAnotherKey…` |
+| SSRF / DNS rebinding through the list URL or LOTL pointers | https only (also for pointers); `OutboundUrlGuard` on every URL; pinned connection to the checked address; no redirects (a 3xx is refused); 16 MB cap; 5 s connect / 30 s total including DNS; `WALLET` fetch-limiter slots per realm; at most 64 pointers per load | `PinnedTrustedListFetcherTest` |
+| Replay of an older member list after it moved URL or was dropped and re-added (re-review) | Rollback high-water mark per (source, territory, TSLType) that outlives member rows, MACed, enforced in the loader and by a conditional SQL upsert | `lotl_aMemberDroppedAndReAdded…`, `lotl_aMemberMovedToAnotherUrl…`, `theHighWaterMarkIsEnforcedInSqlToo`, `lotl_theHighWaterMarkFollowsTerritoryAndType…` |
+| Replay of an old, validly signed list (re-adds a withdrawn issuer) | `NextUpdate` must not have passed and counts at most issue + 6 months (TS 119 612 §5.3.14), a list without one (closed) is refused, and the sequence number may not go down — for the top list **and for each member** of a list of lists (per-member state, also enforced in SQL) | `nextUpdateInThePast…`, `nextUpdateIsCapped…`, `closedList…`, `olderList_isRefusedAsRollback…`, `lotl_memberReplayWithALowerSequence…`, `lowerSequence_isRefusedBySqlToo` |
+| Withdrawn issuer still trusted | Only the **current** status counts (history ignored), only accepted statuses (`withdrawn`/`deprecated…` can never be configured), a status starting in the future does not count; anchors are read live at every verification | `withdrawnService…`, `TrustedListWalletE2eTest` |
+| Signer certificate compromised, weak or expired | The signer must have been valid at `ListIssueDateTime` **and**, at *now*, not expired beyond a grace: **0 by default for an admin-pinned top-level signer** (ETSI TS 119 615 PRO-4.1.4-07/08: INDETERMINATE), 180 days for a member's signer named by the verified LOTL (PRO-4.2.4-09, bounded by validity at issue and the 6-month cap), so a long-expired key cannot sign a backdated list; RSA ≥ 2048 / EC P-256+ only (pinned: field error; LOTL-named: not used); pinning is explicit (presets never fill a signer); pinned signers expiring within 30 days are audited and shown | `signerExpiredLongerAgoThanTheGrace…`, `weakSignerKeyNamedByAListOfLists…`, `weakPinnedSignerKey…`, `pinnedSignerExpiringSoon…` |
+| Denial of service by an unreachable or broken list | Fail safe: the last good anchors stay until NextUpdate plus a bounded grace (≤ 720 h), then fail closed — **per member** for a list of lists, so one broken, plain-http or expiring member does not affect the others (status `DEGRADED`); every failure is audited and logged; refresh runs off the request path | `TrustedListServiceTest` (`lotl_oneBrokenMember…`, `lotl_memberNearExpiry…`, `lotl_plainHttpPointer…`) |
+| Refresh racing a settings change (review: a list signed by a re-pinned, compromised key stored after the re-pin) | The refresh re-reads the row after taking the lease; results are stored only while it holds the lease and `config_version` is unchanged (a settings change clears the lease and bumps it); a dropped result is audited `REFRESH_DISCARDED`, never as success | `refreshInFlightWhenTheAdminRepins…` (the review's Race.java) |
+| Two replicas racing, a re-entrant refresh, an expiring lease, or a stale replica | Non-re-entrant row lease renewed while the load runs; results written only by the lease holder; STALE/EXPIRED transitions conditional on the version judged; sync and refresh on separate threads; versions polled so replicas converge | `twoReplicas_refreshOnce…`, `consoleRefresh_whileTheSchedulerRefreshes…`, `leaseIsRenewed…`, `staleReplicaHealthCheck…` |
+| Database tampering (pin another signer, stretch the grace, re-enable, rename, inject an anchor, replay an older row) by someone who can write the DB but not read `DB_ENCRYPTION` | HMAC-SHA256 (key derived from `DB_ENCRYPTION`) over **every** trust-deciding setting (realm, name, URL, format, signers, types, statuses, territories, grace, switch, `config_version`) and over the stored services of each source and member and the high-water marks, all bound to `config_version`; grace clamped on read. Failing settings: `INTEGRITY`, no anchors, refreshes refused until an admin re-saves (`TRUSTED_LIST_INTEGRITY_FAILED`). Failing anchors/marks with good settings: discarded and reloaded from the signed list at the next refresh (`TRUSTED_LIST_INTEGRITY_RESET`). The admin view shows a tampered member as `INTEGRITY`, not in use. Outside `dev` a source cannot be saved without `DB_ENCRYPTION` | `everySettingThatDecidesTrust…`, `storedAnchorsOfAnEarlierConfigVersion…`, `graceHoursAreClampedOnRead`, `anchorsThatFailTheirCheck_areReloaded…`, `afterDbEncryptionChanges…`, `tamperedHighWaterMarks…`, `aTamperedMember…`, `FlywayTrustedListIntegrityUpgradeTest` |
+| Lost update between two admins; deleting a source in use | Updates are conditional on the `configVersion` read (409 otherwise); delete, like rename, is refused while providers name the source | `twoAdmins…`, `anEditOverAStaleRead_is409…`, `renamingASourceThatProvidersUse…` |
+| One refresh acting under another's lease | A fresh lease token per refresh | `everyRefreshTakesTheLeaseWithItsOwnToken` |
+| Silent re-pointing of providers by renaming a source | Providers name sources; a rename while providers use the source is refused; writes are audited with URL and signer fingerprints (old and new) | `TrustedListWalletE2eTest.renamingASourceThatProvidersUse…` |
+| Non-CA or weak keys on a list becoming anchors | Only certificates passing `TrustAnchors.trustAnchorProblem` (CA, `keyCertSign`, EC P-256/384/521 or RSA ≥ 2048) are used | `nonCaCertificateOnTheList_isNotAnAnchor…` |
+| Admin misuse / CSRF | `manage-identity-providers`, CSRF header on writes, server-side validation, admin audit | `TrustedListWalletE2eTest.settings_areValidated…`, `anAdminWithoutManageIdentityProviders_getsForbidden` |
+| Log / audit injection | Names and realms through `LogSafe.sanitize`; exception messages are fixed strings, never parser output or list content | — |
+
+An independent review (2026-10-15) ran an adversarial XSW/XXE harness against the signature core (wrapping with a new
+root, evil content in `ds:Object`, duplicate Ids, comment/CDATA tricks, XPath and `xpointer` references, SHA-1
+digests, DTD bombs, file/parameter/UTF-16 XXE) and found no hole in it; its state-layer findings (refresh race,
+member rollback and isolation, SHA-1 digests, expired signers, NextUpdate cap, LoTE status denylist, member
+territory/type, stored-row integrity, scheduler, key strength, health-check overwrite, renames, 403 test) are fixed
+above.
+
+A re-review of those fixes held for the race, digest, NULL-MAC and state-propagation fixes and found the items above
+(member rollback across URL moves, integrity recovery, MAC coverage, lost updates, delete in use, lease tokens,
+tampered member view, split signer grace); all are fixed.
+
+**Scope of the MACs and the high-water marks (maintainer ruling).** HelixIAM does not defend against someone who can
+write its database anywhere else: a wallet provider's pasted `trustAnchors` PEM is plain configuration, so a database
+writer can add their own CA there and bypass trusted lists entirely. The trusted-list MACs are therefore best-effort
+tamper *detection*, not a security boundary against database writers. The high-water marks exist to stop **network**
+rollback (a man in the middle, or a stale mirror serving an older, validly signed list). A database writer who deletes
+high-water-mark rows can re-open rollback; that is out of scope, consistent with `trustAnchors` and the rest of the
+configuration. Within that scope: an integrity reset drops anchors and member state but never the rollback floors (the
+top-level `sequence_number` and the high-water marks stay, whatever their MACs; a floor is only raised, by a verified
+load, which also re-MACs it, so a key change never opens a rollback window); a member row below its floor is never
+counted (audited); a settings save computes its MACs from rows it locked (`FOR UPDATE`), so a concurrent refresh is
+never left with stale MACs; the high-water-mark territory is upper-cased.
+
+**Delete vs. a concurrent provider write.** Deleting a source checks the providers that name it and then deletes;
+a provider saved naming the source between the check and the delete is not caught by that check. The window is
+small and fails closed: provider writes are validated against the realm's sources, and a provider naming a source
+that no longer exists gets no anchors from it. Not made conditional in SQL (the reference lives inside the
+provider's config map).
+
+A row without a MAC is an integrity failure like a wrong MAC; nothing is ever adopted. V81-V84 ship together, so no
+released database holds pre-V84 rows; a dev database that does gets `INTEGRITY` until an admin saves each source
+again (`FlywayTrustedListIntegrityUpgradeTest`). An earlier design adopted such rows on their first refresh; it was
+removed because a database writer could have marked a row to get its settings adopted.
+
+**Residual risks (also in `DEFERRED-SECURITY-WORK.md`).** No LOTL pivot chain: a publisher's signer rotation needs a
+manual re-pin (fails closed after grace, it never fails open). XAdES signed properties (signing time, signing
+certificate digest) are covered by the signature but not interpreted. LoTE pointers are not followed. Realm
+export/import does not carry sources. A list publisher can still list any CA it wants: pinning a publisher is
+trusting it for every issuer it lists — choose service types and territories narrowly.
+

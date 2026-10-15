@@ -124,6 +124,55 @@ question. Newest first within each phase.
 - **tests** — `TokenStatusListClientTest.connectTimeoutIsThreeSeconds` no longer assumes `10.255.255.1` is
   unroutable. That address answers at once on some networks, which made the test fail there. It now connects to a
   loopback listener whose accept queue is full, and it still asserts the 3 s connect timeout.
+- **feature (EUDI Wallet, experimental): trust anchors from signed trusted lists (`EuTrustedListSource`).** A realm can
+  add trusted list sources (console: Federation → Trusted lists; API `/admin/realms/{realm}/trusted-lists`) and a
+  wallet provider can name them in `trustedLists.sources` (optionally narrowed by `trustedLists.serviceTypes`)
+  instead of, or as well as, pasted `trustAnchors`. Formats: ETSI TS 119 612 XML (a trusted list, or a list of
+  trusted lists followed one level with the signer it names per pointer) and ETSI TS 119 602 LoTE JSON (JWS), the two
+  formats the EU publishes for EUDI Wallet trust. Lists are fetched over the pinned transport (https, egress guard,
+  no redirects, 16 MB, 30 s), parsed without DOCTYPE/entities/XInclude, and their signature must verify with a pinned
+  signer certificate (Santuario secure validation, no wrapping, whole-list reference only). Only current services of
+  the configured types and statuses count; `NextUpdate`, closed lists and sequence-number rollback are enforced. One
+  replica refreshes under a row lease; the verified services are stored (Flyway **V81** `trusted_list_source`, also in
+  `schema.sql`) and every replica reloads them. A list that cannot be fetched or verified keeps the last good anchors
+  until its NextUpdate plus a per-source grace period (default 24 h), then fails closed. Audited as
+  `TRUSTED_LIST_REFRESHED|REFRESH_FAILED|STALE|EXPIRED` and `TRUSTED_LIST_CREATE|UPDATE|DELETE|REFRESH_REQUEST`.
+  Settings `helix.wallet.trusted-lists.*`. See `docs/eudi-wallet.md` §7.3 (including what is published today: the EUDI
+  reference implementation's test list, the Commission's acceptance LoTE of PID providers; no production list of PID
+  providers yet) and `helix-iam-server/SECURITY-REVIEW.md` Appendix B.11. Tests: `TrustedListLoaderTest`,
+  `PinnedTrustedListFetcherTest`, `TrustedListServiceTest` (PostgreSQL, two replicas), `TrustedListHealthTest`,
+  `TrustedListWalletE2eTest`; opt-in `PublishedTrustedListsManualTest` verified the three published lists.
+- **security (trusted lists, review of 2026-10-15).** All findings fixed: a refresh racing a settings change can no
+  longer store a list after a re-pin (`config_version`, Flyway **V82**; non-re-entrant, renewed lease;
+  `TRUSTED_LIST_REFRESH_DISCARDED`); each member of a list of trusted lists has its own state, rollback protection,
+  territory/type match and fail-safe grace, and a broken or plain-http member no longer fails the source (Flyway
+  **V83** `trusted_list_member`, status `DEGRADED`, per-member audit); reference digests SHA-256/384/512 only (Santuario
+  still accepted SHA-1) and no parameterised `rsa-pss`; signers expired more than
+  `signer-expiry-grace-days` (180) ago and RSA < 2048 / EC < P-256 keys are refused, expiring pinned signers are
+  audited; NextUpdate is capped at issue + 6 months (`max-validity-months`); LoTE service statuses use the
+  accepted-status allowlist; stored settings and anchors carry an HMAC keyed from `DB_ENCRYPTION` (Flyway **V84**,
+  `TRUSTED_LIST_INTEGRITY_FAILED`); health transitions are conditional on the version judged; sync and refresh run on
+  separate threads; renaming a source that providers use is refused, and admin writes are audited with the URL and
+  signer fingerprints. Console: FAILING and DEGRADED explained, "Never verified" for ERROR, members table, signer
+  expiry warnings, unknown trusted lists caught before saving, and dark-mode danger alerts fixed (a legacy
+  `.hx-alert` rule in `app.css` overrode the themed one).
+- **security (trusted lists, re-review).** Rollback high-water marks per territory and TSLType that outlive member rows
+  (a moved or re-added list cannot come back older; `trusted_list_hwm`, folded into V84); a failed integrity check of
+  the stored anchors, member anchors or marks now resets and reloads them from the signed list at the next refresh
+  (`TRUSTED_LIST_INTEGRITY_RESET`), and failing or missing settings MACs (including rows stored before V84) need an
+  admin re-save, nothing is adopted; the settings MAC covers name, grace, switch and `config_version` too, anchors are bound to
+  `config_version`, grace is clamped on read, and a tampered member shows `INTEGRITY`; updates need the `configVersion`
+  read (`409` on a concurrent edit; console "changed by someone else, reload"); deleting a source in use is a `409`;
+  one lease token per refresh; an integrity reset keeps the rollback floors (top-level sequence number and high-water
+  marks, re-MACed by the next verified load), a member row below its floor is not counted, settings saves compute
+  their MACs from locked rows, and high-water-mark territories are upper-cased. Scope (maintainer ruling): the MACs are
+  best-effort tamper detection, not a defence against database writers; the high-water marks stop network rollback. **Behaviour change:** the signer-expiry grace is split per ETSI TS 119 615 —
+  `signer-expiry-grace-days` (admin-pinned top-level signers) now defaults to **0**, and the new
+  `member-signer-expiry-grace-days` (signers named by a verified LOTL) to 180. As of 2026-10-15 the EUDI test LOTL
+  needs `signer-expiry-grace-days` ≥ ~120 and the EC acceptance LoTE ≥ ~30; the console says when a list is refused
+  for an expired pinned signer.
+- **admin API:** `trustAnchors` on a wallet connection is no longer required when `trustedLists.sources` is set;
+  an unknown source name is a `400` on `config.trustedLists.sources`.
 
 ## v1.0.0-rc.10 (CodeQL follow-up to rc.9)
 

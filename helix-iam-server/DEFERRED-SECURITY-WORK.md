@@ -349,3 +349,31 @@ Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-1
 - **DONE (dc24def) — review #9.** A realm import refuses an eID
   connection whose scheme or minimum level of assurance is unknown, with the admin API's field errors, instead of
   saving it and skipping it at load time.
+
+## EUDI Wallet: trusted lists (`EuTrustedListSource`, 2026-10-15) — open items
+
+Shipped: ETSI TS 119 612 XML and TS 119 602 LoTE JSON sources with pinned signers, fail-safe grace per source and per
+member, lease-based refresh, integrity MACs (see `SECURITY-REVIEW.md` Appendix B.11). The 2026-10-15 review's
+findings are all fixed (B.11 lists them). What stays deferred, with the review's reasoning; none of them is a
+fail-open path:
+
+- **LOTL signer pivot chain.** The EU LOTL announces its signer certificates in the Official Journal and in "pivot"
+  LOTLs; HelixIAM only checks against the certificates an admin pinned. A publisher's key rotation makes the list stop
+  verifying (FAILING → STALE → EXPIRED, audited; pinned signers expiring within 30 days are audited and shown in the
+  console beforehand) until the admin re-pins. Reasoning: automating it means trusting a chain of earlier LOTLs back to
+  an OJ-published anchor; getting that wrong would be a trust-root bypass, while the manual path fails closed.
+- **XAdES qualifying properties not interpreted.** `SignedProperties` is covered by the signature, but its
+  `SigningTime` and `SigningCertificateV2` digest are not compared to the pinned signer. Reasoning: the signature is
+  checked against pinned keys only, the signer's validity is checked against `ListIssueDateTime` and against *now*
+  (expiry grace), so these properties add evidence but no missing check.
+- **LoTE pointers (`PointersToOtherLoTE`) are not followed.** Reasoning: no published LoTE uses them yet; following
+  them needs the same per-member machinery as the LOTL and a format that is not yet in use to test against.
+- **Realm export/import** does not carry trusted list sources; an imported wallet provider that names one is refused
+  until the source exists in the target realm. Reasoning: pinned signers are trust roots and should be pinned
+  deliberately in each realm, not copied by an import.
+
+Accepted (not deferred): the pinned signers are not checked for revocation. They are pinned explicitly, are refused
+once expired (default grace 0 for top-level lists, ETSI TS 119 615), are audited when expiring, and a compromised one is removed by re-pinning, which
+discards any in-flight refresh. The EUDI reference implementation's test LOTL signer expired on 2026-07-04 and the Commission's acceptance LoTE
+signer on 2026-09-15: with the default grace of 0 both are refused until re-pinned, or loaded with an explicit
+`signer-expiry-grace-days` (≥ ~120 and ≥ ~30).

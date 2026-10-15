@@ -747,6 +747,14 @@ td.hx-col-sticky { background: var(--bg); }
 .hx-certlist__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
 .hx-certlist__head > strong { font: 600 .95rem var(--font); color: var(--fg); overflow-wrap: anywhere; }
 .hx-certlist__meta { display: flex; flex-wrap: wrap; gap: .25rem var(--sp-3); color: var(--fg-muted); font-size: .85rem; }
+/* Two-line cell: a primary value with a muted line under it (tables, e.g. Trusted lists). */
+.hx-stack-tight { display: grid; gap: .15rem; min-width: 0; }
+/* Long unbroken text (a URL) that must wrap on narrow screens. */
+.hx-wrap-anywhere { overflow-wrap: anywhere; }
+/* A plain bullet list inside a section body. */
+.hx-bullets { margin: 0; padding-left: 1.2rem; display: grid; gap: var(--sp-2); color: var(--fg-muted); line-height: 1.5; }
+/* A form whose banners and certificate previews sit between its fields. */
+.hx-formblock > .hx-alert, .hx-formblock > .hx-certlist { margin-bottom: var(--field-gap); }
 .hx-certlist__dn { color: var(--fg-faint); font-size: .78rem; overflow-wrap: anywhere; }
 .hx-certlist__ok { color: var(--accent); font-size: .85rem; }
 .hx-certlist__item > .hx-field__error { margin-top: 0; }

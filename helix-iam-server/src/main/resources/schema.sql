@@ -1126,3 +1126,65 @@ CREATE TABLE IF NOT EXISTS wallet_transaction (
     expires_at                bigint                 NOT NULL
 );
 CREATE INDEX IF NOT EXISTS wallet_transaction_expires_idx ON wallet_transaction (expires_at);
+-- EUDI wallet trusted lists (same as Flyway V81): verified trust anchors from published lists, per realm.
+CREATE TABLE IF NOT EXISTS trusted_list_source (
+    id                  character varying(36)   NOT NULL PRIMARY KEY,
+    realm_id            character varying(255)  NOT NULL,
+    name                character varying(64)   NOT NULL,
+    url                 character varying(2048) NOT NULL,
+    format              character varying(32)   NOT NULL,
+    signer_certificates text                    NOT NULL,
+    service_types       text                    NOT NULL,
+    accepted_statuses   text                    NOT NULL,
+    territories         text                    NOT NULL,
+    grace_hours         integer                 NOT NULL,
+    enabled             boolean                 NOT NULL,
+    status              character varying(16)   NOT NULL,
+    last_attempt_at     bigint,
+    last_success_at     bigint,
+    list_issued_at      bigint,
+    next_update         bigint,
+    next_refresh_at     bigint,
+    sequence_number     bigint,
+    lists_read          integer,
+    last_error          character varying(1000),
+    services_json       text,
+    version             bigint                  NOT NULL,
+    config_version      bigint                  NOT NULL DEFAULT 1,
+    list_of_lists       boolean                 NOT NULL DEFAULT false,
+    settings_mac        character varying(64),
+    services_mac        character varying(64),
+    lease_owner         character varying(64),
+    lease_until         bigint,
+    created_at          bigint                  NOT NULL,
+    updated_at          bigint                  NOT NULL,
+    CONSTRAINT trusted_list_source_realm_name_uq UNIQUE (realm_id, name)
+);
+-- Trusted lists (same as Flyway V83): the members of a list of trusted lists, each with its own state.
+CREATE TABLE IF NOT EXISTS trusted_list_member (
+    source_id       character varying(36)   NOT NULL REFERENCES trusted_list_source (id) ON DELETE CASCADE,
+    member_key      character varying(64)   NOT NULL,
+    location        character varying(2048) NOT NULL,
+    territory       character varying(16),
+    status          character varying(16)   NOT NULL,
+    services_json   text,
+    sequence_number bigint,
+    list_issued_at  bigint,
+    next_update     bigint,
+    last_attempt_at bigint,
+    last_success_at bigint,
+    last_error      character varying(1000),
+    version         bigint                  NOT NULL,
+    services_mac    character varying(64),
+    tsl_type        character varying(255),
+    PRIMARY KEY (source_id, member_key)
+);
+-- Trusted lists (same as Flyway V84): rollback high-water marks per territory and TSLType of a list of lists.
+CREATE TABLE IF NOT EXISTS trusted_list_hwm (
+    source_id       character varying(36)  NOT NULL REFERENCES trusted_list_source (id) ON DELETE CASCADE,
+    territory       character varying(16)  NOT NULL,
+    tsl_type        character varying(255) NOT NULL,
+    sequence_number bigint                 NOT NULL,
+    mac             character varying(64),
+    PRIMARY KEY (source_id, territory, tsl_type)
+);

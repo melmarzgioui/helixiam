@@ -79,6 +79,8 @@ var walletConfigAttr = map[string]string{
 	"dcApi.enabled":                      "dc_api_enabled",
 	"dcApi.request":                      "dc_api_request",
 	"dcApi.expectedOrigins":              "dc_api_expected_origins",
+	"trustedLists.sources":               "trusted_lists",
+	"trustedLists.serviceTypes":          "trusted_list_service_types",
 }
 
 // walletAttributePath maps one admin API field-error name (WalletConfigValidator.asAdminFields: "alias"
@@ -180,6 +182,8 @@ type walletIdentityProviderModel struct {
 	DcApiEnabled                  types.Bool   `tfsdk:"dc_api_enabled"`
 	DcApiRequest                  types.String `tfsdk:"dc_api_request"`
 	DcApiExpectedOrigins          types.List   `tfsdk:"dc_api_expected_origins"`
+	TrustedLists                  types.List   `tfsdk:"trusted_lists"`
+	TrustedListServiceTypes       types.List   `tfsdk:"trusted_list_service_types"`
 
 	ID types.String `tfsdk:"id"`
 }
@@ -267,6 +271,8 @@ func (r *walletIdentityProviderResource) Schema(_ context.Context, _ resource.Sc
 			"dc_api_enabled":                   schema.BoolAttribute{Optional: true, MarkdownDescription: "Also offer the W3C Digital Credentials API (OpenID4VP 1.0 Appendix A, HAIP 1.0 §5.2) on the wallet page where the browser supports it (server default false). The response is `dc_api.jwt` when `response_mode` is `direct_post.jwt`."},
 			"dc_api_request":                   schema.StringAttribute{Optional: true, MarkdownDescription: "DC API request type: `signed` (server default; `openid4vp-v1-signed`, access certificate and `expected_origins`) or `unsigned` (`openid4vp-v1-unsigned`)."},
 			"dc_api_expected_origins":          schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Web origins a DC API response may be bound to (e.g. `https://login.example.eu`; at most 10, each on a host the server answers for). Unset means the origin of the server's `IDP_BASE_URL`."},
+			"trusted_lists":                    schema.ListAttribute{Optional: true, ElementType: types.StringType, Validators: []validator.List{notEmptyListValidator{}}, MarkdownDescription: "Names of the realm's trusted list sources (console: Federation → Trusted lists; admin API `/admin/realms/{realm}/trusted-lists`) whose verified PID issuer anchors this connection also trusts, in addition to `trust_anchors`. Each name must exist in the realm. Leave unset for none; an empty list is refused."},
+			"trusted_list_service_types":       schema.ListAttribute{Optional: true, ElementType: types.StringType, Validators: []validator.List{notEmptyListValidator{}}, MarkdownDescription: "Narrows `trusted_lists` to these service type URIs (e.g. `http://uri.etsi.org/19602/SvcType/PID/Issuance`). Unset: every service type the sources load."},
 
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -297,6 +303,28 @@ func (notEmptyStringValidator) ValidateString(_ context.Context, req validator.S
 	if req.ConfigValue.ValueString() == "" {
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid value",
 			"This attribute must not be an empty string; omit it instead of setting it to \"\".")
+	}
+}
+
+// notEmptyListValidator refuses an explicit empty list: the server stores nothing for one, so it would
+// read back as null and drift. Null and unknown values pass, as for notEmptyStringValidator.
+type notEmptyListValidator struct{}
+
+func (notEmptyListValidator) Description(context.Context) string {
+	return "list must not be empty"
+}
+
+func (v notEmptyListValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (notEmptyListValidator) ValidateList(_ context.Context, req validator.ListRequest, resp *validator.ListResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	if len(req.ConfigValue.Elements()) == 0 {
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid value",
+			"This list must not be empty; omit the attribute instead of setting it to [].")
 	}
 }
 
@@ -412,6 +440,8 @@ func (m *walletIdentityProviderModel) toWrite(ctx context.Context) (IdentityProv
 	putBool(cfg, "dcApi.enabled", m.DcApiEnabled)
 	putStr(cfg, "dcApi.request", m.DcApiRequest)
 	putList(ctx, &diags, "dc_api_expected_origins", "dcApi.expectedOrigins", cfg, m.DcApiExpectedOrigins)
+	putList(ctx, &diags, "trusted_lists", "trustedLists.sources", cfg, m.TrustedLists)
+	putList(ctx, &diags, "trusted_list_service_types", "trustedLists.serviceTypes", cfg, m.TrustedListServiceTypes)
 
 	if diags.HasError() {
 		return IdentityProviderWrite{}, diags
@@ -508,6 +538,8 @@ func applyRead(ctx context.Context, m *walletIdentityProviderModel, ip *Identity
 	m.DcApiEnabled = getBool(ip, "dcApi.enabled")
 	m.DcApiRequest = getStr(ip, "dcApi.request")
 	m.DcApiExpectedOrigins = getList(ctx, ip, "dcApi.expectedOrigins")
+	m.TrustedLists = getList(ctx, ip, "trustedLists.sources")
+	m.TrustedListServiceTypes = getList(ctx, ip, "trustedLists.serviceTypes")
 }
 
 // --- CRUD ------------------------------------------------------------------------------------------------

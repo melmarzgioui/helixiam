@@ -35,9 +35,9 @@ paths are hardened and tested."
   ARF guidance recommends against the latter for conformant EU wallets — see `docs/eudi-wallet.md` §8)~~ — done
   2026-10-15 (signed and unsigned requests, `dc_api.jwt`, opt-in per connection; see `docs/eudi-wallet.md` §12).
   Still open there: a live run with a real wallet over the DC API (not yet done, see §12.6) and multi-signed
-  requests; an
-  `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being pasted PEM
-  (the Terraform resource for the wallet identity-provider connection is done — `helix_wallet_identity_provider`,
+  requests; ~~an `EuTrustedListSource` (ETSI TS 119 612) so trust anchors update automatically instead of being
+  pasted PEM~~ — done (ETSI TS 119 612 XML and TS 119 602 LoTE JSON, see `docs/eudi-wallet.md` §7.3); the Terraform
+  resource for the wallet identity-provider connection is done (`helix_wallet_identity_provider`,
   `terraform-provider-helix/README.md`); and a separate plan for the step-up/verify-only
   flow (`subject.strategy=NONE`), deliberately left out of the initial implementation (maintainer decision 4).
 - **EUDI Wallet follow-ups** (from the final review of the wallet branch):
@@ -57,6 +57,12 @@ paths are hardened and tested."
     - the status-list connect-timeout test no longer depends on the network.
   - Still open: file the nonce-entropy issue with the suite
     (`docs/compliance/oid4vp-conformance/upstream-issue-nonce-entropy.md`).
+  - Partly done: **`EuTrustedListSource`** — trust anchors from signed ETSI TS 119 612 (XML) and ETSI TS 119 602
+    (LoTE JSON) lists, refreshed automatically with a fail-safe grace period (`docs/eudi-wallet.md` §7.3). Still open:
+    automatic rotation of a list's own signer (the EU LOTL "pivot" chain; signers are pinned by hand today),
+    following LoTE pointers, XAdES signed-properties checks, realm export/import of trusted list sources, and a
+    production EU list of PID providers to point at (only the EUDI test list and the Commission's acceptance list are
+    published as of 2026-10-15).
   - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
     (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
     again under the same name would inherit the previous realm's verifier access key and pepper.
