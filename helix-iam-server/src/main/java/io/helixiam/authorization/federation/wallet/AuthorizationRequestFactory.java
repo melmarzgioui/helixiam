@@ -59,8 +59,9 @@ import java.util.Set;
  * {@code nonce}, {@code state} ({@link #walletState}, never {@code helixState}), {@code dcql_query} (the transaction's
  * query as a JSON object), {@code client_metadata}, {@code aud=https://self-issued.me/v2} (§5.8, static discovery),
  * {@code iat} = the transaction's creation and {@code exp} = its expiry (both rounded down to whole seconds; neither
- * depends on when the request is fetched, so a wallet that fetches it again, conformance ruling D2, gets the same claims:
- * only a POST fetch's {@code wallet_nonce} and the ECDSA signature differ). OpenID4VP defines neither
+ * depends on when the request is fetched, so a wallet that fetches it again, conformance ruling D2, gets the same claims
+ * unless an admin edited the provider in between: {@code response_mode} and {@code client_metadata} are read from the
+ * live config; a POST fetch's {@code wallet_nonce} and the ECDSA signature always differ). OpenID4VP defines neither
  * {@code iat} nor {@code exp} for the request object; JAR allows them. {@code nbf} and {@code iss} are left out:
  * neither OpenID4VP nor HAIP asks for them, and wallets ignore {@code iss} (§5).
  *

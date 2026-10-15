@@ -39,7 +39,8 @@ import java.util.regex.Pattern;
  *       ({@code application/oauth-authz-req+jwt}, {@code Cache-Control: no-store}). {@code claimRequest} records which
  *       of the two request ids (same-device or cross-device) was fetched first; from then on the other one is 404.
  *       The same id may be fetched again until the wallet's response arrives (conformance ruling D2: a wallet retrying
- *       after a network error gets the same request, with the same claims), then it is 404 too. POST is the {@code request_uri_method=post} fetch (§5.10): its optional
+ *       after a network error gets the same request), then it is 404 too. POST is the
+ *       {@code request_uri_method=post} fetch (§5.10): its optional
  *       {@code wallet_nonce} (URL-safe ASCII, at most 256 characters) is echoed in the request object as §5.10
  *       requires; {@code wallet_metadata} is ignored (Helix's request does not depend on it). GET is accepted whatever
  *       the configured method ("Wallets not supporting the post method will send a GET request", §5.1).</li>
@@ -48,9 +49,9 @@ import java.util.regex.Pattern;
  *       {@code 200 {}} for cross-device and for a processed wallet error, {@code 400 {"error":"invalid_request"}} for
  *       any refusal (the reason is logged, never returned).</li>
  * </ul>
- * A provider that does not serve this realm, or a transaction of another realm or provider, is 404 (a transaction
- * claimed under the wrong realm is failed). Any failure after a request was claimed fails the transaction and answers
- * {@code 400 {"error":"invalid_request"}}. Request ids, response ids, codes and nonces are never logged.
+ * A provider that does not serve this realm, or a transaction of another realm or provider, is 404; a request object
+ * asked for under another realm or provider leaves its transaction alone (a response posted there fails it). Any
+ * other failure after a request was claimed fails the transaction and answers {@code 400 {"error":"invalid_request"}}. Request ids, response ids, codes and nonces are never logged.
  */
 @RestController
 @RequestMapping("/oid4vp/{alias}")
@@ -96,7 +97,9 @@ public class OpenId4VpVerifierController {
             return notFound();
         }
         if (!WalletEndpoints.ownedHere(tx, provider)) {
-            provider.transactions().fail(tx.transactionId(), WalletErrorCode.INVALID_RESPONSE);
+            // Security review of D2: a 404 that leaves the transaction alone. A claimed request may be fetched again,
+            // so failing it here would let anyone who saw the QR code cancel the real wallet's login by fetching it
+            // under another realm or alias. The real wallet can still fetch it under the right path.
             LOG.warn("Wallet request object asked for under another realm or provider: alias={} realm={} tx={}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(RealmContextHolder.get()), tx.transactionId());
             return notFound();

@@ -635,7 +635,7 @@ class TokenStatusListClientTest {
             for (int i = 0; i < 256; i++) {
                 final java.net.Socket socket = new java.net.Socket();
                 try {
-                    socket.connect(address, 250);
+                    socket.connect(address, 1_000); // generous: a loaded host still fills the queue
                     fillers.add(socket);
                 } catch (final java.net.SocketTimeoutException full) {
                     socket.close();

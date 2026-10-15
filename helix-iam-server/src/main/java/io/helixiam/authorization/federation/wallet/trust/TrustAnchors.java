@@ -69,35 +69,50 @@ public record TrustAnchors(Set<TrustAnchor> anchors, List<X509Certificate> pinne
     }
 
     /**
-     * The values of the DCQL {@code aki} Trusted Authorities Query (OpenID4VP §6.1.1.1, required by HAIP §5): the key
-     * identifier of every anchor and pinned intermediate, unpadded base64url, sorted, without duplicates. A certificate
-     * one of them issued carries that value as its AuthorityKeyIdentifier, which is what the wallet matches against the
-     * chain in the credential. The SubjectKeyIdentifier extension when present, else RFC 5280 §4.2.1.2 method (1)
-     * (SHA-1 of the subjectPublicKey bits). Only a hint for the wallet: the PKIX validation still decides trust.
+     * The values of the DCQL {@code aki} Trusted Authorities Query (OpenID4VP §6.1.1.1, required by HAIP §5): the
+     * SubjectKeyIdentifier of every anchor and pinned intermediate, unpadded base64url, sorted, without duplicates. A
+     * certificate one of them issued carries that value as its AuthorityKeyIdentifier, which is what the wallet matches
+     * against the chain in the credential. Only a hint for the wallet: the PKIX validation still decides trust.
+     *
+     * <p><b>Never guessed</b> (security review): when any of them has no SubjectKeyIdentifier
+     * ({@link #withoutSubjectKeyIdentifier}), the list is empty and the query carries no {@code trusted_authorities}. A
+     * computed key identifier (RFC 5280 method 1) need not be the AKI the issuer actually wrote into the credentials it
+     * signed, and a wrong value makes the wallet withhold every credential PKIX would have accepted.
      */
     public List<String> authorityKeyIdentifiers() {
+        if (!withoutSubjectKeyIdentifier().isEmpty()) {
+            return List.of();
+        }
         final java.util.SortedSet<String> out = new java.util.TreeSet<>();
-        anchors.forEach(anchor -> out.add(keyIdentifier(anchor.getTrustedCert())));
-        pinnedIntermediates.forEach(cert -> out.add(keyIdentifier(cert)));
+        certificates().forEach(cert -> out.add(java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(subjectKeyIdentifier(cert))));
         return List.copyOf(out);
     }
 
-    private static String keyIdentifier(final X509Certificate cert) {
-        final byte[] keyId;
+    /** The anchors and pinned intermediates that carry no SubjectKeyIdentifier extension (see above). */
+    public List<X509Certificate> withoutSubjectKeyIdentifier() {
+        return certificates().stream().filter(cert -> subjectKeyIdentifier(cert) == null).toList();
+    }
+
+    private List<X509Certificate> certificates() {
+        final List<X509Certificate> out = new ArrayList<>();
+        anchors.forEach(anchor -> out.add(anchor.getTrustedCert()));
+        out.addAll(pinnedIntermediates);
+        return out;
+    }
+
+    /** The SubjectKeyIdentifier's key identifier, or {@code null} without a readable extension. */
+    private static byte[] subjectKeyIdentifier(final X509Certificate cert) {
         final byte[] ski = cert.getExtensionValue(org.bouncycastle.asn1.x509.Extension.subjectKeyIdentifier.getId());
-        try {
-            if (ski != null) {
-                keyId = org.bouncycastle.asn1.x509.SubjectKeyIdentifier.getInstance(
-                        org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils.parseExtensionValue(ski)).getKeyIdentifier();
-            } else {
-                final byte[] keyBits = org.bouncycastle.asn1.x509.SubjectPublicKeyInfo.getInstance(
-                        cert.getPublicKey().getEncoded()).getPublicKeyData().getBytes();
-                keyId = java.security.MessageDigest.getInstance("SHA-1").digest(keyBits);
-            }
-        } catch (final java.io.IOException | java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException("A trust anchor's key identifier cannot be read", e);
+        if (ski == null) {
+            return null;
         }
-        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(keyId);
+        try {
+            return org.bouncycastle.asn1.x509.SubjectKeyIdentifier.getInstance(
+                    org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils.parseExtensionValue(ski)).getKeyIdentifier();
+        } catch (final java.io.IOException | IllegalArgumentException e) {
+            return null; // unreadable: treated like a missing one, never guessed
+        }
     }
 
     private static void requireCaAnchor(final X509Certificate cert) {

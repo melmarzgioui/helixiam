@@ -136,7 +136,34 @@ public class WalletConfigValidator {
                 }
             }
         }
-        return validateStored(realmId, alias, displayName, effective);
+        final Map<String, String> errors = validateStored(realmId, alias, displayName, effective);
+        if (!errors.containsKey("trustAnchors") && !errors.containsKey("dcql.trustedAuthorities")) {
+            trustedAuthoritiesProblem(effective).ifPresent(p -> errors.put("dcql.trustedAuthorities", p));
+        }
+        return errors;
+    }
+
+    /**
+     * Security review: a write that sets {@code dcql.trustedAuthorities} On explicitly must be able to name every
+     * anchor's key identifier, which is never guessed ({@link TrustAnchors#authorityKeyIdentifiers}). Checked at save
+     * time only: a provider loaded at runtime with such anchors is still built, and leaves trusted_authorities out with
+     * a WARN ({@code WalletIdentityProvider}). The anchor's subject DN in the message is public certificate data.
+     */
+    private static java.util.Optional<String> trustedAuthoritiesProblem(final Map<String, String> stored) {
+        final WalletProviderConfig.Parsed parsed = WalletProviderConfig.parseStored(null, null, stored);
+        if (!Boolean.TRUE.equals(parsed.config().trustedAuthorities())) {
+            return java.util.Optional.empty();
+        }
+        final List<java.security.cert.X509Certificate> missing;
+        try {
+            missing = TrustAnchors.fromPem(parsed.config().trustAnchors(), null, parsed.config().revocationChecking())
+                    .withoutSubjectKeyIdentifier();
+        } catch (final IllegalArgumentException e) {
+            return java.util.Optional.empty(); // reported on trustAnchors
+        }
+        return missing.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of("Trust anchor '"
+                + missing.get(0).getSubjectX500Principal().getName() + "' has no SubjectKeyIdentifier, so "
+                + "trusted_authorities cannot name it: use an anchor with that extension, or set this to Off or Default");
     }
 
     /** The admin API's field names: {@code alias} and {@code displayName} as is, settings as {@code config.<field>}. */

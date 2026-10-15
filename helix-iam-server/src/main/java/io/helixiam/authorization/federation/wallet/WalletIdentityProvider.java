@@ -95,6 +95,8 @@ public final class WalletIdentityProvider implements IdentityProvider {
     private final String keyRealm;
     private final SigningKeyHandle signingKey;
     private final TrustAnchors trustAnchors;
+    /** The aki values every query of this provider carries; empty: no trusted_authorities (computed once). */
+    private final List<String> trustedAuthorityValues;
     private final StatusPolicy statusPolicy;
     private final TokenStatusListClient statusClient;
     private final Map<String, PresentationVerifier> verifiers;
@@ -114,6 +116,7 @@ public final class WalletIdentityProvider implements IdentityProvider {
         this.keyRealm = keyRealm;
         this.signingKey = Objects.requireNonNull(signingKey, "signingKey");
         this.trustAnchors = Objects.requireNonNull(trustAnchors, "trustAnchors");
+        this.trustedAuthorityValues = trustedAuthorityValues(config, trustAnchors);
         this.statusPolicy = Objects.requireNonNull(statusPolicy, "statusPolicy");
         this.statusClient = Objects.requireNonNull(statusClient, "statusClient");
         this.verifiers = Map.copyOf(verifiers);
@@ -205,11 +208,31 @@ public final class WalletIdentityProvider implements IdentityProvider {
         }
     }
 
+    /**
+     * HAIP §5 trusted_authorities for this provider (see {@link WalletProviderConfig#sendsTrustedAuthorities}). When it
+     * is to be sent but an anchor has no SubjectKeyIdentifier, it is left out rather than guessed, with one WARN per
+     * built provider (each config load builds one), never per login. An explicit On is refused at save time instead
+     * ({@link WalletConfigValidator}); this covers the default and anchors that changed underneath.
+     */
+    private static List<String> trustedAuthorityValues(final WalletProviderConfig config, final TrustAnchors anchors) {
+        if (!config.sendsTrustedAuthorities()) {
+            return List.of();
+        }
+        final List<java.security.cert.X509Certificate> missing = anchors.withoutSubjectKeyIdentifier();
+        if (!missing.isEmpty()) {
+            LOG.warn("Wallet provider '{}': trusted_authorities left out of the DCQL query: trust anchor '{}' has no "
+                    + "SubjectKeyIdentifier (the PKIX validation is unchanged)", LogSafe.sanitize(config.alias()),
+                    LogSafe.sanitize(missing.get(0).getSubjectX500Principal().getName()));
+            return List.of();
+        }
+        return anchors.authorityKeyIdentifiers();
+    }
+
     private String dcqlQuery() {
         try {
             return StrictJson.MAPPER.writeValueAsString(
                     queryBuilder.pidQuery(config.pid().toQuerySpec(), config.credentialFormats(),
-                            config.sendsTrustedAuthorities() ? trustAnchors.authorityKeyIdentifiers() : List.of()));
+                            trustedAuthorityValues));
         } catch (final JsonProcessingException e) {
             throw new IllegalStateException("Could not encode the DCQL query", e);
         }

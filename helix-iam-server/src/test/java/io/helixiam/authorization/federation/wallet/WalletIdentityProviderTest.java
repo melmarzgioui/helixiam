@@ -215,6 +215,22 @@ class WalletIdentityProviderTest {
                 .path("credentials")).allSatisfy(c -> assertThat(c.has("trusted_authorities")).isFalse());
     }
 
+    /**
+     * Security review: an anchor without a SubjectKeyIdentifier has no known key identifier, so (under the default)
+     * the query leaves trusted_authorities out instead of guessing one; the provider still builds and starts logins.
+     */
+    @Test
+    void anAnchorWithoutSubjectKeyIdentifier_leavesTrustedAuthoritiesOut() throws Exception {
+        final Map<String, String> m = valid();
+        m.put("trustAnchors", ISSUERS.rootPem() + TestPki.pem(TestPki.caCertificate(TestPki.KeyType.EC_P256, null)));
+
+        final WalletIdentityProvider provider = providers(keys, DeploymentProfile.production()).build(REALM, config(m));
+
+        assertThat(provider.config().sendsTrustedAuthorities()).isTrue();
+        assertThat(dcqlOf(provider).path("credentials")).isNotEmpty()
+                .allSatisfy(c -> assertThat(c.has("trusted_authorities")).isFalse());
+    }
+
     private JsonNode dcqlOf(final WalletIdentityProvider provider) throws Exception {
         final IdentityProvider.RedirectResponse redirect = provider.start(startContext(binding("b-" + UUID_SEQ++)));
         return StrictJson.MAPPER.readTree(store.byTransactionId(txId(redirect)).orElseThrow().dcqlQueryJson());
