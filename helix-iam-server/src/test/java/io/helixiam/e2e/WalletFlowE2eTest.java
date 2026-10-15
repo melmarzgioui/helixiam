@@ -6,6 +6,7 @@
 package io.helixiam.e2e;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.nimbusds.jwt.SignedJWT;
 import io.helixiam.authorization.federation.wallet.AuthorizationRequestFactory;
 import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
 import io.helixiam.authorization.federation.wallet.WalletIdentityProviders;
@@ -137,8 +138,13 @@ class WalletFlowE2eTest extends AbstractE2eTest {
 
     // ------------------------------------------------------------------------------------------------ single use
 
+    /**
+     * Conformance ruling D2: a wallet that fetches its request_uri again (a retry after a network error) gets the same
+     * request object until it has posted its response. The other invocation stays dead from the first fetch on, and
+     * after the response the request id is spent.
+     */
     @Test
-    void requestObject_isServedOnce() {
+    void requestObject_canBeFetchedAgain_untilTheResponse_butOnlyThroughTheFlowThatClaimedIt() throws Exception {
         final Login login = startLogin(newBrowser(), realm, alias);
         final String invocation = WalletE2eFixture.scanQr(login.page());
         final String requestUri = Oid4vpWalletClient.invocationParameters(invocation).get("request_uri");
@@ -149,11 +155,21 @@ class WalletFlowE2eTest extends AbstractE2eTest {
         assertThat(first.header("Content-Type").orElse("")).startsWith("application/oauth-authz-req+jwt");
         assertThat(first.header("Cache-Control").orElse("")).contains("no-store");
 
-        assertThat(phone.get(requestUri, "Accept", "application/oauth-authz-req+jwt").status()).isEqualTo(404);
-        // ...and once one invocation was used, the other one is dead too.
+        final E2eHttp.Response again = phone.get(requestUri, "Accept", "application/oauth-authz-req+jwt");
+        assertThat(again.status()).as("a re-fetch of the same request id").isEqualTo(200);
+        assertThat(SignedJWT.parse(again.body()).getJWTClaimsSet().getClaims())
+                .as("the same request: identical claims (nonce, state, response_uri, keys, iat, exp)")
+                .isEqualTo(SignedJWT.parse(first.body()).getJWTClaimsSet().getClaims());
+        // ...but the other invocation is dead from the first fetch on.
         final String sameDevice = Oid4vpWalletClient.invocationParameters(WalletE2eFixture.openWalletLink(login.page()))
                 .get("request_uri");
         assertThat(phone.get(sameDevice, "Accept", "application/oauth-authz-req+jwt").status()).isEqualTo(404);
+
+        final Oid4vpWalletClient.VerifiedRequest request = WalletE2eFixture.fetchRequest(phone, invocation);
+        assertThat(wallet.respond(phone, request, WalletE2eFixture.pidWithNumber("PAN-" + UUID.randomUUID())).status())
+                .isEqualTo(200);
+        assertThat(phone.get(requestUri, "Accept", "application/oauth-authz-req+jwt").status())
+                .as("after the response the request id is spent").isEqualTo(404);
     }
 
     @Test

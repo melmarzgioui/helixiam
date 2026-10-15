@@ -138,7 +138,8 @@ curl -s -X POST "https://helix.example/admin/realms/$REALM/identity-providers" \
 `limits.maxJwtBytes`, …), lists are JSON arrays of strings. Everything not shown above takes a documented default:
 `clientIdScheme` → `x509_hash`; `invocationScheme` → `haip-vp`; `responseMode` → `direct_post.jwt`;
 `transactionTtlSeconds` → `300` (60–900 allowed); `pid.requestedClaims` → `given_name`, `family_name`, `birthdate`;
-`revocationChecking` → `HARD_FAIL` (see §7.2); `statusList.required` → `false`; `subject.strategy` →
+`revocationChecking` → `HARD_FAIL` (see §7.2); `dcql.trustedAuthorities` → on for `x509_hash` with
+`direct_post.jwt` (the HAIP profile), off otherwise (see §11); `statusList.required` → `false`; `subject.strategy` →
 `ADMINISTRATIVE_NUMBER`; `minimumLoa` → `http://eidas.europa.eu/LoA/high`. `WalletConfigValidator` rejects an
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
@@ -437,8 +438,10 @@ reach; `OFF` only for testing. Providers stored before this change without a `re
   (for example its pending wallet link was taken meanwhile) is a `WALLET_LOGIN_FAILURE`. A wrong code is a retry,
   not an end. A step-up the user **walks away from has no event**: nothing on the server marks that moment (the
   session just expires, and expiry is not observed on every session store).
-- **No independent OpenID Foundation conformance run yet.** This implementation has not been run against the
-  OpenID4VP/HAIP conformance suite; see `ROADMAP.md` Phase 4.
+- **Request objects: re-fetch until the response, one flow only.** The first fetch of a `request_uri` binds the
+  login to that flow (same-device or cross-device); the other invocation is `404` from then on. The same `request_uri`
+  can be fetched again, and returns the same request, until the wallet has posted its response; after
+  that, or once the login ended or expired, it is `404`. The response itself is single use.
 
 ## 9. Try it: the sandbox demo
 
@@ -479,3 +482,45 @@ know to repeat it:
   and the verifier's per-transaction decryption keys are in `helix-iam-server/src/test/resources/wallet/vectors/
   eudi-reference-wallet/`; `EudiReferenceWalletCaptureVectorTest` verifies them offline with the production code,
   including mdoc DeviceAuth over the real OpenID4VP SessionTranscript and the SD-JWT VC Key Binding JWT.
+
+## 11. OpenID Foundation conformance run
+
+The verifier was run against the OpenID Foundation conformance suite (version 5.3.3, revision `f0133e9`), with the
+suite playing the wallet, on 2026-10-15, covering:
+- the HAIP certification plan (`oid4vp-1final-verifier-haip-test-plan`) and the plain OpenID4VP 1.0 plan
+  (`oid4vp-1final-verifier-test-plan`);
+- `dc+sd-jwt` and `mso_mdoc`;
+- `x509_hash` and `x509_san_dns`;
+- `direct_post.jwt` (and `direct_post` in `dev`);
+- `request_uri` with GET and POST;
+- same-device and cross-device.
+
+This is a self-run of the open-source suite, not an OpenID Certification. Every positive test ended in a sign-in, and
+every negative test was refused by the check it targets.
+
+The first run reported three findings:
+- **`request-uri-fetched-twice` failed** because request objects were single use. **Fixed:** the same `request_uri` can
+  now be fetched again until the response (§8), and the re-run passes it in every plan.
+- **A nonce-entropy warning** on the happy flows. It comes from a suite heuristic that flags most 128-bit base64url
+  nonces, so it is not changed; an issue for the suite is drafted.
+- **The HAIP cross-device happy flow** fails the "`redirect_uri` in the response to the wallet's POST" check. HAIP §5.1
+  requires that only for same-device logins, so it is not changed.
+
+The suite does not test HAIP §5's DCQL `trusted_authorities`, but HAIP requires verifiers to support it, so it was
+added after the run:
+- **What is sent.** Each PID Credential Query carries `{"type": "aki", "values": [...]}`. The values are the key
+  identifiers of the trust anchors and pinned intermediates, the AuthorityKeyIdentifier of the certificates they issue.
+- **Default.** Per provider, `dcql.trustedAuthorities` (console: Credentials → "Name the trusted issuers in the
+  request"). Unset means on for the HAIP profile (`x509_hash` with `direct_post.jwt`) and off otherwise.
+- **Enforcement.** It only tells the wallet which issuers to offer; validating the chain to `trustAnchors` still
+  decides.
+- **Anchors without a SubjectKeyIdentifier.** The values are never guessed. If any trust anchor (or pinned
+  intermediate) has no SubjectKeyIdentifier extension, `trusted_authorities` is left out of the query and the server
+  logs one WARN when it loads the provider. Saving a provider with the setting explicitly **On** and such an anchor is
+  refused (`400`, field `dcql.trustedAuthorities`, naming the anchor).
+- **Escape hatch.** If a wallet answers with no credential (it filters on `trusted_authorities` and finds no match),
+  set the provider to **Off**. Nothing else changes, because the trust decision never depended on the query.
+
+The results per plan and module, the root cause of each finding, the logs of both runs and the harness to repeat them
+are in **[`docs/compliance/oid4vp-conformance/README.md`](compliance/oid4vp-conformance/README.md)** (harness:
+`e2e/oid4vp-conformance/`).

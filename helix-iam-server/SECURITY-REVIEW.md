@@ -536,7 +536,33 @@ shapes several of the mitigations below:
 Every identifier the protocol hands to the wallet or expects back (`transactionId`, request/response ids,
 `nonce`, `response_code`) is `SecureRandom`-generated at ≥128 bits and enforced single-use **atomically** at the
 store (`WalletTransactionStore#redeem`: "Keeps the `WalletTransaction`s and makes every state transition atomic
-and single use"). A second redemption attempt with a correct code does not "burn" the transaction for a third
+and single use"). One deliberate exception, the request ids: the first fetch binds the transaction to that flow (the other
+request id is refused from then on), and the **same** request id may be fetched again while the transaction is
+`REQUEST_FETCHED`; once the response has been received, or the transaction has ended or expired, it is 404
+(`claimRequest`, one atomic step in all three stores; `AbstractWalletTransactionStoreTest` runs the cases against
+memory, Redis and PostgreSQL). **Ruling (2026-10-15, conformance run D2):** wallets retry a `request_uri` fetch after
+a network error and the HAIP certification plan tests it. A re-fetch exposes nothing new: the request is the same
+signed request (`iat` is the transaction's creation; the claims are identical unless an admin edits the provider
+between fetches, since `response_mode` and `client_metadata` come from the live config, and a POST fetch carries its own
+`wallet_nonce`), it reaches only whoever already holds that bearer id, and the response stays strictly single use and
+encrypted to the verifier's key, so the extra fetch cannot be turned into a second answer.
+
+**Residual risk of the re-fetch (accepted with the ruling).** Before D2, someone who saw a cross-device QR code and
+fetched its request after the real wallet got a 404. Now they get the request too, and the real wallet does not
+notice. With it they can:
+- **race their own response** with their own wallet: sign in as *themselves* in the victim's browser session (the session fixation that OpenID4VP §14.2 says its response-code protection cannot stop in cross-device flows), or, in an account console "Link
+  wallet" flow, link *their own* PID to the victim's account (the reverse linking-CSRF of `docs/eudi-wallet.md` §6.3,
+  which the "wallet linked" email notice is there to surface). They cannot answer *as* the victim: the PID and its
+  holder binding are theirs, and the response is single use, so only the first answer counts;
+- **cancel the real login** by posting a malformed response first (`fail()` after the single-use claim), a nuisance
+  the real user resolves by starting again.
+
+QR-observation phishing of this kind was already possible before D2: an observer could scan the QR before the real
+wallet did and take the request then. D2 only removes the "first fetch wins" ordering. What D2 does *not* add: a
+request id fetched under another realm or alias used to fail the transaction (`OpenId4VpVerifierController`, the
+`ownedHere` mismatch branch); that branch now answers 404 and leaves the transaction alone, so a re-fetch under the
+wrong path cannot cancel the real wallet's login (`WalletWebControllersTest`). A *response* posted under another
+realm or alias still fails its transaction, as before: the response was single use already. A second redemption attempt with a correct code does not "burn" the transaction for a third
 party who does not hold the code — burning on mismatch would let anyone who merely observes/guesses a
 `response_code` cancel the legitimate holder's login, which is a worse outcome than letting the real holder retry
 (ledger Task 16 ruling). The `_sd`/`...` disclosure digests inside a credential, the KB-JWT/DeviceSignature,

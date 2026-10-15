@@ -27,6 +27,8 @@ export type SubjectStrategy = "ADMINISTRATIVE_NUMBER" | "ATTRIBUTE_TUPLE";
 export type OnUnavailable = "FAIL_CLOSED" | "FAIL_OPEN_WITH_AUDIT";
 /** Issuer X.509 certificate revocation (CRL / OCSP), TrustAnchors.RevocationMode on the server. */
 export type RevocationChecking = "HARD_FAIL" | "SOFT_FAIL" | "OFF";
+/** dcql.trustedAuthorities: "default" leaves the key unset, so the server's HAIP-profile default applies. */
+export type TrustedAuthoritiesSetting = "default" | "on" | "off";
 export const REVOCATION_MODES: readonly RevocationChecking[] = ["HARD_FAIL", "SOFT_FAIL", "OFF"];
 
 /** Server bounds (WalletConfigValidator). */
@@ -75,6 +77,8 @@ export interface WalletForm {
   statusAllowedHosts: string;
   responseMode: ResponseMode;
   transactionTtlSeconds: string;
+  /** HAIP §5: the aki Trusted Authorities Query in the DCQL query (see trustedAuthoritiesEffective). */
+  trustedAuthorities: TrustedAuthoritiesSetting;
 }
 
 export const DEFAULT_WALLET_FORM: WalletForm = {
@@ -95,6 +99,7 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
   statusAllowedHosts: "",
   responseMode: "direct_post.jwt",
   transactionTtlSeconds: "",
+  trustedAuthorities: "default",
 };
 
 /** The stored keys the form owns; any other stored key is carried over unchanged on save. */
@@ -103,7 +108,7 @@ export const WALLET_FORM_KEYS = [
   "credentialFormats",
   "pid.requestedClaims", "subject.strategy", "subject.acknowledgeWeakSubject", "minimumLoa", "statusList.required",
   "statusList.onUnavailable", "statusList.maxCacheSeconds", "statusList.allowedHosts", "responseMode",
-  "transactionTtlSeconds",
+  "transactionTtlSeconds", "dcql.trustedAuthorities",
 ];
 
 /** The dev-only secret (ProviderSecretKeys): a raw PEM private key instead of an imported key. */
@@ -154,7 +159,18 @@ export function walletFormFromConfig(config: Record<string, string>): WalletForm
     statusAllowedHosts: list(config["statusList.allowedHosts"], []).join(", "),
     responseMode: pick(wire(config.responseMode), ["direct_post.jwt", "direct_post"] as const, "direct_post.jwt"),
     transactionTtlSeconds: text(config.transactionTtlSeconds),
+    trustedAuthorities: ({ true: "on", false: "off" } as Record<string, TrustedAuthoritiesSetting>)[
+      text(config["dcql.trustedAuthorities"]).toLowerCase()] ?? "default",
   };
+}
+
+/**
+ * Whether the server will send the aki trusted_authorities query (WalletProviderConfig.sendsTrustedAuthorities): an
+ * explicit on/off wins; the default is on under the HAIP profile (x509_hash with direct_post.jwt) and off otherwise.
+ */
+export function trustedAuthoritiesEffective(form: WalletForm): boolean {
+  if (form.trustedAuthorities !== "default") return form.trustedAuthorities === "on";
+  return form.clientIdScheme === "x509_hash" && form.responseMode === "direct_post.jwt";
 }
 
 // ---------------------------------------------------------------------------------------------------- writing
@@ -189,6 +205,7 @@ export function walletConfigFromForm(form: WalletForm, base: Record<string, stri
   out["statusList.allowedHosts"] = JSON.stringify(parseHostList(form.statusAllowedHosts));
   out.responseMode = form.responseMode;
   put("transactionTtlSeconds", form.transactionTtlSeconds.trim());
+  if (form.trustedAuthorities !== "default") out["dcql.trustedAuthorities"] = String(form.trustedAuthorities === "on");
   return out;
 }
 
@@ -324,7 +341,8 @@ const SECTION_OF: Record<string, WalletSection> = {
   alias: "general", displayName: "general",
   accessKeyRef: "access", clientIdScheme: "access", clientIdHost: "access", accessCertificateChain: "access",
   [DEV_KEY]: "access",
-  trustAnchors: "credentials", revocationChecking: "credentials", credentialFormats: "credentials", "pid.requestedClaims": "credentials",
+  trustAnchors: "credentials", revocationChecking: "credentials", "dcql.trustedAuthorities": "credentials",
+  credentialFormats: "credentials", "pid.requestedClaims": "credentials",
   "subject.strategy": "policies", minimumLoa: "policies", "statusList.required": "policies",
   "statusList.onUnavailable": "policies", "statusList.maxCacheSeconds": "policies", "statusList.allowedHosts": "policies",
   responseMode: "policies", transactionTtlSeconds: "policies",
@@ -340,6 +358,7 @@ const FIELD_OF: Record<keyof WalletForm, string> = {
   minimumLoa: "minimumLoa", statusRequired: "statusList.required", onUnavailable: "statusList.onUnavailable",
   statusMaxCacheSeconds: "statusList.maxCacheSeconds", statusAllowedHosts: "statusList.allowedHosts",
   responseMode: "responseMode", transactionTtlSeconds: "transactionTtlSeconds",
+  trustedAuthorities: "dcql.trustedAuthorities",
 };
 
 /** Drops the errors of the fields a form change touches (a server error stays until its field is edited). */

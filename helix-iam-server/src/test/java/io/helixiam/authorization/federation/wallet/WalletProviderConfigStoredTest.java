@@ -145,6 +145,32 @@ class WalletProviderConfigStoredTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("statusList.required");
     }
 
+    /** HAIP §5: the aki Trusted Authorities Query is sent by default under the HAIP profile, settable per provider. */
+    @Test
+    void trustedAuthorities_defaultOnUnderHaip_offOtherwise_andAnExplicitValueWins() {
+        final WalletProviderConfig haip = WalletProviderConfig.fromStored(Map.of("alias", "w"));
+        assertThat(haip.trustedAuthorities()).isNull();
+        assertThat(haip.sendsTrustedAuthorities()).as("x509_hash + direct_post.jwt is the HAIP profile").isTrue();
+
+        assertThat(WalletProviderConfig.fromStored(Map.of("alias", "w", "clientIdScheme", "x509_san_dns"))
+                .sendsTrustedAuthorities()).isFalse();
+        assertThat(WalletProviderConfig.fromStored(Map.of("alias", "w", "responseMode", "direct_post"))
+                .sendsTrustedAuthorities()).isFalse();
+        assertThat(WalletProviderConfig.fromStored(Map.of("alias", "w", "dcql.trustedAuthorities", "false"))
+                .sendsTrustedAuthorities()).isFalse();
+        assertThat(WalletProviderConfig.fromStored(Map.of("alias", "w", "clientIdScheme", "x509_san_dns",
+                "dcql.trustedAuthorities", "TRUE")).sendsTrustedAuthorities()).isTrue();
+        assertThat(WalletProviderConfig.fromStored(Map.of("alias", "w")).toStored())
+                .doesNotContainKey("dcql.trustedAuthorities");
+    }
+
+    @Test
+    void trustedAuthorities_thatIsNoBoolean_isRefused_namingTheField() {
+        assertThatThrownBy(() -> WalletProviderConfig.fromStored(Map.of("alias", "w", "dcql.trustedAuthorities",
+                "sometimes"))).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("dcql.trustedAuthorities");
+    }
+
     @Test
     void storedRoundTrip_isLossless() {
         final WalletProviderConfig original = full();
@@ -235,6 +261,7 @@ class WalletProviderConfigStoredTest {
         m.put("limits.cborMaxDepth", "12");
         m.put("limits.cborMaxItems", "5000");
         m.put("limits.cborMaxBytes", "131072");
+        m.put("dcql.trustedAuthorities", "true");
         return WalletProviderConfig.fromStored(m);
     }
 }

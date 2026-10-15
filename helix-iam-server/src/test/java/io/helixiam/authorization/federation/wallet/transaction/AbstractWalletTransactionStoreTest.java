@@ -266,14 +266,83 @@ abstract class AbstractWalletTransactionStoreTest {
         assertThat(store.claimRequest(tx.sameDeviceRequestId()).orElseThrow().flow()).isEqualTo(Flow.SAME_DEVICE);
     }
 
+    /**
+     * Conformance ruling D2: a wallet that retries its request_uri fetch (a network error, a reload) gets the request
+     * object again, as long as it uses the same request id and the response has not arrived yet.
+     */
     @Test
-    void claimRequest_second_isEmpty_evenWithTheOtherRequestId() {
+    void claimRequest_again_withTheSameRequestId_returnsTheTransaction_andChangesNothing() {
         final WalletTransaction tx = created();
+        final WalletTransaction first = store.claimRequest(tx.sameDeviceRequestId()).orElseThrow();
+
+        final WalletTransaction again = store.claimRequest(tx.sameDeviceRequestId()).orElseThrow();
+
+        assertThat(again.transactionId()).isEqualTo(tx.transactionId());
+        assertThat(again.status()).isEqualTo(Status.REQUEST_FETCHED);
+        assertThat(again.flow()).isEqualTo(Flow.SAME_DEVICE).isEqualTo(first.flow());
+        assertThat(again.nonce()).isEqualTo(first.nonce());
+        assertThat(again.encryptionJwkJson()).isEqualTo(JWK);
         assertThat(store.claimRequest(tx.sameDeviceRequestId())).isPresent();
+        assertThat(statusOf(tx)).isEqualTo(Status.REQUEST_FETCHED);
+    }
+
+    @Test
+    void claimRequest_again_withTheCrossDeviceId_returnsTheTransaction() {
+        final WalletTransaction tx = created();
+        assertThat(store.claimRequest(tx.crossDeviceRequestId())).isPresent();
+
+        assertThat(store.claimRequest(tx.crossDeviceRequestId()).orElseThrow().flow()).isEqualTo(Flow.CROSS_DEVICE);
+    }
+
+    /** The transaction stays bound to the flow that claimed it first: the other flow's request id is refused. */
+    @Test
+    void claimRequest_withTheOtherFlowsRequestId_afterAClaim_isEmpty() {
+        final WalletTransaction sameFirst = created();
+        assertThat(store.claimRequest(sameFirst.sameDeviceRequestId())).isPresent();
+        final WalletTransaction crossFirst = created();
+        assertThat(store.claimRequest(crossFirst.crossDeviceRequestId())).isPresent();
+
+        assertThat(store.claimRequest(sameFirst.crossDeviceRequestId())).isEmpty();
+        assertThat(store.claimRequest(crossFirst.sameDeviceRequestId())).isEmpty();
+        assertThat(store.byTransactionId(sameFirst.transactionId()).orElseThrow().flow()).isEqualTo(Flow.SAME_DEVICE);
+        assertThat(store.byTransactionId(crossFirst.transactionId()).orElseThrow().flow())
+                .isEqualTo(Flow.CROSS_DEVICE);
+    }
+
+    /** Once the response has been received (or the transaction ended) the request id is spent. */
+    @Test
+    void claimRequest_afterTheResponseWasReceived_orTheTransactionEnded_isEmpty() {
+        final WalletTransaction received = responseReceived(Flow.SAME_DEVICE);
+        final WalletTransaction failed = requestFetched(Flow.CROSS_DEVICE);
+        assertThat(store.fail(failed.transactionId(), WalletErrorCode.INVALID_RESPONSE)).isTrue();
+        final Verified verified = verified();
+
+        assertThat(store.claimRequest(received.sameDeviceRequestId())).isEmpty();
+        assertThat(store.claimRequest(failed.crossDeviceRequestId())).isEmpty();
+        assertThat(store.claimRequest(verified.tx().sameDeviceRequestId())).isEmpty();
+        assertThat(statusOf(received)).isEqualTo(Status.RESPONSE_RECEIVED);
+        assertThat(statusOf(failed)).isEqualTo(Status.FAILED);
+        assertThat(statusOf(verified.tx())).isEqualTo(Status.VERIFIED);
+    }
+
+    @Test
+    void claimRequest_again_afterExpiry_isEmpty() {
+        final WalletTransaction tx = requestFetched(Flow.SAME_DEVICE);
+
+        clock.advance(TTL);
 
         assertThat(store.claimRequest(tx.sameDeviceRequestId())).isEmpty();
-        assertThat(store.claimRequest(tx.crossDeviceRequestId())).isEmpty();
-        assertThat(store.byTransactionId(tx.transactionId()).orElseThrow().flow()).isEqualTo(Flow.SAME_DEVICE);
+    }
+
+    /** The response stays strictly single use, re-fetches of the request or not. */
+    @Test
+    void claimResponse_staysSingleUse_afterARefetchedRequest() {
+        final WalletTransaction tx = requestFetched(Flow.SAME_DEVICE);
+        assertThat(store.claimRequest(tx.sameDeviceRequestId())).isPresent();
+
+        assertThat(store.claimResponse(tx.responseId())).isPresent();
+        assertThat(store.claimResponse(tx.responseId())).isEmpty();
+        assertThat(store.claimRequest(tx.sameDeviceRequestId())).isEmpty();
     }
 
     @Test
@@ -285,15 +354,19 @@ abstract class AbstractWalletTransactionStoreTest {
         assertThat(statusOf(tx)).isEqualTo(Status.CREATED);
     }
 
-    /** Same-device and cross-device fetches racing: exactly one wins, and the stored flow is the winner's. */
+    /**
+     * Same-device and cross-device fetches racing: exactly one flow wins. Every fetch with the winner's request id gets
+     * the transaction (the first claims it, the others are re-fetches); every fetch with the other id is refused.
+     */
     @Test
-    void claimRequest_sameAndCrossDeviceRacing_exactlyOneWins_andFlowMatchesTheWinner() throws Exception {
+    void claimRequest_sameAndCrossDeviceRacing_exactlyOneFlowWins_andFlowMatchesTheWinner() throws Exception {
         final WalletTransaction tx = created();
         final List<Optional<WalletTransaction>> results = race(20, i -> store.claimRequest(
                 i % 2 == 0 ? tx.sameDeviceRequestId() : tx.crossDeviceRequestId()));
 
         final List<WalletTransaction> winners = results.stream().flatMap(Optional::stream).toList();
-        assertThat(winners).hasSize(1);
+        assertThat(winners).hasSize(10);
+        assertThat(winners).extracting(WalletTransaction::flow).containsOnly(winners.get(0).flow());
         final WalletTransaction stored = store.byTransactionId(tx.transactionId()).orElseThrow();
         assertThat(stored.status()).isEqualTo(Status.REQUEST_FETCHED);
         assertThat(stored.flow()).isEqualTo(winners.get(0).flow()).isNotNull();

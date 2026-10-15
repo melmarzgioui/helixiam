@@ -193,6 +193,37 @@ class WalletConsoleAdminE2eTest extends AbstractE2eTest {
         assertThat(empty.json().path("fieldErrors").has("pem")).isTrue();
     }
 
+    /** Security review: trusted_authorities On with an anchor that has no SubjectKeyIdentifier is a 400 on the field. */
+    @Test
+    void trustedAuthoritiesOn_withAnAnchorWithoutSubjectKeyIdentifier_is400OnTheField() throws Exception {
+        final TestPki.Leaf leaf = pki.issueLeaf(TestPki.LeafSpec.defaults().withSubject("CN=verifier.example"));
+        final E2eHttp.Response key = admin.post(keys(), Map.of("name", "access-ta",
+                "privateKeyPem", pem(leaf.privateKey()), "certificateChainPem", chainPem(leaf)));
+        assertThat(key.status()).as(key.toString()).isEqualTo(201);
+        final String anchors = TestPki.create("TA Issuer").rootPem()
+                + TestPki.pem(TestPki.caCertificate(TestPki.KeyType.EC_P256, null));
+        final Map<String, Object> config = new java.util.LinkedHashMap<>();
+        config.put("accessKeyRef", key.json().path("keyRef").asText());
+        config.put("trustAnchors", anchors);
+        config.put("revocationChecking", "OFF");
+        config.put("dcql.trustedAuthorities", "true");
+        final Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("alias", "eudi-ta");
+        body.put("protocol", "eudi-wallet");
+        body.put("displayName", "EU Wallet");
+        body.put("enabled", true);
+        body.put("config", config);
+
+        final E2eHttp.Response refused = admin.post("/admin/realms/" + realm + "/identity-providers", body);
+        assertThat(refused.status()).as(refused.toString()).isEqualTo(400);
+        assertThat(refused.json().path("fieldErrors").has("config.dcql.trustedAuthorities")).as(refused.toString())
+                .isTrue();
+
+        config.put("dcql.trustedAuthorities", "false");
+        final E2eHttp.Response created = admin.post("/admin/realms/" + realm + "/identity-providers", body);
+        assertThat(created.status()).as(created.toString()).isEqualTo(201);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private void expectField(final Map<String, String> body, final String field) {

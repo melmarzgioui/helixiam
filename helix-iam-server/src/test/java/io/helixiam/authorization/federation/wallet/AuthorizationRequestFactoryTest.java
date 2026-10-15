@@ -255,14 +255,45 @@ class AuthorizationRequestFactoryTest {
         assertThat(p.has("nbf")).isFalse();
     }
 
+    /**
+     * Conformance ruling D2: iat is when the transaction (the request) was created, not when it was fetched, so a wallet
+     * that fetches the request object again gets the same claims.
+     */
     @Test
-    void iatIsNow_andExpIsTheTransactionExpiry() throws Exception {
+    void iatIsTheTransactionCreation_andExpIsTheTransactionExpiry() throws Exception {
         final JWTClaimsSet claims = SignedJWT.parse(factory.signedRequestObject(tx(), hashConfig(), key, BASE))
                 .getJWTClaimsSet();
 
-        assertThat(claims.getIssueTime()).isEqualTo(Date.from(NOW));
+        assertThat(claims.getIssueTime()).isEqualTo(Date.from(NOW.minusSeconds(5)));
         assertThat(claims.getExpirationTime()).isEqualTo(Date.from(EXPIRES));
         assertThat(claims.getExpirationTime().toInstant()).isBeforeOrEqualTo(tx().expiresAt());
+    }
+
+    @Test
+    void signingAgainLater_givesTheSameClaims() throws Exception {
+        final AuthorizationRequestFactory later =
+                new AuthorizationRequestFactory(Clock.fixed(NOW.plusSeconds(42), ZoneOffset.UTC));
+
+        final JWTClaimsSet first = SignedJWT.parse(factory.signedRequestObject(tx(), hashConfig(), key, BASE))
+                .getJWTClaimsSet();
+        final JWTClaimsSet again = SignedJWT.parse(later.signedRequestObject(tx(), hashConfig(), key, BASE))
+                .getJWTClaimsSet();
+
+        assertThat(again.getClaims()).isEqualTo(first.getClaims());
+    }
+
+    @Test
+    void aFractionalCreationTime_isRoundedDownForIat() throws Exception {
+        final WalletTransaction base = tx();
+        final WalletTransaction fractional = new WalletTransaction(base.transactionId(), base.sameDeviceRequestId(),
+                base.crossDeviceRequestId(), base.responseId(), base.realmId(), base.providerAlias(),
+                base.helixState(), base.browserBindingHash(), base.nonce(), base.encryptionJwkJson(),
+                base.dcqlQueryJson(), null, base.status(), null, null, null, NOW.minusMillis(4_250), EXPIRES);
+
+        final Date iat = SignedJWT.parse(factory.signedRequestObject(fractional, hashConfig(), key, BASE))
+                .getJWTClaimsSet().getIssueTime();
+
+        assertThat(iat).isEqualTo(Date.from(NOW.minusSeconds(5)));
     }
 
     @Test

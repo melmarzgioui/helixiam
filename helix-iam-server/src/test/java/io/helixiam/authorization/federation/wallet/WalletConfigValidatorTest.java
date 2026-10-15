@@ -67,6 +67,11 @@ class WalletConfigValidatorTest {
         return validator.validate(REALM, WalletProviderConfig.fromStored(stored));
     }
 
+    /** As the admin API judges a new connection's write. */
+    private Map<String, String> write(final Map<String, String> stored) {
+        return production.validateWrite(REALM, stored.get("alias"), stored.get("displayName"), stored, Map.of());
+    }
+
     private Map<String, String> errorsWith(final String key, final String value) {
         final Map<String, String> m = valid();
         m.put(key, value);
@@ -360,6 +365,34 @@ class WalletConfigValidatorTest {
         assertThat(errorsWith("trustAnchors", "")).containsKey("trustAnchors");
     }
 
+    /** Security review: trusted_authorities set On explicitly needs every anchor's key identifier. */
+    @Test
+    void trustedAuthoritiesOn_withAnAnchorWithoutSubjectKeyIdentifier_isRefused_namingTheAnchor() {
+        final X509Certificate noSki = TestPki.caCertificate(TestPki.KeyType.EC_P256, null);
+        final Map<String, String> m = valid();
+        m.put("trustAnchors", ISSUERS.rootPem() + TestPki.pem(noSki));
+        m.put("dcql.trustedAuthorities", "true");
+
+        assertThat(write(m)).containsOnlyKeys("dcql.trustedAuthorities");
+        assertThat(write(m).get("dcql.trustedAuthorities"))
+                .contains(noSki.getSubjectX500Principal().getName()).contains("SubjectKeyIdentifier");
+        assertThat(errors(production, m)).as("a loaded provider is still built (it omits the query, with a WARN)")
+                .isEmpty();
+
+        m.put("dcql.trustedAuthorities", "false");
+        assertThat(write(m)).as("Off: nothing to name").isEmpty();
+        m.remove("dcql.trustedAuthorities");
+        assertThat(write(m)).as("default: omitted at runtime, not refused").isEmpty();
+    }
+
+    @Test
+    void trustedAuthoritiesOn_withAnchorsThatAllHaveASubjectKeyIdentifier_isValid() {
+        final Map<String, String> m = valid();
+        m.put("dcql.trustedAuthorities", "true");
+
+        assertThat(write(m)).isEmpty();
+    }
+
     @Test
     void trustAnchorThatIsNoCa_isRefused() {
         assertThat(errorsWith("trustAnchors", TestPki.pem(ACCESS.certificate()))).containsKey("trustAnchors");
@@ -617,7 +650,7 @@ class WalletConfigValidatorTest {
                 base.customCredentialQueries(), base.trustAnchors(), base.revocationChecking(),
                 new WalletProviderConfig.StatusList(false, null, null, Arrays.asList((String) null)),
                 base.subject(), base.minimumLoa(), base.clockSkewSeconds(), base.allowLegacyVcSdJwtTyp(),
-                base.limits());
+                base.limits(), base.trustedAuthorities());
         assertThat(production.validate(REALM, c))
                 .containsEntry("credentialFormats", "credentialFormats must not contain empty entries")
                 .containsEntry("pid.requestedClaims", "pid.requestedClaims must not contain empty entries")

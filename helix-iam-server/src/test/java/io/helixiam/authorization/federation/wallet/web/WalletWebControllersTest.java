@@ -81,6 +81,28 @@ class WalletWebControllersTest {
         verify(store).fail("tx-1", WalletErrorCode.INVALID_RESPONSE);
     }
 
+    /**
+     * Security review of D2: a request id fetched under another realm or provider is a 404 and leaves the transaction
+     * alone. Since a claimed request may be fetched again, failing it here would let anyone who saw the QR code cancel
+     * the real wallet's login by fetching it under the wrong path.
+     */
+    @Test
+    void requestObject_ofAnotherRealmOrProvider_is404_andNeverCancelsTheTransaction() {
+        final Instant now = Instant.now();
+        final WalletTransaction foreign = new WalletTransaction("tx-2", "sd", "cd", "resp", "other-realm", ALIAS,
+                "helix-state", "b", "nonce", "{}", "{}", WalletTransaction.Flow.CROSS_DEVICE,
+                WalletTransaction.Status.REQUEST_FETCHED, null, null, null, now, now.plusSeconds(300));
+        when(store.claimRequest("rid")).thenReturn(Optional.of(foreign));
+        final OpenId4VpVerifierController controller = new OpenId4VpVerifierController(registry,
+                mock(WalletResponseHandler.class), "https://helix.example");
+
+        final ResponseEntity<?> response = controller.requestObject(ALIAS, "rid",
+                new MockHttpServletRequest("GET", "/realms/acme/oid4vp/eudi-wallet/request/rid"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        org.mockito.Mockito.verify(store, org.mockito.Mockito.never()).fail(any(), any());
+    }
+
     private ResponseEntity<Map<String, Object>> status(final WalletTransaction.Status status) {
         final MockHttpSession session = new MockHttpSession();
         final String binding = BrowserBinding.begin(session, REALM, ALIAS);

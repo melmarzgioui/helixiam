@@ -104,14 +104,20 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
             return 1
             """, Long.class);
 
-    /** ARGV[2] = sha256(requestId). */
+    /**
+     * ARGV[2] = sha256(requestId). CREATED: claims it for that id's flow. REQUEST_FETCHED with the same flow's id: a
+     * re-fetch (conformance ruling D2), returned unchanged. Anything else: refused.
+     */
     @SuppressWarnings("rawtypes")
     private static final RedisScript<List> CLAIM_REQUEST = new DefaultRedisScript<>(LIVE + """
-            if status ~= 'CREATED' then return false end
             local flow
             if redis.call('HGET', KEYS[1], 'sdReqHash') == ARGV[2] then flow = 'SAME_DEVICE'
             elseif redis.call('HGET', KEYS[1], 'cdReqHash') == ARGV[2] then flow = 'CROSS_DEVICE'
             else return false end
+            if status == 'REQUEST_FETCHED' and redis.call('HGET', KEYS[1], 'flow') == flow then
+              return redis.call('HGETALL', KEYS[1])
+            end
+            if status ~= 'CREATED' then return false end
             redis.call('HSET', KEYS[1], 'status', 'REQUEST_FETCHED', 'flow', flow)
             return redis.call('HGETALL', KEYS[1])
             """, List.class);

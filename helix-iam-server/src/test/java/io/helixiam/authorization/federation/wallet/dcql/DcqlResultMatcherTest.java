@@ -610,6 +610,21 @@ class DcqlResultMatcherTest {
 
     // ------------------------------------------------------------------------------------------- our own queries
 
+    /**
+     * HAIP §5: the query carries an aki Trusted Authorities Query. It only helps the wallet pick a credential: the
+     * matcher does not enforce it (the presentation verifiers' PKIX validation to the trust anchors does).
+     */
+    @Test
+    void aBuilderQueryWithTrustedAuthorities_isMatchedLikeOneWithout() {
+        final ObjectNode withAki = new DcqlQueryBuilder().pidQuery(new PidQuerySpec(List.of(PID_VCT),
+                PidQuerySpec.DEFAULT_MDOC_DOCTYPE, List.of("given_name", "family_name", "birthdate")),
+                List.of(SD_JWT, MDOC), List.of("s9tIpPmhxdiuNkHMEWNpYim8S8Y"));
+
+        final MatchedPresentations result = match(json("{\"pid_sd_jwt\": [\"" + sdJwt() + "\"]}"), withAki);
+
+        assertThat(result.presentations()).extracting(VerifiedPresentation::format).containsExactly(SD_JWT);
+    }
+
     @Test
     void queryFeaturesTheBuilderNeverEmitsAreRefusedAsProgrammingErrors() {
         final String base = """
@@ -635,7 +650,12 @@ class DcqlResultMatcherTest {
                 "\"claims\": [ {\"path\": [\"nationalities\", 0]} ]",
                 "\"claims\": [ {\"path\": []} ]",
                 "\"claims\": [ {\"path\": [\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]} ]",
-                "\"trusted_authorities\": [ {\"type\": \"aki\", \"values\": [\"s9tIpPmhxdiuNkHMEWNpYim8S8Y\"]} ]")) {
+                // trusted_authorities is emitted (HAIP §5), but only as one well-formed aki query
+                "\"trusted_authorities\": [ {\"type\": \"etsi_tl\", \"values\": [\"https://tl.example\"]} ]",
+                "\"trusted_authorities\": [ {\"type\": \"aki\", \"values\": []} ]",
+                "\"trusted_authorities\": [ {\"type\": \"aki\", \"values\": [\"\"]} ]",
+                "\"trusted_authorities\": [ {\"type\": \"aki\"} ]",
+                "\"trusted_authorities\": []")) {
             final ObjectNode query = query(base.formatted(unsupported));
             assertThatThrownBy(() -> match(json("{\"a\": [\"" + raw + "\"]}"), query))
                     .as(unsupported).isInstanceOf(IllegalArgumentException.class);

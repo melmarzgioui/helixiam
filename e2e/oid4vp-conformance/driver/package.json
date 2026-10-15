@@ -1,0 +1,13 @@
+{
+  "name": "helixiam-oid4vp-conformance-driver",
+  "private": true,
+  "type": "module",
+  "description": "Drives the OpenID Foundation conformance suite's OpenID4VP verifier plans against HelixIAM (see docs/compliance/oid4vp-conformance/README.md)",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "jsqr": "1.4.0",
+    "playwright": "1.64.1",
+    "pngjs": "7.0.0",
+    "undici": "8.12.1"
+  }
+}
