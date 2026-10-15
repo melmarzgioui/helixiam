@@ -45,14 +45,11 @@ paths are hardened and tested."
   - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
     (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
     again under the same name would inherit the previous realm's verifier access key and pepper.
-- **Console debt:** 21 inline `style=` attributes in other providers' wizard sub-forms (the wallet form has none;
-  the wallet branch removed 4), plus hundreds elsewhere in the console (AccountApp, SecurityTab, AppShell, ...);
-  move them to classes under the console design-system rule.
 - **Post-1.0 platform upgrades** — each a planned major upgrade with its own test pass, not a weekly
   bump (Dependabot ignores these majors until then): Jackson 3 for the application code (the server
   runs on Spring Boot 4.1 / Spring Security 7.1 / springdoc 3 / Flyway 12 since the Boot 4 upgrade, with Jackson 2 kept
   through the deprecated `spring-boot-jackson2` module), Apache Santuario xmlsec 4, Java 25 LTS runtime; in the
-  console React 19, Vite 7+/`@vitejs/plugin-react` 5+, Storybook 9+, TypeScript 6+, Vitest 3+; in the sandbox RP Express 5,
+  console React 19 and TypeScript 6 (Vite 8, `@vitejs/plugin-react` 6, Storybook 10 and Vitest 5 are in already); in the sandbox RP Express 5,
   `openid-client` 6, `otplib` 13; cosign 3 (`cosign-installer` 4) in the release workflow.
 
 ## Later
