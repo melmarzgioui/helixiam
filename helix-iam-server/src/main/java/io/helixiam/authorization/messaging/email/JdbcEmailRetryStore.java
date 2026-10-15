@@ -145,17 +145,27 @@ public class JdbcEmailRetryStore implements EmailRetryStore {
 
     private Entry toEntry(final Row row) {
         try {
-            final Payload p = json.readValue(decrypt(row.payload), Payload.class);
+            final Payload p = read(decrypt(row.payload));
             final EmailMessage message = new EmailMessage(row.messageId, p.from(), p.to(), p.replyTo(), p.subject(),
                     p.html(), p.text(), p.headers(), row.expiresAt == null ? null : Instant.ofEpochMilli(row.expiresAt));
             return new Entry(row.realm, message, row.attempts, Instant.ofEpochMilli(row.createdAt),
                     Instant.ofEpochMilli(row.nextAttemptAt), Instant.ofEpochMilli(row.giveUpAt), row.lastReason);
-        } catch (final JsonProcessingException | RuntimeException e) {
+        } catch (final RuntimeException e) {
             return null;
         }
     }
 
-    private String write(final Payload payload) {
+    /** The stored (decrypted) payload JSON as a {@link Payload}; unreadable JSON is an {@link IllegalArgumentException}. */
+    Payload read(final String payloadJson) {
+        try {
+            return json.readValue(payloadJson, Payload.class);
+        } catch (final JsonProcessingException e) {
+            throw new IllegalArgumentException("unreadable email retry payload", e);
+        }
+    }
+
+    /** The stored (not yet encrypted) JSON of {@code payload}. */
+    String write(final Payload payload) {
         try {
             return json.writeValueAsString(payload);
         } catch (final JsonProcessingException e) {

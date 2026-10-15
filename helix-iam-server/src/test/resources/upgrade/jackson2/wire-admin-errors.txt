@@ -1,0 +1,6 @@
+malformed 400 application/json {"message":"Request body is missing or malformed.","fieldErrors":{}}
+wrong-type 400 application/json {"message":"Request body is malformed at username.","fieldErrors":{"username":"Invalid value."}}
+validation 400 application/json {"message":"Username is required.","fieldErrors":{"username":"Username is required."}}
+null-for-primitive 201
+theme-unknown-field 400 application/json {"message":"Unknown field.","fieldErrors":{"colors.primry":"Unknown field."}}
+theme-wrong-type 400 application/json {"message":"Invalid value.","fieldErrors":{"colors.primary":"Invalid value."}}

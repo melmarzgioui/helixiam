@@ -1,0 +1,1 @@
+{"v":1,"emailVerified":false,"attributes":{},"format":"dc+sd-jwt","issuerDn":"CN=Issuer","verify":{"number":"n-1","claims":{"age_over_18":true,"nationality":"NL","given_name":"Zoë / \"Z\"","resident":false},"loa":"http://eidas.europa.eu/LoA/substantial"}}

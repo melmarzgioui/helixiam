@@ -1,0 +1,1 @@
+{"verification":{"trust_framework":"eidas","assurance_level":"high","time":"2026-10-01T10:00:00Z"},"claims":{"given_name":"Zoë","age_over_18":true,"address":{"locality":"Den Haag / ’s-Gravenhage"},"n":12,"big":12345678901,"f":1.5,"none":null,"list":["a",1,false]}}
