@@ -155,10 +155,21 @@ public class FederatedLoginCompleter {
     public Completion completeLogin(final String userId, final String acr, final HttpServletRequest request,
                                     final HttpServletResponse response, final java.io.Serializable pendingCommit,
                                     final java.io.Serializable pendingOutcome) {
+        return completeLogin(userId, acr, request, response, pendingCommit, pendingOutcome,
+                io.helixiam.authorization.security.SignInAuthorities.FEDERATED);
+    }
+
+    /**
+     * As {@link #completeLogin(String, String, HttpServletRequest, HttpServletResponse, java.io.Serializable,
+     * java.io.Serializable)} for a first factor other than a federated login ({@code factor}, e.g. the magic link's):
+     * the same post-first-factor flow (security review: a magic link never skips the wallet verification step).
+     */
+    public Completion completeLogin(final String userId, final String acr, final HttpServletRequest request,
+                                    final HttpServletResponse response, final java.io.Serializable pendingCommit,
+                                    final java.io.Serializable pendingOutcome, final String factor) {
         final UserCredentials user = sessionEstablisher.loadUser(userId);
         final Authentication fullAuthentication =
-                io.helixiam.authorization.security.SignInAuthorities.authenticated(user,
-                        io.helixiam.authorization.security.SignInAuthorities.FEDERATED);
+                io.helixiam.authorization.security.SignInAuthorities.authenticated(user, factor);
 
         final String clientId = InFlightClientResolver.clientId(request, response);
         final AuthFlowDefinition definition = resolveFlow(user, clientId);

@@ -63,7 +63,8 @@ public class FlowSaveChecks {
             if (e == null) {
                 continue;
             }
-            if (!engineEnabled && FlowEngineGuard.ENGINE_ONLY_STEPS.contains(e.authenticatorId())) {
+            if (!engineEnabled && e.authenticatorId() != null
+                    && FlowEngineGuard.ENGINE_ONLY_STEPS.contains(e.authenticatorId())) {
                 errors.putIfAbsent("executions[" + i + "].authenticatorId", ENGINE_OFF);
             }
             if (IdentityProviderRedirectAuthenticator.ID.equals(e.authenticatorId()) && e.config() != null) {
@@ -98,7 +99,8 @@ public class FlowSaveChecks {
             return; // an unknown flow is the existing behaviour's business, not this check's
         }
         if (flow != null && flow.executions() != null && flow.executions().stream()
-                .anyMatch(e -> e != null && FlowEngineGuard.ENGINE_ONLY_STEPS.contains(e.authenticatorId()))) {
+                .anyMatch(e -> e != null && e.authenticatorId() != null
+                        && FlowEngineGuard.ENGINE_ONLY_STEPS.contains(e.authenticatorId()))) {
             throw new ProviderValidationException(Map.of(field, ENGINE_OFF));
         }
     }

@@ -54,6 +54,8 @@ class FlowSaveChecksTest {
                 .satisfies(e -> assertThat(((ProviderValidationException) e).fieldErrors())
                         .containsKey("executions[0].authenticatorId"));
         assertThat(checks(true).requireValid("acme", WALLET_STEP)).isEqualTo(WALLET_STEP);
+        assertThat(checks(false).requireValid("acme", List.of(step(null, null), step("otp", null))))
+                .as("a group node has no authenticator").hasSize(2);
     }
 
     @Test

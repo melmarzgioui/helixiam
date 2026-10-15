@@ -20,8 +20,8 @@ import java.util.Set;
  * Security review item 3: with the flow engine off ({@code helix.flow-engine.enabled=false}) a password login never
  * runs flow steps. A flow that relies on one of the steps listed in {@link #ENGINE_ONLY_STEPS} (the EUDI wallet
  * verification) must then not be completed silently: the password success handler asks {@link #needsEngine} and
- * refuses the login. A flow store that cannot be read at all is logged and does not block password logins (the
- * engine-off path never used the store).
+ * refuses the login. No stored flow needs nothing; a flow store that cannot be read refuses the login (fails
+ * closed) and is logged.
  */
 public final class FlowEngineGuard {
 
@@ -36,7 +36,8 @@ public final class FlowEngineGuard {
     /** Whether {@code executions} contain a step only the flow engine runs. */
     public static boolean needsEngine(final Collection<AuthExecutionDefinition> executions) {
         return executions != null && executions.stream()
-                .anyMatch(e -> e != null && ENGINE_ONLY_STEPS.contains(e.getAuthenticatorId()));
+                .anyMatch(e -> e != null && e.getAuthenticatorId() != null
+                        && ENGINE_ONLY_STEPS.contains(e.getAuthenticatorId())); // a group has no authenticator
     }
 
     /** Whether the login of {@code clientId} (or, without a client, the realm's browser flow) needs the engine. */
@@ -45,11 +46,13 @@ public final class FlowEngineGuard {
             final AuthFlowDefinition definition = clientId != null && !clientId.isBlank()
                     ? flows.retrieveFlowForClient(RealmScopedKey.pack(realm, clientId))
                     : flows.retrieveBrowserFlow(realm);
+            // no flow stored: nothing needs the engine
             return definition != null && needsEngine(definition.getExecutions());
         } catch (final RuntimeException e) {
-            LOG.warn("Could not read the login flow of realm {} to check it: {}", LogSafe.sanitize(realm),
-                    e.getClass().getSimpleName());
-            return false;
+            // security review: a flow that cannot be read might hold the wallet step; refuse rather than skip it
+            LOG.warn("Could not read the login flow of realm {} to check it; refusing the login: {}",
+                    LogSafe.sanitize(realm), e.getClass().getSimpleName());
+            return true;
         }
     }
 }

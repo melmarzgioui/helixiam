@@ -36,7 +36,7 @@ class FlowEngineGuardTest {
     void theClientsFlowOrTheRealmsBrowserFlow_decides() {
         final AuthFlowPublisher flows = mock(AuthFlowPublisher.class);
         final AuthFlowDefinition stepUp = flow("otp", "eudi-wallet-verify");
-        final AuthFlowDefinition plain = flow("otp");
+        final AuthFlowDefinition plain = flow("otp", null); // a group node has no authenticator
         final AuthFlowDefinition walletOnly = flow("eudi-wallet-verify");
         when(flows.retrieveFlowForClient(anyString())).thenReturn(stepUp);
         when(flows.retrieveBrowserFlow("acme")).thenReturn(plain);
@@ -44,7 +44,9 @@ class FlowEngineGuardTest {
         assertThat(FlowEngineGuard.needsEngine(flows, "acme", null)).isFalse();
         when(flows.retrieveBrowserFlow("acme")).thenReturn(walletOnly);
         assertThat(FlowEngineGuard.needsEngine(flows, "acme", " ")).isTrue();
+        when(flows.retrieveBrowserFlow("none")).thenReturn(null);
+        assertThat(FlowEngineGuard.needsEngine(flows, "none", null)).as("no stored flow").isFalse();
         when(flows.retrieveBrowserFlow("acme")).thenThrow(new IllegalStateException("down"));
-        assertThat(FlowEngineGuard.needsEngine(flows, "acme", null)).isFalse();
+        assertThat(FlowEngineGuard.needsEngine(flows, "acme", null)).as("a store error fails closed").isTrue();
     }
 }

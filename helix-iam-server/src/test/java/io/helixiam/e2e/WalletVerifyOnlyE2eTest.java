@@ -382,6 +382,35 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void aMagicLinkSignInOfTheStepUpClient_neverGetsACodeWithoutTheStep() {
+        final E2eHttp.Response enabled = adminSession().put("/admin/realms/" + realm + "/settings/magic-link",
+                Map.of("enabled", true));
+        assertThat(enabled.status()).as(enabled.toString()).isEqualTo(200);
+        final E2eHttp browser = newBrowser();
+        final OidcFlow.Pkce pkce = OidcFlow.Pkce.create();
+        browser.followRedirects(browser.get("/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=bank"
+                + "&redirect_uri=" + E2eSeed.REDIRECT_URI + "&scope=openid&state=st&code_challenge=" + pkce.challenge()
+                + "&code_challenge_method=S256", "Accept", "text/html"));
+        final E2eHttp.Response page = browser.get("/realms/" + realm + "/login/magic", "Accept", "text/html");
+        final Map<String, String> fields = new LinkedHashMap<>(E2eHttp.hiddenInputs(
+                E2eHttp.form(page.body(), "name=\"email\"").orElseThrow()));
+        fields.put("email", ada.dto().email());
+        browser.postForm(E2eHttp.formAction(page.body(), "name=\"email\"").orElseThrow(), fields);
+        final List<String> links = CapturingMagicLinkSender.linksFor(ada.dto().email());
+        assertThat(links).isNotEmpty();
+        final E2eHttp.Response confirm = browser.get(links.get(links.size() - 1), "Accept", "text/html");
+        final Map<String, String> token = new LinkedHashMap<>(E2eHttp.hiddenInputs(
+                E2eHttp.form(confirm.body(), "name=\"token\"").orElseThrow()));
+        final E2eHttp.Response after = browser.followRedirectsUntil(browser.postForm(
+                E2eHttp.formAction(confirm.body(), "name=\"token\"").orElseThrow(), token),
+                r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(after.locationStartsWith(E2eSeed.REDIRECT_URI)).as("no code without the wallet step\n"
+                + browser.trail(8)).isFalse();
+        assertThat(after.uri().toString()).as(browser.trail(8)).contains("/login");
+        assertThat(after.body()).contains("id=\"flow-error\"");
+    }
+
+    @Test
     void theVerifyOnlyConnection_isNeverASignInMethod() {
         final E2eHttp browser = newBrowser();
         final String authorize = "/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=web"
