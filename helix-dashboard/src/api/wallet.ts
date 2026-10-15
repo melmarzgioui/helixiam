@@ -5,6 +5,7 @@
 
 import { AdminApiError, adminJson } from "./adminError";
 import type { PidClaimInfo } from "../pages/walletProvider";
+import type { TrustedList } from "./trustedLists";
 
 /** One certificate's public facts (server CertificateView). */
 export interface CertificateInfo {
@@ -52,6 +53,8 @@ export interface WalletAdminApi {
   importKey(realmId: string, body: VerifierKeyImport): Promise<VerifierKey>;
   metadata(realmId: string): Promise<WalletMetadata>;
   previewCertificates(realmId: string, pem: string): Promise<CertificateInfo[]>;
+  /** The realm's trusted list sources (for the provider's "Trusted lists" choice); absent: the choice is hidden. */
+  listTrustedLists?(realmId: string): Promise<TrustedList[]>;
 }
 
 export function createWalletHttpClient(baseUrl = ""): WalletAdminApi {
@@ -65,6 +68,7 @@ export function createWalletHttpClient(baseUrl = ""): WalletAdminApi {
     metadata: (realmId) => fetch(`${realm(realmId)}/wallet/metadata`).then((r) => adminJson<WalletMetadata>(r)),
     previewCertificates: (realmId, pem) => post(`${realm(realmId)}/wallet/certificates/preview`, { pem })
       .then((r) => adminJson<{ certificates: CertificateInfo[] }>(r)).then((b) => b.certificates),
+    listTrustedLists: (realmId) => fetch(`${realm(realmId)}/trusted-lists`).then((r) => adminJson<TrustedList[]>(r)),
   };
 }
 
@@ -82,6 +86,7 @@ export function createWalletMemoryClient(opts: {
   keys?: VerifierKey[];
   devProfile?: boolean;
   preview?: (pem: string) => CertificateInfo[];
+  trustedLists?: TrustedList[];
 } = {}): WalletAdminApi {
   const keys = [...(opts.keys ?? [])];
   return {
@@ -113,6 +118,7 @@ export function createWalletMemoryClient(opts: {
       }
       return opts.preview ? opts.preview(pem) : [sampleCertificate({ ca: true, selfSigned: true })];
     },
+    listTrustedLists: async () => [...(opts.trustedLists ?? [])],
   };
 }
 

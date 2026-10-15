@@ -53,6 +53,8 @@ import { ToastProvider } from "./components/ToastProvider";
 import { InProgressPage } from "./pages/InProgressPage";
 import { createHttpClient } from "./api/client";
 import { createWalletHttpClient } from "./api/wallet";
+import { createTrustedListHttpClient } from "./api/trustedLists";
+import { TrustedListsPage, TrustedListDetailPage } from "./pages/TrustedListsPage";
 import { createUserHttpClient } from "./api/users";
 import { createRoleHttpClient } from "./api/roles";
 import { createClientHttpClient } from "./api/clients";
@@ -84,6 +86,7 @@ const REALMS = [
 /** API base URL — set VITE_API_BASE to the auth server (e.g. http://localhost:8083); defaults to same-origin. */
 const api = createHttpClient(import.meta.env?.VITE_API_BASE ?? "");
 const walletApi = createWalletHttpClient(import.meta.env?.VITE_API_BASE ?? "");
+const trustedListApi = createTrustedListHttpClient(import.meta.env?.VITE_API_BASE ?? "");
 const userApi = createUserHttpClient(import.meta.env?.VITE_API_BASE ?? "");
 const roleApi = createRoleHttpClient(import.meta.env?.VITE_API_BASE ?? "");
 const clientApi = createClientHttpClient(import.meta.env?.VITE_API_BASE ?? "");
@@ -140,6 +143,7 @@ const ICONS = {
   health: "M3 12h4l2 6 4-14 2 8h6",
   keys: "M15 7a4 4 0 11-3.9 5H8v3H5v-3H3.1A4 4 0 1115 7zM7 11a1 1 0 100-2 1 1 0 000 2z",
   mcp: "M9 3v5M15 3v5M7 8h10v3a5 5 0 01-10 0V8zM12 16v5",
+  trustedLists: "M5 4h14v16H5zM8 8h8M8 12h5M14.5 15.5l1.5 1.5 3-3",
 };
 
 /** Section metadata for the not-yet-live screens (each ships backend + UI together). */
@@ -378,6 +382,7 @@ function AppInner() {
         { id: "providers", label: t("nav.providers"), icon: icon(ICONS.providers), badge: <Badge tone="accent">{t("common.live")}</Badge> },
         { id: "federation", label: t("nav.federation"), icon: icon(ICONS.federation) },
         { id: "eid", label: t("nav.eid"), icon: icon(ICONS.eid) },
+        { id: "trusted-lists", label: t("nav.trustedLists"), icon: icon(ICONS.trustedLists), badge: <Badge tone="accent">{t("app.badge.new")}</Badge> },
       ],
     },
     {
@@ -429,6 +434,7 @@ function AppInner() {
     "admin-roles": t("app.title.adminRoles"),
     "import-export": t("app.title.importExport"),
     gdpr: t("app.title.gdpr"),
+    "trusted-lists": t("app.title.trustedLists"),
   };
   const titleOf = TITLES[active] ?? PAGES[active]?.title ?? "Helix IAM";
 
@@ -457,6 +463,12 @@ function AppInner() {
           <ConnectionDetailPage api={api} walletApi={walletApi} realmId={realm} alias={detail} onBack={() => goSection("federation")} onDeleted={() => goSection("federation")} />
         ) : (
           <UserFederationPage api={api} realmId={realm} onOpen={(alias) => openDetail("federation", alias)} />
+        )
+      ) : active === "trusted-lists" ? (
+        detail ? (
+          <TrustedListDetailPage api={trustedListApi} realmId={realm} id={detail} onBack={() => goSection("trusted-lists")} />
+        ) : (
+          <TrustedListsPage api={trustedListApi} realmId={realm} onOpen={(id) => openDetail("trusted-lists", id)} />
         )
       ) : active === "eid" ? (
         <EidAssurancePage api={api} realmId={realm} />

@@ -407,3 +407,47 @@ describe("DCQL trusted_authorities (HAIP §5)", () => {
   });
 });
 
+
+describe("trusted lists on the wallet form", () => {
+  const PID = "http://uri.etsi.org/Svc/Svctype/Provider/PID";
+
+  it("reads and writes the sources and the service-type filter, only when set", () => {
+    const f = walletFormFromConfig({ "trustedLists.sources": '["eu-pid","nl"]', "trustedLists.serviceTypes": `["${PID}"]` });
+    expect(f.trustedListSources).toEqual(["eu-pid", "nl"]);
+    expect(f.trustedListServiceTypes).toBe(PID);
+    const out = walletConfigFromForm(valid({ trustedListSources: ["eu-pid"], trustedListServiceTypes: `${PID}\n` }));
+    expect(out["trustedLists.sources"]).toBe('["eu-pid"]');
+    expect(out["trustedLists.serviceTypes"]).toBe(`["${PID}"]`);
+    const none = walletConfigFromForm(valid(), { "trustedLists.sources": '["old"]', "trustedLists.serviceTypes": '["x"]' });
+    expect(none).not.toHaveProperty("trustedLists.sources");
+    expect(none).not.toHaveProperty("trustedLists.serviceTypes");
+  });
+
+  it("makes pasted anchors optional once a trusted list is chosen", () => {
+    expect(validateWallet(valid({ trustAnchors: "", trustedListSources: ["eu-pid"] }), prod())).toEqual({});
+    expect(validateWallet(valid({ trustedListSources: ["eu-pid"] }), prod())).toEqual({});
+    expect(validateWallet(valid({ trustAnchors: "hello", trustedListSources: ["eu-pid"] }), prod()).trustAnchors)
+      .toBe("wallet.err.trustAnchorsPem");
+  });
+
+  it("needs pasted anchors or a trusted list", () => {
+    expect(validateWallet(valid({ trustAnchors: "", trustedListSources: [] }), prod()).trustAnchors)
+      .toBe("wallet.err.trustAnchorsRequired");
+  });
+
+  it("checks the service-type filter and unknown sources", () => {
+    expect(validateWallet(valid({ trustedListSources: ["eu-pid"], trustedListServiceTypes: "not a uri" }), prod())
+      ["trustedLists.serviceTypes"]).toBe("wallet.err.trustedListTypes");
+    expect(validateWallet(valid({ trustedListSources: ["gone"] }), prod({ trustedListNames: ["eu-pid"] }))
+      ["trustedLists.sources"]).toBe("wallet.err.trustedListUnknown");
+    expect(validateWallet(valid({ trustedListSources: ["eu-pid"] }), prod({ trustedListNames: ["eu-pid"] }))).toEqual({});
+  });
+
+  it("puts server errors on the trusted-list fields in the credentials section", () => {
+    const { fields, other } = splitWalletServerErrors({ "config.trustedLists.sources": "unknown" });
+    expect(fields).toEqual({ "trustedLists.sources": "unknown" });
+    expect(other).toEqual([]);
+    expect(firstErrorSection({ "trustedLists.serviceTypes": "x" })).toBe("credentials");
+    expect(clearEditedErrors({ "trustedLists.sources": "x" }, { trustedListSources: [] })).toEqual({});
+  });
+});

@@ -68,6 +68,10 @@ export interface WalletForm {
   /** Dev only: the chain of the raw private key (accessCertificatePrivateKey). */
   accessCertificateChain: string;
   trustAnchors: string;
+  /** Names of the realm's trusted list sources whose verified anchors this provider also trusts. */
+  trustedListSources: string[];
+  /** Free text: service type URIs to take from those lists (blank: every type the source extracts). */
+  trustedListServiceTypes: string;
   revocationChecking: RevocationChecking;
   credentialFormats: string[];
   requestedClaims: string[];
@@ -96,6 +100,8 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
   clientIdHost: "",
   accessCertificateChain: "",
   trustAnchors: "",
+  trustedListSources: [],
+  trustedListServiceTypes: "",
   revocationChecking: "HARD_FAIL",
   credentialFormats: [...WALLET_FORMATS],
   requestedClaims: [...DEFAULT_CLAIMS],
@@ -117,7 +123,7 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
 /** The stored keys the form owns; any other stored key is carried over unchanged on save. */
 export const WALLET_FORM_KEYS = [
   "accessKeyRef", "clientIdScheme", "clientIdHost", "accessCertificateChain", "trustAnchors", "revocationChecking",
-  "credentialFormats",
+  "credentialFormats", "trustedLists.sources", "trustedLists.serviceTypes",
   "pid.requestedClaims", "subject.strategy", "subject.acknowledgeWeakSubject", "minimumLoa", "statusList.required",
   "statusList.onUnavailable", "statusList.maxCacheSeconds", "statusList.allowedHosts", "responseMode",
   "transactionTtlSeconds", "dcql.trustedAuthorities", "dcApi.enabled", "dcApi.request", "dcApi.expectedOrigins",
@@ -159,6 +165,8 @@ export function walletFormFromConfig(config: Record<string, string>): WalletForm
     clientIdHost: text(config.clientIdHost),
     accessCertificateChain: config.accessCertificateChain ?? "",
     trustAnchors: config.trustAnchors ?? "",
+    trustedListSources: list(config["trustedLists.sources"], []),
+    trustedListServiceTypes: list(config["trustedLists.serviceTypes"], []).join("\n"),
     revocationChecking: pick(config.revocationChecking, REVOCATION_MODES, "HARD_FAIL"),
     credentialFormats: list(config.credentialFormats, WALLET_FORMATS),
     requestedClaims: list(config["pid.requestedClaims"], DEFAULT_CLAIMS),
@@ -213,6 +221,9 @@ export function walletConfigFromForm(form: WalletForm, base: Record<string, stri
   if (form.clientIdScheme === "x509_san_dns") put("clientIdHost", form.clientIdHost.trim());
   put("accessCertificateChain", form.accessCertificateChain);
   put("trustAnchors", form.trustAnchors);
+  if (form.trustedListSources.length) out["trustedLists.sources"] = JSON.stringify(form.trustedListSources);
+  const types = parseHostList(form.trustedListServiceTypes);
+  if (types.length) out["trustedLists.serviceTypes"] = JSON.stringify(types);
   out.revocationChecking = form.revocationChecking;
   out.credentialFormats = JSON.stringify(form.credentialFormats);
   out["pid.requestedClaims"] = JSON.stringify(form.requestedClaims);
@@ -253,6 +264,8 @@ export interface WalletValidationContext {
   keyDnsNames?: string[];
   /** The dev-only raw key: stored on the server, typed now (not saved), or marked for removal. */
   devKey?: { stored: boolean; pending: boolean; clearing: boolean };
+  /** The realm's trusted list source names, when loaded (unknown names are then refused here too). */
+  trustedListNames?: string[];
 }
 
 /** WalletConfigValidator.HOST_NAME: a bare host name (no scheme, port or path). */
@@ -271,6 +284,8 @@ function validOrigin(origin: string, devProfile: boolean): boolean {
   if (scheme === "http") return devProfile && ["localhost", "127.0.0.1", "[::1]"].includes(host);
   return true;
 }
+/** A service type URI (WalletConfigValidator.SERVICE_TYPE). */
+const SERVICE_TYPE = /^(https?|urn):\S{1,500}$/i;
 
 function inRange(value: string, min: number, max: number): boolean {
   const v = value.trim();
@@ -303,8 +318,17 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
     else if (sanCheck(form.clientIdHost, ctx.keyDnsNames) === "mismatch") add("clientIdHost", "wallet.err.hostNotInSan");
   }
 
-  if (!form.trustAnchors.trim()) add("trustAnchors", "wallet.err.trustAnchorsRequired");
-  else if (!form.trustAnchors.includes("-----BEGIN CERTIFICATE-----")) add("trustAnchors", "wallet.err.trustAnchorsPem");
+  // Trust: pasted PEM anchors, trusted lists of the realm, or both (WalletConfigValidator.checkTrust).
+  const lists = form.trustedListSources;
+  if (!form.trustAnchors.trim()) {
+    if (lists.length === 0) add("trustAnchors", "wallet.err.trustAnchorsRequired");
+  } else if (!form.trustAnchors.includes("-----BEGIN CERTIFICATE-----")) add("trustAnchors", "wallet.err.trustAnchorsPem");
+  if (ctx.trustedListNames && lists.some((n) => !ctx.trustedListNames!.includes(n))) {
+    add("trustedLists.sources", "wallet.err.trustedListUnknown");
+  }
+  if (parseHostList(form.trustedListServiceTypes).some((t) => !SERVICE_TYPE.test(t))) {
+    add("trustedLists.serviceTypes", "wallet.err.trustedListTypes");
+  }
 
   const formats = form.credentialFormats;
   let formatsOk = true;
@@ -386,7 +410,8 @@ const SECTION_OF: Record<string, WalletSection> = {
   alias: "general", displayName: "general",
   accessKeyRef: "access", clientIdScheme: "access", clientIdHost: "access", accessCertificateChain: "access",
   [DEV_KEY]: "access",
-  trustAnchors: "credentials", revocationChecking: "credentials", "dcql.trustedAuthorities": "credentials",
+  trustAnchors: "credentials", "trustedLists.sources": "credentials", "trustedLists.serviceTypes": "credentials",
+  revocationChecking: "credentials", "dcql.trustedAuthorities": "credentials",
   credentialFormats: "credentials", "pid.requestedClaims": "credentials",
   "subject.strategy": "policies", minimumLoa: "policies", "statusList.required": "policies",
   "statusList.onUnavailable": "policies", "statusList.maxCacheSeconds": "policies", "statusList.allowedHosts": "policies",
@@ -399,6 +424,7 @@ const SECTION_ORDER: WalletSection[] = ["general", "access", "credentials", "pol
 const FIELD_OF: Record<keyof WalletForm, string> = {
   accessKeyRef: "accessKeyRef", clientIdScheme: "clientIdHost", clientIdHost: "clientIdHost",
   accessCertificateChain: "accessCertificateChain", trustAnchors: "trustAnchors",
+  trustedListSources: "trustedLists.sources", trustedListServiceTypes: "trustedLists.serviceTypes",
   revocationChecking: "revocationChecking", credentialFormats: "credentialFormats",
   requestedClaims: "pid.requestedClaims", subjectStrategy: "subject.strategy", acknowledgeWeakSubject: "subject.strategy",
   minimumLoa: "minimumLoa", statusRequired: "statusList.required", onUnavailable: "statusList.onUnavailable",

@@ -14,10 +14,13 @@ import { FormField, Input, Textarea } from "./FormField";
 import { Select } from "./Select";
 import { Switch } from "./Switch";
 import { SecretInput } from "./SecretInput";
+import { MultiCombobox } from "./MultiCombobox";
 import { useT } from "../i18n/LocaleContext";
 import { absoluteTime } from "../api/datetime";
 import { AdminApiError } from "../api/adminError";
 import type { CertificateInfo, VerifierKey, WalletAdminApi, WalletMetadata } from "../api/wallet";
+import type { TrustedList } from "../api/trustedLists";
+import { statusTone } from "../pages/trustedList";
 import {
   LOA_LADDER, MDOC_FORMAT, SD_JWT_FORMAT, TTL_RANGE, commonName, expiryState, parseHostList, parseOriginList, sanCheck,
   trustedAuthoritiesEffective, validateKeyImport, walletWarnings, type KeyImportForm, type WalletForm,
@@ -291,6 +294,25 @@ export function WalletCredentialsSection(props: WalletSectionProps) {
   const toggleClaim = (c: string, on: boolean) =>
     onChange({ requestedClaims: on ? [...form.requestedClaims.filter((x) => x !== c), c] : form.requestedClaims.filter((x) => x !== c) });
 
+  // The realm's trusted list sources (a choice next to pasted anchors); null while loading or when not offered.
+  const [lists, setLists] = React.useState<TrustedList[] | null>(null);
+  const [listsError, setListsError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!api.listTrustedLists) return;
+    let live = true;
+    api.listTrustedLists(realmId).then((l) => { if (live) setLists(l); })
+      .catch((e: unknown) => { if (live) { setLists([]); setListsError(String((e as Error).message ?? e)); } });
+    return () => { live = false; };
+  }, [api, realmId]);
+  const listOptions = [
+    ...(lists ?? []).map((l) => ({ value: l.name, label: l.name,
+      description: `${t(`tl.status.${l.status}`)} · ${t("tl.anchorCount", { n: l.anchorCount })}` })),
+    ...form.trustedListSources.filter((n) => lists && !lists.some((l) => l.name === n))
+      .map((n) => ({ value: n, label: n, description: t("wallet.tl.unknown") })),
+  ];
+  const chosenLists = (lists ?? []).filter((l) => form.trustedListSources.includes(l.name));
+  const usesLists = form.trustedListSources.length > 0;
+
   const [preview, setPreview] = React.useState<{ pem: string; certs: CertificateInfo[] } | null>(null);
   const [previewError, setPreviewError] = React.useState<string | null>(null);
   const [previewing, setPreviewing] = React.useState(false);
@@ -346,7 +368,38 @@ export function WalletCredentialsSection(props: WalletSectionProps) {
       </Section>
 
       <Section title={t("wallet.anchors.title")} description={t("wallet.anchors.desc")}>
-        <FormField label={t("wallet.anchors.field")} required error={fe("trustAnchors")} hint={t("wallet.anchors.hint")}>
+        {api.listTrustedLists && (
+          <>
+            <FormField label={t("wallet.tl.field")} error={fe("trustedLists.sources")} hint={t("wallet.tl.hint")} group>
+              <MultiCombobox aria-label={t("wallet.tl.field")} values={form.trustedListSources} options={listOptions}
+                loading={lists === null} placeholder={t("wallet.tl.placeholder")} emptyText={t("wallet.tl.none")}
+                onChange={(v) => onChange({ trustedListSources: v })} />
+            </FormField>
+            {listsError && <Alert tone="warning" title={t("wallet.tl.loadFailed")}>{listsError}</Alert>}
+            {lists !== null && lists.length === 0 && !listsError && <Alert tone="info">{t("wallet.tl.noLists")}</Alert>}
+            {chosenLists.length > 0 && (
+              <div className="hx-badges" role="status">
+                {chosenLists.map((l) => (
+                  <Badge key={l.id} tone={statusTone(l.status)}>
+                    {`${l.name}: ${t(`tl.status.${l.status}`)} · ${t("tl.anchorCount", { n: l.anchorCount })}`}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {chosenLists.some((l) => !l.anchorsInUse) && (
+              <Alert tone="warning" title={t("wallet.tl.noAnchorsTitle")}>{t("wallet.tl.noAnchors")}</Alert>
+            )}
+            {usesLists && (
+              <FormField label={t("wallet.tl.types")} error={fe("trustedLists.serviceTypes")} hint={t("wallet.tl.typesHint")}>
+                <Textarea className="hx-mono" rows={2} value={form.trustedListServiceTypes} spellCheck={false}
+                  onChange={(e) => onChange({ trustedListServiceTypes: e.target.value })}
+                  placeholder="http://uri.etsi.org/Svc/Svctype/Provider/PID" />
+              </FormField>
+            )}
+          </>
+        )}
+        <FormField label={t("wallet.anchors.field")} required={!usesLists} error={fe("trustAnchors")}
+          hint={usesLists ? t("wallet.anchors.hintWithLists") : t("wallet.anchors.hint")}>
           <Textarea className="hx-mono" rows={6} value={form.trustAnchors} spellCheck={false}
             onChange={(e) => onChange({ trustAnchors: e.target.value })} placeholder="-----BEGIN CERTIFICATE-----…" />
         </FormField>

@@ -10,6 +10,7 @@
 // Keys are namespaced by screen (users.*, roles.*, account.*, shell.*, nav.*, common.*, …).
 
 import { walletEn, walletNl } from "./walletStrings";
+import { trustedListEn, trustedListNl } from "./trustedListStrings";
 
 /** The supported UI locales. `en` is the source-of-truth / fallback. */
 export type Locale = "en" | "nl";
@@ -24,6 +25,7 @@ export type Dict = Record<string, string>;
 
 export const en: Dict = {
   ...walletEn,
+  ...trustedListEn,
   // Top bar / shell chrome
   "shell.realm": "Realm",
   "shell.menu.open": "Open menu",
@@ -2515,6 +2517,7 @@ export const en: Dict = {
 
 export const nl: Dict = {
   ...walletNl,
+  ...trustedListNl,
   // Topbalk / shell-chrome
   "shell.realm": "Realm",
   "shell.menu.open": "Menu openen",
