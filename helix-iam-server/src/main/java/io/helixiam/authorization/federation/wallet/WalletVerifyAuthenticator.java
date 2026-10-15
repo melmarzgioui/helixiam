@@ -74,6 +74,8 @@ public class WalletVerifyAuthenticator implements Authenticator {
 
     static final String STATE_ATTRIBUTE = "wallet-verify.state";
     static final String TX_ATTRIBUTE = "wallet-verify.tx";
+    static final String PIN_CLIENT_ATTRIBUTE = "wallet-verify.pin.client";
+    static final String PIN_HASH_ATTRIBUTE = "wallet-verify.pin.request";
     private static final Logger LOG = LogManager.getLogger(WalletVerifyAuthenticator.class);
     private static final int STATE_BYTES = 32;
     private static final String TRUST_FRAMEWORK = "eidas";
@@ -136,6 +138,7 @@ public class WalletVerifyAuthenticator implements Authenticator {
             return;
         }
         context.putAttribute(STATE_ATTRIBUTE, state);
+        pinRequest(context);
         final Map<String, String> parameters = redirect.parameters();
         if (parameters != null && parameters.get(WalletIdentityProvider.TRANSACTION_PARAM) != null) {
             context.putAttribute(TX_ATTRIBUTE, parameters.get(WalletIdentityProvider.TRANSACTION_PARAM));
@@ -187,7 +190,7 @@ public class WalletVerifyAuthenticator implements Authenticator {
             return;
         }
         context.assertLevelOfAssurance(v.levelOfAssurance());
-        final Optional<String> pinned = v.claims().isEmpty() ? Optional.empty() : pendingRelease(v);
+        final Optional<String> pinned = v.claims().isEmpty() ? Optional.empty() : pendingRelease(context, v);
         final boolean release = pinned.isPresent();
         pinned.ifPresent(context::releaseVerifiedClaims);
         audit.emit(WalletVerifyAudit.success(context.realmId(), context.userId(), redeemed.transactionId(), alias,
@@ -257,25 +260,38 @@ public class WalletVerifyAuthenticator implements Authenticator {
     }
 
     /**
-     * The release, pinned to the authorization request this login completes (security review items 1 and 7): only when
-     * one is pending and it asks for the {@code verified_claims} scope; bound later to that request's code only
-     * ({@link io.helixiam.authorization.security.session.PendingVerifiedClaims}), within its TTL.
+     * Security review item 1: pins the authorization request this login is completing when the step STARTS (its
+     * {@code client_id} and the hash of {@code client_id}, {@code state}, {@code nonce}, {@code redirect_uri}), and
+     * whether it asked for the {@code verified_claims} scope (item 7). A request saved later (another tab, another
+     * client) never inherits the release: the claims are bound only to this request's code.
      */
-    private Optional<String> pendingRelease(final VerifiedIdentityJson.Verification v) {
+    private static void pinRequest(final AuthenticationContext context) {
         final HttpServletRequest request = request();
+        context.putAttribute(PIN_CLIENT_ATTRIBUTE, null);
+        context.putAttribute(PIN_HASH_ATTRIBUTE, null);
         if (request == null || InFlightClientResolver.pendingAuthorizeUrl(request).isEmpty()) {
-            return Optional.empty();
+            return;
         }
         final String clientId = InFlightClientResolver.pendingAuthorizeParameter(request, "client_id").orElse(null);
         final String scope = InFlightClientResolver.pendingAuthorizeParameter(request, "scope").orElse("");
         if (clientId == null || !java.util.Arrays.asList(scope.trim().split("\\s+")).contains(
                 io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_SCOPE)) {
+            return;
+        }
+        context.putAttribute(PIN_CLIENT_ATTRIBUTE, clientId);
+        context.putAttribute(PIN_HASH_ATTRIBUTE, io.helixiam.authorization.security.session.PendingVerifiedClaims
+                .requestHash(clientId, InFlightClientResolver.pendingAuthorizeParameter(request, "state").orElse(null),
+                        InFlightClientResolver.pendingAuthorizeParameter(request, "nonce").orElse(null),
+                        InFlightClientResolver.pendingAuthorizeParameter(request, "redirect_uri").orElse(null)));
+    }
+
+    /** The release pinned at the start ({@link #pinRequest}), with its TTL; empty when nothing may be released. */
+    private Optional<String> pendingRelease(final AuthenticationContext context,
+                                            final VerifiedIdentityJson.Verification v) {
+        if (!(context.getAttribute(PIN_CLIENT_ATTRIBUTE) instanceof String clientId)
+                || !(context.getAttribute(PIN_HASH_ATTRIBUTE) instanceof String hash)) {
             return Optional.empty();
         }
-        final String hash = io.helixiam.authorization.security.session.PendingVerifiedClaims.requestHash(clientId,
-                InFlightClientResolver.pendingAuthorizeParameter(request, "state").orElse(null),
-                InFlightClientResolver.pendingAuthorizeParameter(request, "nonce").orElse(null),
-                InFlightClientResolver.pendingAuthorizeParameter(request, "redirect_uri").orElse(null));
         return Optional.of(io.helixiam.authorization.security.session.PendingVerifiedClaims.wrap(verifiedClaimsJson(v),
                 clientId, hash, Instant.now(clock).plusSeconds(
                         io.helixiam.authorization.security.session.PendingVerifiedClaims.TTL_SECONDS)));

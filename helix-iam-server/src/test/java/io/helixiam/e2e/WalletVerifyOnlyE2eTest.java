@@ -53,6 +53,7 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
     private String realm;
     private E2eSeed.SeededClient web;
     private E2eSeed.SeededClient bank;
+    private E2eSeed.SeededClient bankConsent;
     private String loginAlias;
     private String verifyAlias;
     private WalletLinkService links;
@@ -66,7 +67,7 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
         wallet = new WalletE2eFixture(context);
         realm = E2eSeed.unique("wverify");
         seed().realm(realm);
-        web = seed().confidentialClient(realm, "web", List.of("openid"));
+        web = seed().confidentialClient(realm, "web", List.of("openid", "verified_claims"));
         loginAlias = E2eSeed.unique("eudi-login");
         verifyAlias = E2eSeed.unique("eudi-verify");
         login = wallet.storedProvider(realm, loginAlias, Map.of());
@@ -93,15 +94,9 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
         flows.create(new FlowCreateDto(realm, STEP_UP_FLOW, null));
         flows.save(new FlowSaveDto(realm, STEP_UP_FLOW, List.of(new FlowExecutionDto("wallet-verify", null,
                 "eudi-wallet-verify", "REQUIRED", false, 10, Map.of("providerAlias", verifyAlias)))));
-        // the bank client is bound to that flow (its Applications → Login flow)
-        final io.helixiam.authorization.amqp.client.ClientDto saved = context.getBean(
-                io.helixiam.authorization.amqp.client.ClientAdminPublisher.class).create(
-                new io.helixiam.authorization.amqp.client.ClientWriteDto(realm, null, "bank",
-                        List.of("authorization_code"), List.of(E2eSeed.REDIRECT_URI), List.of("openid"), null,
-                        STEP_UP_FLOW, "bank", "e2e step-up client", List.of(), List.of(), false, false, true, null,
-                        null, null, null, false, null, null, null, false, null, null, null, null, null, false, false,
-                        null));
-        bank = new E2eSeed.SeededClient(realm, saved.id(), "bank", saved.secret(), E2eSeed.REDIRECT_URI, saved);
+        // the bank client is bound to that flow (its Applications → Login flow); "bankc" too, with a consent page
+        bank = boundClient("bank", false);
+        bankConsent = boundClient("bankc", true);
         assertThat(context.getBean(io.helixiam.authorization.amqp.AuthFlowPublisher.class).retrieveFlowForClient(
                 io.helixiam.authorization.support.RealmScopedKey.pack(realm, "bank")).getAlias())
                 .as("the bank runs the step-up flow").isEqualTo(STEP_UP_FLOW);
@@ -120,7 +115,9 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
         final E2eHttp.Response signedIn = browser.followRedirectsUntil(browser.get(present(browser, walletPage,
                 pid(adaNumber))), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
 
-        final JWTClaimsSet id = idToken(browser, pkce, "bank", bank, signedIn);
+        final OidcFlow.Tokens tokens = tokens(browser, pkce, "bank", bank, signedIn);
+        final OidcFlow oidc = new OidcFlow(browser, realm);
+        final JWTClaimsSet id = oidc.verify(tokens.idToken());
         assertThat(id.getSubject()).isEqualTo(ada.userId());
         assertThat(id.getClaim("acr")).isEqualTo(HIGH);
         assertThat(id.getClaim("verified_claims")).isInstanceOf(Map.class);
@@ -133,6 +130,22 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
         assertThat(verification).containsEntry("trust_framework", "eidas").containsEntry("assurance_level", HIGH);
         assertThat(id.getClaims()).doesNotContainKeys("given_name", "family_name", "birthdate", "nationalities");
         assertThat(id.toString()).doesNotContain("Erika").doesNotContain("1984").doesNotContain(adaNumber);
+
+        // the claims went to the code exchange's ID token only: not kept on the stored authorization, not on refresh
+        final org.springframework.security.oauth2.server.authorization.OAuth2Authorization stored = context.getBean(
+                org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService.class)
+                .findByToken(tokens.accessToken(),
+                        org.springframework.security.oauth2.server.authorization.OAuth2TokenType.ACCESS_TOKEN);
+        assertThat(stored).isNotNull();
+        assertThat(stored.getAttributes()).doesNotContainKey("helix_verified_claims");
+        assertThat(String.valueOf(stored.getAttributes())).doesNotContain("DE,NL").doesNotContain("age_over_18");
+        assertThat(tokens.refreshToken()).isNotBlank();
+        final OidcFlow.Tokens refreshed = oidc.refresh("bank", bank.secret(), tokens.refreshToken());
+        if (refreshed.idToken() != null) {
+            final JWTClaimsSet again = oidc.verify(refreshed.idToken());
+            assertThat(again.getClaim("verified_claims")).as("never on a refresh").isNull();
+            assertThat(again.getClaim("acr")).isEqualTo(HIGH);
+        }
 
         assertThat(snapshot()).as("no account created, no link added").isEqualTo(before);
         assertThat(links.find(realm, verifyAlias, numberSubject(adaNumber))).isEmpty();
@@ -220,6 +233,87 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void withoutTheVerifiedClaimsScope_theLoginIsSteppedUp_butNothingIsReleased() {
+        final E2eHttp browser = newBrowser();
+        final OidcFlow.Pkce pkce = OidcFlow.Pkce.create();
+        final E2eHttp.Response walletPage = signInThenWalletPage(browser, pkce, "bank", Map.of("scope", "openid"));
+        final E2eHttp.Response signedIn = browser.followRedirectsUntil(browser.get(present(browser, walletPage,
+                pid(adaNumber))), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        final JWTClaimsSet id = idToken(browser, pkce, "bank", bank, signedIn);
+        assertThat(id.getClaim("acr")).isEqualTo(HIGH);
+        assertThat(id.getClaim("verified_claims")).isNull();
+    }
+
+    @Test
+    void anAuthorizeRequestOfAnotherClientInASecondTab_neverReceivesTheClaims() {
+        final E2eHttp browser = newBrowser();
+        final OidcFlow.Pkce pkce = OidcFlow.Pkce.create();
+        final E2eHttp.Response walletPage = signInThenWalletPage(browser, pkce, "bank", Map.of());
+        // a second tab: "web" asks for verified_claims too; its request replaces the saved one
+        final OidcFlow.Pkce webPkce = OidcFlow.Pkce.create();
+        browser.followRedirects(browser.get("/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=web"
+                + "&redirect_uri=" + E2eSeed.REDIRECT_URI + "&scope=" + encode("openid verified_claims")
+                + "&state=tab2&code_challenge=" + webPkce.challenge() + "&code_challenge_method=S256",
+                "Accept", "text/html"));
+        final E2eHttp.Response signedIn = browser.followRedirectsUntil(browser.get(present(browser, walletPage,
+                pid(adaNumber))), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(signedIn.locationStartsWith(E2eSeed.REDIRECT_URI)).as(signedIn + "\n" + browser.trail(10)).isTrue();
+        final String code = OidcFlow.query(signedIn.location()).get("code");
+        final String state = OidcFlow.query(signedIn.location()).get("state");
+        final OidcFlow oidc = new OidcFlow(browser, realm);
+        if ("tab2".equals(state)) {
+            // the second tab's request was resumed: it is not the request the step was pinned to
+            assertThat(oidc.verify(oidc.exchangeCode("web", web.secret(), E2eSeed.REDIRECT_URI, code,
+                    webPkce.verifier()).idToken()).getClaim("verified_claims")).isNull();
+            return;
+        }
+        // the bank's request was resumed: it gets the claims, and web's pending request (resumed now, over SSO) none
+        assertThat(oidc.verify(oidc.exchangeCode("bank", bank.secret(), E2eSeed.REDIRECT_URI, code,
+                pkce.verifier()).idToken()).getClaim("verified_claims")).isNotNull();
+        final E2eHttp.Response webSignedIn = browser.followRedirectsUntil(browser.get("/realms/" + realm
+                + "/oauth2/authorize?response_type=code&client_id=web&redirect_uri=" + E2eSeed.REDIRECT_URI
+                + "&scope=" + encode("openid verified_claims") + "&state=tab2&code_challenge=" + webPkce.challenge()
+                + "&code_challenge_method=S256"), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(idToken(browser, webPkce, "web", web, webSignedIn).getClaim("verified_claims"))
+                .as("released for the bank's request, never web's").isNull();
+    }
+
+    @Test
+    void consentDenied_dropsTheClaims_andALaterPromptNoneOfAnotherClientGetsNone() {
+        final E2eHttp browser = newBrowser();
+        final OidcFlow.Pkce pkce = OidcFlow.Pkce.create();
+        final E2eHttp.Response walletPage = signInThenWalletPage(browser, pkce, "bankc", Map.of());
+        final E2eHttp.Response consent = browser.followRedirectsUntil(browser.get(present(browser, walletPage,
+                pid(adaNumber))), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(consent.status()).as(consent + "\n" + browser.trail(8)).isEqualTo(200);
+        final String formHtml = E2eHttp.form(consent.body(), "name=\"state\"").orElseThrow();
+        // deny: the consent form's hidden fields only, no scope approved
+        final E2eHttp.Response denied = browser.followRedirectsUntil(browser.postForm(
+                E2eHttp.formAction(consent.body(), "name=\"state\"").orElseThrow(), E2eHttp.hiddenInputs(formHtml)),
+                r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(denied.location().toString()).contains("error=access_denied");
+
+        final OidcFlow.Pkce webPkce = OidcFlow.Pkce.create();
+        final E2eHttp.Response silent = browser.followRedirectsUntil(browser.get("/realms/" + realm
+                + "/oauth2/authorize?response_type=code&client_id=web&redirect_uri=" + E2eSeed.REDIRECT_URI
+                + "&scope=" + encode("openid verified_claims") + "&prompt=none&state=silent&code_challenge="
+                + webPkce.challenge() + "&code_challenge_method=S256"), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        final JWTClaimsSet id = idToken(browser, webPkce, "web", web, silent);
+        assertThat(id.getClaim("verified_claims")).isNull();
+    }
+
+    @Test
+    void startingTheVerifyConnectionAtTheBroker_midStep_doesNotBreakTheStep() {
+        final E2eHttp browser = newBrowser();
+        final OidcFlow.Pkce pkce = OidcFlow.Pkce.create();
+        final E2eHttp.Response walletPage = signInThenWalletPage(browser, pkce, "bank", Map.of());
+        assertThat(browser.get("/realms/" + realm + "/broker/" + verifyAlias).status()).isEqualTo(302);
+        final E2eHttp.Response signedIn = browser.followRedirectsUntil(browser.get(present(browser, walletPage,
+                pid(adaNumber))), r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(idToken(browser, pkce, "bank", bank, signedIn).getClaim("acr")).isEqualTo(HIGH);
+    }
+
+    @Test
     void theVerifyOnlyConnection_isNeverASignInMethod() {
         final E2eHttp browser = newBrowser();
         final String authorize = "/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=web"
@@ -233,6 +327,18 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
     }
 
     // ------------------------------------------------------------------------------------------------ helpers
+
+    /** A confidential client bound to the step-up flow, asking for openid and verified_claims. */
+    private E2eSeed.SeededClient boundClient(final String clientId, final boolean consent) {
+        final io.helixiam.authorization.amqp.client.ClientDto saved = context.getBean(
+                io.helixiam.authorization.amqp.client.ClientAdminPublisher.class).create(
+                new io.helixiam.authorization.amqp.client.ClientWriteDto(realm, null, clientId,
+                        List.of("authorization_code", "refresh_token"), List.of(E2eSeed.REDIRECT_URI),
+                        List.of("openid", "verified_claims"), null, STEP_UP_FLOW, clientId, "e2e step-up client",
+                        List.of(), List.of(), false, consent, true, null, null, null, null, false, null, null, null,
+                        false, null, null, null, null, null, false, false, null));
+        return new E2eSeed.SeededClient(realm, saved.id(), clientId, saved.secret(), E2eSeed.REDIRECT_URI, saved);
+    }
 
     /** The subject the login connection computes for a PID carrying {@code number}. */
     private WalletSubject numberSubject(final String number) {
@@ -256,9 +362,11 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
     private E2eHttp.Response signInThenWalletPage(final E2eHttp browser, final OidcFlow.Pkce pkce,
                                                   final String clientId, final Map<String, String> extra) {
         final StringBuilder authorize = new StringBuilder("/realms/" + realm + "/oauth2/authorize?response_type=code"
-                + "&client_id=" + clientId + "&redirect_uri=" + E2eSeed.REDIRECT_URI + "&scope=openid&state=st"
+                + "&client_id=" + clientId + "&redirect_uri=" + E2eSeed.REDIRECT_URI + "&state=st"
                 + "&code_challenge=" + pkce.challenge() + "&code_challenge_method=S256");
-        extra.forEach((k, v) -> authorize.append('&').append(k).append('=').append(encode(v)));
+        final Map<String, String> params = new LinkedHashMap<>(Map.of("scope", "openid verified_claims"));
+        params.putAll(extra);
+        params.forEach((k, v) -> authorize.append('&').append(k).append('=').append(encode(v)));
         final E2eHttp.Response loginPage = browser.followRedirects(browser.get(authorize.toString(), "Accept",
                 "text/html"));
         assertThat(loginPage.uri().getPath()).as(loginPage + "\n" + browser.trail(8)).endsWith("/login");
@@ -284,6 +392,13 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
                 "application/json").json().path("next").asText();
         assertThat(next).contains("/flow/wallet/callback?response_code=");
         return next;
+    }
+
+    private OidcFlow.Tokens tokens(final E2eHttp browser, final OidcFlow.Pkce pkce, final String clientId,
+                                   final E2eSeed.SeededClient client, final E2eHttp.Response signedIn) {
+        assertThat(signedIn.locationStartsWith(E2eSeed.REDIRECT_URI)).as(signedIn + "\n" + browser.trail(10)).isTrue();
+        return new OidcFlow(browser, realm).exchangeCode(clientId, client.secret(), E2eSeed.REDIRECT_URI,
+                OidcFlow.query(signedIn.location()).get("code"), pkce.verifier());
     }
 
     private JWTClaimsSet idToken(final E2eHttp browser, final OidcFlow.Pkce pkce, final String clientId,

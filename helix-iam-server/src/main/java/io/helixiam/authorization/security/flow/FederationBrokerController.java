@@ -141,6 +141,12 @@ public class FederationBrokerController {
             LOG.warn("Federation: no provider {} in this realm", LogSafe.sanitize(alias));
             return LOGIN_ERROR;
         }
+        if (!provider.signInCapable()) {
+            // A verify-only wallet connection is never a sign-in: refused BEFORE touching this browser's binding for
+            // the alias, which a running wallet verification step owns (security review item 4).
+            LOG.warn("Federation: provider {} cannot sign anyone in", LogSafe.sanitize(alias));
+            return LOGIN_ERROR;
+        }
         final String state = stateGenerator.get();
         final HttpSession session = request.getSession();
         // Task 18 fix round 1: one live wallet login per browser and provider: starting again discards the previous
