@@ -333,7 +333,7 @@ public class WalletResponseHandler {
             // no account decision, no other PID value is kept.
             final WalletSubject bindingSubject = linkedSubject(tx.realmId(), config, matched);
             final java.util.Map<String, Object> released = WalletVerifiedClaims.release(mapped.attributes(),
-                    config.subject().releasedClaims(), java.time.LocalDate.now(java.time.ZoneOffset.UTC));
+                    config.subject().releasedClaims(), WalletVerifiedClaims.today(java.time.Clock.systemUTC()));
             identityJson = VerifiedIdentityJson.writeVerify(bindingSubject, released, mapped.levelOfAssurance(),
                     format, issuerDn);
             outcome = "verify:" + bindingSubject.getClass().getSimpleName();

@@ -88,4 +88,26 @@ class WalletVerifiedClaimsTest {
     void releasedNames_areTheKeys() {
         assertThat(WalletVerifiedClaims.release(attributes(), List.of(), TODAY)).isEmpty();
     }
+
+    @Test
+    void aTwentyNinthOfFebruaryBirthday_isReachedOnTheFirstOfMarchInANonLeapYear() {
+        final Map<String, String> a = new LinkedHashMap<>(Map.of("birthdate", "2008-02-29"));
+        assertThat(WalletVerifiedClaims.release(a, List.of("age_over_18"), LocalDate.of(2026, 2, 28)))
+                .containsEntry("age_over_18", false);
+        assertThat(WalletVerifiedClaims.release(a, List.of("age_over_18"), LocalDate.of(2026, 3, 1)))
+                .containsEntry("age_over_18", true);
+        assertThat(WalletVerifiedClaims.release(a, List.of("age_over_16"), LocalDate.of(2024, 2, 29)))
+                .as("in a leap year the day itself").containsEntry("age_over_16", true);
+    }
+
+    @Test
+    void today_isTheDateInTheFurthestBehindZone_soAnAgeIsNeverReachedEarly() {
+        // 2026-10-15T11:00Z is still 2026-10-14 at UTC-12
+        final java.time.Clock clock = java.time.Clock.fixed(java.time.Instant.parse("2026-10-15T11:00:00Z"),
+                java.time.ZoneOffset.UTC);
+        assertThat(WalletVerifiedClaims.today(clock)).isEqualTo(LocalDate.of(2026, 10, 14));
+        final Map<String, String> a = new LinkedHashMap<>(Map.of("birthdate", "2008-10-15"));
+        assertThat(WalletVerifiedClaims.release(a, List.of("age_over_18"), WalletVerifiedClaims.today(clock)))
+                .containsEntry("age_over_18", false);
+    }
 }

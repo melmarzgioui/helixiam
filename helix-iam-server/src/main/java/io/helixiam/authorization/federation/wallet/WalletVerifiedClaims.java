@@ -36,7 +36,30 @@ public final class WalletVerifiedClaims {
     private static final int MAX_AGE = 150;
     private static final String BIRTHDATE = "birthdate";
 
+    /** The furthest-behind time zone (UTC-12): its date is never ahead of any place's. */
+    private static final java.time.ZoneId FURTHEST_BEHIND = java.time.ZoneId.of("Etc/GMT+12");
+
     private WalletVerifiedClaims() {
+    }
+
+    /**
+     * "Today" for an age threshold, conservatively: the date in the furthest-behind zone (UTC-12), so an
+     * {@code age_over_NN} never becomes true earlier than in any place on earth.
+     */
+    public static LocalDate today(final java.time.Clock clock) {
+        return LocalDate.now(clock.withZone(FURTHEST_BEHIND));
+    }
+
+    /**
+     * Whether someone born on {@code birth} is {@code years} old on {@code today}. A 29 February birthday is reached on
+     * 1 March in a non-leap year (never on 28 February).
+     */
+    static boolean reached(final LocalDate birth, final int years, final LocalDate today) {
+        LocalDate due = birth.plusYears(years);
+        if (birth.getMonthValue() == 2 && birth.getDayOfMonth() == 29 && due.getDayOfMonth() == 28) {
+            due = due.plusDays(1);
+        }
+        return !due.isAfter(today);
     }
 
     /** Why {@code released} cannot be released for a provider requesting {@code requested}; empty when it can. */
@@ -84,7 +107,7 @@ public final class WalletVerifiedClaims {
             final Matcher age = AGE_OVER.matcher(claim);
             if (age.matches()) {
                 birthdate(attributes.get(BIRTHDATE)).ifPresent(birth ->
-                        out.put(claim, !birth.plusYears(Integer.parseInt(age.group(1))).isAfter(today)));
+                        out.put(claim, reached(birth, Integer.parseInt(age.group(1)), today)));
                 continue;
             }
             if (attributes.containsKey(claim)) {
