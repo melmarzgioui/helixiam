@@ -51,7 +51,9 @@ public class AccountWallets {
             return Optional.empty();
         }
         try {
-            return WalletIdentityProvider.from(registry.get(realm, alias)).filter(p -> p.servesRealm(realm));
+            // a verify-only connection (subject.strategy=NONE) never links an account: not offered, not linkable
+            return WalletIdentityProvider.from(registry.get(realm, alias))
+                    .filter(p -> p.servesRealm(realm) && p.signInCapable());
         } catch (final IllegalArgumentException e) {
             return Optional.empty();
         }

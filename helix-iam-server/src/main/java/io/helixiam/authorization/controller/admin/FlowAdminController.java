@@ -88,7 +88,7 @@ public class FlowAdminController {
     }
 
     private static List<FlowExecutionDto> exec(final FlowSaveRequest request) {
-        return request.executions() == null ? List.of() : request.executions();
+        return FlowSaveValidator.requireValid(request.executions() == null ? List.of() : request.executions());
     }
 
     public record FlowSaveRequest(List<FlowExecutionDto> executions) { }

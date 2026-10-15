@@ -200,12 +200,12 @@ public class LoginController {
     private List<IdpMetadata> federationProvidersFor(final String realm, final IdpRedirectStep idp) {
         // Final review F1: only the providers that serve this realm (a stored provider of another realm never shows)
         if (idp == null) {
-            return identityProviderRegistry.metadatas(realm);
+            return identityProviderRegistry.signInMetadatas(realm);
         }
         if (IdentityProviderRedirectAuthenticator.MODE_LOCAL_ONLY.equals(idp.mode()) || idp.aliases().isEmpty()) {
             return List.of();
         }
-        return identityProviderRegistry.metadatas(realm).stream()
+        return identityProviderRegistry.signInMetadatas(realm).stream()
                 .filter(m -> idp.aliases().contains(m.alias()))
                 .toList();
     }

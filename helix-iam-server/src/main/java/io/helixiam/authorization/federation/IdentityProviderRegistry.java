@@ -192,6 +192,15 @@ public class IdentityProviderRegistry {
     }
 
     /**
+     * As {@link #metadatas}, only the providers that can sign a user in ({@link IdentityProvider#signInCapable}): the
+     * login page's buttons. An EUDI wallet verify-only connection is never a first factor, so it is never listed.
+     */
+    public List<IdpMetadata> signInMetadatas(final String realmId) {
+        return serving(realmId).values().stream().filter(IdentityProvider::signInCapable)
+                .map(IdentityProvider::metadata).toList();
+    }
+
+    /**
      * Every registered provider named {@code alias}, of any realm: for code that only has an alias and must answer for
      * whichever realm's provider made a link (links are per user, a user may be in several realms).
      */
