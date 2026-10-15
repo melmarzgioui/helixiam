@@ -73,6 +73,14 @@ public class TrustedListService implements TrustedListAnchorSource {
         return t;
     });
 
+    /** Which identity providers of a realm name a trusted list source (by name) in {@code trustedLists.sources}. */
+    @FunctionalInterface
+    public interface References {
+        References NONE = (realm, name) -> List.of();
+
+        List<String> providersUsing(String realm, String sourceName);
+    }
+
     /** Where refresh events go (the audit log in production). */
     @FunctionalInterface
     public interface AuditSink {
@@ -128,6 +136,7 @@ public class TrustedListService implements TrustedListAnchorSource {
     private final Map<String, Snapshot> snapshots = new ConcurrentHashMap<>();
 
     private final TrustedListIntegrity integrity;
+    private volatile References references = References.NONE;
     /** Whether sources may be saved without a MAC key (the dev profile only). */
     private final boolean allowWithoutIntegrity;
     /** (source id, version) pairs whose integrity failure this replica already reported. */
@@ -250,9 +259,15 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
         final TrustedListSource.Config c = normalize(config);
         final Map<String, String> errors = new LinkedHashMap<>(TrustedListConfigValidator.validate(c));
-        if (!errors.containsKey("name") && !c.name().equals(existing.get().config().name())
-                && repository.byName(realmId, c.name()).isPresent()) {
-            errors.put("name", "A trusted list named '" + c.name() + "' already exists in this realm");
+        if (!errors.containsKey("name") && !c.name().equals(existing.get().config().name())) {
+            // providers refer to a source by name: a rename would silently re-point (or orphan) them
+            final List<String> users = providersUsing(existing.get());
+            if (!users.isEmpty()) {
+                errors.put("name", "This trusted list is used by " + String.join(", ", users)
+                        + ": remove it from those identity providers before renaming it");
+            } else if (repository.byName(realmId, c.name()).isPresent()) {
+                errors.put("name", "A trusted list named '" + c.name() + "' already exists in this realm");
+            }
         }
         if (!errors.isEmpty()) {
             throw new InvalidConfigException(errors);
@@ -262,6 +277,16 @@ public class TrustedListService implements TrustedListAnchorSource {
                 settingsMac(id, realmId, c));
         sync();
         return repository.get(realmId, id);
+    }
+
+    /** Wires the lookup of providers that use a source (done after construction to avoid a bean cycle). */
+    public void setReferences(final References value) {
+        this.references = value == null ? References.NONE : value;
+    }
+
+    /** The providers of {@code realm} that use {@code source} (by its name). */
+    public List<String> providersUsing(final TrustedListSource source) {
+        return references.providersUsing(source.realmId(), source.config().name());
     }
 
     private void requireIntegrity() {

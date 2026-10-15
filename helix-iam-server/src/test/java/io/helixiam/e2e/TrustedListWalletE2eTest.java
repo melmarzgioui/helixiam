@@ -186,6 +186,72 @@ class TrustedListWalletE2eTest extends AbstractE2eTest {
         assertThat(admin.http().sendJson("POST", lists(), Map.of("name", "x")).status()).isEqualTo(403);
     }
 
+    @Test
+    void renamingASourceThatProvidersUse_isRefused_andUpdatesAreAuditedWithUrlAndSignerFingerprints() throws Exception {
+        serve(5, TrustedListFixtures.Service.granted("Listed PID Provider", wallet.wallet().pki().root()));
+        final JsonNode source = createSource("in-use");
+        final String id = source.path("id").asText();
+        final E2eHttp.Response provider = admin.post("/admin/realms/" + realm + "/identity-providers", Map.of(
+                "alias", alias, "protocol", "eudi-wallet", "displayName", "Wallet", "enabled", true,
+                "config", Map.of("accessKeyRef", wallet.importAccessKey(realm),
+                        "trustedLists.sources", "[\"in-use\"]")));
+        assertThat(provider.status()).as(provider.toString()).isEqualTo(201);
+
+        final Map<String, Object> renamed = new java.util.LinkedHashMap<>(Map.of("name", "renamed", "url", listUrl(),
+                "format", "ETSI_119612_XML", "signerCertificates", TestPki.pem(listSigner.certificate()),
+                "serviceTypes", List.of(TrustedListFixtures.PID_TYPE), "graceHours", 24));
+        final E2eHttp.Response refused = admin.put(lists() + "/" + id, renamed);
+        assertThat(refused.status()).as(refused.toString()).isEqualTo(400);
+        assertThat(refused.json().path("fieldErrors").path("name").asText()).contains(alias);
+
+        // the same settings under the old name save, and the update is audited with the URL and signer fingerprint
+        renamed.put("name", "in-use");
+        renamed.put("graceHours", 48);
+        assertThat(admin.put(lists() + "/" + id, renamed).status()).isEqualTo(200);
+        final String fingerprint = java.util.HexFormat.of().formatHex(java.security.MessageDigest
+                .getInstance("SHA-256").digest(listSigner.certificate().getEncoded()));
+        final AuditLogService audit = context.getBean(AuditLogService.class);
+        final Instant deadline = Instant.now().plusSeconds(5);
+        String detail = "";
+        while (Instant.now().isBefore(deadline) && !detail.contains(fingerprint)) {
+            detail = audit.search(new AuditQuery(realm, "TRUSTED_LIST_UPDATE", null, null, null, 0, 10)).items()
+                    .stream().map(r -> String.valueOf(r.detail())).reduce("", String::concat);
+            Thread.sleep(25);
+        }
+        assertThat(detail).contains(fingerprint).contains(listUrl());
+    }
+
+    @Test
+    void anAdminWithoutManageIdentityProviders_getsForbidden() {
+        final String roleName = E2eSeed.unique("tl-realm-only");
+        final E2eHttp.Response role = admin.post("/admin/realms/" + realm + "/roles", Map.of("name", roleName));
+        assertThat(role.status()).as(role.toString()).isEqualTo(201);
+        String roleId = role.json().path("roleId").asText();
+        if (roleId.isBlank()) {
+            for (final JsonNode r : admin.get("/admin/realms/" + realm + "/roles").json()) {
+                if (roleName.equals(r.path("name").asText())) {
+                    roleId = r.path("roleId").asText();
+                }
+            }
+        }
+        assertThat(admin.put("/admin/realms/" + realm + "/admin-roles/" + roleId,
+                Map.of("permissions", List.of("manage-realm"))).status()).isEqualTo(200);
+        final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("tl-scoped"), "Sc0ped-Admin-Passw0rd!");
+        assertThat(admin.post("/admin/realms/" + realm + "/users/" + user.userId() + "/roles", Map.of("roleId", roleId))
+                .status()).isEqualTo(204);
+        final E2eAdminSession realmOnly = E2eAdminSession.login(newBrowser(), realm, user.username(), user.password());
+        serve(5, TrustedListFixtures.Service.granted("Listed PID Provider", wallet.wallet().pki().root()));
+        final String id = createSource("guarded").path("id").asText();
+
+        assertThat(realmOnly.get(lists()).status()).isEqualTo(403);
+        assertThat(realmOnly.get(lists() + "/" + id).status()).isEqualTo(403);
+        assertThat(realmOnly.get(lists() + "/" + id + "/anchors").status()).isEqualTo(403);
+        assertThat(realmOnly.post(lists(), Map.of("name", "x")).status()).isEqualTo(403);
+        assertThat(realmOnly.post(lists() + "/" + id + "/refresh", Map.of()).status()).isEqualTo(403);
+        assertThat(realmOnly.delete(lists() + "/" + id).status()).isEqualTo(403);
+        assertThat(admin.get(lists() + "/" + id).status()).isEqualTo(200);
+    }
+
     // ------------------------------------------------------------------------------------------------ helpers
 
     /** Presents a PID from {@code issuer} in a fresh login; returns the plain-language failure reason (or status). */

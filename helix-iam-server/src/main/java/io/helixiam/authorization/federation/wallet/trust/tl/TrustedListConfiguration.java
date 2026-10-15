@@ -49,6 +49,7 @@ public class TrustedListConfiguration {
     @Bean
     public TrustedListService trustedListService(final TrustedListRepository repository, final OutboundUrlGuard guard,
             final AuditLog auditLog, final DeploymentProfile profile,
+            final io.helixiam.authorization.service.federation.IdentityProviderConfigService providers,
             @Value("${database.encryption:#{null}}") final String encryptionKey,
             @Value("${helix.wallet.trusted-lists.refresh-interval-minutes:360}") final long refreshMinutes,
             @Value("${helix.wallet.trusted-lists.retry-interval-minutes:15}") final long retryMinutes,
@@ -60,10 +61,34 @@ public class TrustedListConfiguration {
                 new PinnedTrustedListFetcher(guard, SSLContext.getDefault(), maxBytes), Clock.systemUTC(), maxBytes,
                 new TrustedListLoader.Settings(Duration.ofDays(Math.max(0, signerGraceDays)),
                         java.time.Period.ofMonths(Math.max(1, maxValidityMonths))));
-        return new TrustedListService(repository, loader, auditSink(auditLog), Clock.systemUTC(),
+        final TrustedListService service = new TrustedListService(repository, loader, auditSink(auditLog),
+                Clock.systemUTC(),
                 new TrustedListService.Settings(Duration.ofMinutes(Math.max(5, refreshMinutes)),
                         Duration.ofMinutes(Math.max(1, retryMinutes)), Duration.ofMinutes(2)),
                 TrustedListIntegrity.fromSecret(encryptionKey), profile.isDev());
+        // providers reference a source by name: the service asks which ones before a rename
+        service.setReferences((realm, name) -> providers.list(realm).stream()
+                .filter(p -> io.helixiam.authorization.federation.FederationProviderFactory.isWallet(p.protocol()))
+                .filter(p -> namesSource(p.config() == null ? null : p.config().get("trustedLists.sources"), name))
+                .map(io.helixiam.authorization.domain.federation.IdentityProviderConfig::alias).sorted().toList());
+        return service;
+    }
+
+    static boolean namesSource(final String json, final String name) {
+        if (json == null || json.isBlank()) {
+            return false;
+        }
+        try {
+            for (final com.fasterxml.jackson.databind.JsonNode n : new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(json)) {
+                if (name.equals(n.asText())) {
+                    return true;
+                }
+            }
+        } catch (final Exception e) {
+            return false;
+        }
+        return false;
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

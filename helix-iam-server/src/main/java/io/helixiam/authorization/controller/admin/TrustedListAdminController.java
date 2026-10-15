@@ -12,6 +12,8 @@ import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListHealth;
 import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListService;
 import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListSource;
 import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListSpec;
+import io.helixiam.authorization.security.audit.AuditContext;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -101,9 +103,12 @@ public class TrustedListAdminController {
 
     @PostMapping
     public ResponseEntity<TrustedListView> create(@PathVariable final String realmId,
-                                                  @RequestBody final TrustedListRequest request) {
+                                                  @RequestBody final TrustedListRequest request,
+                                                  final HttpServletRequest http) {
         try {
-            return ResponseEntity.status(HttpStatus.CREATED).body(view(service.create(realmId, config(request))));
+            final TrustedListSource created = service.create(realmId, config(request));
+            AuditContext.attachDetail(http, auditDetail(created.config(), null));
+            return ResponseEntity.status(HttpStatus.CREATED).body(view(created));
         } catch (final TrustedListService.InvalidConfigException e) {
             throw new ProviderValidationException(e.fieldErrors());
         }
@@ -111,18 +116,65 @@ public class TrustedListAdminController {
 
     @PutMapping("/{id}")
     public ResponseEntity<TrustedListView> update(@PathVariable final String realmId, @PathVariable final String id,
-                                                  @RequestBody final TrustedListRequest request) {
+                                                  @RequestBody final TrustedListRequest request,
+                                                  final HttpServletRequest http) {
         try {
-            return service.update(realmId, id, config(request)).map(this::view).map(ResponseEntity::ok)
-                    .orElseGet(() -> ResponseEntity.notFound().build());
+            final java.util.Optional<TrustedListSource> before = service.get(realmId, id);
+            final java.util.Optional<TrustedListSource> saved = service.update(realmId, id, config(request));
+            saved.ifPresent(s -> AuditContext.attachDetail(http, auditDetail(s.config(),
+                    before.map(TrustedListSource::config).orElse(null))));
+            return saved.map(this::view).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
         } catch (final TrustedListService.InvalidConfigException e) {
             throw new ProviderValidationException(e.fieldErrors());
         }
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable final String realmId, @PathVariable final String id) {
-        return service.delete(realmId, id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    public ResponseEntity<Void> delete(@PathVariable final String realmId, @PathVariable final String id,
+                                       final HttpServletRequest http) {
+        final java.util.Optional<TrustedListSource> before = service.get(realmId, id);
+        if (!service.delete(realmId, id)) {
+            return ResponseEntity.notFound().build();
+        }
+        before.ifPresent(s -> AuditContext.attachDetail(http, auditDetail(s.config(), null)));
+        return ResponseEntity.noContent().build();
+    }
+
+    /** The audited facts of a write: name, URL and SHA-256 fingerprints of the pinned signers (and the old ones). */
+    private static Map<String, String> auditDetail(final TrustedListSource.Config now,
+                                                   final TrustedListSource.Config before) {
+        final Map<String, String> d = new java.util.LinkedHashMap<>();
+        d.put("name", now.name());
+        d.put("url", now.url());
+        d.put("signerFingerprints", fingerprints(now.signerCertificates()));
+        if (before != null) {
+            if (!before.url().equals(now.url())) {
+                d.put("previousUrl", before.url());
+            }
+            final String old = fingerprints(before.signerCertificates());
+            if (!old.equals(d.get("signerFingerprints"))) {
+                d.put("previousSignerFingerprints", old);
+            }
+            if (!before.name().equals(now.name())) {
+                d.put("previousName", before.name());
+            }
+        }
+        return d;
+    }
+
+    private static String fingerprints(final String pem) {
+        try {
+            final java.security.MessageDigest sha = java.security.MessageDigest.getInstance("SHA-256");
+            return String.join(",", PemCertificates.parse(pem).stream().map(c -> {
+                try {
+                    return java.util.HexFormat.of().formatHex(sha.digest(c.getEncoded()));
+                } catch (final java.security.cert.CertificateEncodingException e) {
+                    return "?";
+                }
+            }).toList());
+        } catch (final IllegalArgumentException | java.security.NoSuchAlgorithmException e) {
+            return "";
+        }
     }
 
     /** Refreshes now and answers with the source as it is after the attempt (its status says how it went). */
