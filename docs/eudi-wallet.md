@@ -873,7 +873,7 @@ stores nothing on the account.
 
    | Key | Meaning |
    |---|---|
-   | `verify.linkedProvider` | **Required.** The alias of the sign-in connection of step 1. A presented wallet must be linked to the signed-in user *there*. |
+   | `verify.linkedProvider` | **Required.** The alias of the sign-in connection of step 1, in the same realm, that signs users in (not another verify-only one). A presented wallet must be linked to the signed-in user *there*. The verify-only connection's `minimumLoa` may not be lower than the linked one's (400); trust anchors the linked connection does not also trust are only logged as a warning. |
    | `pid.requestedClaims` | What the wallet is asked for (as for any connection). Keep it small. The administrative number and issuing country are always asked for optionally, to bind the wallet; they are never released. |
    | `verify.releasedClaims` | JSON list of what goes to the application. Each entry is a requested claim this verifier maps (`given_name`, `family_name`, `birthdate`, `nationalities`, `place_of_birth`, `address.*`, `issuing_country`, `issuing_authority`) or `age_over_NN` (1–150, worked out from the verified birth date, which must be requested; the birth date itself is not released unless listed). **Default: nothing** — the step then only proves the wallet and raises the level of assurance. |
 
@@ -883,8 +883,14 @@ stores nothing on the account.
    verify-only connection) to a sign-in flow after the first factor (Authentication → flow editor), and bind that
    flow to the application (Applications → Login flow). A flow save without `providerAlias` is refused (400).
 
-A password-first login runs flow steps only when the flow engine is on (`helix.flow-engine.enabled=true`, default
-off); a federated first factor (eID, OIDC, SAML, wallet login) always runs them.
+**Flow engine.** A password-first login runs flow steps only when the flow engine is on
+(`helix.flow-engine.enabled=true`, default off); a federated first factor (eID, OIDC, SAML, wallet login) always runs
+them. With the engine off, nothing is skipped silently: a password login whose flow (the client's, or the realm's
+browser flow) has the wallet verification step is refused (`/login?error=flow`, logged as a WARN); saving such a flow,
+or binding it to a client or application, is refused (400); saving a verify-only connection logs a warning; and the
+console shows a banner on the flow editor and on the connection (`GET /admin/realms/{realm}/flow-engine`).
+
+An application's single sign-on setting (REDIRECT/OPTION) cannot name a verify-only connection (400).
 
 Validation (400 `{message, fieldErrors}`): `NONE` needs `verify.linkedProvider` (an alias other than its own), refuses
 `subject.acknowledgeWeakSubject=true` (the linked connection's own setting applies), and accepts only the release
@@ -906,8 +912,10 @@ entries above; `verify.*` without `NONE` is refused.
    - a wallet that is not linked at all is refused: the user links it once from the account console (§6.1).
 
    A refused wallet shows "We could not confirm your wallet" with **Try again** (a new transaction).
-4. On success the login's `acr` becomes the wallet's LoA (`http://eidas.europa.eu/LoA/high`), and the released claims
-   go into the **ID token** of the authorization request this login completes:
+4. On success the login's `acr` becomes the wallet's LoA (`http://eidas.europa.eu/LoA/high`). The released claims go
+   into the **ID token** of the authorization request the step started for, **only if that request asked for the
+   `verified_claims` scope** (a standard client scope, seeded in every realm; register it on the client). Without the
+   scope the step still raises `acr`, and nothing is released:
 
    ```json
    "acr": "http://eidas.europa.eu/LoA/high",
@@ -918,8 +926,11 @@ entries above; `verify.*` without `NONE` is refused.
    }
    ```
 
-   `verified_claims` is bound to that one code: a later code for another application in the same SSO session gets
-   the session's `acr` but not the claims. It is not in userinfo or access tokens, and protocol mappers cannot set it.
+   `verified_claims` is pinned to that one authorization request (its `client_id` and a hash of its `client_id`,
+   `state`, `nonce` and `redirect_uri`) for 5 minutes: any other code (another tab, another client, a later
+   `prompt=none`), a denied consent or the timeout drops it. It is in the ID token of the code exchange only — never in
+   a refreshed ID token, userinfo or an access token — and it is removed from the stored authorization once the code
+   is exchanged. Protocol mappers cannot set it.
 
 ### 13.3 Stepping up a signed-in user: `acr_values`
 
@@ -927,8 +938,12 @@ An application that needs the wallet for a user who already has an SSO session (
 `acr_values=http://eidas.europa.eu/LoA/high` on its authorization request. When the session's `acr` does not satisfy
 any requested value (the same value, or an equal or higher eIDAS rung: high satisfies substantial and low), the user
 signs in again once for that request and the application's flow (with the wallet step) runs. `acr_values` is
-voluntary (OIDC Core §3.1.2.1): if the user still does not reach it, the code is issued with the actual `acr`.
-**Always check `acr` in the ID token.**
+voluntary (OIDC Core §3.1.2.1): if the user still does not reach it — and always with `prompt=none` — the code is
+issued with the lower, actual `acr`. **Relying parties MUST check `acr` in the ID token.**
+
+The `acr` belongs to the SSO session: once raised, it stays until the next login, bounded by the realm's SSO session
+lifetime, and every later code of any client in that session carries it. A separate, shorter step-up lifetime is not
+configurable yet (`helix-iam-server/DEFERRED-SECURITY-WORK.md`).
 
 ### 13.4 Audit
 
@@ -941,7 +956,7 @@ A verification is never a `WALLET_LOGIN_*` event, and no PID value or subject ha
 
 ### 13.5 Not in this release
 
-A standalone "verify attributes" API for applications outside an OIDC login; binding by matching PID attributes to
+A configurable step-up lifetime (shorter than the SSO session); a standalone "verify attributes" API for applications outside an OIDC login; binding by matching PID attributes to
 the profile (instead of a link); `verified_claims` in userinfo or access tokens and the OIDC `claims` parameter;
 discovery metadata (`acr_values_supported`, `verified_claims_supported`); stepping up without re-entering the first
 factor; keeping verified attributes on the profile; non-PID credentials (EAA).

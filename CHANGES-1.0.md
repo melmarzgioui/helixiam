@@ -89,6 +89,17 @@ question. Newest first within each phase.
   - **Note**: a password-first login runs flow steps only with `helix.flow-engine.enabled=true` (default off, as
     before); a federated first factor always runs them.
   - No schema change: the transaction purpose `VERIFY` fits the existing `wallet_transaction.purpose` column.
+  - **Security review fixes**: `verified_claims` is released only to a request that asked for the new standard scope
+    `verified_claims` (seeded in every realm), pinned to the request the step started for (client + hash of
+    `client_id`/`state`/`nonce`/`redirect_uri`, 5-minute TTL, dropped on any other code or consent denial), put in the
+    code exchange's ID token only and removed from the stored authorization (never on refresh). With the flow engine
+    off, a password login whose flow has the wallet step is refused (`error=flow`) and such flows cannot be saved or
+    bound (400); the console shows a banner. The linked sign-in connection must exist in the realm, sign in and not
+    have a lower minimum LoA (400); an application's SSO setting cannot name a verify-only connection (400). The
+    broker no longer touches the step's browser binding; `age_over_NN` uses the date at UTC-12 and treats 29 February
+    as reached on 1 March; the `/flow` redirect refuses `\`. The retry page says when the wallet is not the one linked
+    to the account. `acr` stays session-wide until the next login and `acr_values` stays voluntary (RPs must check
+    `acr`), both recorded in `DEFERRED-SECURITY-WORK.md`.
 - **EUDI Wallet: interop with the EU reference wallet (test only, no product change)** — the EU Digital Identity Wallet
   reference app for Android (2026.10.43-Demo, released APK, `demo` flavour) signed in to HelixIAM on an Android 15
   emulator with SD-JWT VC and mdoc PIDs from the EU test issuer `issuer.eudiw.dev`: same-device and cross-device, both
