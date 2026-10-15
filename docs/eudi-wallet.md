@@ -697,6 +697,7 @@ The suite does not test HAIP §5's DCQL `trusted_authorities`, but HAIP requires
 added after the run:
 - **What is sent.** Each PID Credential Query carries `{"type": "aki", "values": [...]}`. The values are the key
   identifiers of the trust anchors and pinned intermediates, the AuthorityKeyIdentifier of the certificates they issue.
+  With trusted lists (§7.3), the values follow the lists' current anchors at each request.
 - **Default.** Per provider, `dcql.trustedAuthorities` (console: Credentials → "Name the trusted issuers in the
   request"). Unset means on for the HAIP profile (`x509_hash` with `direct_post.jwt`) and off otherwise.
 - **Enforcement.** It only tells the wallet which issuers to offer; validating the chain to `trustAnchors` still
