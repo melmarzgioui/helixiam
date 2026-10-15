@@ -44,7 +44,7 @@ paths are hardened and tested."
     reference wallet (the test registrar's access certificates have no dNSName) and its QR scanner (the QR content was
     passed by an Android intent).
   - Done: a PostgreSQL wallet transaction store, cross-replica identity-provider refresh, and the "wallet linked"
-    notification (see `CHANGES-1.0.md`, next release).
+    notification (see `CHANGES-1.0.md`, rc.9).
   - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
     (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
     again under the same name would inherit the previous realm's verifier access key and pepper.

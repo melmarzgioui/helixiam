@@ -262,6 +262,10 @@ class EudiReferenceWalletCaptureVectorTest {
         final VerificationContext late = new VerificationContext(ctx.clientId(), ctx.nonce(), ctx.responseUri(),
                 ctx.encryptionJwkThumbprint(), ctx.now().plus(Duration.ofMinutes(10)), ctx.clockSkew(),
                 ctx.anchors(), ctx.statusPolicy(), ctx.acceptedVcts(), ctx.acceptedDoctype(), false);
-        assertThatThrownBy(() -> verifier.verify(presentation, late)).isInstanceOf(WalletVerificationException.class);
+        assertThatThrownBy(() -> verifier.verify(presentation, late))
+                .isInstanceOfSatisfying(WalletVerificationException.class, e -> {
+                    assertThat(e.code()).isEqualTo(WalletErrorCode.HOLDER_BINDING_INVALID);
+                    assertThat(e.getMessage()).contains("iat is outside the window");
+                });
     }
 }

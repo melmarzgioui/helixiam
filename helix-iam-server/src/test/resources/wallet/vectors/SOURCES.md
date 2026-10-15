@@ -191,7 +191,8 @@ verifier's access certificate was issued to us by the EU Testing Relying Party R
 
 Cases: `sd-jwt-same-device`, `mdoc-same-device`, `sd-jwt-cross-device`, `mdoc-cross-device`. Each was re-verified
 before commit with Python `cryptography` and `cbor2` (JWE decryption, mdoc IssuerAuth and DeviceAuth, SD-JWT issuer
-signature, KB-JWT signature, `sd_hash`, `nonce`, `aud`). `EudiReferenceWalletCaptureVectorTest` verifies them with the
+signature, KB-JWT signature, `sd_hash`, `nonce`, `aud`); that one-off script is not kept in the repository.
+`EudiReferenceWalletCaptureVectorTest` verifies them with the
 production decryptor and verifiers.
 
 **Licence.** These files are machine output of the software named above, run by the HelixIAM project, over test data we

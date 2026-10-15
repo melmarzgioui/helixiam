@@ -141,7 +141,8 @@ each with:
 Before they were committed, every capture was re-verified with an independent implementation (Python `cryptography`
 and `cbor2`): JWE decryption (Concat KDF, AES-GCM), mdoc IssuerAuth with its `x5chain` leaf, mdoc DeviceAuth over
 `["DeviceAuthentication", SessionTranscript, docType, DeviceNameSpacesBytes]` with the MSO device key, SD-JWT issuer
-signature with its `x5c` leaf, and KB-JWT signature, `sd_hash`, `nonce` and `aud`.
+signature with its `x5c` leaf, and KB-JWT signature, `sd_hash`, `nonce` and `aud`. That one-off script is not kept in the repository; `EudiReferenceWalletCaptureVectorTest` is the
+repeatable check of the same properties.
 
 The Java test runs the production `VpResponseDecryptor`, `MdocPresentationVerifier` and `SdJwtVcPresentationVerifier`
 at the capture time against the reference PID CA, and shows that DeviceAuth fails (`HOLDER_BINDING_INVALID`) for any
@@ -177,7 +178,9 @@ None were needed: every flow passed on the first attempt with `master` 298dd452.
    policy, not a wallet problem, but an operator who wants wallet-only sign-in has to adjust the realm's MFA settings.
 7. **Not covered:** a national wallet, the W3C Digital Credentials API (`dc_api`; the wallet supports it), the iOS
    reference wallet, the OpenID Foundation conformance suite, and the registration-certificate (WRPRC) layer.
-8. **The test registration** (WRP id 179, legal person "HelixIAM interop test (non-production)", support URI
+8. **Sandbox RP header label.** The RP result screenshots show "realm master": that header label is static in
+   `helix-sandbox-rp/lib/ui.js`. The run itself used realm `refw`.
+9. **The test registration** (WRP id 179, legal person "HelixIAM interop test (non-production)", support URI
    `https://github.com/helixiam`) exists in the EU test registry until it is cleaned up there; the access certificate is
    for this test only and its key never left the test machine.
 
