@@ -3,6 +3,26 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.10`)
+
+- **EUDI Wallet: interop with the EU reference wallet (test only, no product change)** — the EU Digital Identity Wallet
+  reference app for Android (2026.10.43-Demo, released APK, `demo` flavour) signed in to HelixIAM on an Android 15
+  emulator with SD-JWT VC and mdoc PIDs from the EU test issuer `issuer.eudiw.dev`: same-device and cross-device, both
+  formats, all four pass with the defaults (`x509_hash`, `haip-vp://`, `direct_post.jwt`, revocation `HARD_FAIL`,
+  status list `FAIL_CLOSED`). The verifier's access certificate came from the EU Testing Relying Party Registration
+  service, because the released wallet only accepts verifiers on the reference implementation's WRPAC trusted list.
+  Deviations: the cross-device QR content was passed to the wallet by an Android intent rather than the camera;
+  `x509_san_dns` was not tested (the registrar's certificates have no dNSName); the wallet posts nothing when the user
+  declines, so the page waits for the transaction to expire. Record, steps and screenshots:
+  `docs/compliance/eudi-reference-wallet/README.md`; `docs/eudi-wallet.md` §10.
+- **tests (third-party DeviceAuth vector)** — four of those presentations, with the signed request objects, the
+  `direct_post.jwt` responses and the verifier's per-transaction decryption keys (copied by a test-only database
+  trigger), are test vectors under `wallet/vectors/eudi-reference-wallet/` (provenance in `SOURCES.md`).
+  `EudiReferenceWalletCaptureVectorTest` decrypts and verifies them offline with the production code: mdoc IssuerAuth,
+  MSO digests and DeviceAuth over the real OpenID4VP SessionTranscript, SD-JWT VC issuer signature, disclosures and
+  Key Binding JWT; DeviceAuth fails for any other `client_id`, `nonce`, `response_uri` or JWK thumbprint. This closes
+  the item `ROADMAP.md` listed as needed before the wallet's "Experimental" label can be lifted.
+
 ## v1.0.0-rc.10 (CodeQL follow-up to rc.9)
 
 Clears the CodeQL alerts raised by the rc.9 scan (`845fd29`). Details and the one dismissed alert are in

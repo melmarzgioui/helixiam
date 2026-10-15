@@ -396,24 +396,24 @@ reach; `OFF` only for testing. Providers stored before this change without a `re
   cross-device path and is planned for a later phase (see "Roadmap" in `ROADMAP.md`).
 - **Cross-device QR vs ARF guidance.** The spec this feature was built against requires cross-device QR support;
   separate EUDI ARF guidance (OIA_08c) recommends that conformant EU wallets *not* support redirect-based
-  cross-device flows at all. Both positions are documented, unresolved, and will be revisited once this is tested
-  against a real conformant EU wallet.
+  cross-device flows at all. The EU reference wallet (2026.10.43-Demo) does accept HelixIAM's cross-device request
+  (§10); whether national wallets will is still open.
 - **No trusted-list automation.** Trust anchors (`trustAnchors`) are PEM certificates you paste in yourself; there
   is no ETSI TS 119 612 trusted-list fetcher. Keep your configured anchors current manually.
 - **`deviceMac` is rejected outright** (`HOLDER_BINDING_INVALID`,
   `MdocPresentationVerifier.java:469-470`) — only `deviceSignature` (asymmetric holder binding) is accepted for
   mdoc. This is deliberate: MAC-based device authentication needs a reader key the redirect-based flow here has
   no way to establish (the spec notes call out why in their mdoc section), not an oversight.
-- **mdoc interop: one third-party check, no certified source.** Besides the in-repo test wallet, the mdoc decoding
-  path (StrictCbor, IssuerAuth COSE_Sign1 with its own `x5chain`, MSO, IssuerSignedItem digests) is checked against
-  DeviceResponses produced by the EU Digital Identity Wallet reference implementation (Apache-2.0; see
-  `helix-iam-server/src/test/resources/wallet/vectors/SOURCES.md`). Their DeviceAuth cannot be checked (their
-  SessionTranscript is not published), so the DeviceAuthentication construction is still covered only by the
-  OpenID4VP B.2.6.1 transcript vector and our own wallet. The ISO 18013-5 text was not read and its Annex D vectors are
-  not reproduced (ISO copyright). One reference credential carries a 31-byte device-key coordinate (a leading zero
-  octet dropped; RFC 9053 asks for the full length): a coordinate shorter than the curve's field is left-padded with
-  zero octets and accepted, as the same point, still checked to be on the curve; a longer or empty one is refused. A Phase 4 run against real wallets and issuers remains the real
-  interop test.
+- **mdoc and SD-JWT VC interop: checked against the EU reference wallet, no certified source.** Besides the in-repo
+  test wallet, presentations the EU Digital Identity Wallet reference app posted to this verifier on 2026-10-15 are
+  kept with their request objects and decryption keys and are verified offline on every build, mdoc DeviceAuth over
+  the real SessionTranscript included (§10). The mdoc decoding path is also checked against DeviceResponses published
+  in the EU reference verifier's tests (Apache-2.0; their DeviceAuth cannot be checked, their SessionTranscript is not
+  published). See `helix-iam-server/src/test/resources/wallet/vectors/SOURCES.md`. The ISO 18013-5 text was not read
+  and its Annex D vectors are not reproduced (ISO copyright). One published reference credential carries a 31-byte
+  device-key coordinate (a leading zero octet dropped; RFC 9053 asks for the full length): a coordinate shorter than
+  the curve's field is left-padded with zero octets and accepted, as the same point, still checked to be on the curve;
+  a longer or empty one is refused. No national wallet has been tested yet.
 - **Several realms in one browser.** The broker keeps its per-login state (state, browser binding, wallet
   transaction) per realm and alias, so logins in two realms that use the same alias (the console's default
   `eudi-wallet`) can run side by side in one browser.
@@ -447,3 +447,35 @@ wallet to an existing account) is the sandbox relying party's walkthrough:
 **[`helix-sandbox-rp/README.md`](../helix-sandbox-rp/README.md) § "EUDI Wallet (OpenID4VP) — experimental"**. It
 uses a throwaway, dev-only test wallet CLI (`TestWalletCli`) and a one-shot seed script
 (`e2e/wallet-demo/seed.sh`) — nothing in that walkthrough is suitable for production credentials or keys.
+
+## 10. Interop: the EU reference wallet
+
+Tested on 2026-10-15 against the EU Digital Identity Wallet reference app for Android (`eudi-app-android-wallet-ui`
+2026.10.43-Demo, released APK, `demo` flavour) on an Android 15 emulator, with PIDs from the EU reference test issuer
+(`issuer.eudiw.dev`). Full record, versions, steps and screenshots: `docs/compliance/eudi-reference-wallet/README.md`.
+
+| Flow | SD-JWT VC PID | mdoc PID |
+|---|---|---|
+| Same-device | Pass | Pass |
+| Cross-device (QR) | Pass (QR content handed to the wallet by an Android intent, not the camera) | Pass (same) |
+
+Every run used the defaults: `client_id` prefix `x509_hash`, invocation scheme `haip-vp://`, `direct_post.jwt`,
+issuer-certificate revocation `HARD_FAIL` and status list `FAIL_CLOSED`. No HelixIAM change was needed. What you need to
+know to repeat it:
+
+- **The wallet only talks to verifiers on the EU trusted list.** Its released builds check the request object's `x5c`
+  against the reference implementation's `WRPACProviders` list and have no switch to turn that off, so (per the app's
+  source; we did not try it) a self-made certificate is refused. The EU's **Testing Relying Party Registration** service
+  (`https://registry.serviceproviders.eudiw.dev`) issues test access certificates under that list; you authenticate to
+  it by presenting a test PID from the same wallet. Import the certificate's key and chain as the verifier key (§2.4).
+- **`x509_san_dns` needs a dNSName** in the access certificate. The test registrar's certificates have none, so use
+  `x509_hash` (the default) with them.
+- **Trust anchors:** the PID issuer CAs are in the reference implementation's `PIDProviders` list (the test issuer
+  signs with `PID Issuer CA - UT 02`).
+- **TLS:** the wallet trusts the device's system CAs only.
+- **Declining sends nothing.** When the user taps Cancel, the reference wallet posts no error response, so the
+  browser page waits until the transaction expires (`transactionTtlSeconds`).
+- **The captures are test vectors.** Four of the presentations (both formats, both flows) with their request objects
+  and the verifier's per-transaction decryption keys are in `helix-iam-server/src/test/resources/wallet/vectors/
+  eudi-reference-wallet/`; `EudiReferenceWalletCaptureVectorTest` verifies them offline with the production code,
+  including mdoc DeviceAuth over the real OpenID4VP SessionTranscript and the SD-JWT VC Key Binding JWT.

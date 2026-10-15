@@ -15,6 +15,10 @@
   "issuerCa": "C=UT,O=EUDI Wallet Reference Implementation,CN=PID Issuer CA - UT 02",
   "docType": "eu.europa.ec.eudi.pid.1",
   "sessionTranscriptHex": "83f6f682714f70656e494434565048616e646f7665725820cb8d70617230dc14a676e512cece7cd3b337fa1fc09376b7fe554687c132ea19",
+  "statusListReference": {
+    "idx": 743,
+    "uri": "https://issuer.eudiw.dev/token_status_list/FC/eu.europa.ec.eudi.pid.1/039f6ad7-5109-4ce9-b1dc-9e80ed3d0157"
+  },
   "expectedClaims": {
     "given_name": "Refw",
     "family_name": "Tester",

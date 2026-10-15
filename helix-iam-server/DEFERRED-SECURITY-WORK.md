@@ -259,8 +259,11 @@ Moved here from the lists above and from the final review's parked items; each l
   does not serve.
 - **DONE — recovery-codes page after a refused pending commit** (final re-review, parked minor):
   `MfaAuthController.processEnableMfaFactor` now shows the federation error and issues no codes.
-- **PARTLY DONE — third-party mdoc vector** (T6-c): IssuerAuth, MSO and digests are checked against EU reference wallet
-  DeviceResponses (Apache-2.0). Still open: a third-party DeviceAuth with its SessionTranscript (see `ROADMAP.md`).
+- **DONE — third-party mdoc vector** (T6-c): IssuerAuth, MSO and digests are checked against EU reference wallet
+  DeviceResponses (Apache-2.0), and since 2026-10-15 a third-party DeviceAuth with its SessionTranscript is too: the EU
+  reference wallet app's presentations to this verifier, with the request objects and decryption keys
+  (`wallet/vectors/eudi-reference-wallet/`, `EudiReferenceWalletCaptureVectorTest`,
+  `docs/compliance/eudi-reference-wallet/README.md`).
   Decided (maintainer ruling): a short device-key coordinate (one reference credential has a 31-byte `x`) is
   left-padded and accepted; longer or empty is refused, and the on-curve check is unchanged.
 

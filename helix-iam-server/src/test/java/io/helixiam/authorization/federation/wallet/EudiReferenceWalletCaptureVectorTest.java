@@ -181,6 +181,8 @@ class EudiReferenceWalletCaptureVectorTest {
                 .containsEntry("birth_date", "1990-01-01")
                 .containsEntry("personal_administrative_number", "REFW-TEST-0001")
                 .containsEntry("issuing_country", "FC");
+        final JsonNode ref = c.meta().get("statusListReference");
+        assertThat(statusRefs).containsExactly(new StatusReference(ref.get("idx").asInt(), ref.get("uri").asText()));
     }
 
     @ParameterizedTest
