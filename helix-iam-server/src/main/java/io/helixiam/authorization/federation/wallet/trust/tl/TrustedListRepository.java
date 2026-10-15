@@ -200,7 +200,7 @@ public class TrustedListRepository {
                 + "last_success_at = ?, list_issued_at = ?, next_update = ?, next_refresh_at = ?, sequence_number = ?, "
                 + "lists_read = ?, last_error = NULL, services_json = ?, services_mac = ?, list_of_lists = FALSE, "
                 + "version = version + 1, lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ? "
-                + "AND config_version = ? AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
+                + "AND config_version = ? AND (sequence_number IS NULL OR sequence_number <= ?)",
                 TrustedListHealth.Status.OK.name(), now, now, loaded.issuedAt().toEpochMilli(),
                 loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(),
                 servicesJson, servicesMac, id, owner, configVersion, loaded.sequence()));
@@ -228,7 +228,7 @@ public class TrustedListRepository {
                     + "sequence_number = ?, lists_read = ?, last_error = NULL, services_json = '[]', services_mac = ?, "
                     + "list_of_lists = TRUE, version = version + 1, lease_owner = NULL, lease_until = NULL "
                     + "WHERE id = ? AND lease_owner = ? AND config_version = ? "
-                    + "AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
+                    + "AND (sequence_number IS NULL OR sequence_number <= ?)",
                     TrustedListHealth.Status.OK.name(), now, now, loaded.issuedAt().toEpochMilli(),
                     loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(),
                     servicesMac, id, owner, configVersion, loaded.sequence());
@@ -327,19 +327,21 @@ public class TrustedListRepository {
     }
 
     /**
-     * Drops everything a source loaded (services, members, high-water marks, sequence, NextUpdate) so the next load
-     * starts afresh from the signed list; lease holder only, under the same settings.
+     * Drops the anchors a source loaded (its services and its members' services) so the next load reloads them from
+     * the signed list; lease holder only, under the same settings. The rollback floors stay: the top-level
+     * {@code sequence_number} and every high-water mark, whatever their MACs, so a key change or a tampered anchor
+     * row never opens a rollback window (a floor can only be raised by a verified load).
      */
     public boolean resetLoadedState(final String id, final String owner, final long configVersion) {
         final Boolean ok = tx.execute(s -> {
             final int n = jdbc.update("UPDATE trusted_list_source SET services_json = NULL, services_mac = NULL, "
-                    + "sequence_number = NULL, next_update = NULL, list_issued_at = NULL, lists_read = NULL, "
-                    + "list_of_lists = FALSE, version = version + 1 WHERE id = ? AND lease_owner = ? "
-                    + "AND config_version = ?", id, owner, configVersion);
+                    + "next_update = NULL, list_issued_at = NULL, lists_read = NULL, list_of_lists = FALSE, "
+                    + "version = version + 1 WHERE id = ? AND lease_owner = ? AND config_version = ?", id, owner,
+                    configVersion);
             if (n != 1) {
                 return false;
             }
-            resetMembers(true, id);
+            jdbc.update("DELETE FROM trusted_list_member WHERE source_id = ?", id);
             return true;
         });
         return Boolean.TRUE.equals(ok);

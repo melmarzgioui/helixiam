@@ -673,6 +673,11 @@ public class TrustedListService implements TrustedListAnchorSource {
                         + "protection, or DB_ENCRYPTION changed); check and save them again", detail);
                 return true;
             } else {
+                // a rollback floor whose MAC fails is kept as it is (it can only be raised by a verified load, which
+                // also re-MACs it): reported, never reset
+                if (repository.highWaterMarks(id).stream().anyMatch(h -> !hwmIntact(row.get(), h))) {
+                    reportTampering(source, "the rollback high-water marks");
+                }
                 final String broken = brokenLoadedState(source);
                 if (broken != null) {
                     if (!resetLoaded(source, owner, configVersion, "INTEGRITY_RESET", broken + " failed the "
@@ -739,9 +744,6 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
         if (members(source).stream().anyMatch(m -> !memberIntact(source, m))) {
             broken.add("the anchors of a member list");
-        }
-        if (repository.highWaterMarks(source.id()).stream().anyMatch(h -> !hwmIntact(source, h))) {
-            broken.add("the rollback high-water marks");
         }
         return broken.isEmpty() ? null : String.join(" and ", broken);
     }
@@ -899,17 +901,15 @@ public class TrustedListService implements TrustedListAnchorSource {
         } catch (final IllegalArgumentException e) {
             throw new IllegalStateException("stored signer certificates cannot be read");
         }
-        final boolean hadGood = source.state().servicesJson() != null;
+        // the rollback floors count whatever their MACs (a failed check never lowers a floor)
         final Map<String, Long> memberSequences = new java.util.HashMap<>();
         for (final TrustedListRepository.HighWaterMark h : repository.highWaterMarks(source.id())) {
-            if (hwmIntact(source, h)) {
-                memberSequences.merge(LoadedList.Member.highWaterKey(h.territory().isEmpty() ? null : h.territory(),
-                        h.tslType().isEmpty() ? null : h.tslType()), h.sequence(), Math::max);
-            }
+            memberSequences.merge(LoadedList.Member.highWaterKey(h.territory().isEmpty() ? null : h.territory(),
+                    h.tslType().isEmpty() ? null : h.tslType()), h.sequence(), Math::max);
         }
         return new TrustedListSpec(c.url(), c.format(), signers, Set.copyOf(c.serviceTypes()),
                 Set.copyOf(c.acceptedStatuses()), Set.copyOf(c.territories()),
-                hadGood ? source.state().sequenceNumber() : null, memberSequences);
+                source.state().sequenceNumber(), memberSequences);
     }
 
     private static Map<String, String> detail(final TrustedListSource source) {

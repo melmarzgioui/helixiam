@@ -759,20 +759,56 @@ class TrustedListServiceTest {
     }
 
     @Test
-    void tamperedHighWaterMarks_areRebuiltFromTheVerifiedList_andAudited() {
+    void anIntegrityReset_keepsTheMemberRollbackFloor() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer).withStatus(WITHDRAWN));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        // the stored anchors fail their check (say DB_ENCRYPTION changed): the next refresh resets and reloads...
+        sql("UPDATE trusted_list_member SET services_mac = NULL WHERE source_id = ?", created.id());
+        // ...while the network serves an older, validly signed NL list that still granted the issuer
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+
+        service.refreshNow(realm, created.id());
+
+        assertThat(audits).contains("TRUSTED_LIST_INTEGRITY_RESET:FAILURE");
+        assertThat(anchors(service)).isEmpty();
+        assertThat(member(created, "NL").lastError()).startsWith("ROLLBACK:");
+        assertThat(JDBC.queryForObject("SELECT sequence_number FROM trusted_list_hwm WHERE source_id = ?", Long.class,
+                created.id())).isEqualTo(9);
+    }
+
+    @Test
+    void anIntegrityReset_keepsTheTopLevelRollbackFloor() {
+        serve(listWith(9, Service.granted("Issuer", issuer).withStatus(WITHDRAWN)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        sql("UPDATE trusted_list_source SET services_mac = NULL WHERE id = ?", created.id());
+        serve(listWith(5, Service.granted("Issuer", issuer)));
+
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(after.state().lastError()).startsWith("ROLLBACK:");
+        assertThat(after.state().sequenceNumber()).isEqualTo(9);
+        assertThat(anchors(service)).isEmpty();
+    }
+
+    @Test
+    void aHighWaterMarkFailingItsCheck_isKept_audited_andReMacedByTheNextVerifiedLoad() {
         serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
         serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer));
         final TrustedListSource created = lotlSource();
         service.refreshNow(realm, created.id());
-        sql("UPDATE trusted_list_hwm SET sequence_number = 1 WHERE source_id = ?", created.id());
+        sql("UPDATE trusted_list_hwm SET mac = 'x' WHERE source_id = ?", created.id());
 
-        service.refreshNow(realm, created.id());
+        service.refreshNow(realm, created.id()); // NL still serves sequence 9: meets the floor
 
-        assertThat(JDBC.queryForObject("SELECT sequence_number FROM trusted_list_hwm WHERE source_id = ?", Long.class,
-                created.id())).isEqualTo(9);
-        assertThat(auditDetails.stream().filter(d -> "INTEGRITY_RESET".equals(d.get("reason")))).singleElement()
-                .satisfies(d -> assertThat(d.get("message")).contains("high-water"));
+        assertThat(auditDetails.stream().filter(d -> "INTEGRITY".equals(d.get("reason"))
+                && String.valueOf(d.get("message")).contains("high-water"))).hasSize(1);
+        assertThat(JDBC.queryForObject("SELECT mac FROM trusted_list_hwm WHERE source_id = ?", String.class,
+                created.id())).isNotEqualTo("x");
         assertThat(anchors(service)).containsExactly(nlIssuer);
+        assertThat(audits).doesNotContain("TRUSTED_LIST_INTEGRITY_RESET:FAILURE");
     }
 
     @Test
