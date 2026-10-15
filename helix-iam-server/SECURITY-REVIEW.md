@@ -721,3 +721,38 @@ connect / read errors, timeouts (DNS included), 5xx and unresolvable hosts are t
 **Latency.** Worst case per credential, all endpoints slow: about 25 s — 10 s for the issuer chain's revocation
 budget, 5 s for the status-list fetch, and 10 s for the revocation budget of the status-list signer's chain. Cached
 answers make the common case a few milliseconds.
+
+### B.11 Trusted lists (`EuTrustedListSource`): fetching and XML signature verification (2026-10-15)
+
+Internal self-review, not an independent audit. Scope: `io.helixiam.authorization.federation.wallet.trust.tl.*`,
+`TrustedListAdminController`, and the `trustedLists.*` path in `WalletIdentityProviders` / `WalletConfigValidator`.
+A trusted list is a **trust root input**: whoever can make HelixIAM accept a forged list can mint PIDs it trusts.
+
+**Assets.** The set of PID issuer anchors per realm; the pinned signer certificates; the availability of wallet
+sign-in.
+
+**Threats and mitigations.**
+
+| Threat | Mitigation | Test |
+|---|---|---|
+| Forged or modified list (network attacker, compromised host, malicious mirror) | Signature must verify with an **admin-pinned** signer certificate; the list's own `KeyInfo`/`x5c` is never trusted; for a LOTL each pointed-to list must verify with the signer **the verified LOTL** names for it | `TrustedListLoaderTest` tampered / added service / other signer / LOTL wrong signer |
+| XML signature wrapping (valid signature over one element, data read from another) | Exactly one `ds:Signature` in the document, a direct child of the root; a reference with the enveloped-signature transform must cover the whole document (`URI=""`) or the root by its `Id`; the list is then read from that same root; duplicate `Id` attributes refused | `signatureThatDoesNotCoverTheWholeList_isRefused`, `duplicateIds_areRefused` |
+| Reference tricks (external URIs, XPath/XSLT subsetting, weak algorithms) | Only same-document references; only enveloped-signature and canonicalization transforms; RSA/RSA-PSS/ECDSA with SHA-256/384/512; Santuario `secureValidation=true` (no MD5/SHA-1, bounded references/transforms) | rule in `XmlListSignature` |
+| XXE, entity expansion, XInclude, deep nesting, huge documents | JDK built-in parser with `disallow-doctype-decl`, no external entities/DTD/schema, XInclude off, secure processing, `jdk.xml.maxElementDepth` 64 plus an explicit depth walk, byte cap before parsing | `doctype_andExternalEntities…`, `billionLaughs…`, `xinclude…`, `deeplyNested…`, `oversized…` |
+| JWS (LoTE) tricks | `alg=none` cannot parse as JWS; algorithms allow-listed; `b64=false` and `sigD` (detached) refused; unknown `crit` refused except JAdES parameters that do not change the payload | `loteJson_unsignedOrAlgNone_isRefused`, `…signedByAnotherKey…` |
+| SSRF / DNS rebinding through the list URL or LOTL pointers | https only (also for pointers); `OutboundUrlGuard` on every URL; pinned connection to the checked address; no redirects (a 3xx is refused); 16 MB cap; 5 s connect / 30 s total including DNS; `WALLET` fetch-limiter slots per realm; at most 64 pointers per load | `PinnedTrustedListFetcherTest` |
+| Replay of an old, validly signed list (re-adds a withdrawn issuer) | `NextUpdate` must not have passed, a list without one (closed) is refused, and the sequence number may not go down | `nextUpdateInThePast…`, `closedList…`, `lowerSequenceNumber…`, `olderList_isRefusedAsRollback…` |
+| Withdrawn issuer still trusted | Only the **current** status counts (history ignored), only accepted statuses (`withdrawn`/`deprecated…` can never be configured), a status starting in the future does not count; anchors are read live at every verification | `withdrawnService…`, `TrustedListWalletE2eTest` |
+| Signer certificate compromised or long expired | The signer must have been valid at `ListIssueDateTime`; pinning is explicit (presets never fill a signer) | `signerCertificateNotValidWhenTheListWasIssued…` |
+| Denial of service by an unreachable or broken list | Fail safe: the last good anchors stay until NextUpdate plus a bounded grace (≤ 720 h), then fail closed; every failure is audited and logged; refresh runs off the request path | `TrustedListServiceTest` |
+| Two replicas racing, or a stale replica | Row lease (conditional update) so one replica refreshes; results written only by the lease holder; versions polled so replicas converge; anchors stored only after verification | `twoReplicas_refreshOnce_andBothConverge` |
+| Non-CA or weak keys on a list becoming anchors | Only certificates passing `TrustAnchors.trustAnchorProblem` (CA, `keyCertSign`, EC P-256/384/521 or RSA ≥ 2048) are used | `nonCaCertificateOnTheList_isNotAnAnchor…` |
+| Admin misuse / CSRF | `manage-identity-providers`, CSRF header on writes, server-side validation, admin audit | `TrustedListWalletE2eTest.settings_areValidated…` |
+| Log / audit injection | Names and realms through `LogSafe.sanitize`; exception messages are fixed strings, never parser output or list content | — |
+
+**Residual risks (also in `DEFERRED-SECURITY-WORK.md`).** No LOTL pivot chain: a publisher's signer rotation needs a
+manual re-pin (fails closed after grace, it never fails open). XAdES signed properties (signing time, signing
+certificate digest) are covered by the signature but not interpreted. The pinned signers are not checked for
+revocation. LoTE pointers are not followed. A list publisher can still list any CA it wants: pinning a publisher is
+trusting it for every issuer it lists — choose service types and territories narrowly.
+

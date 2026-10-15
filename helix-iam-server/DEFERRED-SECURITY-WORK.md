@@ -349,3 +349,24 @@ Ran the deeper SAML coverage ([`docs/security/PENTEST-REPORT-SAML-DEEP-2026-09-1
 - **DONE (dc24def) — review #9.** A realm import refuses an eID
   connection whose scheme or minimum level of assurance is unknown, with the admin API's field errors, instead of
   saving it and skipping it at load time.
+
+## EUDI Wallet: trusted lists (`EuTrustedListSource`, 2026-10-15) — open items
+
+Shipped: ETSI TS 119 612 XML and TS 119 602 LoTE JSON sources with pinned signers, fail-safe grace, lease-based
+refresh (see `SECURITY-REVIEW.md` Appendix B.11). Left, none of them a fail-open path:
+
+- **LOTL pivot chain / signer rotation.** The EU LOTL announces its signer certificates in the Official Journal and
+  in "pivot" LOTLs; HelixIAM only checks against the certificates an admin pinned. A rotation makes the list stop
+  verifying (FAILING → STALE → EXPIRED, audited) until the admin re-pins.
+- **XAdES qualifying properties not interpreted.** `SignedProperties` is covered by the signature, but its
+  `SigningTime` and `SigningCertificateV2` digest are not compared to the pinned signer; the signer's validity is
+  checked against `ListIssueDateTime` instead.
+- **No revocation check of the pinned signer certificates** (they are pinned explicitly; a revoked signer must be
+  removed by hand).
+- **LoTE pointers (`PointersToOtherLoTE`) are not followed**; plain-http pointers in a LOTL are refused (the EU LOTL
+  has one, for SK), which fails a load that includes that territory: choose territories.
+- **Realm export/import** does not carry trusted list sources; an imported wallet provider that names one is refused
+  until the source exists.
+- **The EUDI reference implementation's test LOTL signer expired on 2026-07-04** (valid when the current list was
+  issued, so it still verifies); its next issue must be re-pinned.
+

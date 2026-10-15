@@ -124,6 +124,26 @@ question. Newest first within each phase.
 - **tests** — `TokenStatusListClientTest.connectTimeoutIsThreeSeconds` no longer assumes `10.255.255.1` is
   unroutable. That address answers at once on some networks, which made the test fail there. It now connects to a
   loopback listener whose accept queue is full, and it still asserts the 3 s connect timeout.
+- **feature (EUDI Wallet, experimental): trust anchors from signed trusted lists (`EuTrustedListSource`).** A realm can
+  add trusted list sources (console: Federation → Trusted lists; API `/admin/realms/{realm}/trusted-lists`) and a
+  wallet provider can name them in `trustedLists.sources` (optionally narrowed by `trustedLists.serviceTypes`)
+  instead of, or as well as, pasted `trustAnchors`. Formats: ETSI TS 119 612 XML (a trusted list, or a list of
+  trusted lists followed one level with the signer it names per pointer) and ETSI TS 119 602 LoTE JSON (JWS), the two
+  formats the EU publishes for EUDI Wallet trust. Lists are fetched over the pinned transport (https, egress guard,
+  no redirects, 16 MB, 30 s), parsed without DOCTYPE/entities/XInclude, and their signature must verify with a pinned
+  signer certificate (Santuario secure validation, no wrapping, whole-list reference only). Only current services of
+  the configured types and statuses count; `NextUpdate`, closed lists and sequence-number rollback are enforced. One
+  replica refreshes under a row lease; the verified services are stored (Flyway **V81** `trusted_list_source`, also in
+  `schema.sql`) and every replica reloads them. A list that cannot be fetched or verified keeps the last good anchors
+  until its NextUpdate plus a per-source grace period (default 24 h), then fails closed. Audited as
+  `TRUSTED_LIST_REFRESHED|REFRESH_FAILED|STALE|EXPIRED` and `TRUSTED_LIST_CREATE|UPDATE|DELETE|REFRESH_REQUEST`.
+  Settings `helix.wallet.trusted-lists.*`. See `docs/eudi-wallet.md` §7.3 (including what is published today: the EUDI
+  reference implementation's test list, the Commission's acceptance LoTE of PID providers; no production list of PID
+  providers yet) and `helix-iam-server/SECURITY-REVIEW.md` Appendix B.11. Tests: `TrustedListLoaderTest`,
+  `PinnedTrustedListFetcherTest`, `TrustedListServiceTest` (PostgreSQL, two replicas), `TrustedListHealthTest`,
+  `TrustedListWalletE2eTest`; opt-in `PublishedTrustedListsManualTest` verified the three published lists.
+- **admin API:** `trustAnchors` on a wallet connection is no longer required when `trustedLists.sources` is set;
+  an unknown source name is a `400` on `config.trustedLists.sources`.
 
 ## v1.0.0-rc.10 (CodeQL follow-up to rc.9)
 
