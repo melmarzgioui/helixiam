@@ -59,4 +59,5 @@ resource "helix_wallet_identity_provider" "eudi_wallet" {
   # dcql_trusted_authorities = true
   # dc_api_enabled          = true # W3C Digital Credentials API, where the browser supports it
   # dc_api_expected_origins = ["https://login.example.eu"]
+  # trusted_lists           = ["eudi-pid-providers"] # realm trusted list sources (Federation → Trusted lists)
 }
