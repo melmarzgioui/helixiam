@@ -650,12 +650,95 @@ class WalletConfigValidatorTest {
                 base.customCredentialQueries(), base.trustAnchors(), base.revocationChecking(),
                 new WalletProviderConfig.StatusList(false, null, null, Arrays.asList((String) null)),
                 base.subject(), base.minimumLoa(), base.clockSkewSeconds(), base.allowLegacyVcSdJwtTyp(),
-                base.limits(), base.trustedAuthorities());
+                base.limits(), base.trustedAuthorities(), base.trustedLists());
         assertThat(production.validate(REALM, c))
                 .containsEntry("credentialFormats", "credentialFormats must not contain empty entries")
                 .containsEntry("pid.requestedClaims", "pid.requestedClaims must not contain empty entries")
                 .containsKey("pid.sdJwtVcts")
                 .containsKey("statusList.allowedHosts");
+    }
+
+    // ------------------------------------------------------------------ trusted lists (EuTrustedListSource)
+
+    /** A validator whose realm has the trusted list sources {@code names}. */
+    private WalletConfigValidator withLists(final String... names) {
+        final java.util.Set<String> known = java.util.Set.of(names);
+        return new WalletConfigValidator(keys, DeploymentProfile.production(),
+                new io.helixiam.authorization.federation.wallet.trust.tl.TrustedListAnchorSource() {
+                    @Override
+                    public List<X509Certificate> anchors(final String realm, final List<String> sources,
+                                                         final List<String> serviceTypes) {
+                        return List.of();
+                    }
+
+                    @Override
+                    public boolean exists(final String realm, final String name) {
+                        return REALM.equals(realm) && known.contains(name);
+                    }
+                });
+    }
+
+    @Test
+    void trustedListSources_replaceThePastedAnchors() {
+        final Map<String, String> m = valid();
+        m.remove("trustAnchors");
+        m.put("trustedLists.sources", "[\"eu-pid\"]");
+        m.put("trustedLists.serviceTypes", "[\"http://uri.etsi.org/Svc/Svctype/Provider/PID\"]");
+
+        assertThat(errors(withLists("eu-pid"), m)).isEmpty();
+    }
+
+    @Test
+    void pastedAnchorsAndTrustedLists_together_areValid() {
+        final Map<String, String> m = valid();
+        m.put("trustedLists.sources", "[\"eu-pid\"]");
+
+        assertThat(errors(withLists("eu-pid"), m)).isEmpty();
+    }
+
+    @Test
+    void neitherPastedAnchorsNorTrustedLists_isATrustAnchorsError() {
+        final Map<String, String> m = valid();
+        m.remove("trustAnchors");
+
+        assertThat(errors(withLists("eu-pid"), m)).containsKey("trustAnchors");
+    }
+
+    @Test
+    void unknownTrustedListSource_isAFieldError() {
+        final Map<String, String> m = valid();
+        m.put("trustedLists.sources", "[\"eu-pid\",\"nope\"]");
+
+        assertThat(errors(withLists("eu-pid"), m))
+                .containsEntry("trustedLists.sources", "trustedLists.sources names a trusted list this realm does not have: nope");
+    }
+
+    @Test
+    void malformedTrustedListSettings_areFieldErrors() {
+        final Map<String, String> m = valid();
+        m.put("trustedLists.sources", "[\"\",\"eu-pid\",\"eu-pid\"]");
+        m.put("trustedLists.serviceTypes", "[\"not a uri\"]");
+
+        assertThat(errors(withLists("eu-pid"), m)).containsKeys("trustedLists.sources", "trustedLists.serviceTypes");
+        final Map<String, String> notJson = valid();
+        notJson.put("trustedLists.sources", "eu-pid");
+        assertThat(production.validateStored(REALM, "eudi-wallet", null, notJson))
+                .containsEntry("trustedLists.sources", "trustedLists.sources must be a JSON array of strings");
+    }
+
+    @Test
+    void trustedListSettings_roundTripThroughTheStoredMap() {
+        final Map<String, String> m = valid();
+        m.put("trustedLists.sources", "[\"eu-pid\"]");
+        m.put("trustedLists.serviceTypes", "[\"http://uri.etsi.org/19602/SvcType/PID/Issuance\"]");
+
+        final WalletProviderConfig c = WalletProviderConfig.fromStored(m);
+        assertThat(c.trustedLists().sources()).containsExactly("eu-pid");
+        assertThat(c.trustedLists().serviceTypes()).containsExactly("http://uri.etsi.org/19602/SvcType/PID/Issuance");
+        assertThat(c.toStored()).containsEntry("trustedLists.sources", "[\"eu-pid\"]")
+                .containsEntry("trustedLists.serviceTypes", "[\"http://uri.etsi.org/19602/SvcType/PID/Issuance\"]");
+        assertThat(WalletProviderConfig.fromStored(valid()).toStored()).doesNotContainKeys("trustedLists.sources",
+                "trustedLists.serviceTypes");
     }
 
     // ------------------------------------------------------------------ helpers

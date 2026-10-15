@@ -20,14 +20,22 @@ import io.helixiam.authorization.service.key.RealmSigningKeys;
 import io.helixiam.authorization.service.key.SigningKeyHandle;
 import io.helixiam.authorization.service.key.SoftwareRealmSigningKeys;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListAnchorSource;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.security.cert.TrustAnchor;
+import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Builds {@link WalletIdentityProvider}s for {@code FederationProviderFactory}: the wallet collaborators (validator,
@@ -63,6 +71,8 @@ public class WalletIdentityProviders {
     private final IssuerRevocationClient revocation;
     /** Verified Token Status Lists, shared by every provider this factory builds (one byte budget). */
     private final StatusListCache statusCache;
+    /** Anchors from the realm's trusted list sources ({@code trustedLists.sources}); NONE without the service. */
+    private final TrustedListAnchorSource trustedLists;
 
     /** Default revocation settings ({@link IssuerRevocationClient.Settings#DEFAULTS}). */
     public WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
@@ -98,11 +108,13 @@ public class WalletIdentityProviders {
                                    final int statusCacheEntries,
                                    @Value("${helix.wallet.status-list.cache-max-bytes:"
                                            + StatusListCache.DEFAULT_MAX_BYTES + "}")
-                                   final long statusCacheBytes) {
+                                   final long statusCacheBytes,
+                                   final ObjectProvider<TrustedListAnchorSource> trustedLists) {
         this(validator, keys, transactions, guard, TokenStatusListClient.auditLogSink(auditLog), Clock.systemUTC(),
                 auditLog, new IssuerRevocationClient(guard,
                         new IssuerRevocationClient.Settings(maxCrlBytes, revocationCacheEntries, revocationCacheBytes),
-                        Clock.systemUTC()), new StatusListCache(statusCacheEntries, statusCacheBytes));
+                        Clock.systemUTC()), new StatusListCache(statusCacheEntries, statusCacheBytes),
+                trustedLists.getIfAvailable(() -> TrustedListAnchorSource.NONE));
     }
 
     WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
@@ -118,6 +130,16 @@ public class WalletIdentityProviders {
                             final TokenStatusListClient.AuditSink auditSink, final Clock clock,
                             final AuditLog auditLog, final IssuerRevocationClient revocation,
                             final StatusListCache statusCache) {
+        this(validator, keys, transactions, guard, auditSink, clock, auditLog, revocation, statusCache,
+                TrustedListAnchorSource.NONE);
+    }
+
+    WalletIdentityProviders(final WalletConfigValidator validator, final RealmSigningKeys keys,
+                            final WalletTransactionStore transactions, final OutboundUrlGuard guard,
+                            final TokenStatusListClient.AuditSink auditSink, final Clock clock,
+                            final AuditLog auditLog, final IssuerRevocationClient revocation,
+                            final StatusListCache statusCache, final TrustedListAnchorSource trustedLists) {
+        this.trustedLists = Objects.requireNonNull(trustedLists, "trustedLists");
         this.revocation = Objects.requireNonNull(revocation, "revocation");
         this.statusCache = Objects.requireNonNull(statusCache, "statusCache");
         this.validator = Objects.requireNonNull(validator, "validator");
@@ -127,6 +149,12 @@ public class WalletIdentityProviders {
         this.auditSink = Objects.requireNonNull(auditSink, "auditSink");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.auditLog = Objects.requireNonNull(auditLog, "auditLog");
+    }
+
+    /** The same factory reading trusted list anchors from {@code lists} (tests and wiring without Spring). */
+    public WalletIdentityProviders withTrustedLists(final TrustedListAnchorSource lists) {
+        return new WalletIdentityProviders(validator, keys, transactions, guard, auditSink, clock, auditLog, revocation,
+                statusCache, lists);
     }
 
     /**
@@ -156,7 +184,7 @@ public class WalletIdentityProviders {
             throw new IllegalArgumentException("Wallet provider '" + config.alias()
                     + "' is invalid: accessKeyRef: The key behind accessKeyRef cannot be used");
         }
-        final TrustAnchors anchors = TrustAnchors.fromPem(config.trustAnchors(), null, config.revocationChecking());
+        final Supplier<TrustAnchors> anchors = anchors(realmId, config);
         final StatusPolicy statusPolicy = config.statusList().toStatusPolicy();
         final IssuerTrustValidator trust = new IssuerTrustValidator(revocation);
         final TokenStatusListClient statusClient = new TokenStatusListClient(statusPolicy, trust, guard, auditSink,
@@ -175,6 +203,29 @@ public class WalletIdentityProviders {
         }
         return new WalletIdentityProvider(config, keyRealm, signingKey, anchors, statusPolicy, statusClient, verifiers,
                 transactions, clock, auditLog);
+    }
+
+    /**
+     * The provider's issuer trust: the pasted PEM anchors (fixed), plus, when {@code trustedLists.sources} is set, the
+     * realm's current trusted-list anchors read at every call, so a refresh, withdrawal or expiry applies at once.
+     */
+    private Supplier<TrustAnchors> anchors(final String realm, final WalletProviderConfig config) {
+        final boolean pasted = config.trustAnchors() != null && !config.trustAnchors().isBlank();
+        final TrustAnchors fixed = pasted ? TrustAnchors.fromPem(config.trustAnchors(), null,
+                config.revocationChecking()) : new TrustAnchors(Set.of(), List.of(), config.revocationChecking());
+        final WalletProviderConfig.TrustedLists lists = config.trustedLists();
+        if (lists.isEmpty()) {
+            return () -> fixed;
+        }
+        return () -> {
+            final Set<TrustAnchor> all = new LinkedHashSet<>(fixed.anchors());
+            for (final X509Certificate cert : trustedLists.anchors(realm, lists.sources(), lists.serviceTypes())) {
+                if (all.stream().noneMatch(a -> cert.equals(a.getTrustedCert()))) {
+                    all.add(new TrustAnchor(cert, null));
+                }
+            }
+            return new TrustAnchors(all, fixed.pinnedIntermediates(), fixed.revocation());
+        };
     }
 
     /**

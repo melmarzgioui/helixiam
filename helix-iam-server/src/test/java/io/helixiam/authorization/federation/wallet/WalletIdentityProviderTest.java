@@ -23,6 +23,7 @@ import io.helixiam.authorization.federation.spi.IdpMetadata;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
 import io.helixiam.authorization.federation.wallet.testwallet.TestAccessKeys;
 import io.helixiam.authorization.federation.wallet.testwallet.TestPki;
+import io.helixiam.authorization.federation.wallet.trust.TrustAnchors;
 import io.helixiam.authorization.federation.wallet.transaction.InMemoryWalletTransactionStore;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransaction;
 import io.helixiam.authorization.federation.wallet.transaction.WalletTransactionStore;
@@ -618,6 +619,49 @@ class WalletIdentityProviderTest {
     }
 
     /** Resolves {@link #KEY_REF} in {@link #REALM} to the given leaves in turn (the last one repeats). */
+    // ------------------------------------------------------------------------------------------------ trusted lists
+
+    @Test
+    void trustedListAnchors_areReadLive_andAddedToThePastedOnes() {
+        final List<java.security.cert.X509Certificate> listed = new java.util.concurrent.CopyOnWriteArrayList<>();
+        final io.helixiam.authorization.federation.wallet.trust.tl.TrustedListAnchorSource lists =
+                new io.helixiam.authorization.federation.wallet.trust.tl.TrustedListAnchorSource() {
+                    @Override
+                    public List<java.security.cert.X509Certificate> anchors(final String realm,
+                            final List<String> sources, final List<String> serviceTypes) {
+                        return REALM.equals(realm) && sources.equals(List.of("eu-pid"))
+                                && serviceTypes.equals(List.of("urn:type:pid")) ? List.copyOf(listed) : List.of();
+                    }
+
+                    @Override
+                    public boolean exists(final String realm, final String name) {
+                        return "eu-pid".equals(name);
+                    }
+                };
+        final WalletIdentityProviders factory = providers(keys, DeploymentProfile.production()).withTrustedLists(lists);
+        final Map<String, String> m = valid();
+        m.remove("trustAnchors");
+        m.put("trustedLists.sources", "[\"eu-pid\"]");
+        m.put("trustedLists.serviceTypes", "[\"urn:type:pid\"]");
+        m.put("revocationChecking", "SOFT_FAIL");
+
+        final WalletIdentityProvider listOnly = factory.build(REALM, config(m));
+        assertThat(listOnly.trustAnchors().anchors()).as("nothing listed yet: fails closed").isEmpty();
+        listed.add(ISSUERS.root());
+        assertThat(listOnly.trustAnchors().anchors()).extracting(java.security.cert.TrustAnchor::getTrustedCert)
+                .containsExactly(ISSUERS.root());
+        assertThat(listOnly.trustAnchors().revocation()).isEqualTo(TrustAnchors.RevocationMode.SOFT_FAIL);
+
+        final TestPki pasted = TestPki.create("Pasted PID Provider");
+        m.put("trustAnchors", pasted.rootPem());
+        final WalletIdentityProvider both = factory.build(REALM, config(m));
+        assertThat(both.trustAnchors().anchors()).extracting(java.security.cert.TrustAnchor::getTrustedCert)
+                .containsExactlyInAnyOrder(ISSUERS.root(), pasted.root());
+        listed.clear();
+        assertThat(both.trustAnchors().anchors()).extracting(java.security.cert.TrustAnchor::getTrustedCert)
+                .containsExactly(pasted.root());
+    }
+
     private static final class FakeKeys implements RealmSigningKeys {
         private final Deque<TestPki.Leaf> leaves;
         private final AtomicInteger resolves = new AtomicInteger();
