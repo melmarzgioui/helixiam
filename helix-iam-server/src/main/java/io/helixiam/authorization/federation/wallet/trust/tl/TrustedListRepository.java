@@ -23,7 +23,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * {@code trusted_list_source} over plain JDBC. Every write commits in its own transaction (the pool runs with
+ * {@code trusted_list_source} over plain JDBC. Lock order in every transaction: the source row, then its members,
+ * then its high-water marks. Every write commits in its own transaction (the pool runs with
  * auto-commit off) and bumps {@code version}, which {@link TrustedListService#sync} compares to reload what moved.
  * Refresh results are written only by the lease holder ({@link #tryLease}, a conditional update, so exactly one
  * replica refreshes a source at a time).
@@ -126,7 +127,8 @@ public class TrustedListRepository {
     public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
                                 final boolean resetState, final long now, final String settingsMac,
                                 final long expectedConfigVersion) {
-        return updateConfig(realmId, id, c, resetState, now, settingsMac, expectedConfigVersion, locked -> null);
+        return updateConfig(realmId, id, c, resetState, resetState, now, settingsMac, expectedConfigVersion,
+                locked -> null);
     }
 
     /**
@@ -134,13 +136,21 @@ public class TrustedListRepository {
      * high-water marks are locked first ({@code FOR UPDATE}) and {@code rebind} computes the new MACs from those
      * locked rows, so a refresh that committed after the caller's read can never be left with stale MACs.
      */
+    /**
+     * As {@link #updateConfig(String, String, TrustedListSource.Config, boolean, long, String, long)}.
+     *
+     * @param resetState  drop the loaded anchors and member state (the list or its filter changed)
+     * @param resetFloors also drop the rollback floors: the top-level sequence number and the high-water marks (only
+     *                    when the URL or format changed, i.e. another list altogether)
+     */
     public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
-                                final boolean resetState, final long now, final String settingsMac,
-                                final long expectedConfigVersion,
+                                final boolean resetState, final boolean resetFloors, final long now,
+                                final String settingsMac, final long expectedConfigVersion,
                                 final java.util.function.Function<Locked, Rebind> rebind) {
         final String reset = resetState ? ", status = 'NEVER', last_attempt_at = NULL, last_success_at = NULL, "
-                + "list_issued_at = NULL, next_update = NULL, next_refresh_at = NULL, sequence_number = NULL, "
-                + "lists_read = NULL, last_error = NULL, services_json = NULL, services_mac = NULL, list_of_lists = FALSE"
+                + "list_issued_at = NULL, next_update = NULL, next_refresh_at = NULL, lists_read = NULL, "
+                + "last_error = NULL, services_json = NULL, services_mac = NULL, list_of_lists = FALSE"
+                + (resetFloors ? ", sequence_number = NULL" : "")
                 : "";
         final Boolean ok = tx.execute(s -> {
             final List<TrustedListSource> rows = jdbc.query("SELECT " + COLUMNS + " FROM trusted_list_source "
@@ -148,7 +158,7 @@ public class TrustedListRepository {
             if (rows.isEmpty() || rows.get(0).state().configVersion() != expectedConfigVersion) {
                 return false;
             }
-            final Rebind newMacs = resetState ? null : rebind.apply(new Locked(rows.get(0),
+            final Rebind newMacs = rebind.apply(new Locked(rows.get(0),
                     jdbc.query("SELECT " + MEMBER_COLUMNS + " FROM trusted_list_member WHERE source_id = ? FOR UPDATE",
                             MEMBER_MAPPER, id),
                     jdbc.query("SELECT territory, tsl_type, sequence_number, mac FROM trusted_list_hwm "
@@ -165,10 +175,18 @@ public class TrustedListRepository {
             if (n != 1) {
                 return false;
             }
-            resetMembers(resetState, id);
+            if (resetState) {
+                jdbc.update("DELETE FROM trusted_list_member WHERE source_id = ?", id);
+                if (resetFloors) {
+                    jdbc.update("DELETE FROM trusted_list_hwm WHERE source_id = ?", id);
+                }
+            }
             if (newMacs != null) {
                 final Rebind rebindMacs = newMacs;
-                jdbc.update("UPDATE trusted_list_source SET services_mac = ? WHERE id = ?", rebindMacs.servicesMac(), id);
+                if (!resetState) {
+                    jdbc.update("UPDATE trusted_list_source SET services_mac = ? WHERE id = ?",
+                            rebindMacs.servicesMac(), id);
+                }
                 rebindMacs.memberMacs().forEach((key, mac) -> jdbc.update("UPDATE trusted_list_member SET services_mac = ? "
                         + "WHERE source_id = ? AND member_key = ?", mac, id, key));
                 rebindMacs.hwmMacs().forEach((h, mac) -> jdbc.update("UPDATE trusted_list_hwm SET mac = ? WHERE "
@@ -329,6 +347,9 @@ public class TrustedListRepository {
     public boolean transitionMember(final String sourceId, final String key, final String status,
                                     final long expectedVersion, final long now) {
         final Boolean ok = tx.execute(s -> {
+            // lock order: the source row first, then its members (as every other write does), so this cannot
+            // deadlock with a settings save
+            jdbc.queryForList("SELECT id FROM trusted_list_source WHERE id = ? FOR UPDATE", sourceId);
             final int n = jdbc.update("UPDATE trusted_list_member SET status = ?, version = version + 1 "
                     + "WHERE source_id = ? AND member_key = ? AND status <> ? AND version = ?", status, sourceId, key,
                     status, expectedVersion);
@@ -339,14 +360,6 @@ public class TrustedListRepository {
             return n == 1;
         });
         return Boolean.TRUE.equals(ok);
-    }
-
-    private int resetMembers(final boolean reset, final String id) {
-        if (reset) {
-            jdbc.update("DELETE FROM trusted_list_member WHERE source_id = ?", id);
-            jdbc.update("DELETE FROM trusted_list_hwm WHERE source_id = ?", id);
-        }
-        return 0;
     }
 
     /**

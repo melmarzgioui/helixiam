@@ -1116,4 +1116,94 @@ class TrustedListServiceTest {
         assertThat(anchors(service)).containsExactlyInAnyOrder(issuer, second);
         assertThat(now.config().graceHours()).isEqualTo(48);
     }
+
+    @Test
+    void aMemberTransition_locksTheSourceFirst_soItCannotDeadlockWithASettingsSave() throws Exception {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        final TrustedListRepository repo = new TrustedListRepository(JDBC, TRANSACTIONS);
+        final TrustedListSource.Member nl = repo.members(created.id()).get(0);
+        final CountDownLatch sourceLocked = new CountDownLatch(1);
+        final CountDownLatch transitionStarted = new CountDownLatch(1);
+        final ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // a settings save: source row first, then the member rows (as updateConfig does)
+            final Future<?> save = pool.submit(() -> new org.springframework.transaction.support.TransactionTemplate(
+                    TRANSACTIONS).executeWithoutResult(t -> {
+                        JDBC.queryForList("SELECT id FROM trusted_list_source WHERE id = ? FOR UPDATE", created.id());
+                        sourceLocked.countDown();
+                        try {
+                            transitionStarted.await(10, TimeUnit.SECONDS);
+                            Thread.sleep(300); // let the transition reach its first lock
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        JDBC.queryForList("SELECT member_key FROM trusted_list_member WHERE source_id = ? FOR UPDATE",
+                                created.id());
+                    }));
+            assertThat(sourceLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            final Future<Boolean> transition = pool.submit(() -> {
+                transitionStarted.countDown();
+                return repo.transitionMember(created.id(), nl.key(), "STALE", nl.version(), clock.millis());
+            });
+
+            save.get(20, TimeUnit.SECONDS); // a deadlock (40P01) would fail one of the two
+            assertThat(transition.get(20, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void aFilterOnlyEdit_keepsTheRollbackFloor_soAnOlderListIsStillRefused() {
+        serve(listWith(9, Service.granted("Issuer", issuer).withStatus(WITHDRAWN)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        // the admin narrows nothing really, but changes a filter (accepted statuses): the anchors are reloaded...
+        service.update(realm, created.id(), new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
+                List.of(TrustedListFixtures.GRANTED), List.of(), 24, true), cv(created));
+        // ...but an older signed list that still granted the issuer is refused
+        serve(listWith(5, Service.granted("Issuer", issuer)));
+
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(after.state().lastError()).startsWith("ROLLBACK:");
+        assertThat(anchors(service)).isEmpty();
+    }
+
+    @Test
+    void aFilterOnlyEdit_keepsTheMemberHighWaterMarks() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer).withStatus(WITHDRAWN));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        service.update(realm, created.id(), new TrustedListSource.Config("ut", LOTL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(lotlSigner.certificate()), List.of(PID_TYPE),
+                List.of(), List.of("NL"), 24, true), cv(created)); // territories filter
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+
+        service.refreshNow(realm, created.id());
+
+        assertThat(anchors(service)).isEmpty();
+        assertThat(member(created, "NL").lastError()).startsWith("ROLLBACK:");
+        assertThat(audits).noneMatch(a -> a.startsWith("TRUSTED_LIST_INTEGRITY_FAILED")); // marks re-bound
+    }
+
+    @Test
+    void aNewUrl_startsWithoutFloors() {
+        serve(listWith(9, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        final String other = "https://tl.example/other.xml";
+        service.update(realm, created.id(), new TrustedListSource.Config("ut", other,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
+                List.of(), List.of(), 24, true), cv(created));
+        served.put(other, TrustedListFixtures.signedXml(listWith(2, Service.granted("Issuer", issuer)), signer));
+
+        assertThat(service.refreshNow(realm, created.id()).orElseThrow().state().lastError()).isNull();
+        assertThat(anchors(service)).containsExactly(issuer);
+    }
 }

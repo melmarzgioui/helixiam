@@ -296,9 +296,18 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
         requireIntegrity();
         final boolean reset = !existing.get().config().sameList(c);
-        if (!repository.updateConfig(realmId, id, c, reset, clock.millis(),
-                settingsMac(id, realmId, c, expectedConfigVersion + 1), expectedConfigVersion,
-                locked -> rebind(locked, expectedConfigVersion + 1))) {
+        // the rollback floors survive any edit but a new URL or format (another list altogether)
+        final boolean resetFloors = !existing.get().config().url().equals(c.url())
+                || existing.get().config().format() != c.format();
+        final boolean saved;
+        try {
+            saved = repository.updateConfig(realmId, id, c, reset, resetFloors, clock.millis(),
+                    settingsMac(id, realmId, c, expectedConfigVersion + 1), expectedConfigVersion,
+                    locked -> rebind(locked, expectedConfigVersion + 1, reset));
+        } catch (final org.springframework.dao.PessimisticLockingFailureException e) {
+            throw new ConcurrentUpdateException(); // backstop: a lock conflict is a 409, never a 500
+        }
+        if (!saved) {
             throw new ConcurrentUpdateException();
         }
         sync();
@@ -390,16 +399,19 @@ public class TrustedListService implements TrustedListAnchorSource {
      * to {@code newConfigVersion}, when they verify under the current one (a settings change that keeps them); null otherwise (they stay unverifiable: the next refresh
      * reloads them).
      */
-    private TrustedListRepository.Rebind rebind(final TrustedListRepository.Locked locked, final long newConfigVersion) {
+    private TrustedListRepository.Rebind rebind(final TrustedListRepository.Locked locked, final long newConfigVersion,
+                                                final boolean anchorsReset) {
         final TrustedListSource s = locked.source();
-        if (!integrity.enabled() || !servicesIntact(s)) {
+        if (!integrity.enabled()) {
             return null;
         }
         final TrustedListSource.State st = s.state();
-        final String sourceMac = st.servicesJson() == null ? null : servicesMac(s.id(), newConfigVersion,
-                st.servicesJson(), st.sequenceNumber(), st.nextUpdate(), st.listOfLists());
+        // anchors that are reset get no MAC; anchors that stay get one only when they still verify
+        final boolean keepAnchors = !anchorsReset && servicesIntact(s);
+        final String sourceMac = !keepAnchors || st.servicesJson() == null ? null : servicesMac(s.id(),
+                newConfigVersion, st.servicesJson(), st.sequenceNumber(), st.nextUpdate(), st.listOfLists());
         final Map<String, String> members = new LinkedHashMap<>();
-        for (final TrustedListSource.Member m : locked.members()) {
+        for (final TrustedListSource.Member m : keepAnchors ? locked.members() : List.<TrustedListSource.Member>of()) {
             if (m.servicesJson() != null && memberIntact(s, m)) {
                 members.put(m.key(), memberMac(s.id(), newConfigVersion, m.key(), m.territory(), m.servicesJson(),
                         m.sequenceNumber(), m.nextUpdate()));
