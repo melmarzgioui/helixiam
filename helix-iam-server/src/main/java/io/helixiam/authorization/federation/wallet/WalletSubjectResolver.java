@@ -66,8 +66,9 @@ import java.util.regex.Pattern;
  * {@code WalletProviderConfig.Subject} and in docs/eudi-wallet-spec-notes.md). The tuple is a link key only (see
  * {@link WalletLinkService}): it never creates an account and is never matched against names or email.
  *
- * <p>Strategy {@code NONE} (verify-only step-up) is out of this plan:
- * {@link WalletSubject.Reason#STRATEGY_NOT_SUPPORTED}.
+ * <p>Strategy {@code NONE} (verify-only step-up) resolves no subject of its own
+ * ({@link WalletSubject.Reason#STRATEGY_NOT_SUPPORTED}): a verify-only connection binds the wallet with its LINKED login
+ * connection's settings ({@code WalletResponseHandler}, docs/superpowers/specs/2026-10-15-wallet-verify-only-design.md).
  *
  * <h2>Pepper and logging</h2>
  * The pepper is the realm's 256-bit secret from {@link RealmWalletPepper}, fetched only when a subject is actually

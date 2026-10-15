@@ -53,7 +53,7 @@ public sealed interface WalletSubject {
         /** No administrative number, and the provider does not accept the weak attribute-tuple link fallback
          *  ({@code subject.acknowledgeWeakSubject=false}). */
         WEAK_SUBJECT_NOT_ACKNOWLEDGED,
-        /** The provider's subject strategy is not implemented ({@code NONE}, verify-only step-up). */
+        /** The provider resolves no subject of its own ({@code NONE}, verify-only: it never signs in or links). */
         STRATEGY_NOT_SUPPORTED,
         /** No administrative number, and the PID lacks a configured tuple field (names, birth date, issuing
          *  country, and a place-of-birth object with at least one part when configured). */

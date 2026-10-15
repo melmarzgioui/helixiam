@@ -155,3 +155,15 @@ failures. New `WalletErrorCode.BINDING_MISMATCH`.
 - **D11 — the step's `acr` replaces the login's** only when the step succeeds; a failed/abandoned step leaves no
   `acr` (it lives on the flow state until completion, like the federated `pendingAcr`).
 - **D12 — nothing persisted** (session + authorization lifetime only).
+- **D13 — no new switch for the flow engine.** A password-first login runs flow steps only with
+  `helix.flow-engine.enabled=true` (pre-existing default off); a federated first factor always runs them. Documented,
+  not changed (changing the default is a separate, realm-wide decision). The e2e test uses the federated first factor.
+- **D14 — the YAML names follow the record** (`subject.linkedProvider`, `subject.releasedClaims`); the stored keys are
+  `verify.*` as above (the record component lives on `Subject` to keep the positional `WalletProviderConfig`
+  constructor stable).
+
+## 11. Found while implementing
+
+- `/flow` redirects were realm-prefixed twice (`/realms/<r>/realms/<r>/flow`, 403) — redirects are now context-relative.
+- A flow step that failed and then challenged again (retry) failed the whole flow; the engine now clears the step's
+  earlier failure when it asks again.
