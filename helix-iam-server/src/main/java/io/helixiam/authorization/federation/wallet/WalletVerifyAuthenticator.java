@@ -187,10 +187,9 @@ public class WalletVerifyAuthenticator implements Authenticator {
             return;
         }
         context.assertLevelOfAssurance(v.levelOfAssurance());
-        final boolean release = !v.claims().isEmpty() && completesAnAuthorizationRequest();
-        if (release) {
-            context.releaseVerifiedClaims(verifiedClaimsJson(v));
-        }
+        final Optional<String> pinned = v.claims().isEmpty() ? Optional.empty() : pendingRelease(v);
+        final boolean release = pinned.isPresent();
+        pinned.ifPresent(context::releaseVerifiedClaims);
         audit.emit(WalletVerifyAudit.success(context.realmId(), context.userId(), redeemed.transactionId(), alias,
                 v.format(), v.issuerDn(), release ? v.claims().keySet() : List.of()));
         LOG.info("wallet verify: verified, realm={} alias={} user={} tx={} released={}",
@@ -257,10 +256,29 @@ public class WalletVerifyAuthenticator implements Authenticator {
         return provider;
     }
 
-    /** Released only when this login completes an authorization request (D6: to that request's code only). */
-    private static boolean completesAnAuthorizationRequest() {
+    /**
+     * The release, pinned to the authorization request this login completes (security review items 1 and 7): only when
+     * one is pending and it asks for the {@code verified_claims} scope; bound later to that request's code only
+     * ({@link io.helixiam.authorization.security.session.PendingVerifiedClaims}), within its TTL.
+     */
+    private Optional<String> pendingRelease(final VerifiedIdentityJson.Verification v) {
         final HttpServletRequest request = request();
-        return request != null && InFlightClientResolver.pendingAuthorizeUrl(request).isPresent();
+        if (request == null || InFlightClientResolver.pendingAuthorizeUrl(request).isEmpty()) {
+            return Optional.empty();
+        }
+        final String clientId = InFlightClientResolver.pendingAuthorizeParameter(request, "client_id").orElse(null);
+        final String scope = InFlightClientResolver.pendingAuthorizeParameter(request, "scope").orElse("");
+        if (clientId == null || !java.util.Arrays.asList(scope.trim().split("\\s+")).contains(
+                io.helixiam.authorization.security.session.SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_SCOPE)) {
+            return Optional.empty();
+        }
+        final String hash = io.helixiam.authorization.security.session.PendingVerifiedClaims.requestHash(clientId,
+                InFlightClientResolver.pendingAuthorizeParameter(request, "state").orElse(null),
+                InFlightClientResolver.pendingAuthorizeParameter(request, "nonce").orElse(null),
+                InFlightClientResolver.pendingAuthorizeParameter(request, "redirect_uri").orElse(null));
+        return Optional.of(io.helixiam.authorization.security.session.PendingVerifiedClaims.wrap(verifiedClaimsJson(v),
+                clientId, hash, Instant.now(clock).plusSeconds(
+                        io.helixiam.authorization.security.session.PendingVerifiedClaims.TTL_SECONDS)));
     }
 
     /** OIDC for Identity Assurance-style {@code verified_claims} (design D6). */

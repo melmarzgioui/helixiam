@@ -55,7 +55,10 @@ public final class IdTokenSessionClaims {
             }
         });
         final Object verified = authorization.getAttribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE);
-        if (verified instanceof String json && !json.isBlank()) {
+        if (verified instanceof String json && !json.isBlank()
+                && org.springframework.security.oauth2.core.AuthorizationGrantType.AUTHORIZATION_CODE
+                        .equals(context.getAuthorizationGrantType())) {
+            // Security review item 2: the code exchange's ID token only, never a refresh's.
             final java.util.Map<String, Object> object = verifiedClaims(json);
             if (object != null) {
                 context.getClaims().claims(claims -> claims.put(VERIFIED_CLAIMS, object));

@@ -124,4 +124,19 @@ class IdTokenAcrClaimTest {
         IdTokenSessionClaims.apply(none);
         assertThat(none.getClaims().build().<Object>getClaim(IdTokenSessionClaims.VERIFIED_CLAIMS)).isNull();
     }
+
+    @Test
+    void aRefreshGrantIdToken_neverCarriesVerifiedClaims() {
+        final OAuth2Authorization authorization = OAuth2Authorization.from(authorization(null))
+                .attribute(SsoSessionBindingAuthorizationService.VERIFIED_CLAIMS_ATTRIBUTE, "{\"claims\":{}}").build();
+        final JwtEncodingContext refresh = JwtEncodingContext.with(JwsHeader.with(() -> "RS256"),
+                        JwtClaimsSet.builder().subject("user-1").issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(60)))
+                .registeredClient(client()).authorization(authorization)
+                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+                .tokenType(new OAuth2TokenType("id_token")).build();
+
+        IdTokenSessionClaims.apply(refresh);
+
+        assertThat(refresh.getClaims().build().<Object>getClaim(IdTokenSessionClaims.VERIFIED_CLAIMS)).isNull();
+    }
 }

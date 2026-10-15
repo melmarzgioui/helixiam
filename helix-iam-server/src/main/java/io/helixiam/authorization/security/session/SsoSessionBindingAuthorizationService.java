@@ -58,8 +58,17 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
 
     @Override
     public void remove(final OAuth2Authorization authorization) {
+        // Security review item 1: an authorization removed in the browser (consent denied) ends any pending release.
+        final HttpServletRequest request = currentRequest();
+        final jakarta.servlet.http.HttpSession session = request == null ? null : request.getSession(false);
+        if (session != null) {
+            session.removeAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE);
+        }
         delegate.remove(authorization);
     }
+
+    /** The scope a client must request for the verify-only wallet step's {@code verified_claims} (review item 7). */
+    public static final String VERIFIED_CLAIMS_SCOPE = "verified_claims";
 
     @Override
     public OAuth2Authorization findById(final String id) {
@@ -109,6 +118,13 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
     }
 
     private OAuth2Authorization bindToSession(final OAuth2Authorization authorization) {
+        if (authorization != null && authorization.getAccessToken() != null
+                && authorization.getAttribute(VERIFIED_CLAIMS_ATTRIBUTE) != null) {
+            // Security review item 2: the claims are for the code exchange's ID token only; the stored authorization
+            // (refreshes included) never keeps them.
+            return OAuth2Authorization.from(authorization)
+                    .attributes(attributes -> attributes.remove(VERIFIED_CLAIMS_ATTRIBUTE)).build();
+        }
         if (authorization == null
                 || authorization.getToken(OAuth2AuthorizationCode.class) == null
                 || authorization.getAccessToken() != null
@@ -125,9 +141,7 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
         final String acr = existingSession != null
                 && existingSession.getAttribute(AuthTimeStamper.ACR_SESSION_ATTRIBUTE) instanceof String value
                 && !value.isBlank() ? value : null;
-        final String verifiedClaims = existingSession != null
-                && existingSession.getAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE) instanceof String v
-                && !v.isBlank() ? v : null;
+        final String verifiedClaims = verifiedClaimsFor(authorization, existingSession);
         if (sid == null && authTime == null && acr == null && verifiedClaims == null) {
             return authorization;
         }
@@ -150,9 +164,34 @@ public class SsoSessionBindingAuthorizationService implements OAuth2Authorizatio
             // Verify-only wallet step (design D6): the released claims go to THIS code only — the authorization
             // request the step-up completed — never to a later code of another client in the same SSO session.
             builder.attribute(VERIFIED_CLAIMS_ATTRIBUTE, verifiedClaims);
-            existingSession.removeAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE);
         }
         return builder.build();
+    }
+
+    /**
+     * Security review items 1 and 7: the pending {@code verified_claims} of the session, consumed by this code: bound
+     * only when it was released for exactly this authorization request (client and request hash), has not expired and
+     * the client was granted the {@value #VERIFIED_CLAIMS_SCOPE} scope; dropped in every case.
+     */
+    private static String verifiedClaimsFor(final OAuth2Authorization authorization,
+                                            final jakarta.servlet.http.HttpSession session) {
+        if (session == null
+                || !(session.getAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE) instanceof String pending)) {
+            return null;
+        }
+        session.removeAttribute(AuthTimeStamper.VERIFIED_CLAIMS_SESSION_ATTRIBUTE);
+        final Object raw = authorization.getAttribute(
+                org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest.class.getName());
+        if (!(raw instanceof org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest request)
+                || authorization.getAuthorizedScopes() == null
+                || !authorization.getAuthorizedScopes().contains(VERIFIED_CLAIMS_SCOPE)) {
+            return null;
+        }
+        final Object nonce = request.getAdditionalParameters().get("nonce");
+        final String hash = PendingVerifiedClaims.requestHash(request.getClientId(), request.getState(),
+                nonce instanceof String n ? n : null, request.getRedirectUri());
+        return PendingVerifiedClaims.claimsFor(pending, request.getClientId(), hash, java.time.Instant.now())
+                .orElse(null);
     }
 
     private static HttpServletRequest currentRequest() {
