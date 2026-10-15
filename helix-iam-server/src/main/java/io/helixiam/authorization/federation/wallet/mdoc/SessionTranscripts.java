@@ -88,6 +88,57 @@ public final class SessionTranscripts {
     }
 
     /**
+     * The SessionTranscript of an OpenID4VP request over the W3C Digital Credentials API (OpenID4VP 1.0 Appendix
+     * B.2.6.2): {@code [null, null, ["OpenID4VPDCAPIHandover", bstr SHA-256(CBOR([origin, nonce, jwkThumbprint /
+     * null]))]]}. Matches the Appendix B.2.6.2 example byte for byte.
+     *
+     * @param origin              the web Origin the response is bound to, <em>without</em> the {@code origin:} prefix
+     *                            (the verifier's own expected origin, never a value taken from the response)
+     * @param nonce               the request {@code nonce}
+     * @param jwkThumbprintOrNull the raw RFC 7638 SHA-256 thumbprint of the response encryption key for
+     *                            {@code dc_api.jwt}, or null for {@code dc_api}
+     * @throws IllegalArgumentException when {@code origin} carries the {@code origin:} prefix
+     */
+    public static byte[] openId4VpDcApi(final String origin, final String nonce, final byte[] jwkThumbprintOrNull) {
+        final byte[] handover = dcApiHandover(origin, nonce, jwkThumbprintOrNull);
+        final ByteArrayOutputStream out = new ByteArrayOutputStream(handover.length + 3);
+        writeHead(out, MAJOR_ARRAY, 3);
+        out.write(CBOR_NULL); // DeviceEngagementBytes
+        out.write(CBOR_NULL); // EReaderKeyBytes
+        out.writeBytes(handover);
+        return out.toByteArray();
+    }
+
+    /** The encoded OpenID4VPDCAPIHandover. */
+    static byte[] dcApiHandover(final String origin, final String nonce, final byte[] jwkThumbprintOrNull) {
+        final byte[] infoHash = sha256(dcApiHandoverInfo(origin, nonce, jwkThumbprintOrNull));
+        final ByteArrayOutputStream out = new ByteArrayOutputStream(64);
+        writeHead(out, MAJOR_ARRAY, 2);
+        writeText(out, "OpenID4VPDCAPIHandover");
+        writeBytes(out, infoHash);
+        return out.toByteArray();
+    }
+
+    /** The encoded OpenID4VPDCAPIHandoverInfo {@code [origin, nonce, jwkThumbprint / null]}. */
+    static byte[] dcApiHandoverInfo(final String origin, final String nonce, final byte[] jwkThumbprintOrNull) {
+        Objects.requireNonNull(origin, "origin");
+        Objects.requireNonNull(nonce, "nonce");
+        if (origin.startsWith("origin:")) {
+            throw new IllegalArgumentException("The DC API handover takes the bare Origin, not the origin: audience");
+        }
+        final ByteArrayOutputStream out = new ByteArrayOutputStream(160);
+        writeHead(out, MAJOR_ARRAY, 3);
+        writeText(out, origin);
+        writeText(out, nonce);
+        if (jwkThumbprintOrNull == null) {
+            out.write(CBOR_NULL);
+        } else {
+            writeBytes(out, jwkThumbprintOrNull);
+        }
+        return out.toByteArray();
+    }
+
+    /**
      * DeviceAuthenticationBytes {@code #6.24(bstr .cbor ["DeviceAuthentication", SessionTranscript, DocType,
      * DeviceNameSpacesBytes])}, the detached content of the device signature (draft §12.4.4).
      *

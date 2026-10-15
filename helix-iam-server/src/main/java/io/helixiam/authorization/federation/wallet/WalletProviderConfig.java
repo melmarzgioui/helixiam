@@ -67,7 +67,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         RequestUriMethod requestUriMethod, Integer transactionTtlSeconds, List<String> credentialFormats, Pid pid,
         List<String> customCredentialQueries, String trustAnchors, TrustAnchors.RevocationMode revocationChecking,
         StatusList statusList, Subject subject, String minimumLoa, Integer clockSkewSeconds,
-        boolean allowLegacyVcSdJwtTyp, Limits limits, Boolean trustedAuthorities) {
+        boolean allowLegacyVcSdJwtTyp, Limits limits, Boolean trustedAuthorities, DcApi dcApi) {
 
     public static final String DEFAULT_INVOCATION_SCHEME = "haip-vp";
     public static final int DEFAULT_TRANSACTION_TTL_SECONDS = 300;
@@ -80,6 +80,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
     /** The protocol whose secret keys {@link #toStored} leaves out (the same set for every wallet alias). */
     private static final String SECRET_PROTOCOL = "eudi-wallet";
 
+    /** The canonical constructor, which YAML binding uses (there is a second, shorter one). */
+    @org.springframework.boot.context.properties.bind.ConstructorBinding
     public WalletProviderConfig {
         clientIdScheme = clientIdScheme == null ? ClientIdScheme.X509_HASH : clientIdScheme;
         invocationScheme = isBlank(invocationScheme) ? DEFAULT_INVOCATION_SCHEME : invocationScheme.trim();
@@ -95,6 +97,25 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         minimumLoa = isBlank(minimumLoa) ? DEFAULT_MINIMUM_LOA : minimumLoa.trim();
         clockSkewSeconds = clockSkewSeconds == null ? DEFAULT_CLOCK_SKEW_SECONDS : clockSkewSeconds;
         limits = limits == null ? new Limits(null, null, null, null) : limits;
+        dcApi = dcApi == null ? new DcApi(false, null, null) : dcApi;
+    }
+
+    /** The shape before the Digital Credentials API settings: {@code dcApi} takes its defaults (off). */
+    public WalletProviderConfig(final String alias, final String displayName, final ClientIdScheme clientIdScheme,
+            final String clientIdHost, final String accessCertificateChain, final String accessKeyRef,
+            final String accessCertificateKeyRef, final String accessCertificatePrivateKey,
+            final String registrationCertificate, final String invocationScheme, final ResponseMode responseMode,
+            final RequestUriMethod requestUriMethod, final Integer transactionTtlSeconds,
+            final List<String> credentialFormats, final Pid pid, final List<String> customCredentialQueries,
+            final String trustAnchors, final TrustAnchors.RevocationMode revocationChecking,
+            final StatusList statusList, final Subject subject, final String minimumLoa,
+            final Integer clockSkewSeconds, final boolean allowLegacyVcSdJwtTyp, final Limits limits,
+            final Boolean trustedAuthorities) {
+        this(alias, displayName, clientIdScheme, clientIdHost, accessCertificateChain, accessKeyRef,
+                accessCertificateKeyRef, accessCertificatePrivateKey, registrationCertificate, invocationScheme,
+                responseMode, requestUriMethod, transactionTtlSeconds, credentialFormats, pid, customCredentialQueries,
+                trustAnchors, revocationChecking, statusList, subject, minimumLoa, clockSkewSeconds,
+                allowLegacyVcSdJwtTyp, limits, trustedAuthorities, null);
     }
 
     /**
@@ -150,6 +171,76 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
 
         public String value() {
             return value;
+        }
+    }
+
+    /**
+     * OpenID4VP over the W3C Digital Credentials API (OpenID4VP 1.0 Appendix A, HAIP 1.0 §5.2), stored as
+     * {@code dcApi.enabled}, {@code dcApi.request} and {@code dcApi.expectedOrigins}. Off by default: the QR code and
+     * the same-device link are always offered; with this on, a browser that supports the API also offers it. The
+     * response is encrypted ({@code dc_api.jwt}) exactly when {@link #responseMode} is {@code direct_post.jwt}.
+     *
+     * @param enabled         offer the Digital Credentials API on the wallet page
+     * @param request         {@link RequestType#SIGNED} (default; HAIP {@code x509_hash} with {@code expected_origins})
+     *                        or {@link RequestType#UNSIGNED}
+     * @param expectedOrigins the web origins the response may be bound to; empty means the origin of the server's
+     *                        public base URL ({@link #effectiveOrigins}). Never taken from a request.
+     */
+    public record DcApi(boolean enabled, RequestType request, List<String> expectedOrigins) {
+
+        public DcApi {
+            request = request == null ? RequestType.SIGNED : request;
+            expectedOrigins = expectedOrigins == null ? List.of() : copy(expectedOrigins);
+        }
+
+        /** OpenID4VP 1.0 Appendix A.1 request types and their DC API protocol identifiers. */
+        public enum RequestType {
+            SIGNED("signed", "openid4vp-v1-signed"), UNSIGNED("unsigned", "openid4vp-v1-unsigned");
+
+            private final String value;
+            private final String protocol;
+
+            RequestType(final String value, final String protocol) {
+                this.value = value;
+                this.protocol = protocol;
+            }
+
+            public String value() {
+                return value;
+            }
+
+            /** The {@code protocol} of the {@code DigitalCredentialGetRequest}. */
+            public String protocol() {
+                return protocol;
+            }
+        }
+
+        /**
+         * The origins a response is accepted for: the configured {@link #expectedOrigins}, or else the origin of
+         * {@code publicBaseUrl} (scheme and host lower-cased, a default port dropped, no path), the serialisation a
+         * browser reports.
+         *
+         * @throws IllegalStateException when no origins are configured and {@code publicBaseUrl} has no scheme or host
+         */
+        public List<String> effectiveOrigins(final String publicBaseUrl) {
+            if (!expectedOrigins.isEmpty()) {
+                return expectedOrigins;
+            }
+            final java.net.URI uri;
+            try {
+                uri = new java.net.URI(java.util.Objects.requireNonNull(publicBaseUrl, "publicBaseUrl").trim());
+            } catch (final java.net.URISyntaxException e) {
+                throw new IllegalStateException("The public base URL is not a valid URI");
+            }
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                throw new IllegalStateException("The public base URL has no scheme or host");
+            }
+            final String scheme = uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+            final int port = uri.getPort();
+            final boolean defaultPort = port == -1 || "https".equals(scheme) && port == 443
+                    || "http".equals(scheme) && port == 80;
+            return List.of(scheme + "://" + uri.getHost().toLowerCase(java.util.Locale.ROOT)
+                    + (defaultPort ? "" : ":" + port));
         }
     }
 
@@ -307,7 +398,10 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
                 r.text("minimumLoa"), r.integer("clockSkewSeconds"), r.bool("allowLegacyVcSdJwtTyp"),
                 new Limits(r.integer("limits.maxJwtBytes"), r.integer("limits.cborMaxDepth"),
                         r.integer("limits.cborMaxItems"), r.integer("limits.cborMaxBytes")),
-                r.optionalBool("dcql.trustedAuthorities"));
+                r.optionalBool("dcql.trustedAuthorities"),
+                new DcApi(r.bool("dcApi.enabled"),
+                        r.enumValue("dcApi.request", DcApi.RequestType.class, DcApi.RequestType::value),
+                        r.list("dcApi.expectedOrigins")));
         return new Parsed(config, Collections.unmodifiableMap(r.errors));
     }
 
@@ -380,6 +474,10 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
         put(m, "limits.cborMaxItems", String.valueOf(limits.cborMaxItems()));
         put(m, "limits.cborMaxBytes", String.valueOf(limits.cborMaxBytes()));
         put(m, "dcql.trustedAuthorities", trustedAuthorities == null ? null : String.valueOf(trustedAuthorities));
+        // Only what differs from the defaults, so a connection that never used the DC API stores exactly what it did.
+        put(m, "dcApi.enabled", dcApi.enabled() ? "true" : null);
+        put(m, "dcApi.request", dcApi.request() == DcApi.RequestType.SIGNED ? null : dcApi.request().value());
+        put(m, "dcApi.expectedOrigins", dcApi.expectedOrigins().isEmpty() ? null : json(dcApi.expectedOrigins()));
         return m;
     }
 
@@ -391,7 +489,8 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
                 + (accessCertificatePrivateKey == null ? "null" : "[REDACTED]") + ", invocationScheme="
                 + invocationScheme + ", responseMode=" + responseMode.value() + ", credentialFormats="
                 + credentialFormats + ", pid=" + pid + ", statusList=" + statusList + ", subject=" + subject
-                + ", minimumLoa=" + minimumLoa + ", transactionTtlSeconds=" + transactionTtlSeconds + "]";
+                + ", minimumLoa=" + minimumLoa + ", transactionTtlSeconds=" + transactionTtlSeconds + ", dcApi=" + dcApi
+                + "]";
     }
 
     // ------------------------------------------------------------------------------------------------ helpers

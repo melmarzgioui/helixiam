@@ -131,6 +131,14 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
             return redis.call('HGETALL', KEYS[1])
             """, List.class);
 
+    /** DC API: a CREATED transaction goes straight to RESPONSE_RECEIVED with flow DC_API; anything else is refused. */
+    @SuppressWarnings("rawtypes")
+    private static final RedisScript<List> CLAIM_DC_API = new DefaultRedisScript<>(LIVE + """
+            if status ~= 'CREATED' then return false end
+            redis.call('HSET', KEYS[1], 'status', 'RESPONSE_RECEIVED', 'flow', 'DC_API')
+            return redis.call('HGETALL', KEYS[1])
+            """, List.class);
+
     /**
      * ARGV[2] = sha256(responseCode) or '' for none, ARGV[3] = encrypted identity or '' for none. Same-device needs a
      * code (the direct_post handler hands it to the wallet); cross-device takes none (see ISSUE_CODE).
@@ -140,7 +148,7 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
             local flow = redis.call('HGET', KEYS[1], 'flow')
             if flow == 'SAME_DEVICE' then
               if ARGV[2] == '' then return 0 end
-            elseif flow ~= 'CROSS_DEVICE' or ARGV[2] ~= '' then return 0 end
+            elseif (flow ~= 'CROSS_DEVICE' and flow ~= 'DC_API') or ARGV[2] ~= '' then return 0 end
             redis.call('HSET', KEYS[1], 'status', 'VERIFIED')
             if ARGV[2] ~= '' then redis.call('HSET', KEYS[1], 'codeHash', ARGV[2]) end
             if ARGV[3] ~= '' then redis.call('HSET', KEYS[1], 'identity', ARGV[3]) end
@@ -154,7 +162,8 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
      */
     private static final RedisScript<Long> ISSUE_CODE = new DefaultRedisScript<>(LIVE + """
             if status ~= 'VERIFIED' then return 0 end
-            if redis.call('HGET', KEYS[1], 'flow') ~= 'CROSS_DEVICE' then return 0 end
+            local flow = redis.call('HGET', KEYS[1], 'flow')
+            if flow ~= 'CROSS_DEVICE' and flow ~= 'DC_API' then return 0 end
             if redis.call('HEXISTS', KEYS[1], 'codeHash') == 1 then return 0 end
             if redis.call('HGET', KEYS[1], 'binding') ~= ARGV[3] then return 0 end
             redis.call('HSET', KEYS[1], 'codeHash', ARGV[2])
@@ -277,6 +286,14 @@ public class RedisWalletTransactionStore implements WalletTransactionStore {
         }
         final String hash = SecretHash.of(responseId);
         return transactionIdAt(RESPONSE_PREFIX + hash).flatMap(id -> snapshot(CLAIM_RESPONSE, id, hash));
+    }
+
+    @Override
+    public Optional<WalletTransaction> claimDcApiResponse(final String transactionId) {
+        if (transactionId == null) {
+            return Optional.empty();
+        }
+        return snapshot(CLAIM_DC_API, transactionId, "");
     }
 
     @Override

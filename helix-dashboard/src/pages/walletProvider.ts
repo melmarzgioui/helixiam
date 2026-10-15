@@ -29,6 +29,10 @@ export type OnUnavailable = "FAIL_CLOSED" | "FAIL_OPEN_WITH_AUDIT";
 export type RevocationChecking = "HARD_FAIL" | "SOFT_FAIL" | "OFF";
 /** dcql.trustedAuthorities: "default" leaves the key unset, so the server's HAIP-profile default applies. */
 export type TrustedAuthoritiesSetting = "default" | "on" | "off";
+/** OpenID4VP over the W3C Digital Credentials API: openid4vp-v1-signed (HAIP x509_hash) or openid4vp-v1-unsigned. */
+export type DcApiRequestType = "signed" | "unsigned";
+/** WalletConfigValidator: at most this many expected origins. */
+export const MAX_DC_API_ORIGINS = 10;
 export const REVOCATION_MODES: readonly RevocationChecking[] = ["HARD_FAIL", "SOFT_FAIL", "OFF"];
 
 /** Server bounds (WalletConfigValidator). */
@@ -79,6 +83,11 @@ export interface WalletForm {
   transactionTtlSeconds: string;
   /** HAIP §5: the aki Trusted Authorities Query in the DCQL query (see trustedAuthoritiesEffective). */
   trustedAuthorities: TrustedAuthoritiesSetting;
+  /** dcApi.enabled: also offer the W3C Digital Credentials API where the browser supports it. */
+  dcApiEnabled: boolean;
+  dcApiRequest: DcApiRequestType;
+  /** Free text: origins separated by commas, spaces or new lines; blank means the server's own origin. */
+  dcApiExpectedOrigins: string;
 }
 
 export const DEFAULT_WALLET_FORM: WalletForm = {
@@ -100,6 +109,9 @@ export const DEFAULT_WALLET_FORM: WalletForm = {
   responseMode: "direct_post.jwt",
   transactionTtlSeconds: "",
   trustedAuthorities: "default",
+  dcApiEnabled: false,
+  dcApiRequest: "signed",
+  dcApiExpectedOrigins: "",
 };
 
 /** The stored keys the form owns; any other stored key is carried over unchanged on save. */
@@ -108,7 +120,7 @@ export const WALLET_FORM_KEYS = [
   "credentialFormats",
   "pid.requestedClaims", "subject.strategy", "subject.acknowledgeWeakSubject", "minimumLoa", "statusList.required",
   "statusList.onUnavailable", "statusList.maxCacheSeconds", "statusList.allowedHosts", "responseMode",
-  "transactionTtlSeconds", "dcql.trustedAuthorities",
+  "transactionTtlSeconds", "dcql.trustedAuthorities", "dcApi.enabled", "dcApi.request", "dcApi.expectedOrigins",
 ];
 
 /** The dev-only secret (ProviderSecretKeys): a raw PEM private key instead of an imported key. */
@@ -161,6 +173,9 @@ export function walletFormFromConfig(config: Record<string, string>): WalletForm
     transactionTtlSeconds: text(config.transactionTtlSeconds),
     trustedAuthorities: ({ true: "on", false: "off" } as Record<string, TrustedAuthoritiesSetting>)[
       text(config["dcql.trustedAuthorities"]).toLowerCase()] ?? "default",
+    dcApiEnabled: text(config["dcApi.enabled"]).toLowerCase() === "true",
+    dcApiRequest: pick(config["dcApi.request"], ["signed", "unsigned"] as const, "signed"),
+    dcApiExpectedOrigins: list(config["dcApi.expectedOrigins"], []).join("\n"),
   };
 }
 
@@ -174,6 +189,11 @@ export function trustedAuthoritiesEffective(form: WalletForm): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------------- writing
+
+/** Origins from free text (commas, spaces, new lines). */
+export function parseOriginList(value: string): string[] {
+  return value.split(/[\s,]+/).map((o) => o.trim()).filter(Boolean);
+}
 
 /** Host names from free text (commas, spaces, new lines). */
 export function parseHostList(value: string): string[] {
@@ -206,6 +226,11 @@ export function walletConfigFromForm(form: WalletForm, base: Record<string, stri
   out.responseMode = form.responseMode;
   put("transactionTtlSeconds", form.transactionTtlSeconds.trim());
   if (form.trustedAuthorities !== "default") out["dcql.trustedAuthorities"] = String(form.trustedAuthorities === "on");
+  // Only what differs from the server defaults (off, signed, the server's own origin), as the server stores it.
+  if (form.dcApiEnabled) out["dcApi.enabled"] = "true";
+  if (form.dcApiRequest !== "signed") out["dcApi.request"] = form.dcApiRequest;
+  const origins = parseOriginList(form.dcApiExpectedOrigins);
+  if (origins.length) out["dcApi.expectedOrigins"] = JSON.stringify(origins);
   return out;
 }
 
@@ -233,6 +258,19 @@ export interface WalletValidationContext {
 /** WalletConfigValidator.HOST_NAME: a bare host name (no scheme, port or path). */
 const HOST_NAME = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 const WHOLE = /^-?\d+$/;
+/** WalletConfigValidator.ORIGIN: a serialised origin as a browser reports it (lower case, no path). */
+const ORIGIN = /^(https|http):\/\/([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?|\[[0-9a-f:.]+\])(?::([1-9][0-9]{0,4}))?$/;
+
+/** Whether `origin` is one the server accepts as a DC API expected origin (the host allow-list is the server's). */
+function validOrigin(origin: string, devProfile: boolean): boolean {
+  const m = ORIGIN.exec(origin);
+  if (!m) return false;
+  const [, scheme, host, port] = m;
+  const p = port ? Number(port) : -1;
+  if (p > 65535 || (scheme === "https" && p === 443) || (scheme === "http" && p === 80)) return false;
+  if (scheme === "http") return devProfile && ["localhost", "127.0.0.1", "[::1]"].includes(host);
+  return true;
+}
 
 function inRange(value: string, min: number, max: number): boolean {
   const v = value.trim();
@@ -294,6 +332,12 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
 
   if (form.responseMode === "direct_post" && !ctx.devProfile) add("responseMode", "wallet.err.directPostDevOnly");
   if (!inRange(form.transactionTtlSeconds, TTL_RANGE.min, TTL_RANGE.max)) add("transactionTtlSeconds", "wallet.err.ttlRange");
+
+  // Checked whether or not the API is on, as the server does (a stored list must stay usable).
+  const origins = parseOriginList(form.dcApiExpectedOrigins);
+  if (origins.length > MAX_DC_API_ORIGINS) add("dcApi.expectedOrigins", "wallet.err.dcApiOriginsTooMany");
+  else if (new Set(origins).size !== origins.length) add("dcApi.expectedOrigins", "wallet.err.dcApiOriginRepeated");
+  else if (origins.some((o) => !validOrigin(o, ctx.devProfile))) add("dcApi.expectedOrigins", "wallet.err.dcApiOrigin");
   return e;
 }
 
@@ -301,7 +345,7 @@ export function validateWallet(form: WalletForm, ctx: WalletValidationContext): 
 
 /** Advisory, never blocking: i18n suffixes under `wallet.warn.`. */
 export type WalletWarning = "manyClaims" | "adminNumberWithoutStrategy" | "placeOfBirthOrphans" | "weakTuple" | "failOpen"
-  | "revocationSoftFail" | "revocationOff";
+  | "revocationSoftFail" | "revocationOff" | "dcApiUnsigned";
 
 /**
  * The warnings for a form. `original` is the stored form of an existing provider (null/undefined for a new one): adding
@@ -321,6 +365,7 @@ export function walletWarnings(form: WalletForm, original?: WalletForm | null): 
   if (form.onUnavailable === "FAIL_OPEN_WITH_AUDIT") out.push("failOpen");
   if (form.revocationChecking === "SOFT_FAIL") out.push("revocationSoftFail");
   if (form.revocationChecking === "OFF") out.push("revocationOff");
+  if (form.dcApiEnabled && form.dcApiRequest === "unsigned") out.push("dcApiUnsigned");
   return out;
 }
 
@@ -346,6 +391,7 @@ const SECTION_OF: Record<string, WalletSection> = {
   "subject.strategy": "policies", minimumLoa: "policies", "statusList.required": "policies",
   "statusList.onUnavailable": "policies", "statusList.maxCacheSeconds": "policies", "statusList.allowedHosts": "policies",
   responseMode: "policies", transactionTtlSeconds: "policies",
+  "dcApi.enabled": "policies", "dcApi.request": "policies", "dcApi.expectedOrigins": "policies",
 };
 const SECTION_ORDER: WalletSection[] = ["general", "access", "credentials", "policies"];
 
@@ -359,6 +405,7 @@ const FIELD_OF: Record<keyof WalletForm, string> = {
   statusMaxCacheSeconds: "statusList.maxCacheSeconds", statusAllowedHosts: "statusList.allowedHosts",
   responseMode: "responseMode", transactionTtlSeconds: "transactionTtlSeconds",
   trustedAuthorities: "dcql.trustedAuthorities",
+  dcApiEnabled: "dcApi.enabled", dcApiRequest: "dcApi.request", dcApiExpectedOrigins: "dcApi.expectedOrigins",
 };
 
 /** Drops the errors of the fields a form change touches (a server error stays until its field is edited). */

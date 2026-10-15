@@ -88,7 +88,8 @@ import java.util.Set;
  *       ({@code HOLDER_BINDING_INVALID}); {@code alg} allow-list ({@code ALGORITHM_NOT_ALLOWED}); signature with
  *       {@code cnf.jwk} (a public EC P-256/384/521 or RSA &ge; 2048 key; anything else, an {@code alg} that does not
  *       fit it, or a wrong signature: {@code HOLDER_BINDING_INVALID}); {@code aud} a single string equal to
- *       {@code clientId} ({@code AUDIENCE_MISMATCH}); {@code nonce} ({@code NONCE_MISMATCH}); {@code iat} REQUIRED and
+ *       {@code clientId}, or over the DC API {@code "origin:" + } one of the context's expected origins
+ *       ({@link VerificationContext#acceptsAudience}; {@code AUDIENCE_MISMATCH}); {@code nonce} ({@code NONCE_MISMATCH}); {@code iat} REQUIRED and
  *       within the window below; optional {@code exp}/{@code nbf} honoured; {@code sd_hash} equal to
  *       {@link SdJwt#sdHash} under the payload's {@code _sd_alg} ({@code HOLDER_BINDING_INVALID});</li>
  *   <li>status: no {@code status} claim at all: {@code STATUS_REQUIRED} when {@code statusPolicy.required}, else
@@ -337,7 +338,7 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
             throw fail(WalletErrorCode.HOLDER_BINDING_INVALID, "Key Binding JWT signature is invalid");
         }
         final Map<String, Object> claims = kb.payload();
-        if (!(claims.get("aud") instanceof String aud) || !aud.equals(ctx.clientId())) {
+        if (!(claims.get("aud") instanceof String aud) || !ctx.acceptsAudience(aud)) {
             throw fail(WalletErrorCode.AUDIENCE_MISMATCH, "Key Binding JWT aud does not match");
         }
         if (!(claims.get("nonce") instanceof String nonce) || !constantTimeEquals(nonce, ctx.nonce())) {

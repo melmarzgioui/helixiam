@@ -73,6 +73,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ### OIDF-sourced files: OpenID Foundation terms (field-of-use restricted, NOT Apache-2.0)
 
 Applies to exactly these files: `openid4vp/openid4vp-1.0-B.2.6.1-handover.json`,
+`openid4vp/openid4vp-1.0-B.2.6.2-dc-api-handover.json`,
 `openid4vp/openid4vp-1.0-8.3-encrypted-response.json`, `openid4vp/openid4vp-1.0-dcql-examples.json`. Each is from
 **OpenID for Verifiable Presentations 1.0** (Final, 9 July 2025),
 https://openid.net/specs/openid-4-verifiable-presentations-1_0.html. Copyright (c) 2025 The OpenID Foundation.
@@ -127,6 +128,7 @@ In the Appendix C files, `expected_nonzero` lists every index whose status is no
 | File | Source | URL |
 |---|---|---|
 | `openid4vp-1.0-B.2.6.1-handover.json` | OpenID4VP 1.0 Appendix B.2.6.1: inputs (client_id, nonce, response_uri, encryption JWK) and expected JWK thumbprint, OpenID4VPHandoverInfo, OpenID4VPHandover and SessionTranscript CBOR hex | https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#appendix-B.2.6.1 |
+| `openid4vp-1.0-B.2.6.2-dc-api-handover.json` | OpenID4VP 1.0 Appendix B.2.6.2 (DC API): inputs (origin, nonce, encryption JWK) and expected JWK thumbprint, OpenID4VPDCAPIHandoverInfo, OpenID4VPDCAPIHandover and SessionTranscript CBOR hex | https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#appendix-B.2.6.2 |
 | `openid4vp-1.0-8.3-encrypted-response.json` | OpenID4VP 1.0 §8.3: verifier encryption JWK (with private `d`), encrypted response JWE (ECDH-ES, A128GCM, `kid` `ac`), decoded header and payload | https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#section-8.3 |
 | `openid4vp-1.0-dcql-examples.json` | OpenID4VP 1.0 §7.4 and Appendix D DCQL query examples (SD-JWT, mdoc, `credential_sets`) | https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#appendix-D |
 | `x509-hash-known-answer-leaf.crt` | **Generated for HelixIAM (not from a spec).** PEM-encoded public certificate only (`.crt`: the repository ignores `*.pem`). A fixed CA-issued EC P-256 verifier leaf (CN=Helix Verifier KAT, SAN `verifier.example.eu`, issued by a throwaway CA whose key was discarded), made once with OpenSSL on 2026-10-12. Its `x509_hash` (OpenID4VP §5.9.3), computed with `openssl x509 -outform DER \| openssl dgst -sha256 -binary \| base64 \| tr '+/' '-_' \| tr -d '='`, is `7fteuS9uf6D2mMloP0J3jLDcjNtOhIouAw_VOuczFMI`. Known-answer test for `AuthorizationRequestFactory.clientId`. | n/a (generated) |

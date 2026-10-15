@@ -58,8 +58,12 @@ public record WalletTransaction(String transactionId, String sameDeviceRequestId
     /** What a transaction is for (Task 21b): signing in, or linking the wallet to a signed-in user. */
     public enum Purpose { LOGIN, LINK }
 
-    /** Which invocation path the wallet used; decided by which request id it fetched. */
-    public enum Flow { SAME_DEVICE, CROSS_DEVICE }
+    /**
+     * Which invocation path the wallet used: decided by which request id it fetched, or {@link #DC_API} when the
+     * login page posted the response it got through the W3C Digital Credentials API
+     * ({@link WalletTransactionStore#claimDcApiResponse}).
+     */
+    public enum Flow { SAME_DEVICE, CROSS_DEVICE, DC_API }
 
     /** The transaction states (spec §6). {@code EXPIRED} is never stored: an expired transaction reads as absent. */
     public enum Status { CREATED, REQUEST_FETCHED, RESPONSE_RECEIVED, VERIFIED, FAILED, EXPIRED, REDEEMED }
@@ -73,6 +77,14 @@ public record WalletTransaction(String transactionId, String sameDeviceRequestId
         return new WalletTransaction(transactionId, sameDeviceRequestId, crossDeviceRequestId, responseId, realmId,
                 providerAlias, helixState, browserBindingHash, nonce, encryptionJwkJson, dcqlQueryJson, usedFlow,
                 Status.REQUEST_FETCHED, responseCode, verifiedIdentityJson, failureCode, createdAt, expiresAt, purpose, initiatingUserId);
+    }
+
+    /** CREATED → RESPONSE_RECEIVED over the Digital Credentials API (no request fetch happens). */
+    WalletTransaction dcApiResponseReceived() {
+        return new WalletTransaction(transactionId, sameDeviceRequestId, crossDeviceRequestId, responseId, realmId,
+                providerAlias, helixState, browserBindingHash, nonce, encryptionJwkJson, dcqlQueryJson, Flow.DC_API,
+                Status.RESPONSE_RECEIVED, responseCode, verifiedIdentityJson, failureCode, createdAt, expiresAt, purpose,
+                initiatingUserId);
     }
 
     WalletTransaction withStatus(final Status newStatus) {

@@ -31,7 +31,9 @@ import java.util.Map;
 
 /**
  * Task 18: the body limit of the OpenID4VP endpoints ({@code /realms/<realm>/oid4vp/...}, reached by wallets without a
- * session): 256 KB by default ({@code helix.wallet.max-request-bytes}). It runs FIRST, before Spring's
+ * session), and of the login page's Digital Credentials API posts ({@code /realms/<realm>/broker/<alias>/wallet/dc-api/
+ * ...}: refused for size before the CSRF and session filters read anything; their parameters are their query string's,
+ * their body is passed on unparsed): 256 KB by default ({@code helix.wallet.max-request-bytes}). It runs FIRST, before Spring's
  * {@code FormContentFilter} (which would read a PUT/PATCH/DELETE form body into memory), before the realm routing and
  * Spring Security, and before anything reads the body; so it matches the raw request URI.
  *
@@ -53,7 +55,11 @@ public class WalletRequestBodyLimitFilter extends OncePerRequestFilter {
     /** The default body limit (constraints: response body 256 KB). */
     public static final int DEFAULT_MAX_BYTES = 256 * 1024;
     /** {@code /realms/<realm>/oid4vp/...}, matched on the raw URI (this filter runs before the realm routing). */
-    private static final java.util.regex.Pattern WALLET_PATH = java.util.regex.Pattern.compile("^/realms/[^/]+/oid4vp/.*");
+    private static final java.util.regex.Pattern WALLET_PATH = java.util.regex.Pattern.compile(
+            "^/realms/[^/]+/oid4vp/.*|^/realms/[^/]+/broker/[^/]+/wallet/dc-api/.+");
+    /** The login page's W3C Digital Credentials API posts: JSON bodies, their {@code tx} in the query string. */
+    private static final java.util.regex.Pattern DC_API_PATH = java.util.regex.Pattern.compile(
+            "^/realms/[^/]+/broker/[^/]+/wallet/dc-api/.+");
     private static final String ERROR_BODY = "{\"error\":\"invalid_request\"}";
     private static final int CHUNK = 8192;
 
@@ -68,10 +74,14 @@ public class WalletRequestBodyLimitFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(final HttpServletRequest request) {
+        final String path = path(request);
+        return path == null || !WALLET_PATH.matcher(path).matches();
+    }
+
+    private static String path(final HttpServletRequest request) {
         final String uri = request.getRequestURI();
         final String context = request.getContextPath() == null ? "" : request.getContextPath();
-        return uri == null || !WALLET_PATH.matcher(uri.startsWith(context) ? uri.substring(context.length()) : uri)
-                .matches();
+        return uri == null ? null : uri.startsWith(context) ? uri.substring(context.length()) : uri;
     }
 
     @Override
@@ -98,7 +108,9 @@ public class WalletRequestBodyLimitFilter extends OncePerRequestFilter {
         }
         final Map<String, String[]> parameters;
         try {
-            parameters = parameters(request, body);
+            // The DC API posts keep their query parameters (tx) and are never read as a form: their body is JSON.
+            parameters = DC_API_PATH.matcher(path(request)).matches() ? queryParameters(request)
+                    : parameters(request, body);
         } catch (final IllegalArgumentException e) {
             refuse(response, HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -134,6 +146,15 @@ public class WalletRequestBodyLimitFilter extends OncePerRequestFilter {
         if (type != null && type.toLowerCase(java.util.Locale.ROOT).startsWith("application/x-www-form-urlencoded")) {
             addPairs(values, new String(body, StandardCharsets.UTF_8));
         }
+        final Map<String, String[]> out = new LinkedHashMap<>();
+        values.forEach((k, v) -> out.put(k, v.toArray(new String[0])));
+        return Collections.unmodifiableMap(out);
+    }
+
+    /** The query string's parameters only (the DC API posts' {@code tx}). */
+    private static Map<String, String[]> queryParameters(final HttpServletRequest request) {
+        final Map<String, List<String>> values = new LinkedHashMap<>();
+        addPairs(values, request.getQueryString());
         final Map<String, String[]> out = new LinkedHashMap<>();
         values.forEach((k, v) -> out.put(k, v.toArray(new String[0])));
         return Collections.unmodifiableMap(out);

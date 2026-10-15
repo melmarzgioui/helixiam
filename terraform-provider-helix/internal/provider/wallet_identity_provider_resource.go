@@ -76,6 +76,9 @@ var walletConfigAttr = map[string]string{
 	"limits.cborMaxItems":                "limits_cbor_max_items",
 	"limits.cborMaxBytes":                "limits_cbor_max_bytes",
 	"dcql.trustedAuthorities":            "dcql_trusted_authorities",
+	"dcApi.enabled":                      "dc_api_enabled",
+	"dcApi.request":                      "dc_api_request",
+	"dcApi.expectedOrigins":              "dc_api_expected_origins",
 }
 
 // walletAttributePath maps one admin API field-error name (WalletConfigValidator.asAdminFields: "alias"
@@ -174,6 +177,9 @@ type walletIdentityProviderModel struct {
 	LimitsCborMaxItems            types.Int64  `tfsdk:"limits_cbor_max_items"`
 	LimitsCborMaxBytes            types.Int64  `tfsdk:"limits_cbor_max_bytes"`
 	DcqlTrustedAuthorities        types.Bool   `tfsdk:"dcql_trusted_authorities"`
+	DcApiEnabled                  types.Bool   `tfsdk:"dc_api_enabled"`
+	DcApiRequest                  types.String `tfsdk:"dc_api_request"`
+	DcApiExpectedOrigins          types.List   `tfsdk:"dc_api_expected_origins"`
 
 	ID types.String `tfsdk:"id"`
 }
@@ -258,6 +264,9 @@ func (r *walletIdentityProviderResource) Schema(_ context.Context, _ resource.Sc
 			"limits_cbor_max_items":            schema.Int64Attribute{Optional: true, MarkdownDescription: "Maximum CBOR map/array items parsed in an mdoc presentation."},
 			"limits_cbor_max_bytes":            schema.Int64Attribute{Optional: true, MarkdownDescription: "Maximum CBOR byte-string length parsed in an mdoc presentation."},
 			"dcql_trusted_authorities":         schema.BoolAttribute{Optional: true, MarkdownDescription: "Whether the DCQL query carries the `aki` Trusted Authorities Query (HAIP §5, OpenID4VP §6.1.1.1) naming `trust_anchors`' key identifiers. Left unset, the server defaults this to on under the HAIP profile (`client_id_scheme = \"x509_hash\"` with `response_mode = \"direct_post.jwt\"`) and off otherwise. Setting it to `true` requires every configured trust anchor to carry a SubjectKeyIdentifier extension — the server never guesses one — or the write is refused."},
+			"dc_api_enabled":                   schema.BoolAttribute{Optional: true, MarkdownDescription: "Also offer the W3C Digital Credentials API (OpenID4VP 1.0 Appendix A, HAIP 1.0 §5.2) on the wallet page where the browser supports it (server default false). The response is `dc_api.jwt` when `response_mode` is `direct_post.jwt`."},
+			"dc_api_request":                   schema.StringAttribute{Optional: true, MarkdownDescription: "DC API request type: `signed` (server default; `openid4vp-v1-signed`, access certificate and `expected_origins`) or `unsigned` (`openid4vp-v1-unsigned`)."},
+			"dc_api_expected_origins":          schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Web origins a DC API response may be bound to (e.g. `https://login.example.eu`; at most 10, each on a host the server answers for). Unset means the origin of the server's `IDP_BASE_URL`."},
 
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -400,6 +409,9 @@ func (m *walletIdentityProviderModel) toWrite(ctx context.Context) (IdentityProv
 	putInt(cfg, "limits.cborMaxItems", m.LimitsCborMaxItems)
 	putInt(cfg, "limits.cborMaxBytes", m.LimitsCborMaxBytes)
 	putBool(cfg, "dcql.trustedAuthorities", m.DcqlTrustedAuthorities)
+	putBool(cfg, "dcApi.enabled", m.DcApiEnabled)
+	putStr(cfg, "dcApi.request", m.DcApiRequest)
+	putList(ctx, &diags, "dc_api_expected_origins", "dcApi.expectedOrigins", cfg, m.DcApiExpectedOrigins)
 
 	if diags.HasError() {
 		return IdentityProviderWrite{}, diags
@@ -493,6 +505,9 @@ func applyRead(ctx context.Context, m *walletIdentityProviderModel, ip *Identity
 	m.LimitsCborMaxItems = getInt(ip, "limits.cborMaxItems")
 	m.LimitsCborMaxBytes = getInt(ip, "limits.cborMaxBytes")
 	m.DcqlTrustedAuthorities = getBool(ip, "dcql.trustedAuthorities")
+	m.DcApiEnabled = getBool(ip, "dcApi.enabled")
+	m.DcApiRequest = getStr(ip, "dcApi.request")
+	m.DcApiExpectedOrigins = getList(ctx, ip, "dcApi.expectedOrigins")
 }
 
 // --- CRUD ------------------------------------------------------------------------------------------------

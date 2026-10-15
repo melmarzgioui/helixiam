@@ -208,6 +208,17 @@ public class JdbcWalletTransactionStore implements WalletTransactionStore, AutoC
     }
 
     @Override
+    public Optional<WalletTransaction> claimDcApiResponse(final String transactionId) {
+        if (transactionId == null) {
+            return Optional.empty();
+        }
+        // One statement: only a CREATED row is taken (a wallet that fetched the QR/same-device request first wins).
+        return one(() -> jdbc.query("UPDATE wallet_transaction SET status = 'RESPONSE_RECEIVED', flow = 'DC_API' "
+                + "WHERE transaction_id = ? AND status = 'CREATED' AND expires_at > ? RETURNING " + COLUMNS,
+                rows, transactionId, now()));
+    }
+
+    @Override
     public boolean discard(final String transactionId) {
         if (transactionId == null) {
             return false;
@@ -221,13 +232,14 @@ public class JdbcWalletTransactionStore implements WalletTransactionStore, AutoC
         if (transactionId == null) {
             return false;
         }
-        // Same-device needs a code (the direct_post handler hands it to the wallet); cross-device takes none.
-        final String flow = responseCode == null ? Flow.CROSS_DEVICE.name() : Flow.SAME_DEVICE.name();
+        // Same-device needs a code (the direct_post handler hands it to the wallet); cross-device and DC API take none.
+        final String flows = responseCode == null ? "('" + Flow.CROSS_DEVICE.name() + "', '" + Flow.DC_API.name() + "')"
+                : "('" + Flow.SAME_DEVICE.name() + "')";
         return Integer.valueOf(1).equals(write(() -> jdbc.update("UPDATE wallet_transaction SET status = 'VERIFIED', "
                         + "code_hash = ?, verified_identity = ?, encryption_jwk = NULL WHERE transaction_id = ? "
-                        + "AND status = 'RESPONSE_RECEIVED' AND flow = ? AND expires_at > ?",
+                        + "AND status = 'RESPONSE_RECEIVED' AND flow IN " + flows + " AND expires_at > ?",
                 responseCode == null ? null : SecretHash.of(responseCode), encrypt(verifiedIdentityJson),
-                transactionId, flow, now())));
+                transactionId, now())));
     }
 
     @Override
@@ -251,7 +263,7 @@ public class JdbcWalletTransactionStore implements WalletTransactionStore, AutoC
         }
         final String code = SecretHash.newSecret();
         final Integer issued = write(() -> jdbc.update("UPDATE wallet_transaction SET code_hash = ? "
-                        + "WHERE transaction_id = ? AND status = 'VERIFIED' AND flow = 'CROSS_DEVICE' "
+                        + "WHERE transaction_id = ? AND status = 'VERIFIED' AND flow IN ('CROSS_DEVICE', 'DC_API') "
                         + "AND code_hash IS NULL AND browser_binding = ? AND expires_at > ?",
                 SecretHash.of(code), transactionId, browserBindingHash, now()));
         return Integer.valueOf(1).equals(issued) ? Optional.of(code) : Optional.empty();

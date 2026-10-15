@@ -57,4 +57,6 @@ resource "helix_wallet_identity_provider" "eudi_wallet" {
   # above), off otherwise. Set explicitly only if every certificate in trust_anchors carries a
   # SubjectKeyIdentifier extension — otherwise `true` is refused.
   # dcql_trusted_authorities = true
+  # dc_api_enabled          = true # W3C Digital Credentials API, where the browser supports it
+  # dc_api_expected_origins = ["https://login.example.eu"]
 }

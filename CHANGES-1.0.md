@@ -5,6 +5,24 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.10`)
 
+- **EUDI Wallet: W3C Digital Credentials API (`dc_api` / `dc_api.jwt`)** — a wallet connection can now also offer
+  OpenID4VP over the browser's Digital Credentials API (OpenID4VP 1.0 Appendix A, HAIP 1.0 §5.2), the path the EU
+  wallet ecosystem recommends instead of a redirect-based cross-device flow. Opt-in per connection (`dcApi.enabled`,
+  console: Policies → "Digital Credentials API"); the QR code and "Open wallet app" stay as the fallback.
+  - Signed requests by default (`openid4vp-v1-signed`: the access certificate, `x509_hash`, `expected_origins`), or
+    unsigned (`openid4vp-v1-unsigned`). The response is `dc_api.jwt` (encrypted to the per-transaction key) whenever
+    `responseMode` is `direct_post.jwt`; `dc_api` only with the dev-only `direct_post`.
+  - The expected origins come from configuration only (`dcApi.expectedOrigins`, else the origin of `IDP_BASE_URL`;
+    each must be a host the server answers for), never from the request. SD-JWT VC presentations must carry
+    `aud = origin:<origin>`, mdoc DeviceAuth must verify over the `OpenID4VPDCAPIHandover` SessionTranscript of an
+    expected origin (checked byte for byte against the spec's Appendix B.2.6.2 example).
+  - New page endpoints `POST /realms/<realm>/broker/<alias>/wallet/dc-api/request` and `…/response`: bound to the
+    browser that started the login, CSRF-protected, body-limited, single use (a new store transition
+    `claimDcApiResponse`, flow `DC_API`; no schema change). DC API failures are audited as `WALLET_LOGIN_FAILURE` with
+    `invocation=dc_api`.
+  - Not yet run against a real wallet over the DC API: the Android emulator image used for the reference-wallet run
+    ships Chrome 124, which predates the API (`docs/eudi-wallet.md` §12.6). Covered by unit tests and
+    `WalletDcApiFlowE2eTest`, with the in-repo test wallet playing the browser and wallet sides.
 - **Added (Terraform provider) — `helix_wallet_identity_provider` resource.** The EUDI Wallet (OpenID4VP
   verifier) identity-provider connection can now be managed as code: alias/display_name/enabled plus every
   key of `WalletProviderConfig`'s stored map (`client_id_scheme`, `access_key_ref`,
