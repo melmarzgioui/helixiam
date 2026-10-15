@@ -717,6 +717,65 @@ class TrustedListServiceTest {
     }
 
     @Test
+    void anchorsThatFailTheirCheck_areReloadedFromTheSignedListAtTheNextRefresh() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        sql("UPDATE trusted_list_source SET services_mac = NULL, version = version + 1 WHERE id = ?", created.id());
+        service.sync();
+        assertThat(anchors(service)).isEmpty();
+
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(service.status(after)).isEqualTo(TrustedListHealth.Status.OK);
+        assertThat(anchors(service)).containsExactly(issuer);
+        assertThat(audits).contains("TRUSTED_LIST_INTEGRITY_RESET:FAILURE", "TRUSTED_LIST_REFRESHED:SUCCESS");
+    }
+
+    @Test
+    void afterDbEncryptionChanges_aResaveAndARefreshRecoverTheSource() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        final TrustedListService rekeyed = new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
+                new TrustedListLoader(fetcher, clock), (r, t, i, o, d) -> {
+                    if (realm.equals(r)) {
+                        audits.add(t + ":" + o);
+                    }
+                }, clock, TrustedListService.Settings.DEFAULTS,
+                TrustedListIntegrity.fromSecret("another-db-encryption-key-0123456"), false);
+        rekeyed.sync();
+        assertThat(rekeyed.anchors(realm, List.of("ut"), List.of())).isEmpty();
+        assertThat(rekeyed.refreshNow(realm, created.id()).orElseThrow().state().lastError()).startsWith("INTEGRITY:");
+
+        // the admin checks and saves the settings again (now MACed with the new key); the next refresh reloads
+        final TrustedListSource current = rekeyed.get(realm, created.id()).orElseThrow();
+        rekeyed.update(realm, created.id(), current.config(), cv(created));
+        final TrustedListSource after = rekeyed.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(rekeyed.status(after)).isEqualTo(TrustedListHealth.Status.OK);
+        assertThat(rekeyed.anchors(realm, List.of("ut"), List.of())).containsExactly(issuer);
+        assertThat(audits).contains("TRUSTED_LIST_INTEGRITY_RESET:FAILURE");
+    }
+
+    @Test
+    void tamperedHighWaterMarks_areRebuiltFromTheVerifiedList_andAudited() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()));
+        serveMember(NL, "NL", 9, 30, nlSigner, Service.granted("NL", nlIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        sql("UPDATE trusted_list_hwm SET sequence_number = 1 WHERE source_id = ?", created.id());
+
+        service.refreshNow(realm, created.id());
+
+        assertThat(JDBC.queryForObject("SELECT sequence_number FROM trusted_list_hwm WHERE source_id = ?", Long.class,
+                created.id())).isEqualTo(9);
+        assertThat(auditDetails.stream().filter(d -> "INTEGRITY_RESET".equals(d.get("reason")))).singleElement()
+                .satisfies(d -> assertThat(d.get("message")).contains("high-water"));
+        assertThat(anchors(service)).containsExactly(nlIssuer);
+    }
+
+    @Test
     void signerPinnedThroughTheDatabase_isRefusedAtRefresh() {
         serve(listWith(3, Service.granted("Issuer", issuer)));
         final TrustedListSource created = service.create(realm, config("ut"));

@@ -326,6 +326,37 @@ public class TrustedListRepository {
         return 0;
     }
 
+    /** The settings MAC V84 gives rows stored before integrity protection (adopted, audited, at their first refresh). */
+    public static final String LEGACY_SETTINGS_MAC = "legacy-unprotected";
+
+    /** Writes the settings MAC of a row V84 marked as stored before integrity protection (lease holder only). */
+    public boolean adoptLegacySettings(final String id, final String owner, final long configVersion,
+                                       final String settingsMac) {
+        final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET settings_mac = ?, "
+                + "version = version + 1 WHERE id = ? AND lease_owner = ? AND config_version = ? AND settings_mac = ?",
+                settingsMac, id, owner, configVersion, LEGACY_SETTINGS_MAC));
+        return n != null && n == 1;
+    }
+
+    /**
+     * Drops everything a source loaded (services, members, high-water marks, sequence, NextUpdate) so the next load
+     * starts afresh from the signed list; lease holder only, under the same settings.
+     */
+    public boolean resetLoadedState(final String id, final String owner, final long configVersion) {
+        final Boolean ok = tx.execute(s -> {
+            final int n = jdbc.update("UPDATE trusted_list_source SET services_json = NULL, services_mac = NULL, "
+                    + "sequence_number = NULL, next_update = NULL, list_issued_at = NULL, lists_read = NULL, "
+                    + "list_of_lists = FALSE, version = version + 1 WHERE id = ? AND lease_owner = ? "
+                    + "AND config_version = ?", id, owner, configVersion);
+            if (n != 1) {
+                return false;
+            }
+            resetMembers(true, id);
+            return true;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
     /** One rollback high-water mark: the highest sequence number accepted for a territory and TSLType. */
     public record HighWaterMark(String territory, String tslType, long sequence, String mac) {
     }

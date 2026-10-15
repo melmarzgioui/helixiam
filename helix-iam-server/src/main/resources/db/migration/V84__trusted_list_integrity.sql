@@ -5,6 +5,10 @@
 ALTER TABLE trusted_list_source ADD COLUMN IF NOT EXISTS settings_mac character varying(64);
 ALTER TABLE trusted_list_source ADD COLUMN IF NOT EXISTS services_mac character varying(64);
 ALTER TABLE trusted_list_member ADD COLUMN IF NOT EXISTS services_mac character varying(64);
+-- Sources stored before this migration have no MAC. They are marked, not trusted as they are: their first refresh
+-- with DB_ENCRYPTION set adopts the settings (audited TRUSTED_LIST_INTEGRITY_RESET / LEGACY_ADOPTED) and reloads every
+-- anchor from the signed list.
+UPDATE trusted_list_source SET settings_mac = 'legacy-unprotected' WHERE settings_mac IS NULL;
 -- Rollback high-water marks of the members of a list of trusted lists: the highest sequence number accepted per
 -- territory and TSLType. They outlive the member rows (a list that moves to another URL, or is dropped and pointed at
 -- again, cannot come back older) and are MACed like the anchors.

@@ -58,6 +58,7 @@ public class TrustedListService implements TrustedListAnchorSource {
     public static final String EXPIRED = "TRUSTED_LIST_EXPIRED";
     public static final String DISCARDED = "TRUSTED_LIST_REFRESH_DISCARDED";
     public static final String INTEGRITY_FAILED = "TRUSTED_LIST_INTEGRITY_FAILED";
+    public static final String INTEGRITY_RESET = "TRUSTED_LIST_INTEGRITY_RESET";
     public static final String SIGNER_EXPIRING = "TRUSTED_LIST_SIGNER_EXPIRING";
     public static final String SIGNER_EXPIRED = "TRUSTED_LIST_SIGNER_EXPIRED";
     /** A pinned signer expiring within this is audited at every refresh (and shown in the console). */
@@ -566,7 +567,7 @@ public class TrustedListService implements TrustedListAnchorSource {
                 final TrustedListSource source = row.get();
                 // a row whose MAC does not match is not used: no anchors from it (fail closed)
                 final boolean intact = settingsIntact(source) && servicesIntact(source);
-                if (!intact) {
+                if (!intact && !TrustedListRepository.LEGACY_SETTINGS_MAC.equals(source.state().settingsMac())) {
                     reportTampering(source, settingsIntact(source) ? "the stored anchors" : "the stored settings");
                 }
                 final List<MemberSnapshot> members = new ArrayList<>();
@@ -653,7 +654,7 @@ public class TrustedListService implements TrustedListAnchorSource {
         if (row.isEmpty()) {
             return true; // deleted meanwhile
         }
-        final TrustedListSource source = row.get();
+        TrustedListSource source = row.get();
         final long configVersion = source.state().configVersion();
         final long renewEvery = Math.max(100, settings.lease().toMillis() / 3);
         final ScheduledFuture<?> keeper = LEASE_KEEPER.scheduleAtFixedRate(() -> {
@@ -665,11 +666,36 @@ public class TrustedListService implements TrustedListAnchorSource {
         }, renewEvery, renewEvery, TimeUnit.MILLISECONDS);
         final Map<String, String> detail = detail(source);
         try {
-            if (!settingsIntact(source) || !servicesIntact(source)
-                    || members(source).stream().anyMatch(m -> !memberIntact(source, m))) {
-                failed(source, owner, configVersion, now, "INTEGRITY", "the stored settings or anchors failed the integrity "
-                        + "check (modified outside HelixIAM, or DB_ENCRYPTION changed); re-save the settings", detail);
-                return true;
+            if (!settingsIntact(source)) {
+                if (!(integrity.enabled()
+                        && TrustedListRepository.LEGACY_SETTINGS_MAC.equals(source.state().settingsMac()))) {
+                    // settings that fail their check are never adopted: an admin must check and save them again
+                    failed(source, owner, configVersion, now, "INTEGRITY", "the stored settings failed the integrity "
+                            + "check (modified outside HelixIAM, or DB_ENCRYPTION changed); check and save them "
+                            + "again", detail);
+                    return true;
+                }
+                // a source stored before integrity protection (V84): adopt its settings, reload everything
+                if (!repository.adoptLegacySettings(id, owner, configVersion, settingsMac(id, source.realmId(),
+                        source.config(), configVersion))) {
+                    discarded(source, detail);
+                    return true;
+                }
+                if (!resetLoaded(source, owner, configVersion, "LEGACY_ADOPTED", "the source was stored before "
+                        + "integrity protection: its settings were adopted and its anchors are reloaded from the "
+                        + "signed list", detail)) {
+                    return true;
+                }
+                source = repository.byId(id).orElse(source);
+            } else {
+                final String broken = brokenLoadedState(source);
+                if (broken != null) {
+                    if (!resetLoaded(source, owner, configVersion, "INTEGRITY_RESET", broken + " failed the "
+                            + "integrity check; they were discarded and are reloaded from the signed list", detail)) {
+                        return true;
+                    }
+                    source = repository.byId(id).orElse(source);
+                }
             }
             final LoadedList loaded;
             try {
@@ -718,6 +744,37 @@ public class TrustedListService implements TrustedListAnchorSource {
             repository.releaseLease(id, owner);
             sync();
         }
+    }
+
+    /** What of the loaded state fails its check (for the audit), or null when all of it verifies. */
+    private String brokenLoadedState(final TrustedListSource source) {
+        final List<String> broken = new ArrayList<>();
+        if (!servicesIntact(source)) {
+            broken.add("the stored anchors");
+        }
+        if (members(source).stream().anyMatch(m -> !memberIntact(source, m))) {
+            broken.add("the anchors of a member list");
+        }
+        if (repository.highWaterMarks(source.id()).stream().anyMatch(h -> !hwmIntact(source, h))) {
+            broken.add("the rollback high-water marks");
+        }
+        return broken.isEmpty() ? null : String.join(" and ", broken);
+    }
+
+    /** Discards the loaded state (never silently: audited and logged); false when the lease or settings moved. */
+    private boolean resetLoaded(final TrustedListSource source, final String owner, final long configVersion,
+                                final String reason, final String message, final Map<String, String> sourceDetail) {
+        if (!repository.resetLoadedState(source.id(), owner, configVersion)) {
+            discarded(source, sourceDetail);
+            return false;
+        }
+        final Map<String, String> detail = detail(source);
+        detail.put("reason", reason);
+        detail.put("message", message);
+        LOG.warn("trusted lists: {} of realm {}: {}", LogSafe.sanitize(source.config().name()),
+                LogSafe.sanitize(source.realmId()), message);
+        audit.emit(source.realmId(), INTEGRITY_RESET, source.id(), "FAILURE", detail);
+        return true;
     }
 
     private boolean storeSingle(final String id, final String owner, final long configVersion, final LoadedList loaded,
