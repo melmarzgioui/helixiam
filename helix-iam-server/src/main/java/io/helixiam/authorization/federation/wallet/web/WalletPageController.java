@@ -45,7 +45,9 @@ import java.util.Optional;
  * <ul>
  *   <li>{@code GET /wallet?tx=}: the themed wallet page ({@code flow/wallet}). While the transaction is fresh: the QR
  *       code of the <b>cross-device</b> invocation URL (server-side SVG, {@link QrCodeSvg}) and an "Open wallet" link
- *       with the <b>same-device</b> URL; {@code /js/wallet-poll.js} then polls the status. A failed login offers a
+ *       with the <b>same-device</b> URL; {@code /js/wallet-poll.js} then polls the status. When the provider has the
+ *       W3C Digital Credentials API on, the page also carries the {@link WalletDcApiController} URLs and protocol, and
+ *       {@code /js/wallet-dcapi.js} offers it where the browser supports it. A failed login offers a
  *       retry; an expired or unknown one (or one of another browser or realm) is a 404 page that says so.</li>
  *   <li>{@code GET /wallet/status?tx=}: {@code {"status": "PENDING" | "WALLET_OPENED" | "COMPLETED" | "FAILED",
  *       "reason"?, "next"?}}, never cached. {@code PENDING}: created, the wallet has not fetched the request yet;
@@ -53,7 +55,7 @@ import java.util.Optional;
  *       "confirm in your wallet app"; {@code COMPLETED} covers verified and redeemed (the store's {@code VERIFIED});
  *       {@code FAILED} is a refused or wallet-declined login, with its plain-language {@code reason}
  *       ({@link WalletFailureClass}: declined, not_accepted, expired, technical; never the specific check). On the first
- *       poll after a CROSS_DEVICE transaction was verified, {@code next} is the broker callback with a fresh response
+ *       poll after a CROSS_DEVICE (or DC_API) transaction was verified, {@code next} is the broker callback with a fresh response
  *       code only ({@code WalletTransactionStore#issueResponseCode}, once: a later poll has no {@code next}; the
  *       callback takes the state from the session). A same-device
  *       login's code went to the wallet's {@code redirect_uri}, so its poll never has a {@code next}.</li>
@@ -120,6 +122,14 @@ public class WalletPageController {
                 model.addAttribute("qrCode", QrCodeSvg.dataUri(crossDevice));
                 model.addAttribute("sameDeviceUrl", requests.invocationUrl(tx, provider.config(),
                         provider.signingKey(), WalletTransaction.Flow.SAME_DEVICE, idpBaseUrl));
+                if (provider.config().dcApi().enabled()) {
+                    // The W3C Digital Credentials API, offered by /js/wallet-dcapi.js only when the browser has it.
+                    final String base = request.getContextPath() + "/broker/" + segment(alias) + "/wallet/dc-api/";
+                    final String query = "?tx=" + UriUtils.encodeQueryParam(tx.transactionId(), StandardCharsets.UTF_8);
+                    model.addAttribute("dcApiRequestUrl", base + "request" + query);
+                    model.addAttribute("dcApiResponseUrl", base + "response" + query);
+                    model.addAttribute("dcApiProtocol", provider.config().dcApi().request().protocol());
+                }
             }
         }
         return VIEW;
@@ -141,7 +151,7 @@ public class WalletPageController {
             body.put("reason", WalletFailureClass.of(tx.failureCode()).key()); // the plain-language class only
         }
         if (status == ClientStatus.COMPLETED && tx.status() == WalletTransaction.Status.VERIFIED
-                && tx.flow() == WalletTransaction.Flow.CROSS_DEVICE) {
+                && (tx.flow() == WalletTransaction.Flow.CROSS_DEVICE || tx.flow() == WalletTransaction.Flow.DC_API)) {
             bound.get().provider().transactions().issueResponseCode(tx.transactionId(), bound.get().binding())
                     .ifPresent(code -> {
                         // only the code, like the same-device redirect_uri: the callback reads the state from the

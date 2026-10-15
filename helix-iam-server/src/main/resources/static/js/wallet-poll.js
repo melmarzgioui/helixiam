@@ -26,7 +26,17 @@
     var expiresAt = Number(root.dataset.expiresAt) || 0;
     var retry = document.getElementById('walletRetry');
     var active = document.getElementById('walletActive');
+    var dcApi = document.getElementById('walletDcApi');
+    var dcApiButton = document.getElementById('walletDcApiButton');
     var stopped = false;
+
+    // The Digital Credentials API section (wallet-dcapi.js) is spent too once another path took the login, unless it
+    // is the path in progress (its button is disabled while it runs).
+    function hideDcApi() {
+        if (dcApi && !(dcApiButton && dcApiButton.disabled)) {
+            dcApi.hidden = true;
+        }
+    }
 
     var opened = false;
 
@@ -50,6 +60,7 @@
             if (active) {
                 active.hidden = true; // the QR code and the link are spent
             }
+            hideDcApi();
             if (retry) {
                 retry.hidden = false;
                 retry.focus();
@@ -77,6 +88,7 @@
         if (active) {
             active.hidden = true; // the wallet has the request: the QR code and the link are spent
         }
+        hideDcApi();
         say(status.dataset.msgOpened);
     }
 

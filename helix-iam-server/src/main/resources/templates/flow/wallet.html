@@ -3,6 +3,8 @@
 <!--/*
   Task 18: "Sign in with EUDI Wallet" (WalletPageController). walletState:
     active      - "Open wallet app" (same-device) + the QR code (cross-device invocation, server-rendered SVG), polling;
+                  plus, when the provider has the W3C Digital Credentials API on (dcApiRequestUrl) and the browser
+                  supports it, "Continue with your wallet" above them (/js/wallet-dcapi.js reveals it);
                   desktop shows the QR code first, a phone (<= 640 px) the same-device button first (CSS order)
     opened      - the wallet fetched the request (status WALLET_OPENED): "confirm in your wallet app", polling
     failed      - the wallet declined or the presentation was refused: retry
@@ -18,6 +20,7 @@
 <head>
     <th:block th:replace="~{fragments/theme :: hxHead(#{wallet.page.title}, false)}"></th:block>
     <script th:if="${walletState == 'active' or walletState == 'opened'}" defer th:src="@{/js/wallet-poll.js}"></script>
+    <script th:if="${walletState == 'active' and dcApiRequestUrl != null}" defer th:src="@{/js/wallet-dcapi.js}"></script>
 </head>
 <body>
 <div class="mainWrapper">
@@ -38,6 +41,22 @@
             <article id="wallet" class="hx-wallet"
                      th:data-status-url="${walletState == 'active' or walletState == 'opened'} ? ${statusUrl} : null"
                      th:data-expires-at="${walletState == 'active' or walletState == 'opened'} ? ${expiresAt} : null">
+
+                <!--/* The W3C Digital Credentials API (OpenID4VP Appendix A): hidden until /js/wallet-dcapi.js finds the
+                     browser supports it, so without it the page is exactly the QR code and "Open wallet app". */-->
+                <section id="walletDcApi" class="hx-wallet-dcapi" hidden
+                         th:if="${walletState == 'active' and dcApiRequestUrl != null}"
+                         th:attr="data-request-url=${dcApiRequestUrl},data-response-url=${dcApiResponseUrl},data-protocol=${dcApiProtocol},data-csrf-header=${_csrf != null ? _csrf.headerName : null},data-csrf-token=${_csrf != null ? _csrf.token : null},data-msg-waiting=#{wallet.dcApi.waiting},data-msg-checking=#{wallet.dcApi.checking},data-msg-cancelled=#{wallet.dcApi.cancelled},data-msg-unavailable=#{wallet.dcApi.unavailable}">
+                    <h2 th:text="#{wallet.dcApi.heading}">Use a wallet on this phone or one nearby</h2>
+                    <p class="hx-muted" th:text="#{wallet.dcApi.description}">Your browser asks which wallet to use and shows who is asking.</p>
+                    <div class="buttonHolder">
+                        <button id="walletDcApiButton" type="button" class="button">
+                            <span th:text="#{wallet.dcApi.button}">Continue with your wallet</span>
+                        </button>
+                    </div>
+                    <p id="walletDcApiNote" class="hx-muted hx-small" role="status" aria-live="polite"></p>
+                    <p class="hx-wallet-or"><span th:text="#{wallet.dcApi.or}">Or use the wallet app directly</span></p>
+                </section>
 
                 <div id="walletActive" class="hx-wallet-grid" th:if="${walletState == 'active'}">
                     <div class="hx-wallet-device">

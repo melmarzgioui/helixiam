@@ -337,6 +337,54 @@ h1, h2, h3, h4 {
     width: 100%;
   }
 }
+/* The W3C Digital Credentials API (shown only where the browser supports it): the recommended path, above the QR
+   code and the same-device link, which stay as the fallback. */
+.hx-wallet-dcapi h2 {
+  font-family: var(--hx-font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--hx-ink);
+}
+.hx-wallet-dcapi p {
+  margin: var(--hx-space) 0 0;
+}
+.mainWrapper > main > div.container article .hx-wallet-dcapi .buttonHolder {
+  justify-content: flex-start;
+  margin-top: calc(var(--hx-space) * 2.5);
+}
+.hx-wallet-dcapi .buttonHolder > button.button {
+  width: auto;
+  padding: 0 calc(var(--hx-space) * 5);
+}
+.hx-wallet-dcapi #walletDcApiNote:empty {
+  display: none;
+}
+.hx-wallet-or {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hx-space) * 2);
+  margin: calc(var(--hx-space) * 4) 0 calc(var(--hx-space) * 3) !important;
+  color: var(--hx-ink-muted);
+  font-size: 0.875rem;
+}
+.hx-wallet-or::before,
+.hx-wallet-or::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--hx-border);
+}
+@media screen and (max-width: 640px) {
+  .hx-wallet-dcapi {
+    text-align: center;
+  }
+  .mainWrapper > main > div.container article .hx-wallet-dcapi .buttonHolder {
+    justify-content: center;
+  }
+  .hx-wallet-dcapi .buttonHolder > button.button {
+    width: 100%;
+  }
+}
 .hx-wallet-status {
   display: flex;
   align-items: center;
