@@ -36,9 +36,10 @@ public class TrustedListRepository {
     private static final String COLUMNS = "id, realm_id, name, url, format, signer_certificates, service_types, "
             + "accepted_statuses, territories, grace_hours, enabled, status, last_attempt_at, last_success_at, "
             + "list_issued_at, next_update, next_refresh_at, sequence_number, lists_read, last_error, services_json, "
-            + "version, config_version, list_of_lists, created_at, updated_at";
+            + "version, config_version, list_of_lists, created_at, updated_at, settings_mac, services_mac";
     private static final String MEMBER_COLUMNS = "source_id, member_key, location, territory, status, services_json, "
-            + "sequence_number, list_issued_at, next_update, last_attempt_at, last_success_at, last_error, version";
+            + "sequence_number, list_issued_at, next_update, last_attempt_at, last_success_at, last_error, version, "
+            + "services_mac";
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
@@ -92,13 +93,19 @@ public class TrustedListRepository {
                 + "AND (next_refresh_at IS NULL OR next_refresh_at <= ?)", MAPPER, now));
     }
 
-    public void insert(final String id, final String realmId, final TrustedListSource.Config c, final long now) {
+    public void insert(final String id, final String realmId, final TrustedListSource.Config c, final long now,
+                       final String settingsMac) {
         tx.executeWithoutResult(s -> jdbc.update("INSERT INTO trusted_list_source (id, realm_id, name, url, format, "
                 + "signer_certificates, service_types, accepted_statuses, territories, grace_hours, enabled, status, "
-                + "version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                + "version, created_at, updated_at, settings_mac) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
                 id, realmId, c.name(), c.url(), c.format().name(), c.signerCertificates(), json(c.serviceTypes()),
                 json(c.acceptedStatuses()), json(c.territories()), c.graceHours(), c.enabled(),
-                TrustedListHealth.Status.NEVER.name(), now, now));
+                TrustedListHealth.Status.NEVER.name(), now, now, settingsMac));
+    }
+
+    /** The stored JSON of a list setting (as MACed): {@code serviceTypes}, {@code acceptedStatuses}, {@code territories}. */
+    static String settingJson(final List<String> values) {
+        return json(values);
     }
 
     /**
@@ -106,17 +113,18 @@ public class TrustedListRepository {
      * state are dropped and the source is due at once: anchors extracted under other settings never survive.
      */
     public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
-                                final boolean resetState, final long now) {
+                                final boolean resetState, final long now, final String settingsMac) {
         final String reset = resetState ? ", status = 'NEVER', last_attempt_at = NULL, last_success_at = NULL, "
                 + "list_issued_at = NULL, next_update = NULL, next_refresh_at = NULL, sequence_number = NULL, "
-                + "lists_read = NULL, last_error = NULL, services_json = NULL, list_of_lists = FALSE" : "";
+                + "lists_read = NULL, last_error = NULL, services_json = NULL, services_mac = NULL, list_of_lists = FALSE"
+                : "";
         final Integer n = tx.execute(s -> resetMembers(resetState, id) + jdbc.update("UPDATE trusted_list_source SET name = ?, url = ?, format = ?, "
                 + "signer_certificates = ?, service_types = ?, accepted_statuses = ?, territories = ?, "
                 + "grace_hours = ?, enabled = ?, version = version + 1, config_version = config_version + 1, "
-                + "lease_owner = NULL, lease_until = NULL, updated_at = ?" + reset
+                + "lease_owner = NULL, lease_until = NULL, updated_at = ?, settings_mac = ?" + reset
                 + " WHERE realm_id = ? AND id = ?", c.name(), c.url(), c.format().name(), c.signerCertificates(),
                 json(c.serviceTypes()), json(c.acceptedStatuses()), json(c.territories()), c.graceHours(),
-                c.enabled(), now, realmId, id));
+                c.enabled(), now, settingsMac, realmId, id));
         return n != null && n == 1;
     }
 
@@ -156,20 +164,21 @@ public class TrustedListRepository {
      * False means the result was dropped.
      */
     public boolean recordSuccess(final String id, final String owner, final long configVersion, final LoadedList loaded,
-                                 final String servicesJson, final long now, final long nextRefreshAt) {
+                                 final String servicesJson, final String servicesMac, final long now,
+                                 final long nextRefreshAt) {
         final Integer n = tx.execute(s -> jdbc.update("UPDATE trusted_list_source SET status = ?, last_attempt_at = ?, "
                 + "last_success_at = ?, list_issued_at = ?, next_update = ?, next_refresh_at = ?, sequence_number = ?, "
-                + "lists_read = ?, last_error = NULL, services_json = ?, list_of_lists = FALSE, version = version + 1, "
-                + "lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ? AND config_version = ? "
-                + "AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
+                + "lists_read = ?, last_error = NULL, services_json = ?, services_mac = ?, list_of_lists = FALSE, "
+                + "version = version + 1, lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ? "
+                + "AND config_version = ? AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
                 TrustedListHealth.Status.OK.name(), now, now, loaded.issuedAt().toEpochMilli(),
                 loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(),
-                servicesJson, id, owner, configVersion, loaded.sequence()));
+                servicesJson, servicesMac, id, owner, configVersion, loaded.sequence()));
         return n != null && n == 1;
     }
 
     /** What to write for one member of a verified list of lists. */
-    public record MemberWrite(LoadedList.Member member, String servicesJson, String failureStatus) {
+    public record MemberWrite(LoadedList.Member member, String servicesJson, String servicesMac, String failureStatus) {
     }
 
     /**
@@ -179,18 +188,19 @@ public class TrustedListRepository {
      * the territories no longer select) are deleted. False means nothing was written.
      */
     public boolean recordListOfListsSuccess(final String id, final String owner, final long configVersion,
-                                            final LoadedList loaded, final List<MemberWrite> members, final long now,
+                                            final LoadedList loaded, final String servicesMac,
+                                            final List<MemberWrite> members, final long now,
                                             final long nextRefreshAt) {
         final Boolean ok = tx.execute(s -> {
             final int n = jdbc.update("UPDATE trusted_list_source SET status = ?, last_attempt_at = ?, "
                     + "last_success_at = ?, list_issued_at = ?, next_update = ?, next_refresh_at = ?, "
-                    + "sequence_number = ?, lists_read = ?, last_error = NULL, services_json = '[]', "
+                    + "sequence_number = ?, lists_read = ?, last_error = NULL, services_json = '[]', services_mac = ?, "
                     + "list_of_lists = TRUE, version = version + 1, lease_owner = NULL, lease_until = NULL "
                     + "WHERE id = ? AND lease_owner = ? AND config_version = ? "
                     + "AND (sequence_number IS NULL OR services_json IS NULL OR sequence_number <= ?)",
                     TrustedListHealth.Status.OK.name(), now, now, loaded.issuedAt().toEpochMilli(),
-                    loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(), id,
-                    owner, configVersion, loaded.sequence());
+                    loaded.nextUpdate().toEpochMilli(), nextRefreshAt, loaded.sequence(), loaded.listsRead(),
+                    servicesMac, id, owner, configVersion, loaded.sequence());
             if (n != 1) {
                 return false;
             }
@@ -200,8 +210,9 @@ public class TrustedListRepository {
                 keep.add(m.key());
                 if (m.loaded()) {
                     jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
-                            + "(?, ?, ?, ?, 'OK', ?, ?, ?, ?, ?, ?, NULL, 1) ON CONFLICT (source_id, member_key) DO "
+                            + "(?, ?, ?, ?, 'OK', ?, ?, ?, ?, ?, ?, NULL, 1, ?) ON CONFLICT (source_id, member_key) DO "
                             + "UPDATE SET status = 'OK', services_json = EXCLUDED.services_json, "
+                            + "services_mac = EXCLUDED.services_mac, "
                             + "sequence_number = EXCLUDED.sequence_number, list_issued_at = EXCLUDED.list_issued_at, "
                             + "next_update = EXCLUDED.next_update, last_attempt_at = EXCLUDED.last_attempt_at, "
                             + "last_success_at = EXCLUDED.last_success_at, last_error = NULL, "
@@ -209,11 +220,11 @@ public class TrustedListRepository {
                             + "NULL OR trusted_list_member.services_json IS NULL "
                             + "OR trusted_list_member.sequence_number <= EXCLUDED.sequence_number",
                             id, m.key(), m.location(), m.territory(), w.servicesJson(), m.sequence(),
-                            m.issuedAt().toEpochMilli(), m.nextUpdate().toEpochMilli(), now, now);
+                            m.issuedAt().toEpochMilli(), m.nextUpdate().toEpochMilli(), now, now, w.servicesMac());
                 } else {
                     final String error = truncate(m.errorKind() + ": " + m.errorMessage());
                     jdbc.update("INSERT INTO trusted_list_member (" + MEMBER_COLUMNS + ") VALUES "
-                            + "(?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, 1) ON CONFLICT (source_id, "
+                            + "(?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, 1, NULL) ON CONFLICT (source_id, "
                             + "member_key) DO UPDATE SET status = EXCLUDED.status, last_attempt_at = "
                             + "EXCLUDED.last_attempt_at, last_error = EXCLUDED.last_error, "
                             + "version = trusted_list_member.version + 1",
@@ -323,7 +334,7 @@ public class TrustedListRepository {
             rs.getString("member_key"), rs.getString("location"), rs.getString("territory"), rs.getString("status"),
             rs.getString("services_json"), longOrNull(rs, "sequence_number"), longOrNull(rs, "list_issued_at"),
             longOrNull(rs, "next_update"), longOrNull(rs, "last_attempt_at"), longOrNull(rs, "last_success_at"),
-            rs.getString("last_error"), rs.getLong("version"));
+            rs.getString("last_error"), rs.getLong("version"), rs.getString("services_mac"));
 
     private static final RowMapper<TrustedListSource> MAPPER = (rs, i) -> {
         final TrustedListSpec.Format format;
@@ -345,6 +356,6 @@ public class TrustedListRepository {
                         longOrNull(rs, "sequence_number"), listsRead,
                         rs.getString("last_error"), rs.getString("services_json"), rs.getLong("version"),
                         rs.getLong("config_version"), rs.getBoolean("list_of_lists"), rs.getLong("created_at"),
-                        rs.getLong("updated_at")));
+                        rs.getLong("updated_at"), rs.getString("settings_mac"), rs.getString("services_mac")));
     };
 }

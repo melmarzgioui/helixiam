@@ -1152,6 +1152,8 @@ CREATE TABLE IF NOT EXISTS trusted_list_source (
     version             bigint                  NOT NULL,
     config_version      bigint                  NOT NULL DEFAULT 1,
     list_of_lists       boolean                 NOT NULL DEFAULT false,
+    settings_mac        character varying(64),
+    services_mac        character varying(64),
     lease_owner         character varying(64),
     lease_until         bigint,
     created_at          bigint                  NOT NULL,
@@ -1173,5 +1175,6 @@ CREATE TABLE IF NOT EXISTS trusted_list_member (
     last_success_at bigint,
     last_error      character varying(1000),
     version         bigint                  NOT NULL,
+    services_mac    character varying(64),
     PRIMARY KEY (source_id, member_key)
 );

@@ -109,8 +109,10 @@ class TrustedListServiceTest {
                         audits.add(type + ":" + outcome);
                         auditDetails.add(detail);
                     }
-                }, clock, settings);
+                }, clock, settings, INTEGRITY, false);
     }
+
+    static final TrustedListIntegrity INTEGRITY = TrustedListIntegrity.fromSecret("0123456789abcdef0123456789abcdef");
 
     TrustedListSource.Config config(final String name) {
         return new TrustedListSource.Config(name, URL, TrustedListSpec.Format.ETSI_119612_XML,
@@ -489,7 +491,7 @@ class TrustedListServiceTest {
         // the lease is real time, so this replica runs on the system clock
         final TrustedListService replica = new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
                 new TrustedListLoader(slow, java.time.Clock.systemUTC()), (r, t, i, o, d) -> { },
-                java.time.Clock.systemUTC(), shortLease);
+                java.time.Clock.systemUTC(), shortLease, INTEGRITY, false);
         final TrustedListSource created = replica.create(realm, config("ut"));
         final ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
@@ -515,7 +517,7 @@ class TrustedListServiceTest {
         assertThat(repo.tryLease(created.id(), "writer", clock.millis(), clock.millis() + 60_000)).isTrue();
 
         final boolean written = repo.recordSuccess(created.id(), "writer", stored.state().configVersion(),
-                new LoadedList(List.of(), clock.instant(), clock.instant().plus(Duration.ofDays(1)), 4, 1), "[]",
+                new LoadedList(List.of(), clock.instant(), clock.instant().plus(Duration.ofDays(1)), 4, 1), "[]", null,
                 clock.millis(), clock.millis());
 
         assertThat(written).isFalse();
@@ -686,5 +688,84 @@ class TrustedListServiceTest {
         assertThat(anchors(service)).containsExactly(nlIssuer);
         assertThat(service.members(service.get(realm, created.id()).orElseThrow()))
                 .extracting(TrustedListSource.Member::territory).containsExactly("NL");
+    }
+
+    // ------------------------------------------------------------------------------------------------ integrity
+
+    @Test
+    void anchorsWrittenIntoTheDatabaseOutsideHelix_areNotUsed_andAudited() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        service.refreshNow(realm, created.id());
+        final X509Certificate evil = TestPki.create("Injected").root();
+        final String injected = ServicesCodec.encode(List.of(new ListedService(evil, PID_TYPE, "x", "x", "UT", null)));
+        new org.springframework.transaction.support.TransactionTemplate(TRANSACTIONS).executeWithoutResult(t ->
+                JDBC.update("UPDATE trusted_list_source SET services_json = ?, version = version + 1 WHERE id = ?",
+                        injected, created.id()));
+
+        final TrustedListService other = newReplica(fetcher);
+        other.sync();
+
+        assertThat(anchors(other)).isEmpty();
+        assertThat(other.services(other.get(realm, created.id()).orElseThrow())).isEmpty();
+        assertThat(audits).contains("TRUSTED_LIST_INTEGRITY_FAILED:FAILURE");
+    }
+
+    @Test
+    void signerPinnedThroughTheDatabase_isRefusedAtRefresh() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        final TestPki.Leaf attacker = TrustedListFixtures.signer("Attacker");
+        served.put(URL, TrustedListFixtures.signedXml(listWith(4, Service.granted("Evil", issuer)), attacker));
+        new org.springframework.transaction.support.TransactionTemplate(TRANSACTIONS).executeWithoutResult(t ->
+                JDBC.update("UPDATE trusted_list_source SET signer_certificates = ? WHERE id = ?",
+                        TestPki.pem(attacker.certificate()), created.id()));
+
+        final TrustedListSource after = service.refreshNow(realm, created.id()).orElseThrow();
+
+        assertThat(after.state().lastError()).startsWith("INTEGRITY:");
+        assertThat(anchors(service)).isEmpty();
+        assertThat(fetches.get()).isZero();
+    }
+
+    @Test
+    void memberAnchorsWrittenOutsideHelix_areNotUsed() {
+        serveLotl(10, TrustedListFixtures.Pointer.memberState(NL, "NL", nlSigner.certificate()),
+                TrustedListFixtures.Pointer.memberState(DE, "DE", deSigner.certificate()));
+        serveMember(NL, "NL", 5, 30, nlSigner, Service.granted("NL", nlIssuer));
+        serveMember(DE, "DE", 5, 30, deSigner, Service.granted("DE", deIssuer));
+        final TrustedListSource created = lotlSource();
+        service.refreshNow(realm, created.id());
+        final String nlJson = ServicesCodec.encode(List.of(new ListedService(TestPki.create("Injected").root(),
+                PID_TYPE, "x", "x", "NL", null)));
+        new org.springframework.transaction.support.TransactionTemplate(TRANSACTIONS).executeWithoutResult(t -> {
+            JDBC.update("UPDATE trusted_list_member SET services_json = ? WHERE source_id = ? AND territory = 'NL'",
+                    nlJson, created.id());
+            JDBC.update("UPDATE trusted_list_source SET version = version + 1 WHERE id = ?", created.id());
+        });
+
+        final TrustedListService other = newReplica(fetcher);
+        other.sync();
+
+        assertThat(anchors(other)).containsExactly(deIssuer);
+    }
+
+    @Test
+    void withoutDbEncryption_sourcesAreRefusedOutsideDev_andAllowedInDev() {
+        final TrustedListService production = new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
+                new TrustedListLoader(fetcher, clock), (r, t, i, o, d) -> { }, clock,
+                TrustedListService.Settings.DEFAULTS, TrustedListIntegrity.none(), false);
+        assertThatThrownBy(() -> production.create(realm, config("ut")))
+                .isInstanceOfSatisfying(TrustedListService.InvalidConfigException.class,
+                        e -> assertThat(e.fieldErrors().get("signerCertificates")).contains("DB_ENCRYPTION"));
+
+        final TrustedListService dev = new TrustedListService(new TrustedListRepository(JDBC, TRANSACTIONS),
+                new TrustedListLoader(fetcher, clock), (r, t, i, o, d) -> { }, clock,
+                TrustedListService.Settings.DEFAULTS, TrustedListIntegrity.none(), true);
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = dev.create(realm, config("ut"));
+        dev.refreshNow(realm, created.id());
+        assertThat(dev.get(realm, created.id()).orElseThrow().state().servicesMac()).isNull();
+        assertThat(dev.anchors(realm, List.of("ut"), List.of())).containsExactly(issuer);
     }
 }

@@ -44,11 +44,13 @@ public record TrustedListSource(String id, String realmId, Config config, State 
      * @param version       moves with every write (replicas reload what moved)
      * @param configVersion moves with every settings change (a refresh started under older settings is discarded)
      * @param listOfLists   the last good list is a list of trusted lists: its anchors come from its members
+     * @param settingsMac   {@link TrustedListIntegrity} MAC of the settings, null without DB_ENCRYPTION
+     * @param servicesMac   {@link TrustedListIntegrity} MAC of the stored services, null without DB_ENCRYPTION
      */
     public record State(String status, Long lastAttemptAt, Long lastSuccessAt, Long listIssuedAt, Long nextUpdate,
                         Long nextRefreshAt, Long sequenceNumber, Integer listsRead, String lastError,
                         String servicesJson, long version, long configVersion, boolean listOfLists, long createdAt,
-                        long updatedAt) {
+                        long updatedAt, String settingsMac, String servicesMac) {
     }
 
     /**
@@ -59,6 +61,7 @@ public record TrustedListSource(String id, String realmId, Config config, State 
      */
     public record Member(String sourceId, String key, String location, String territory, String status,
                          String servicesJson, Long sequenceNumber, Long listIssuedAt, Long nextUpdate,
-                         Long lastAttemptAt, Long lastSuccessAt, String lastError, long version) {
+                         Long lastAttemptAt, Long lastSuccessAt, String lastError, long version,
+                         String servicesMac) {
     }
 }

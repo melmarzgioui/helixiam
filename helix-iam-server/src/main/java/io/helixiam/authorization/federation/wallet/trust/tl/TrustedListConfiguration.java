@@ -9,6 +9,7 @@ import io.helixiam.authorization.security.audit.AuditContext;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.authorization.security.audit.AuditLog;
 import io.helixiam.common.net.OutboundUrlGuard;
+import io.helixiam.common.startup.DeploymentProfile;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -47,7 +48,8 @@ public class TrustedListConfiguration {
 
     @Bean
     public TrustedListService trustedListService(final TrustedListRepository repository, final OutboundUrlGuard guard,
-            final AuditLog auditLog,
+            final AuditLog auditLog, final DeploymentProfile profile,
+            @Value("${database.encryption:#{null}}") final String encryptionKey,
             @Value("${helix.wallet.trusted-lists.refresh-interval-minutes:360}") final long refreshMinutes,
             @Value("${helix.wallet.trusted-lists.retry-interval-minutes:15}") final long retryMinutes,
             @Value("${helix.wallet.trusted-lists.max-bytes:" + SecureXml.DEFAULT_MAX_BYTES + "}") final long maxBytes,
@@ -60,7 +62,8 @@ public class TrustedListConfiguration {
                         java.time.Period.ofMonths(Math.max(1, maxValidityMonths))));
         return new TrustedListService(repository, loader, auditSink(auditLog), Clock.systemUTC(),
                 new TrustedListService.Settings(Duration.ofMinutes(Math.max(5, refreshMinutes)),
-                        Duration.ofMinutes(Math.max(1, retryMinutes)), Duration.ofMinutes(2)));
+                        Duration.ofMinutes(Math.max(1, retryMinutes)), Duration.ofMinutes(2)),
+                TrustedListIntegrity.fromSecret(encryptionKey), profile.isDev());
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
