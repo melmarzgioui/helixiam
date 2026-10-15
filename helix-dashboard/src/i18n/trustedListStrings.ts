@@ -34,6 +34,10 @@ export const trustedListEn: Dict = {
   "tl.refreshing": "Refreshing…",
   "tl.busy": "A refresh of this list is already running. Try again in a moment.",
   "tl.delete": "Delete",
+  "tl.conflict.title": "This trusted list was changed by someone else",
+  "tl.conflict.body": "Your changes were not saved. Reload to see the current settings, then make your change again.",
+  "tl.conflict.reload": "Reload",
+  "tl.inUse.title": "This trusted list is still in use",
   "tl.fixErrors": "Fix the highlighted fields first.",
 
   "tl.status.NEVER": "Not loaded yet",
@@ -208,6 +212,10 @@ export const trustedListNl: Dict = {
   "tl.refreshing": "Verversen…",
   "tl.busy": "Deze lijst wordt al ververst. Probeer het zo opnieuw.",
   "tl.delete": "Verwijderen",
+  "tl.conflict.title": "Deze vertrouwde lijst is door iemand anders gewijzigd",
+  "tl.conflict.body": "Uw wijzigingen zijn niet opgeslagen. Laad de lijst opnieuw om de huidige instellingen te zien en breng uw wijziging dan opnieuw aan.",
+  "tl.conflict.reload": "Opnieuw laden",
+  "tl.inUse.title": "Deze vertrouwde lijst is nog in gebruik",
   "tl.fixErrors": "Corrigeer eerst de gemarkeerde velden.",
 
   "tl.status.NEVER": "Nog niet geladen",

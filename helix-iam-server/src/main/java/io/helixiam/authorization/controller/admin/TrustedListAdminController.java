@@ -54,13 +54,19 @@ public class TrustedListAdminController {
     }
 
     /** The admin's settings for a source. Lists may be null (empty). */
+    /**
+     * The admin's settings for a source. Lists may be null (empty). {@code configVersion} is required on an update: the
+     * {@code configVersion} of the view the admin edited, so a concurrent edit is refused (409) instead of overwritten.
+     */
     public record TrustedListRequest(String name, String url, String format, String signerCertificates,
                                      List<String> serviceTypes, List<String> acceptedStatuses,
-                                     List<String> territories, Integer graceHours, Boolean enabled) {
+                                     List<String> territories, Integer graceHours, Boolean enabled,
+                                     Long configVersion) {
     }
 
     /** A source as the console shows it; times are ISO-8601 or null. */
-    public record TrustedListView(String id, String name, String url, String format, String signerCertificates,
+    public record TrustedListView(String id, long configVersion, String name, String url, String format,
+                                  String signerCertificates,
                                   List<CertificateView> signers, List<String> serviceTypes,
                                   List<String> acceptedStatuses, List<String> effectiveStatuses,
                                   List<String> territories, int graceHours, boolean enabled, String status,
@@ -115,26 +121,39 @@ public class TrustedListAdminController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<TrustedListView> update(@PathVariable final String realmId, @PathVariable final String id,
-                                                  @RequestBody final TrustedListRequest request,
-                                                  final HttpServletRequest http) {
+    public ResponseEntity<?> update(@PathVariable final String realmId, @PathVariable final String id,
+                                    @RequestBody final TrustedListRequest request, final HttpServletRequest http) {
+        if (request == null || request.configVersion() == null) {
+            throw new ProviderValidationException(Map.of("configVersion",
+                    "configVersion is required: send the configVersion of the trusted list you edited"));
+        }
         try {
             final java.util.Optional<TrustedListSource> before = service.get(realmId, id);
-            final java.util.Optional<TrustedListSource> saved = service.update(realmId, id, config(request));
+            final java.util.Optional<TrustedListSource> saved = service.update(realmId, id, config(request),
+                    request.configVersion());
             saved.ifPresent(s -> AuditContext.attachDetail(http, auditDetail(s.config(),
                     before.map(TrustedListSource::config).orElse(null))));
-            return saved.map(this::view).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+            return saved.map(this::view).<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElseGet(() -> ResponseEntity.notFound().build());
         } catch (final TrustedListService.InvalidConfigException e) {
             throw new ProviderValidationException(e.fieldErrors());
+        } catch (final TrustedListService.ConcurrentUpdateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "conflict", "message",
+                    e.getMessage()));
         }
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable final String realmId, @PathVariable final String id,
-                                       final HttpServletRequest http) {
+    public ResponseEntity<?> delete(@PathVariable final String realmId, @PathVariable final String id,
+                                    final HttpServletRequest http) {
         final java.util.Optional<TrustedListSource> before = service.get(realmId, id);
-        if (!service.delete(realmId, id)) {
-            return ResponseEntity.notFound().build();
+        try {
+            if (!service.delete(realmId, id)) {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (final TrustedListService.InUseException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "in_use", "message",
+                    e.getMessage()));
         }
         before.ifPresent(s -> AuditContext.attachDetail(http, auditDetail(s.config(), null)));
         return ResponseEntity.noContent().build();
@@ -221,7 +240,7 @@ public class TrustedListAdminController {
         final int anchors = s.state().listOfLists()
                 ? members.stream().filter(MemberView::anchorsInUse).mapToInt(MemberView::anchorCount).sum()
                 : usable(services);
-        return new TrustedListView(s.id(), c.name(), c.url(), c.format().name(), c.signerCertificates(), signers,
+        return new TrustedListView(s.id(), st.configVersion(), c.name(), c.url(), c.format().name(), c.signerCertificates(), signers,
                 c.serviceTypes(), c.acceptedStatuses(),
                 c.acceptedStatuses().isEmpty() ? List.copyOf(TrustedListSpec.DEFAULT_STATUSES) : c.acceptedStatuses(),
                 c.territories(), c.graceHours(), c.enabled(), status.name(), status.anchorsUsable(),

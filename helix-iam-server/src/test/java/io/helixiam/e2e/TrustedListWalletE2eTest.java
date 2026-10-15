@@ -199,7 +199,8 @@ class TrustedListWalletE2eTest extends AbstractE2eTest {
 
         final Map<String, Object> renamed = new java.util.LinkedHashMap<>(Map.of("name", "renamed", "url", listUrl(),
                 "format", "ETSI_119612_XML", "signerCertificates", TestPki.pem(listSigner.certificate()),
-                "serviceTypes", List.of(TrustedListFixtures.PID_TYPE), "graceHours", 24));
+                "serviceTypes", List.of(TrustedListFixtures.PID_TYPE), "graceHours", 24,
+                "configVersion", source.path("configVersion").asLong()));
         final E2eHttp.Response refused = admin.put(lists() + "/" + id, renamed);
         assertThat(refused.status()).as(refused.toString()).isEqualTo(400);
         assertThat(refused.json().path("fieldErrors").path("name").asText()).contains(alias);
@@ -219,6 +220,37 @@ class TrustedListWalletE2eTest extends AbstractE2eTest {
             Thread.sleep(25);
         }
         assertThat(detail).contains(fingerprint).contains(listUrl());
+
+        // and while the provider uses it, the source cannot be deleted either
+        final E2eHttp.Response deleted = admin.delete(lists() + "/" + id);
+        assertThat(deleted.status()).as(deleted.toString()).isEqualTo(409);
+        assertThat(deleted.json().path("message").asText()).contains(alias);
+        assertThat(admin.get(lists() + "/" + id).status()).isEqualTo(200);
+    }
+
+    @Test
+    void anEditOverAStaleRead_is409_andAnEditWithoutConfigVersion_is400() {
+        serve(5, TrustedListFixtures.Service.granted("Listed PID Provider", wallet.wallet().pki().root()));
+        final JsonNode source = createSource("two-admins");
+        final String id = source.path("id").asText();
+        final Map<String, Object> edit = new java.util.LinkedHashMap<>(Map.of("name", "two-admins", "url", listUrl(),
+                "format", "ETSI_119612_XML", "signerCertificates", TestPki.pem(listSigner.certificate()),
+                "serviceTypes", List.of(TrustedListFixtures.PID_TYPE), "graceHours", 48,
+                "configVersion", source.path("configVersion").asLong()));
+
+        final E2eHttp.Response first = admin.put(lists() + "/" + id, edit);
+        assertThat(first.status()).as(first.toString()).isEqualTo(200);
+        assertThat(first.json().path("configVersion").asLong()).isGreaterThan(source.path("configVersion").asLong());
+
+        edit.put("graceHours", 12);
+        final E2eHttp.Response stale = admin.put(lists() + "/" + id, edit);
+        assertThat(stale.status()).as(stale.toString()).isEqualTo(409);
+        assertThat(admin.get(lists() + "/" + id).json().path("graceHours").asInt()).isEqualTo(48);
+
+        edit.remove("configVersion");
+        final E2eHttp.Response missing = admin.put(lists() + "/" + id, edit);
+        assertThat(missing.status()).isEqualTo(400);
+        assertThat(missing.json().path("fieldErrors").has("configVersion")).isTrue();
     }
 
     @Test

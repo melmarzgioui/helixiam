@@ -30,6 +30,8 @@ export interface TrustedListMember {
 /** A trusted list source of the realm (server TrustedListView). Times are ISO-8601 or null. */
 export interface TrustedList {
   id: string;
+  /** Moves with every settings change; an update must send the one it edited (409 when it moved). */
+  configVersion: number;
   name: string;
   url: string;
   format: TrustedListFormat;
@@ -87,6 +89,8 @@ export interface TrustedListWrite {
   territories: string[];
   graceHours: number;
   enabled: boolean;
+  /** Required on update: the configVersion of the source that was edited. */
+  configVersion?: number;
 }
 
 /** The admin API behind the Trusted lists screen. Errors are AdminApiError (400 carries fieldErrors, 409 = busy). */
@@ -118,7 +122,12 @@ export function createTrustedListHttpClient(baseUrl = ""): TrustedListApi {
 }
 
 /** In-memory client for stories, tests and the screenshot harness. Refresh marks the source OK with `anchors`. */
-export function createTrustedListMemoryClient(opts: { lists?: TrustedList[]; anchors?: TrustedListAnchor[] } = {}): TrustedListApi {
+export function createTrustedListMemoryClient(opts: {
+  lists?: TrustedList[];
+  anchors?: TrustedListAnchor[];
+  /** id → aliases of the identity providers that use the source (delete is then refused, like the server). */
+  usedBy?: Record<string, string[]>;
+} = {}): TrustedListApi {
   const lists = [...(opts.lists ?? [])];
   const anchors = opts.anchors ?? [];
   const find = (id: string) => {
@@ -130,7 +139,7 @@ export function createTrustedListMemoryClient(opts: { lists?: TrustedList[]; anc
     ...(prev ?? sampleTrustedList({ status: "NEVER", anchorsInUse: false, serviceCount: 0, anchorCount: 0,
       lastAttemptAt: null, lastSuccessAt: null, listIssuedAt: null, nextUpdate: null, anchorsUsableUntil: null,
       nextRefreshAt: null, sequenceNumber: null, listsRead: null, lastError: null })),
-    ...b, id, effectiveStatuses: b.acceptedStatuses,
+    ...b, id, effectiveStatuses: b.acceptedStatuses, configVersion: prev?.configVersion ?? 1,
   });
   return {
     list: async () => [...lists],
@@ -146,10 +155,20 @@ export function createTrustedListMemoryClient(opts: { lists?: TrustedList[]; anc
     },
     update: async (_r, id, b) => {
       const i = lists.findIndex((x) => x.id === id);
-      lists[i] = fromWrite(id, b, lists[i]);
+      if (b.configVersion !== lists[i].configVersion) {
+        throw new AdminApiError("This trusted list was changed by someone else; reload it and try again", 409);
+      }
+      lists[i] = { ...fromWrite(id, b, lists[i]), configVersion: lists[i].configVersion + 1 };
       return lists[i];
     },
-    remove: async (_r, id) => { lists.splice(lists.findIndex((x) => x.id === id), 1); },
+    remove: async (_r, id) => {
+      const users = opts.usedBy?.[id] ?? [];
+      if (users.length) {
+        throw new AdminApiError(`This trusted list is used by ${users.join(", ")}: remove it from those identity `
+          + "providers before deleting it", 409);
+      }
+      lists.splice(lists.findIndex((x) => x.id === id), 1);
+    },
     refresh: async (_r, id) => {
       const i = lists.findIndex((x) => x.id === id);
       const now = new Date();
@@ -163,7 +182,7 @@ export function createTrustedListMemoryClient(opts: { lists?: TrustedList[]; anc
 /** A plausible source for stories (the EUDI reference implementation's test LOTL, refreshed and healthy). */
 export function sampleTrustedList(over: Partial<TrustedList> = {}): TrustedList {
   return {
-    id: "tl-1", name: "eudi-test-lotl", url: "https://trustedlist.serviceproviders.eudiw.dev/LOTL/01.xml",
+    id: "tl-1", configVersion: 1, name: "eudi-test-lotl", url: "https://trustedlist.serviceproviders.eudiw.dev/LOTL/01.xml",
     format: "ETSI_119612_XML", signerCertificates: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----\n",
     signers: [], serviceTypes: ["http://uri.etsi.org/Svc/Svctype/Provider/PID"], acceptedStatuses: [],
     effectiveStatuses: ["http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted",

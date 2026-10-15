@@ -113,19 +113,28 @@ public class TrustedListRepository {
      * state are dropped and the source is due at once: anchors extracted under other settings never survive.
      */
     public boolean updateConfig(final String realmId, final String id, final TrustedListSource.Config c,
-                                final boolean resetState, final long now, final String settingsMac) {
+                                final boolean resetState, final long now, final String settingsMac,
+                                final long expectedConfigVersion) {
         final String reset = resetState ? ", status = 'NEVER', last_attempt_at = NULL, last_success_at = NULL, "
                 + "list_issued_at = NULL, next_update = NULL, next_refresh_at = NULL, sequence_number = NULL, "
                 + "lists_read = NULL, last_error = NULL, services_json = NULL, services_mac = NULL, list_of_lists = FALSE"
                 : "";
-        final Integer n = tx.execute(s -> resetMembers(resetState, id) + jdbc.update("UPDATE trusted_list_source SET name = ?, url = ?, format = ?, "
-                + "signer_certificates = ?, service_types = ?, accepted_statuses = ?, territories = ?, "
-                + "grace_hours = ?, enabled = ?, version = version + 1, config_version = config_version + 1, "
-                + "lease_owner = NULL, lease_until = NULL, updated_at = ?, settings_mac = ?" + reset
-                + " WHERE realm_id = ? AND id = ?", c.name(), c.url(), c.format().name(), c.signerCertificates(),
-                json(c.serviceTypes()), json(c.acceptedStatuses()), json(c.territories()), c.graceHours(),
-                c.enabled(), now, settingsMac, realmId, id));
-        return n != null && n == 1;
+        final Boolean ok = tx.execute(s -> {
+            // only over the settings the caller read: a concurrent edit is never overwritten
+            final int n = jdbc.update("UPDATE trusted_list_source SET name = ?, url = ?, format = ?, "
+                    + "signer_certificates = ?, service_types = ?, accepted_statuses = ?, territories = ?, "
+                    + "grace_hours = ?, enabled = ?, version = version + 1, config_version = config_version + 1, "
+                    + "lease_owner = NULL, lease_until = NULL, updated_at = ?, settings_mac = ?" + reset
+                    + " WHERE realm_id = ? AND id = ? AND config_version = ?", c.name(), c.url(), c.format().name(),
+                    c.signerCertificates(), json(c.serviceTypes()), json(c.acceptedStatuses()), json(c.territories()),
+                    c.graceHours(), c.enabled(), now, settingsMac, realmId, id, expectedConfigVersion);
+            if (n != 1) {
+                return false;
+            }
+            resetMembers(resetState, id);
+            return true;
+        });
+        return Boolean.TRUE.equals(ok);
     }
 
     public boolean delete(final String realmId, final String id) {

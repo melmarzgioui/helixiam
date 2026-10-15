@@ -132,6 +132,11 @@ class TrustedListServiceTest {
         return spec;
     }
 
+    /** The config_version a client would hold after reading the source now. */
+    long cv(final TrustedListSource source) {
+        return new TrustedListRepository(JDBC, TRANSACTIONS).byId(source.id()).orElseThrow().state().configVersion();
+    }
+
     List<X509Certificate> anchors(final TrustedListService s) {
         return s.anchors(realm, List.of("ut"), List.of());
     }
@@ -261,13 +266,13 @@ class TrustedListServiceTest {
         final TrustedListSource.Config graceOnly = new TrustedListSource.Config("ut", URL,
                 TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
                 List.of(), List.of(), 48, true);
-        service.update(realm, created.id(), graceOnly);
+        service.update(realm, created.id(), graceOnly, cv(created));
         assertThat(anchors(service)).containsExactly(issuer);
 
         final TrustedListSource.Config otherSigner = new TrustedListSource.Config("ut", URL,
                 TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(TrustedListFixtures.signer("New").certificate()),
                 List.of(PID_TYPE), List.of(), List.of(), 48, true);
-        final TrustedListSource reset = service.update(realm, created.id(), otherSigner).orElseThrow();
+        final TrustedListSource reset = service.update(realm, created.id(), otherSigner, cv(created)).orElseThrow();
         assertThat(anchors(service)).isEmpty();
         assertThat(service.status(reset)).isEqualTo(TrustedListHealth.Status.NEVER);
     }
@@ -280,7 +285,7 @@ class TrustedListServiceTest {
         final TrustedListSource.Config off = new TrustedListSource.Config("ut", URL,
                 TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
                 List.of(), List.of(), 24, false);
-        service.update(realm, created.id(), off);
+        service.update(realm, created.id(), off, cv(created));
 
         assertThat(anchors(service)).isEmpty();
     }
@@ -431,7 +436,7 @@ class TrustedListServiceTest {
             assertThat(gate.inFetch.await(10, TimeUnit.SECONDS)).isTrue();
             replica.update(realm, created.id(), new TrustedListSource.Config("ut", URL,
                     TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(newSigner.certificate()), List.of(PID_TYPE),
-                    List.of(), List.of(), 24, true));
+                    List.of(), List.of(), 24, true), cv(created));
             gate.release.countDown();
             inFlight.get(20, TimeUnit.SECONDS);
         } finally {
@@ -767,6 +772,27 @@ class TrustedListServiceTest {
         dev.refreshNow(realm, created.id());
         assertThat(dev.get(realm, created.id()).orElseThrow().state().servicesMac()).isNull();
         assertThat(dev.anchors(realm, List.of("ut"), List.of())).containsExactly(issuer);
+    }
+
+    @Test
+    void twoAdmins_theSecondSaveOverAStaleReadIsRefused() {
+        serve(listWith(3, Service.granted("Issuer", issuer)));
+        final TrustedListSource created = service.create(realm, config("ut"));
+        final long read = cv(created); // both admins read the source now
+        final TrustedListSource.Config first = new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(signer.certificate()), List.of(PID_TYPE),
+                List.of(), List.of(), 48, true);
+        final TrustedListSource.Config second = new TrustedListSource.Config("ut", URL,
+                TrustedListSpec.Format.ETSI_119612_XML, TestPki.pem(TrustedListFixtures.signer("Other").certificate()),
+                List.of(PID_TYPE), List.of(), List.of(), 24, true);
+
+        service.update(realm, created.id(), first, read);
+
+        assertThatThrownBy(() -> service.update(realm, created.id(), second, read))
+                .isInstanceOf(TrustedListService.ConcurrentUpdateException.class);
+        final TrustedListSource now = service.get(realm, created.id()).orElseThrow();
+        assertThat(now.config().graceHours()).isEqualTo(48);
+        assertThat(now.config().signerCertificates()).isEqualTo(TestPki.pem(signer.certificate()));
     }
 
     @Test

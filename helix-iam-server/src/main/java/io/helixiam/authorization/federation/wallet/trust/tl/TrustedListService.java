@@ -107,6 +107,13 @@ public class TrustedListService implements TrustedListAnchorSource {
         }
     }
 
+    /** Someone else changed the source since the caller read it (its config_version moved). */
+    public static class ConcurrentUpdateException extends RuntimeException {
+        public ConcurrentUpdateException() {
+            super("This trusted list was changed by someone else; reload it and try again", null, false, false);
+        }
+    }
+
     /** The admin settings are not acceptable: field → message. */
     public static class InvalidConfigException extends RuntimeException {
         private final Map<String, String> fieldErrors;
@@ -248,13 +255,19 @@ public class TrustedListService implements TrustedListAnchorSource {
      * Saves new settings. A change to what is loaded (URL, format, signers, types, statuses, territories) drops the
      * stored anchors at once and makes the source due: anchors extracted under other settings never survive.
      *
+     * @param expectedConfigVersion the {@code configVersion} the caller read
      * @return the source, or empty when it does not exist in the realm
+     * @throws ConcurrentUpdateException when the settings changed since the caller read them
      */
     public Optional<TrustedListSource> update(final String realmId, final String id,
-                                              final TrustedListSource.Config config) {
+                                              final TrustedListSource.Config config,
+                                              final long expectedConfigVersion) {
         final Optional<TrustedListSource> existing = repository.get(realmId, id);
         if (existing.isEmpty()) {
             return Optional.empty();
+        }
+        if (existing.get().state().configVersion() != expectedConfigVersion) {
+            throw new ConcurrentUpdateException();
         }
         final TrustedListSource.Config c = normalize(config);
         final Map<String, String> errors = new LinkedHashMap<>(TrustedListConfigValidator.validate(c));
@@ -272,8 +285,10 @@ public class TrustedListService implements TrustedListAnchorSource {
             throw new InvalidConfigException(errors);
         }
         requireIntegrity();
-        repository.updateConfig(realmId, id, c, !existing.get().config().sameList(c), clock.millis(),
-                settingsMac(id, realmId, c));
+        if (!repository.updateConfig(realmId, id, c, !existing.get().config().sameList(c), clock.millis(),
+                settingsMac(id, realmId, c), expectedConfigVersion)) {
+            throw new ConcurrentUpdateException();
+        }
         sync();
         return repository.get(realmId, id);
     }
@@ -348,7 +363,28 @@ public class TrustedListService implements TrustedListAnchorSource {
         audit.emit(source.realmId(), INTEGRITY_FAILED, source.id(), "FAILURE", detail);
     }
 
+    /** The source is still named by identity providers (delete or rename refused). */
+    public static class InUseException extends RuntimeException {
+        public InUseException(final String message) {
+            super(message, null, false, false);
+        }
+    }
+
+    /**
+     * Deletes a source no identity provider uses.
+     *
+     * @throws InUseException while providers of the realm name it in {@code trustedLists.sources}
+     */
     public boolean delete(final String realmId, final String id) {
+        final Optional<TrustedListSource> existing = repository.get(realmId, id);
+        if (existing.isEmpty()) {
+            return false;
+        }
+        final List<String> users = providersUsing(existing.get());
+        if (!users.isEmpty()) {
+            throw new InUseException("This trusted list is used by " + String.join(", ", users)
+                    + ": remove it from those identity providers before deleting it");
+        }
         final boolean deleted = repository.delete(realmId, id);
         sync();
         return deleted;

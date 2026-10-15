@@ -168,6 +168,7 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
   const [error, setError] = React.useState<string | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setError(null);
@@ -200,12 +201,17 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
 
   const remove = async () => {
     setDeleting(false);
+    setDeleteError(null);
     try {
       await api.remove(realmId, id);
       toast.show({ tone: "success", title: t("tl.toast.deleted") });
       onBack();
     } catch (e: unknown) {
-      toast.show({ tone: "error", title: t("tl.error.delete"), message: String((e as Error).message ?? e) });
+      if (e instanceof AdminApiError && e.status === 409) {
+        setDeleteError(e.message); // still used by identity providers: the message names them
+      } else {
+        toast.show({ tone: "error", title: t("tl.error.delete"), message: String((e as Error).message ?? e) });
+      }
     }
   };
 
@@ -372,10 +378,13 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
 
         <Section title={t("tl.settings.title")} description={t("tl.settings.desc")}
           actions={<Button variant="danger" onClick={() => setDeleting(true)}>{t("tl.delete")}</Button>}>
-          <TrustedListEditor key={`${list.id}-${list.name}-${list.url}`} initial={formFromTrustedList(list)} signers={list}
-            submitLabel={t("tl.form.save")}
+          {deleteError && (
+            <Alert tone="danger" title={t("tl.inUse.title")} onDismiss={() => setDeleteError(null)}>{deleteError}</Alert>
+          )}
+          <TrustedListEditor key={`${list.id}-${list.configVersion}`} initial={formFromTrustedList(list)} signers={list}
+            submitLabel={t("tl.form.save")} onReload={() => { void load(); }}
             onSubmit={async (form) => {
-              const saved = await api.update(realmId, id, trustedListWrite(form));
+              const saved = await api.update(realmId, id, { ...trustedListWrite(form), configVersion: list.configVersion });
               setList(saved);
               setAnchors(await api.anchors(realmId, id));
               toast.show({ tone: "success", title: t("tl.toast.saved") });
@@ -413,15 +422,18 @@ interface EditorProps {
   submitLabel: string;
   onSubmit: (form: TrustedListForm) => Promise<void>;
   onCancel?: () => void;
+  /** Reloads the source after a concurrent change (409). */
+  onReload?: () => void;
 }
 
 /** The settings form (create and edit). Validates before sending; the server's 400 lands on the same fields. */
-function TrustedListEditor({ initial, withPresets, signers, submitLabel, onSubmit, onCancel }: EditorProps) {
+function TrustedListEditor({ initial, withPresets, signers, submitLabel, onSubmit, onCancel, onReload }: EditorProps) {
   const { t, locale } = useT();
   const [form, setForm] = React.useState<TrustedListForm>(initial ?? DEFAULT_TRUSTED_LIST_FORM);
   const [attempted, setAttempted] = React.useState(false);
   const [serverErrors, setServerErrors] = React.useState<Record<string, string>>({});
   const [other, setOther] = React.useState<string | null>(null);
+  const [conflict, setConflict] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [preset, setPreset] = React.useState("");
   const local = validateTrustedList(form);
@@ -441,7 +453,9 @@ function TrustedListEditor({ initial, withPresets, signers, submitLabel, onSubmi
       await onSubmit(form);
       setAttempted(false);
     } catch (e: unknown) {
-      if (e instanceof AdminApiError && Object.keys(e.fieldErrors).length) {
+      if (e instanceof AdminApiError && e.status === 409) {
+        setConflict(true);
+      } else if (e instanceof AdminApiError && Object.keys(e.fieldErrors).length) {
         setServerErrors(e.fieldErrors);
       } else {
         setOther(String((e as Error).message ?? e));
@@ -457,6 +471,14 @@ function TrustedListEditor({ initial, withPresets, signers, submitLabel, onSubmi
   return (
     <div className="hx-formblock">
       {other && <Alert tone="danger" title={t("tl.error.save")}>{other}</Alert>}
+      {conflict && (
+        <Alert tone="warning" title={t("tl.conflict.title")}>
+          <span className="hx-stack-tight">
+            <span>{t("tl.conflict.body")}</span>
+            {onReload && <span><Button variant="ghost" onClick={onReload}>{t("tl.conflict.reload")}</Button></span>}
+          </span>
+        </Alert>
+      )}
       {attempted && Object.keys(local).length > 0 && <Alert tone="danger">{t("tl.fixErrors")}</Alert>}
       {withPresets && (
         <FormField label={t("tl.form.preset")} hint={t("tl.form.presetHint")}>
