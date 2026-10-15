@@ -6,7 +6,6 @@
 package io.helixiam.authorization.federation.wallet.trust.tl;
 
 import io.helixiam.common.json.JsonNodes;
-import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.databind.JsonNode;
 import io.helixiam.common.json.JsonMappers;
 import tools.jackson.databind.ObjectMapper;
@@ -50,9 +49,8 @@ final class LoteJsonList {
             "adoTst", "sigPId", "cty");
     private static final int MAX_CERTS = 16;
     private static final ObjectMapper JSON = JsonMappers.jackson2Compatible(JsonMapper.builder(
-                    JsonMappers.factoryBuilder()
-                            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(SecureXml.MAX_DEPTH)
-                                    .maxStringLength(1024 * 1024).build()).build())
+                    JsonMappers.factoryBuilder(c -> c.maxNestingDepth(SecureXml.MAX_DEPTH).maxStringLength(1024 * 1024))
+                            .build())
                     .configureForJackson2()).build();
 
     private LoteJsonList() {

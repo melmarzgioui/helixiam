@@ -37,6 +37,20 @@ class JsonMappersTest {
         assertAtLeastAsStrict(JsonMappers.plain());
         assertThat(JsonMappers.plain().tokenStreamFactory().streamReadConstraints().getMaxStringLength())
                 .isEqualTo(JACKSON2_MAX_STRING);
+        assertThat(JsonMappers.plain().tokenStreamFactory().streamReadConstraints().getMaxNestingDepth())
+                .isEqualTo(500);
+    }
+
+    @Test
+    void aFactoryWithOwnConstraints_keepsTheStringCapUnlessItOverridesIt() {
+        final StreamReadConstraints depthOnly = JsonMappers.factoryBuilder(c -> c.maxNestingDepth(32)).build()
+                .streamReadConstraints();
+        assertThat(depthOnly.getMaxNestingDepth()).isEqualTo(32);
+        assertThat(depthOnly.getMaxStringLength()).isEqualTo(JACKSON2_MAX_STRING);
+        final StreamReadConstraints tighter = JsonMappers.factoryBuilder(c -> c.maxStringLength(1024 * 1024)).build()
+                .streamReadConstraints();
+        assertThat(tighter.getMaxStringLength()).isEqualTo(1024 * 1024);
+        assertThat(tighter.getMaxNestingDepth()).isEqualTo(500);
     }
 
     @Test
@@ -51,6 +65,8 @@ class JsonMappersTest {
         final StreamReadConstraints strict = io.helixiam.authorization.federation.wallet.StrictJson.MAPPER
                 .tokenStreamFactory().streamReadConstraints();
         assertThat(strict.getMaxNestingDepth()).isEqualTo(64);
+        assertThat(io.helixiam.authorization.federation.wallet.StrictJson.MAPPER.tokenStreamFactory()
+                .streamReadConstraints().getMaxNestingDepth()).isEqualTo(64);
         assertThat(strict.getMaxStringLength()).isEqualTo(JACKSON2_MAX_STRING);
         assertThatThrownBy(() -> io.helixiam.authorization.federation.wallet.StrictJson.MAPPER
                 .readTree("[".repeat(65) + "]".repeat(65))).isInstanceOf(StreamConstraintsException.class);

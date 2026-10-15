@@ -14,6 +14,7 @@ import tools.jackson.databind.module.SimpleModule;
 import tools.jackson.databind.ser.std.ToStringSerializer;
 
 import java.util.Locale;
+import java.util.function.Consumer;
 
 /**
  * The application's own Jackson 3 mappers (everything outside Spring MVC, whose mapper Spring Boot configures, see
@@ -70,6 +71,16 @@ public final class JsonMappers {
      */
     public static JsonFactoryBuilder factoryBuilder() {
         return JsonFactory.builderWithJackson2Defaults().streamReadConstraints(readConstraints().build());
+    }
+
+    /**
+     * A JSON factory as {@link #factoryBuilder()} whose read constraints start from {@link #readConstraints()} and are
+     * then adjusted by {@code constraints}: the 20 MB string cap stays unless the caller sets a string limit itself.
+     */
+    public static JsonFactoryBuilder factoryBuilder(final Consumer<StreamReadConstraints.Builder> constraints) {
+        final StreamReadConstraints.Builder builder = readConstraints();
+        constraints.accept(builder);
+        return JsonFactory.builderWithJackson2Defaults().streamReadConstraints(builder.build());
     }
 
     /** Jackson 3's read constraints with Jackson 2's maximum string length. */

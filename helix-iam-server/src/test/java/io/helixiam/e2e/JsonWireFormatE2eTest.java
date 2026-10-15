@@ -190,7 +190,7 @@ class JsonWireFormatE2eTest extends AbstractE2eTest {
     void theApplicationMapper_readsWithJackson2sLimitsOrStricter() {
         final tools.jackson.core.StreamReadConstraints c = mapper().tokenStreamFactory().streamReadConstraints();
         assertThat(c.getMaxStringLength()).isEqualTo(JsonMappers.MAX_STRING_LENGTH);
-        assertThat(c.getMaxNestingDepth()).isPositive().isLessThanOrEqualTo(1000);
+        assertThat(c.getMaxNestingDepth()).isEqualTo(500);
         assertThat(c.getMaxNumberLength()).isPositive().isLessThanOrEqualTo(1000);
         assertThat(c.getMaxNameLength()).isPositive().isLessThanOrEqualTo(50_000);
     }

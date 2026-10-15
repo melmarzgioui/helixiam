@@ -6,6 +6,7 @@
 package io.helixiam.authorization.security.flow;
 
 import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.mfa.MfaWebAuthnPublisher;
@@ -52,6 +53,6 @@ public class AmqpResidentKeyResolver implements ResidentKeyResolver {
     }
 
     private static String text(final JsonNode node, final String field) {
-        return node.path(field).asString("");
+        return JsonNodes.text(node.path(field), "");
     }
 }
