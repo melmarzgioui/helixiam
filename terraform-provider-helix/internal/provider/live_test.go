@@ -79,6 +79,73 @@ func TestLiveCRUD(t *testing.T) {
 	t.Logf("live CRUD OK: application + realm role created, read, updated, deleted against %s", base)
 }
 
+// TestLiveWalletIdentityProviderCRUD exercises the EUDI wallet identity-provider connection against a
+// REAL running Helix publisher, same gating as TestLiveCRUD. A wallet connection additionally needs a
+// verifier access key already imported into the realm (docs/eudi-wallet.md §2.4 step 1,
+// `POST /admin/realms/{realm}/verifier-keys`) — generating and importing a valid, non-self-signed EC
+// certificate chain is out of scope for this test, so it is separately gated on
+// HELIX_LIVE_WALLET_ACCESS_KEY_REF (e.g. "software:gov/primary") and HELIX_LIVE_WALLET_TRUST_ANCHORS (a
+// PEM bundle of acceptable PID-issuer CA certificates). Run it with:
+//
+//	HELIX_LIVE_BASEURL=http://localhost:8083 \
+//	HELIX_LIVE_WALLET_ACCESS_KEY_REF=software:gov/primary \
+//	HELIX_LIVE_WALLET_TRUST_ANCHORS="$(cat ca.pem)" \
+//	go test ./internal/provider -run TestLiveWalletIdentityProviderCRUD -v
+func TestLiveWalletIdentityProviderCRUD(t *testing.T) {
+	base := os.Getenv("HELIX_LIVE_BASEURL")
+	accessKeyRef := os.Getenv("HELIX_LIVE_WALLET_ACCESS_KEY_REF")
+	trustAnchors := os.Getenv("HELIX_LIVE_WALLET_TRUST_ANCHORS")
+	if base == "" || accessKeyRef == "" || trustAnchors == "" {
+		t.Skip("set HELIX_LIVE_BASEURL, HELIX_LIVE_WALLET_ACCESS_KEY_REF and HELIX_LIVE_WALLET_TRUST_ANCHORS " +
+			"to run the live wallet identity-provider CRUD test")
+	}
+	realm := getenv("HELIX_REALM", "master")
+	c := NewClient(base, base+"/realms/"+realm, realm, os.Getenv("HELIX_CLIENT_ID"), os.Getenv("HELIX_CLIENT_SECRET"))
+	ctx := context.Background()
+
+	const alias = "tf-live-wallet"
+	_ = c.DeleteIdentityProvider(ctx, alias) // best-effort pre-clean
+
+	write := IdentityProviderWrite{
+		Alias: alias, Protocol: "eudi-wallet", DisplayName: "TF Live Wallet", Enabled: true,
+		Config: map[string]string{
+			"accessKeyRef":      accessKeyRef,
+			"trustAnchors":      trustAnchors,
+			"credentialFormats": `["dc+sd-jwt","mso_mdoc"]`,
+		},
+	}
+	if err := c.CreateIdentityProvider(ctx, write); err != nil {
+		t.Fatalf("create wallet idp: %v", err)
+	}
+	ip, nf, err := c.GetIdentityProvider(ctx, alias)
+	if err != nil || nf {
+		t.Fatalf("get wallet idp: err=%v nf=%v", err, nf)
+	}
+	if ip.Protocol != "eudi-wallet" || ip.ConfigString("accessKeyRef") != accessKeyRef {
+		t.Fatalf("unexpected wallet idp after create: %+v", ip)
+	}
+	if _, present := ip.Config["accessCertificatePrivateKey"]; present {
+		t.Fatalf("a secret key must never come back from the admin API")
+	}
+
+	write.DisplayName = "TF Live Wallet v2"
+	if err := c.UpdateIdentityProvider(ctx, alias, write); err != nil {
+		t.Fatalf("update wallet idp: %v", err)
+	}
+	ip, _, _ = c.GetIdentityProvider(ctx, alias)
+	if ip.DisplayName != "TF Live Wallet v2" {
+		t.Fatalf("expected updated displayName, got %q", ip.DisplayName)
+	}
+
+	if err := c.DeleteIdentityProvider(ctx, alias); err != nil {
+		t.Fatalf("delete wallet idp: %v", err)
+	}
+	if _, nf, _ := c.GetIdentityProvider(ctx, alias); !nf {
+		t.Fatalf("expected wallet idp gone after delete")
+	}
+	t.Logf("live wallet identity-provider CRUD OK against %s", base)
+}
+
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v

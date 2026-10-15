@@ -19,6 +19,12 @@ All attributes also read from environment: `HELIX_ISSUER`, `HELIX_REALM`, `HELIX
 `HELIX_CLIENT_ID`, `HELIX_CLIENT_SECRET`. The provider authenticates with the OAuth2
 client-credentials grant and caches the token until just before expiry.
 
+**The realm is the provider's, not any one resource's.** Every resource below is created in whichever
+realm the provider block is configured for. Changing `realm` (or `HELIX_REALM`) does not move existing
+resources: Terraform plans to create them again in the new realm, and the resources left in the old realm
+stay there, unmanaged (`terraform plan`/`apply` never deletes them, since the provider's state for the old
+realm is simply no longer reachable under the new configuration).
+
 ## Resources
 
 ### `helix_application`
@@ -42,6 +48,69 @@ A realm role.
 | `name` | required, forces replace | unique role name |
 | `description` | optional | |
 | `role_id` / `id` | computed | server-assigned role id |
+
+### `helix_wallet_identity_provider`
+An EUDI Wallet (OpenID4VP verifier) identity-provider connection — an `/admin/realms/{realm}/identity-providers`
+connection with protocol `eudi-wallet` (see [`docs/eudi-wallet.md`](../docs/eudi-wallet.md)). Supports `terraform
+import helix_wallet_identity_provider.<name> <alias>`.
+
+| Attribute | | |
+|-----------|---|---|
+| `alias` | required, forces replace | unique connection alias within the realm |
+| `display_name` | optional | label shown in the console and on the login page |
+| `enabled` | optional, default true | |
+| `client_id_scheme` | optional | `x509_hash` (default) or `x509_san_dns` |
+| `client_id_host` | optional | required DNS host for `x509_san_dns` |
+| `access_key_ref` | optional, **recommended** | realm signing-key reference (e.g. `software:gov/primary`, imported via `/admin/realms/{realm}/verifier-keys`); never written to Terraform state. Required unless `access_certificate_private_key` is used |
+| `access_certificate_chain` | optional | PEM chain, leaf first, no root |
+| `access_certificate_private_key` | optional, **sensitive**, write-only | a raw PEM key, as an alternative to `access_key_ref`. The server accepts this only in its `dev` deployment profile and refuses it in every other profile. Never read back from the admin API — but **stored in plaintext in Terraform state**, since `Sensitive` only redacts CLI output/logs, not the state file; see below |
+| `registration_certificate` | optional | PEM bundle for OpenID Federation registration |
+| `invocation_scheme` | optional | default `haip-vp` |
+| `response_mode` | optional | `direct_post.jwt` (default) or `direct_post` (dev only) |
+| `request_uri_method` | optional | `get` (default) or `post` |
+| `transaction_ttl_seconds` | optional | 60–900, default 300 |
+| `credential_formats` | optional, list | `dc+sd-jwt` and/or `mso_mdoc` |
+| `pid_sd_jwt_vcts` | optional, list | accepted SD-JWT VC `vct`s |
+| `pid_mdoc_doctype` | optional | mdoc PID doctype |
+| `pid_requested_claims` | optional, list | PID claims to request |
+| `custom_credential_queries` | optional, list | not supported yet (must stay empty) |
+| `trust_anchors` | optional | PEM bundle of trusted PID-issuer CAs |
+| `revocation_checking` | optional | default `HARD_FAIL` |
+| `status_list_required` / `status_list_on_unavailable` / `status_list_max_cache_seconds` / `status_list_allowed_hosts` | optional | Token Status List policy |
+| `subject_strategy` / `subject_acknowledge_weak_subject` | optional | how the Helix subject is derived |
+| `minimum_loa` | optional | default `http://eidas.europa.eu/LoA/high` |
+| `clock_skew_seconds` | optional | 0–60, default 60 |
+| `allow_legacy_vc_sd_jwt_typ` | optional | default false |
+| `limits_max_jwt_bytes` / `limits_cbor_max_depth` / `limits_cbor_max_items` / `limits_cbor_max_bytes` | optional | parser bounds |
+| `dcql_trusted_authorities` | optional | whether the DCQL query carries the `aki` Trusted Authorities Query naming `trust_anchors`' key identifiers. Unset (the default): server decides — on for `client_id_scheme = "x509_hash"` + `response_mode = "direct_post.jwt"`, off otherwise. `true` requires every trust anchor to carry a SubjectKeyIdentifier extension |
+| `id` | computed | the connection alias |
+
+Every attribute above maps to a key of the connection's `config` map on the server
+(`WalletProviderConfig.java`); leaving one unset omits it from the write, so the server's own default
+applies and `terraform plan` never shows drift for it. `accessCertificateKeyRef` (renamed to
+`access_key_ref`, always refused by the server) and `subjectPepper` (a realm-level secret unrelated to
+any one connection) are deliberately not exposed.
+
+**`access_certificate_private_key` is write-only against the API, but not encrypted in Terraform state.**
+The admin API never returns a secret's value, only whether one is set, so a read keeps whatever is
+already in state — Terraform cannot refresh it and does not need to. But what you write into this
+attribute is stored in plaintext in the Terraform state file like any other string attribute;
+`Sensitive: true` only redacts it from CLI output and logs, it does not encrypt the state file. If you set
+this attribute at all, keep state encrypted at rest or in a remote backend that encrypts it (Terraform
+Cloud, an S3 backend with SSE and a restrictive bucket policy, etc.). **Prefer `access_key_ref`** instead
+(a key imported via `/admin/realms/{realm}/verifier-keys`, never written to Terraform state at all) for
+anything beyond a dev instance — the server (`WalletConfigValidator`) only accepts
+`access_certificate_private_key` when it is running in the `dev` deployment profile and refuses it in
+every other profile.
+
+**Removing `access_certificate_private_key` from your configuration clears it.** Declarative removal means
+removal: if state has a value and the plan no longer does, the resource sends
+`clearAccessCertificatePrivateKey=true`, so the stored secret is actually deleted server-side, not merely
+left unmanaged by Terraform while the old value lingers. This flag is never sent when state has no value
+for it in the first place — for example right after `terraform import`, where Terraform cannot know
+whether the server has a secret set at all, let alone clear it. To rotate the key, set a new value
+directly (a value always replaces the stored one); to remove it, delete the line; to stop managing it
+without touching the stored value, use `terraform state rm` instead of editing the configuration.
 
 ## Build & test
 
@@ -67,6 +136,14 @@ See `examples/main.tf` for a complete configuration.
 
 ## Status
 
-The admin client + both resources' CRUD are **verified live** against a running Helix publisher
-(application create/read/update/delete + realm role create/read/delete). Acceptance tests (`TF_ACC`)
-and registry publication are the remaining release steps.
+The admin client + all three resources' CRUD are **verified live** against a running Helix publisher:
+application create/read/update/delete, realm role create/read/delete, and (`TestLiveWalletIdentityProviderCRUD`,
+gated on `HELIX_LIVE_BASEURL`/`HELIX_LIVE_WALLET_ACCESS_KEY_REF`/`HELIX_LIVE_WALLET_TRUST_ANCHORS`) wallet
+identity-provider create/read/update/delete — run and passing against a dev-profile server as of
+2026-10-15. `helix_wallet_identity_provider` additionally has unit-level coverage against a mock admin
+API (`internal/provider/wallet_identity_provider_test.go`): the model/wire helpers in isolation, and the
+resource's own Create/Read/Update/ImportState through real `tfsdk.Plan`/`tfsdk.State` values — create →
+read → update, the secret's keep-vs-clear behaviour (including the import case, where it must never
+clear), a 400 with field errors becoming per-attribute diagnostics, and an import → read → no-op-update
+sequence that leaves the resource undisturbed. Acceptance tests (`TF_ACC`) and registry publication are
+the remaining release steps.

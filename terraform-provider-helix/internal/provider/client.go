@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -131,20 +132,57 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) (notF
 	}
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		msg := strings.TrimSpace(string(b))
-		// Surface the admin API's {message} when present.
+		ae := &AdminError{Method: method, Path: path, StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(b))}
+		// Surface the admin API's {message, fieldErrors} (AdminValidationAdvice) when present.
 		var e struct {
-			Message string `json:"message"`
+			Message     string            `json:"message"`
+			FieldErrors map[string]string `json:"fieldErrors"`
 		}
-		if json.Unmarshal(b, &e) == nil && e.Message != "" {
-			msg = e.Message
+		if json.Unmarshal(b, &e) == nil {
+			if e.Message != "" {
+				ae.Message = e.Message
+			}
+			if len(e.FieldErrors) > 0 {
+				ae.FieldErrors = e.FieldErrors
+			}
 		}
-		return false, fmt.Errorf("%s %s: %d %s", method, path, resp.StatusCode, msg)
+		return false, ae
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		return false, json.NewDecoder(resp.Body).Decode(out)
 	}
 	return false, nil
+}
+
+// AdminError is returned by Client for a 4xx/5xx admin API response. FieldErrors mirrors the admin
+// API's {message, fieldErrors} validation-error shape (AdminValidationAdvice on the server): one entry
+// per invalid field, field names as the admin API reports them (e.g. "alias", "config.accessKeyRef").
+// It is nil when the response carried no field errors (not every 4xx is a validation error). Callers
+// that know the field-name-to-attribute mapping (a resource's schema) can use errors.As to get at it
+// instead of only the flattened Error() string.
+type AdminError struct {
+	Method      string
+	Path        string
+	StatusCode  int
+	Message     string
+	FieldErrors map[string]string
+}
+
+func (e *AdminError) Error() string {
+	msg := e.Message
+	if len(e.FieldErrors) > 0 {
+		fields := make([]string, 0, len(e.FieldErrors))
+		for field := range e.FieldErrors {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		parts := make([]string, 0, len(fields))
+		for _, field := range fields {
+			parts = append(parts, field+": "+e.FieldErrors[field])
+		}
+		msg = msg + " (" + strings.Join(parts, "; ") + ")"
+	}
+	return fmt.Sprintf("%s %s: %d %s", e.Method, e.Path, e.StatusCode, msg)
 }
 
 // --- Application ---
@@ -214,5 +252,71 @@ func (c *Client) GetRoleByName(ctx context.Context, name string) (*Role, bool, e
 
 func (c *Client) DeleteRole(ctx context.Context, roleID string) error {
 	_, err := c.do(ctx, http.MethodDelete, "/roles/"+url.PathEscape(roleID), nil, nil)
+	return err
+}
+
+// --- Identity provider connection ---
+//
+// The admin API models every federation connection (OIDC/SAML/eID/LDAP/EUDI wallet) as one resource:
+// an alias, a protocol, a display name, an enabled flag and a flat string "config" map whose keys are
+// protocol-specific (dotted for nested settings, e.g. "pid.requestedClaims"). A write (create/update)
+// sends config as a Map<String,String>; a read returns it as Map<String,Object> because secret config
+// keys come back as "<key>Set": true|false booleans instead of their value (never the value itself —
+// see IdentityProviderAdminView on the server). IdentityProviderWrite/IdentityProviderRead reflect that
+// asymmetry.
+
+// IdentityProviderWrite is the body of a create or update.
+type IdentityProviderWrite struct {
+	Alias       string            `json:"alias"`
+	Protocol    string            `json:"protocol"`
+	DisplayName string            `json:"displayName,omitempty"`
+	Enabled     bool              `json:"enabled"`
+	Config      map[string]string `json:"config,omitempty"`
+}
+
+// IdentityProviderRead is an identity-provider connection as GET returns it: secrets are represented by
+// "<key>Set" booleans in Config, never by their value.
+type IdentityProviderRead struct {
+	RealmID     string         `json:"realmId,omitempty"`
+	Alias       string         `json:"alias"`
+	Protocol    string         `json:"protocol"`
+	DisplayName string         `json:"displayName,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	Config      map[string]any `json:"config,omitempty"`
+}
+
+// ConfigString reads a plain (non-secret) string config value; "" when absent. Secret keys never appear
+// here under their own name (only as the "<key>Set" boolean), so this is never used for a secret.
+func (ip *IdentityProviderRead) ConfigString(key string) string {
+	if ip.Config == nil {
+		return ""
+	}
+	if s, ok := ip.Config[key].(string); ok {
+		return s
+	}
+	return ""
+}
+
+func (c *Client) CreateIdentityProvider(ctx context.Context, ip IdentityProviderWrite) error {
+	_, err := c.do(ctx, http.MethodPost, "/identity-providers", ip, nil)
+	return err
+}
+
+func (c *Client) GetIdentityProvider(ctx context.Context, alias string) (*IdentityProviderRead, bool, error) {
+	var ip IdentityProviderRead
+	nf, err := c.do(ctx, http.MethodGet, "/identity-providers/"+url.PathEscape(alias), nil, &ip)
+	if err != nil || nf {
+		return nil, nf, err
+	}
+	return &ip, false, nil
+}
+
+func (c *Client) UpdateIdentityProvider(ctx context.Context, alias string, ip IdentityProviderWrite) error {
+	_, err := c.do(ctx, http.MethodPut, "/identity-providers/"+url.PathEscape(alias), ip, nil)
+	return err
+}
+
+func (c *Client) DeleteIdentityProvider(ctx context.Context, alias string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/identity-providers/"+url.PathEscape(alias), nil, nil)
 	return err
 }

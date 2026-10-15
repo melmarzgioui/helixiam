@@ -37,3 +37,24 @@ resource "helix_realm_role" "billing_admin" {
 output "billing_role_id" {
   value = helix_realm_role.billing_admin.role_id
 }
+
+# An EUDI Wallet (OpenID4VP verifier) identity-provider connection. access_key_ref must already be
+# imported into the realm (POST /admin/realms/{realm}/verifier-keys, docs/eudi-wallet.md §2.4 step 1) —
+# Terraform does not manage signing keys.
+resource "helix_wallet_identity_provider" "eudi_wallet" {
+  alias        = "eudi-wallet"
+  display_name = "EU Digital Identity Wallet"
+  enabled      = true
+
+  access_key_ref      = "software:gov/primary"
+  trust_anchors       = file("${path.module}/pid-issuer-ca.pem")
+  credential_formats  = ["dc+sd-jwt", "mso_mdoc"]
+
+  pid_requested_claims = ["given_name", "family_name", "birthdate"]
+  minimum_loa          = "http://eidas.europa.eu/LoA/high"
+
+  # Left unset here: the server defaults this to on for x509_hash + direct_post.jwt (both defaults
+  # above), off otherwise. Set explicitly only if every certificate in trust_anchors carries a
+  # SubjectKeyIdentifier extension — otherwise `true` is refused.
+  # dcql_trusted_authorities = true
+}
