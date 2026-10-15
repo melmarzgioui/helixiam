@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.user.UserPublisher;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.security.mfa.domain.MfaAuthentication;

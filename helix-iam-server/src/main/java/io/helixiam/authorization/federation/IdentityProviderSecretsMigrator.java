@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.federation;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.common.log.LogSafe;
 import io.helixiam.persistence.security.AttributeEncryption;
 import org.apache.logging.log4j.LogManager;
@@ -35,7 +36,7 @@ public class IdentityProviderSecretsMigrator {
     };
 
     private final AttributeEncryption encryption;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMappers.plain();
 
     public IdentityProviderSecretsMigrator(final AttributeEncryption encryption) {
         this.encryption = encryption;

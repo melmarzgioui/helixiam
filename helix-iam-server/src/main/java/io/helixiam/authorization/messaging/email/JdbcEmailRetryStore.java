@@ -5,9 +5,10 @@
 
 package io.helixiam.authorization.messaging.email;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.common.log.LogSafe;
 import io.helixiam.persistence.security.AttributeEncryption;
 import org.apache.logging.log4j.LogManager;
@@ -53,8 +54,8 @@ public class JdbcEmailRetryStore implements EmailRetryStore {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final AttributeEncryption encryption;
-    private final ObjectMapper json = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private final ObjectMapper json = JsonMappers.plainBuilder()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
 
     /**
      * @param encryption the database encryption (null or a converter without key: stored as plain JSON, as every
@@ -159,7 +160,7 @@ public class JdbcEmailRetryStore implements EmailRetryStore {
     Payload read(final String payloadJson) {
         try {
             return json.readValue(payloadJson, Payload.class);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalArgumentException("unreadable email retry payload", e);
         }
     }
@@ -168,7 +169,7 @@ public class JdbcEmailRetryStore implements EmailRetryStore {
     String write(final Payload payload) {
         try {
             return json.writeValueAsString(payload);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException("The email could not be stored for a retry", e);
         }
     }

@@ -5,8 +5,10 @@
 
 package io.helixiam.authorization.service.credential;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.service.device.DeviceCredentialService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,7 +28,7 @@ public class DeviceCredentialProvider implements CredentialProvider {
     private static final Logger LOG = LogManager.getLogger(DeviceCredentialProvider.class);
 
     private final DeviceCredentialService deviceService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     public DeviceCredentialProvider(final DeviceCredentialService deviceService) {
         this.deviceService = deviceService;
@@ -43,7 +45,7 @@ public class DeviceCredentialProvider implements CredentialProvider {
             final JsonNode node = objectMapper.readTree(input);
             return deviceService.verifyAssertion(
                     userId,
-                    node.path("deviceId").asText(),
+                    JsonNodes.text(node.path("deviceId")),
                     urlDecode(node, "challenge"),
                     urlDecode(node, "signature"));
         } catch (final Exception e) {
@@ -53,7 +55,7 @@ public class DeviceCredentialProvider implements CredentialProvider {
     }
 
     private static byte[] urlDecode(final JsonNode node, final String field) {
-        final String value = node.path(field).asText("");
+        final String value = JsonNodes.text(node.path(field), "");
         return value.isEmpty() ? new byte[0] : Base64.getUrlDecoder().decode(value);
     }
 }

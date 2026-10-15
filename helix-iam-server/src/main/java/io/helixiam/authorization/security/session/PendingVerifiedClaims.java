@@ -5,10 +5,11 @@
 
 package io.helixiam.authorization.security.session;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -29,7 +30,7 @@ public final class PendingVerifiedClaims {
 
     /** How long a released step's claims wait for their code. */
     public static final long TTL_SECONDS = 300;
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMappers.plain();
 
     private PendingVerifiedClaims() {
     }
@@ -60,7 +61,7 @@ public final class PendingVerifiedClaims {
             node.put("expires", expiresAt.getEpochSecond());
             node.set("verified_claims", JSON.readTree(verifiedClaimsJson));
             return JSON.writeValueAsString(node);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalArgumentException("verified_claims is not JSON", e);
         }
     }
@@ -75,15 +76,15 @@ public final class PendingVerifiedClaims {
             final JsonNode node = JSON.readTree(pending);
             if (node == null || !node.path("verified_claims").isObject()
                     || !MessageDigest.isEqual(clientId.getBytes(StandardCharsets.UTF_8),
-                            node.path("client_id").asText("").getBytes(StandardCharsets.UTF_8))
+                            node.path("client_id").asString("").getBytes(StandardCharsets.UTF_8))
                     || !MessageDigest.isEqual(requestHash.getBytes(StandardCharsets.UTF_8),
-                            node.path("request").asText("").getBytes(StandardCharsets.UTF_8))
+                            node.path("request").asString("").getBytes(StandardCharsets.UTF_8))
                     || !node.path("expires").canConvertToLong()
                     || now.getEpochSecond() >= node.path("expires").asLong()) {
                 return Optional.empty();
             }
             return Optional.of(JSON.writeValueAsString(node.get("verified_claims")));
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             return Optional.empty();
         }
     }

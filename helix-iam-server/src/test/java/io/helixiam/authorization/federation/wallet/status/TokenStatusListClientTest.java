@@ -5,8 +5,8 @@
 
 package io.helixiam.authorization.federation.wallet.status;
 
-import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
-import com.fasterxml.jackson.dataformat.cbor.CBORGenerator;
+import tools.jackson.dataformat.cbor.CBORFactory;
+import tools.jackson.dataformat.cbor.CBORGenerator;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -1464,12 +1464,12 @@ class TokenStatusListClientTest {
             final ByteArrayOutputStream protectedOut = new ByteArrayOutputStream();
             try (CBORGenerator g = (CBORGenerator) factory.createGenerator(protectedOut)) {
                 g.writeStartObject();
-                g.writeFieldId(1);
+                g.writePropertyId(1);
                 g.writeNumber(-7);
-                g.writeFieldId(16);
+                g.writePropertyId(16);
                 g.writeString((String) options.getOrDefault("typ", CWT_TYPE));
                 if (!unprotectedX5chain) {
-                    g.writeFieldId(33);
+                    g.writePropertyId(33);
                     writeX5chain(g, leaf);
                 }
                 g.writeEndObject();
@@ -1478,19 +1478,19 @@ class TokenStatusListClientTest {
             final ByteArrayOutputStream payloadOut = new ByteArrayOutputStream();
             try (CBORGenerator g = (CBORGenerator) factory.createGenerator(payloadOut)) {
                 g.writeStartObject();
-                g.writeFieldId(2);
+                g.writePropertyId(2);
                 g.writeString(sub);
-                g.writeFieldId(6);
+                g.writePropertyId(6);
                 g.writeNumber(clock.instant().minusSeconds(10).getEpochSecond());
-                g.writeFieldId(4);
+                g.writePropertyId(4);
                 g.writeNumber((long) options.getOrDefault("exp",
                         clock.instant().plus(Duration.ofDays(1)).getEpochSecond()));
-                g.writeFieldId(65534);
+                g.writePropertyId(65534);
                 g.writeNumber(300);
-                g.writeFieldId(65533);
+                g.writePropertyId(65533);
                 g.writeStartObject();
-                g.writeNumberField("bits", bits);
-                g.writeBinaryField("lst", (byte[]) options.getOrDefault("lst", zlib(pack(bits, statuses))));
+                g.writeNumberProperty("bits", bits);
+                g.writeBinaryProperty("lst", (byte[]) options.getOrDefault("lst", zlib(pack(bits, statuses))));
                 g.writeEndObject();
                 g.writeEndObject();
             }
@@ -1520,7 +1520,7 @@ class TokenStatusListClientTest {
                 g.writeBinary(protectedBytes);
                 g.writeStartObject();
                 if (unprotectedX5chain) {
-                    g.writeFieldId(33);
+                    g.writePropertyId(33);
                     writeX5chain(g, leaf);
                 }
                 g.writeEndObject();

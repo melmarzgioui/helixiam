@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.service.federation;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.domain.federation.IdentityProviderConfig;
 import io.helixiam.authorization.domain.federation.IdentityProviderEntity;
 import io.helixiam.authorization.federation.ProviderSecretKeys;
@@ -43,7 +44,7 @@ public class IdentityProviderConfigService {
     };
 
     private final IdentityProviderConfigRepository repository;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     @Autowired
     public IdentityProviderConfigService(final IdentityProviderConfigRepository repository) {

@@ -5,8 +5,8 @@
 
 package io.helixiam.authorization.federation.wallet.mdoc;
 
-import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
-import com.fasterxml.jackson.dataformat.cbor.CBORGenerator;
+import tools.jackson.dataformat.cbor.CBORFactory;
+import tools.jackson.dataformat.cbor.CBORGenerator;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 import org.junit.jupiter.api.Test;
@@ -401,10 +401,10 @@ class StrictCborTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (CBORGenerator g = (CBORGenerator) FACTORY.createGenerator(out)) {
             g.writeStartObject();
-            g.writeNumberField("digestID", 0);
-            g.writeBinaryField("random", new byte[16]);
-            g.writeStringField("elementIdentifier", "birth_date");
-            g.writeFieldName("elementValue");
+            g.writeNumberProperty("digestID", 0);
+            g.writeBinaryProperty("random", new byte[16]);
+            g.writeStringProperty("elementIdentifier", "birth_date");
+            g.writeName("elementValue");
             g.writeTag(1004);
             g.writeString("1990-01-01");
             g.writeEndObject();
@@ -416,40 +416,40 @@ class StrictCborTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (CBORGenerator g = (CBORGenerator) FACTORY.createGenerator(out)) {
             g.writeStartObject();
-            g.writeStringField("version", "1.0");
-            g.writeFieldName("documents");
+            g.writeStringProperty("version", "1.0");
+            g.writeName("documents");
             g.writeStartArray();
             g.writeStartObject();
-            g.writeStringField("docType", "eu.europa.ec.eudi.pid.1");
-            g.writeFieldName("issuerSigned");
+            g.writeStringProperty("docType", "eu.europa.ec.eudi.pid.1");
+            g.writeName("issuerSigned");
             g.writeStartObject();
-            g.writeFieldName("nameSpaces");
+            g.writeName("nameSpaces");
             g.writeStartObject();
-            g.writeFieldName("eu.europa.ec.eudi.pid.1");
+            g.writeName("eu.europa.ec.eudi.pid.1");
             g.writeStartArray();
             g.writeTag(24);
             g.writeBinary(issuerSignedItem);
             g.writeEndArray();
             g.writeEndObject();
-            g.writeFieldName("issuerAuth"); // COSE_Sign1 [protected, unprotected, payload, signature]
+            g.writeName("issuerAuth"); // COSE_Sign1 [protected, unprotected, payload, signature]
             g.writeStartArray();
             g.writeBinary(HEX.parseHex("a10126")); // {1: -7}
             g.writeStartObject();
-            g.writeFieldId(33); // x5chain
+            g.writePropertyId(33); // x5chain
             g.writeBinary(new byte[] {1, 2, 3});
             g.writeEndObject();
             g.writeBinary(taggedBytes(24, HEX.parseHex("a0")));
             g.writeBinary(new byte[64]);
             g.writeEndArray();
             g.writeEndObject();
-            g.writeFieldName("deviceSigned");
+            g.writeName("deviceSigned");
             g.writeStartObject();
-            g.writeFieldName("nameSpaces");
+            g.writeName("nameSpaces");
             g.writeTag(24);
             g.writeBinary(HEX.parseHex("a0"));
-            g.writeFieldName("deviceAuth");
+            g.writeName("deviceAuth");
             g.writeStartObject();
-            g.writeFieldName("deviceSignature");
+            g.writeName("deviceSignature");
             g.writeStartArray();
             g.writeBinary(HEX.parseHex("a10126"));
             g.writeStartObject();
@@ -461,7 +461,7 @@ class StrictCborTest {
             g.writeEndObject();
             g.writeEndObject();
             g.writeEndArray();
-            g.writeNumberField("status", 0);
+            g.writeNumberProperty("status", 0);
             g.writeEndObject();
         }
         return out.toByteArray();

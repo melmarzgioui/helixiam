@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.federation.wallet.trust.tl;
 
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
 import io.helixiam.authorization.security.audit.AuditContext;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.authorization.security.audit.AuditLog;
@@ -83,9 +85,9 @@ public class TrustedListConfiguration {
             return false;
         }
         try {
-            for (final com.fasterxml.jackson.databind.JsonNode n : new com.fasterxml.jackson.databind.ObjectMapper()
+            for (final tools.jackson.databind.JsonNode n : JsonMappers.plain()
                     .readTree(json)) {
-                if (name.equals(n.asText())) {
+                if (name.equals(JsonNodes.text(n))) {
                     return true;
                 }
             }

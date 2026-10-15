@@ -7,7 +7,7 @@ package io.helixiam.authorization.theme;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -37,18 +37,18 @@ public record LocalizedText(Map<String, String> values) {
         if (node == null || node.isNull()) {
             return null;
         }
-        if (node.isTextual()) {
-            return of(node.asText());
+        if (node.isString()) {
+            return of(node.asString());
         }
         if (!node.isObject()) {
             throw new IllegalArgumentException("A localised text must be a string or an object of locale to text.");
         }
         final Map<String, String> out = new LinkedHashMap<>();
-        node.fields().forEachRemaining(e -> {
-            if (!e.getValue().isTextual()) {
+        node.properties().forEach(e -> {
+            if (!e.getValue().isString()) {
                 throw new IllegalArgumentException("A localised text value must be a string.");
             }
-            out.put(e.getKey(), e.getValue().asText());
+            out.put(e.getKey(), e.getValue().asString());
         });
         return new LocalizedText(out);
     }

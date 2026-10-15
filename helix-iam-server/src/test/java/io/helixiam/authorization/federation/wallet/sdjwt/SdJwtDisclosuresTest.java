@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.federation.wallet.sdjwt;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
@@ -57,7 +57,7 @@ class SdJwtDisclosuresTest {
     private static String disclosure(Object... elements) {
         try {
             return b64(JSON.writeValueAsString(List.of(elements)));
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (tools.jackson.core.JacksonException e) {
             throw new IllegalStateException(e);
         }
     }

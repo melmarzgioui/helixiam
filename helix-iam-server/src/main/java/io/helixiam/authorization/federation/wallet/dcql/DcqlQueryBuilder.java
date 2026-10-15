@@ -5,10 +5,10 @@
 
 package io.helixiam.authorization.federation.wallet.dcql;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -157,7 +157,7 @@ public final class DcqlQueryBuilder {
                 final ObjectNode q = (ObjectNode) credential;
                 final ObjectNode reordered = JsonNodeFactory.instance.objectNode();
                 final List<String> names = new ArrayList<>();
-                q.fieldNames().forEachRemaining(names::add);
+                q.propertyNames().forEach(names::add);
                 for (final String name : names) {
                     reordered.set(name, q.get(name));
                     if ("meta".equals(name)) {

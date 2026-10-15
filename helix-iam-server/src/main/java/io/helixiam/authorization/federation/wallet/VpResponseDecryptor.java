@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWEAlgorithm;
@@ -14,7 +14,7 @@ import com.nimbusds.jose.JWEObject;
 import com.nimbusds.jose.crypto.ECDHDecrypter;
 import com.nimbusds.jose.jwk.ECKey;
 
-import java.io.IOException;
+import tools.jackson.core.JacksonException;
 import java.text.ParseException;
 import java.util.Objects;
 import java.util.Set;
@@ -119,7 +119,7 @@ public final class VpResponseDecryptor {
         final JsonNode root;
         try {
             root = StrictJson.MAPPER.readTree(plaintext);
-        } catch (final IOException e) {
+        } catch (final JacksonException e) {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "decrypted payload is not strict JSON");
         }
         if (root == null || !root.isObject()) {
@@ -131,13 +131,13 @@ public final class VpResponseDecryptor {
     private static DecryptedResponse toDecryptedResponse(final JsonNode root) {
         final JsonNode error = root.get("error");
         if (error != null && !error.isNull()) {
-            if (!error.isTextual()) {
+            if (!error.isString()) {
                 throw fail(WalletErrorCode.INVALID_RESPONSE, "wallet error response 'error' is not a string");
             }
             // OpenID4VP §8.5: the wallet's error response, surfaced distinctly from a malformed response.
             // error_description is wallet-controlled free text and is deliberately left out of the exception
             // detail. Task 22 (spec §15): "access_denied" gets its own code, distinct from any other wallet error.
-            final WalletErrorCode code = "access_denied".equals(error.textValue()) ? WalletErrorCode.WALLET_ACCESS_DENIED
+            final WalletErrorCode code = "access_denied".equals(error.stringValue()) ? WalletErrorCode.WALLET_ACCESS_DENIED
                     : WalletErrorCode.WALLET_ERROR;
             throw fail(code, "wallet returned an error response");
         }
@@ -151,8 +151,8 @@ public final class VpResponseDecryptor {
         final String state;
         if (stateNode == null || stateNode.isNull()) {
             state = null;
-        } else if (stateNode.isTextual()) {
-            state = stateNode.asText();
+        } else if (stateNode.isString()) {
+            state = stateNode.asString();
         } else {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "state is not a string");
         }

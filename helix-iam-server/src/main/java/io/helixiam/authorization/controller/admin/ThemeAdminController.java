@@ -12,7 +12,7 @@ import io.helixiam.authorization.theme.EffectiveTheme;
 import io.helixiam.authorization.theme.Theme;
 import io.helixiam.authorization.theme.ThemeJson;
 import io.helixiam.authorization.theme.ThemeService;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

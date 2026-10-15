@@ -5,9 +5,11 @@
 
 package io.helixiam.authorization.messaging.driver;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -41,7 +43,7 @@ public class FcmPushDriver implements PushDriver {
     private static final String DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
     private final HttpTransport http;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     public FcmPushDriver(final HttpTransport http) {
         this.http = http;
@@ -59,8 +61,8 @@ public class FcmPushDriver implements PushDriver {
             return;
         }
         final JsonNode sa = serviceAccount(provider.secret());
-        final String tokenUri = sa.path("token_uri").asText(DEFAULT_TOKEN_URI);
-        final String projectId = firstNonBlank(config(provider).get("projectId"), sa.path("project_id").asText(null));
+        final String tokenUri = JsonNodes.text(sa.path("token_uri"), DEFAULT_TOKEN_URI);
+        final String projectId = firstNonBlank(config(provider).get("projectId"), JsonNodes.text(sa.path("project_id"), null));
         if (projectId == null || projectId.isBlank()) {
             throw new IllegalStateException("FCM provider is missing the project id");
         }
@@ -88,7 +90,7 @@ public class FcmPushDriver implements PushDriver {
             throw new IllegalStateException("FCM token exchange failed (HTTP " + resp.status() + ")");
         }
         try {
-            final String accessToken = objectMapper.readTree(resp.body()).path("access_token").asText(null);
+            final String accessToken = JsonNodes.text(objectMapper.readTree(resp.body()).path("access_token"), null);
             if (accessToken == null || accessToken.isBlank()) {
                 throw new IllegalStateException("FCM token exchange returned no access_token");
             }
@@ -100,10 +102,10 @@ public class FcmPushDriver implements PushDriver {
 
     private String signedJwt(final JsonNode sa, final String tokenUri) {
         try {
-            final RSAPrivateKey key = rsaPrivateKey(sa.path("private_key").asText());
+            final RSAPrivateKey key = rsaPrivateKey(JsonNodes.text(sa.path("private_key")));
             final Instant now = Instant.now();
             final JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                    .issuer(sa.path("client_email").asText())
+                    .issuer(JsonNodes.text(sa.path("client_email")))
                     .audience(tokenUri)
                     .claim("scope", SCOPE)
                     .issueTime(Date.from(now))

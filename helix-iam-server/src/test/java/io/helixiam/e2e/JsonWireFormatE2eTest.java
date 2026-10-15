@@ -5,10 +5,11 @@
 
 package io.helixiam.e2e;
 
+import io.helixiam.common.json.JsonMappers;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
 import org.junit.jupiter.api.Test;
@@ -162,7 +163,36 @@ class JsonWireFormatE2eTest extends AbstractE2eTest {
         read(out, m, "number-for-string", "{\"name\":12}");
         read(out, m, "duplicate-member", "{\"name\":\"a\",\"name\":\"b\"}");
         read(out, m, "comment", "{/*c*/\"name\":\"n\"}");
-        assertWritesSame("wire-application-mapper.txt", out.toString());
+        if (io.helixiam.testsupport.Jackson2Fixtures.recording()) {
+            assertWritesSame("wire-application-mapper.txt", out.toString());
+        }
+        // A JavaBean's getters come in the JVM's reflection order (Class#getDeclaredMethods), which is not stable
+        // between runs on either Jackson line: the bean line is compared by member names and values, not order.
+        assertThat(beanMembersSorted(out.toString()))
+                .isEqualTo(beanMembersSorted(io.helixiam.testsupport.Jackson2Fixtures.read("wire-application-mapper.txt")));
+    }
+
+    private String beanMembersSorted(final String text) throws Exception {
+        final StringBuilder out = new StringBuilder();
+        for (final String line : text.split("\n", -1)) {
+            if (line.startsWith("bean ")) {
+                final java.util.Map<String, Object> members = new java.util.TreeMap<>(mapper().readValue(
+                        line.substring("bean ".length()), new tools.jackson.core.type.TypeReference<Map<String, Object>>() { }));
+                out.append("bean ").append(members).append('\n');
+            } else {
+                out.append(line).append('\n');
+            }
+        }
+        return out.toString();
+    }
+
+    @Test
+    void theApplicationMapper_readsWithJackson2sLimitsOrStricter() {
+        final tools.jackson.core.StreamReadConstraints c = mapper().tokenStreamFactory().streamReadConstraints();
+        assertThat(c.getMaxStringLength()).isEqualTo(JsonMappers.MAX_STRING_LENGTH);
+        assertThat(c.getMaxNestingDepth()).isPositive().isLessThanOrEqualTo(1000);
+        assertThat(c.getMaxNumberLength()).isPositive().isLessThanOrEqualTo(1000);
+        assertThat(c.getMaxNameLength()).isPositive().isLessThanOrEqualTo(50_000);
     }
 
     @Test
@@ -338,7 +368,7 @@ class JsonWireFormatE2eTest extends AbstractE2eTest {
     private static void shapeTopLevel(final StringBuilder out, final String name, final JsonNode node) {
         out.append("== ").append(name).append('\n');
         final List<String> names = new ArrayList<>();
-        node.fieldNames().forEachRemaining(names::add);
+        node.propertyNames().forEach(names::add);
         for (final String n : names) {
             out.append("$.").append(n).append(": ").append(node.get(n).getNodeType().name().toLowerCase(Locale.ROOT))
                     .append('\n');
@@ -355,7 +385,7 @@ class JsonWireFormatE2eTest extends AbstractE2eTest {
         if (node.isObject()) {
             out.append(path).append(": object\n");
             final List<String> names = new ArrayList<>();
-            node.fieldNames().forEachRemaining(names::add);
+            node.propertyNames().forEach(names::add);
             for (final String n : names) {
                 walk(out, path + "." + n, node.get(n));
             }

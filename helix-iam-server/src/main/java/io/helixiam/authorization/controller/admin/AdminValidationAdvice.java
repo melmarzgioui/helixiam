@@ -75,17 +75,17 @@ public class AdminValidationAdvice {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, Object> onUnreadable(final HttpMessageNotReadableException ex) {
         // Name the offending field when Jackson can tell (e.g. "colors.primary" given a string), never the input.
-        if (ex.getCause() instanceof com.fasterxml.jackson.databind.JsonMappingException jme && !jme.getPath().isEmpty()) {
+        if (ex.getCause() instanceof tools.jackson.databind.DatabindException jme && !jme.getPath().isEmpty()) {
             final StringBuilder path = new StringBuilder();
-            for (final com.fasterxml.jackson.databind.JsonMappingException.Reference ref : jme.getPath()) {
-                if (ref.getFieldName() != null) {
-                    path.append(path.isEmpty() ? "" : ".").append(ref.getFieldName());
+            for (final tools.jackson.core.JacksonException.Reference ref : jme.getPath()) {
+                if (ref.getPropertyName() != null) {
+                    path.append(path.isEmpty() ? "" : ".").append(ref.getPropertyName());
                 } else if (ref.getIndex() >= 0) {
                     path.append('[').append(ref.getIndex()).append(']');
                 }
             }
             if (!path.isEmpty()) {
-                final boolean unknown = jme instanceof com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+                final boolean unknown = jme instanceof tools.jackson.databind.exc.UnrecognizedPropertyException;
                 return body((unknown ? "Unknown field " : "Request body is malformed at ") + path + ".",
                         Map.of(path.toString(), unknown ? "Unknown field." : "Invalid value."));
             }

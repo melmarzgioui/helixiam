@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.service.messaging;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.domain.messaging.MessageTemplate;
 import io.helixiam.authorization.domain.messaging.MessagingProvider;
 import io.helixiam.authorization.domain.messaging.admin.MessageTemplateDto;
@@ -33,7 +34,7 @@ public class MessagingAdminService {
 
     private final MessagingProviderRepository providers;
     private final MessageTemplateRepository templates;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     private static final org.apache.logging.log4j.Logger LOG =
             org.apache.logging.log4j.LogManager.getLogger(MessagingAdminService.class);

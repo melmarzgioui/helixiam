@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e.browser;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.messaging.MessagingService;
 import io.helixiam.authorization.messaging.email.DeliveryResult;
 import io.helixiam.authorization.messaging.email.EmailDeliveryException;

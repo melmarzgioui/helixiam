@@ -98,7 +98,7 @@ class UsernamePerRealmE2eTest extends AbstractE2eTest {
 
         // Listed as a user of realm A (with its default role).
         String userId = null;
-        for (final com.fasterxml.jackson.databind.JsonNode u : adminSession().get("/admin/realms/" + realmA + "/users").json()) {
+        for (final tools.jackson.databind.JsonNode u : adminSession().get("/admin/realms/" + realmA + "/users").json()) {
             if (address.equals(u.path("username").asText())) {
                 userId = u.path("userId").asText();
                 assertThat(u.path("roles").toString()).contains("user");

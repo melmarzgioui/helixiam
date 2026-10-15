@@ -5,8 +5,9 @@
 
 package io.helixiam.notification.delivery;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
 import io.helixiam.authorization.domain.messaging.MessagingProvider;
 
@@ -22,7 +23,7 @@ import java.util.Map;
  */
 final class MessagingProviderMapper {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = JsonMappers.plain();
 
     private MessagingProviderMapper() {
     }

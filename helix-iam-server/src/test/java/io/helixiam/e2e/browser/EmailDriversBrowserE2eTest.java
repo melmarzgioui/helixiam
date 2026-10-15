@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e.browser;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
 import io.helixiam.authorization.service.emailverification.EmailVerificationMessage;
 import io.helixiam.authorization.service.emailverification.RealmEmailVerificationSender;

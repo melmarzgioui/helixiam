@@ -60,7 +60,7 @@ class AccountIdentitiesWalletE2eTest extends AbstractE2eTest {
         final E2eHttp.Response list = session.get("/realms/" + realm + "/account/identities");
 
         assertThat(list.status()).as(list.toString()).isEqualTo(200);
-        final List<String> aliases = list.json().findValuesAsText("idpAlias");
+        final List<String> aliases = list.json().findValuesAsString("idpAlias");
         assertThat(aliases).contains(oidcAlias).doesNotContain(walletAlias);
         assertThat(list.body()).doesNotContain(number.value()).doesNotContain(tuple.value());
     }
@@ -81,7 +81,7 @@ class AccountIdentitiesWalletE2eTest extends AbstractE2eTest {
         final E2eHttp.Response delete = session.delete("/realms/" + realm + "/account/identities/" + oidcAlias);
 
         assertThat(delete.status()).as(delete.toString()).isEqualTo(204);
-        assertThat(session.get("/realms/" + realm + "/account/identities").json().findValuesAsText("idpAlias"))
+        assertThat(session.get("/realms/" + realm + "/account/identities").json().findValuesAsString("idpAlias"))
                 .doesNotContain(oidcAlias);
     }
 
@@ -112,7 +112,7 @@ class AccountIdentitiesWalletE2eTest extends AbstractE2eTest {
         final WalletE2eFixture wallet = new WalletE2eFixture(context);
         wallet.install(otherRealm, wallet.storedProvider(otherRealm, oidcAlias, Map.of()));
 
-        assertThat(session.get("/realms/" + realm + "/account/identities").json().findValuesAsText("idpAlias"))
+        assertThat(session.get("/realms/" + realm + "/account/identities").json().findValuesAsString("idpAlias"))
                 .contains(oidcAlias);
         final E2eHttp.Response delete = session.delete("/realms/" + realm + "/account/identities/" + oidcAlias);
         assertThat(delete.status()).as(delete.toString()).isEqualTo(204);

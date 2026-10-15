@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
 import io.helixiam.authorization.federation.wallet.WalletIdentityProvider;
 import io.helixiam.authorization.federation.wallet.WalletLinkService;

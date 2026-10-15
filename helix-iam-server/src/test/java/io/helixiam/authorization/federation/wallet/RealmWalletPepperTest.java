@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.controller.admin.io.RealmExportService;
 import io.helixiam.common.startup.DeploymentProfile;
 import io.helixiam.e2e.AbstractE2eTest;
@@ -165,7 +165,7 @@ class RealmWalletPepperTest extends AbstractE2eTest {
         new E2eSeed(context).realm(realm);
         final byte[] pepper = peppers.pepper(realm);
 
-        final String exported = new ObjectMapper().findAndRegisterModules()
+        final String exported = new ObjectMapper()
                 .writeValueAsString(context.getBean(RealmExportService.class).export(realm));
 
         assertThat(exported).contains(realm)

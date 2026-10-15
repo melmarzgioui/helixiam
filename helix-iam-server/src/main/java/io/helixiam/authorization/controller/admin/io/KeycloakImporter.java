@@ -5,7 +5,8 @@
 
 package io.helixiam.authorization.controller.admin.io;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.amqp.client.ClientDto;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.role.RoleDto;
@@ -108,19 +109,19 @@ public final class KeycloakImporter {
 
     private static String text(final JsonNode node, final String field, final String fallback) {
         final JsonNode v = node.path(field);
-        return v.isMissingNode() || v.isNull() ? fallback : v.asText();
+        return v.isMissingNode() || v.isNull() ? fallback : JsonNodes.text(v);
     }
 
     private static boolean bool(final JsonNode node, final String field, final boolean fallback) {
         final JsonNode v = node.path(field);
-        return v.isMissingNode() || v.isNull() ? fallback : v.asBoolean(fallback);
+        return v.isMissingNode() || v.isNull() ? fallback : JsonNodes.bool(v, fallback);
     }
 
     private static List<String> strings(final JsonNode node, final String field) {
         final List<String> out = new ArrayList<>();
         for (final JsonNode v : array(node, field)) {
-            if (!v.isNull() && !v.asText().isBlank()) {
-                out.add(v.asText());
+            if (!v.isNull() && !JsonNodes.text(v).isBlank()) {
+                out.add(JsonNodes.text(v));
             }
         }
         return out;
@@ -129,9 +130,9 @@ public final class KeycloakImporter {
     private static Map<String, String> stringMap(final JsonNode node) {
         final Map<String, String> out = new LinkedHashMap<>();
         if (node != null && node.isObject()) {
-            node.fields().forEachRemaining(e -> {
+            node.properties().forEach(e -> {
                 if (!e.getValue().isNull()) {
-                    out.put(e.getKey(), e.getValue().asText());
+                    out.put(e.getKey(), JsonNodes.text(e.getValue()));
                 }
             });
         }

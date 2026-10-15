@@ -29,7 +29,6 @@ import io.helixiam.authorization.federation.wallet.trust.IssuerTrustValidator;
 import io.helixiam.authorization.federation.wallet.trust.ValidatedChain;
 
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.PublicKey;
@@ -531,7 +530,7 @@ public final class SdJwtVcPresentationVerifier implements PresentationVerifier {
                 if (parsed instanceof Map<?, ?> map) {
                     return (Map<String, Object>) map;
                 }
-            } catch (final IOException | IllegalArgumentException e) {
+            } catch (final tools.jackson.core.JacksonException | IllegalArgumentException e) {
                 // fall through: duplicate member, malformed JSON or base64url
             }
             throw fail(WalletErrorCode.INVALID_RESPONSE, what + " is not a strict JSON object");

@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+import tools.jackson.core.JacksonException;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.jwk.Curve;
@@ -279,7 +279,7 @@ public final class WalletIdentityProvider implements IdentityProvider {
             return StrictJson.MAPPER.writeValueAsString(
                     queryBuilder.pidQuery(config.pid().toQuerySpec(), config.credentialFormats(),
                             trustedAuthorityValues()));
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException("Could not encode the DCQL query", e);
         }
     }

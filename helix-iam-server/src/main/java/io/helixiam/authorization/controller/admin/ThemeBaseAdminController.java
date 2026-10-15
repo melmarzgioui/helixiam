@@ -6,7 +6,7 @@
 package io.helixiam.authorization.controller.admin;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.security.audit.AuditContext;
 import io.helixiam.authorization.theme.ThemeService;
 import io.helixiam.authorization.theme.ThemeValidationException;
@@ -23,7 +23,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -127,20 +126,19 @@ public class ThemeBaseAdminController {
             throw new ThemeValidationException(Map.of("themeName", "The body must be {\"themeName\": \"<name>\"} or"
                     + " {\"themeName\": null}."));
         }
-        for (final Iterator<String> it = body.fieldNames(); it.hasNext(); ) {
-            final String field = it.next();
+        for (final String field : body.propertyNames()) {
             if (!"themeName".equals(field)) {
                 throw new ThemeValidationException(Map.of(field, "Unknown field."));
             }
         }
         final JsonNode value = body.get("themeName");
-        if (value == null || value.isNull() || value.isTextual() && value.asText().isBlank()) {
+        if (value == null || value.isNull() || value.isString() && value.asString().isBlank()) {
             return null;
         }
-        if (!value.isTextual() || !FileThemeLoader.NAME.matcher(value.asText().trim()).matches()) {
+        if (!value.isString() || !FileThemeLoader.NAME.matcher(value.asString().trim()).matches()) {
             throw new ThemeValidationException(Map.of("themeName", "A theme name is 1-64 letters, digits, '.', '_' or"
                     + " '-', starting with a letter or digit."));
         }
-        return value.asText().trim();
+        return value.asString().trim();
     }
 }

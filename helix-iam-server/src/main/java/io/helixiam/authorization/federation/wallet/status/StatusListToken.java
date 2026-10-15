@@ -5,12 +5,11 @@
 
 package io.helixiam.authorization.federation.wallet.status;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.json.JsonMapper;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSObject;
@@ -25,7 +24,6 @@ import io.helixiam.authorization.federation.wallet.trust.ValidatedChain;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
@@ -77,9 +75,11 @@ public final class StatusListToken {
     private static final int MIN_RSA_BITS = 2048;
     private static final long MAX_EPOCH_SECONDS = 100_000_000_000_000L;
 
-    private static final ObjectMapper STRICT_JSON = JsonMapper.builder(JsonFactory.builder()
-                    .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(16).build())
-                    .build())
+    private static final ObjectMapper STRICT_JSON = JsonMappers.jackson2Compatible(JsonMapper.builder(
+                    JsonMappers.factoryBuilder()
+                            .streamReadConstraints(JsonMappers.readConstraints().maxNestingDepth(16).build())
+                            .build())
+                    .configureForJackson2())
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .enable(DeserializationFeature.USE_LONG_FOR_INTS)
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
@@ -291,7 +291,7 @@ public final class StatusListToken {
             if (parsed instanceof Map<?, ?> map) {
                 return (Map<String, Object>) map;
             }
-        } catch (final IOException | IllegalArgumentException e) {
+        } catch (final tools.jackson.core.JacksonException | IllegalArgumentException e) {
             // fall through: duplicate member, malformed JSON or base64url
         }
         throw invalid("Status List Token " + what + " is not a strict JSON object");

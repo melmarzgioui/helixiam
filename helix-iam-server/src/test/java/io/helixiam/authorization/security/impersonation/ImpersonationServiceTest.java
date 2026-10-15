@@ -30,7 +30,7 @@ class ImpersonationServiceTest {
     private static UserCredentials user(final String id) {
         try {
             // UserCredentials is JSON-populated (no setters); getUsername() returns the userId.
-            return new com.fasterxml.jackson.databind.ObjectMapper()
+            return new tools.jackson.databind.ObjectMapper()
                     .readValue("{\"userId\":\"" + id + "\"}", UserCredentials.class);
         } catch (final Exception e) {
             throw new RuntimeException(e);

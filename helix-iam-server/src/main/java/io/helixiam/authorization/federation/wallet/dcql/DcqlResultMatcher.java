@@ -5,8 +5,8 @@
 
 package io.helixiam.authorization.federation.wallet.dcql;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.helixiam.authorization.federation.wallet.PresentationVerifier;
 import io.helixiam.authorization.federation.wallet.VerificationContext;
 import io.helixiam.authorization.federation.wallet.VerifiedPresentation;
@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -156,9 +155,7 @@ public final class DcqlResultMatcher {
             throw fail(WalletErrorCode.INVALID_RESPONSE, "vp_token is not a JSON object");
         }
         final Map<String, List<String>> answers = new LinkedHashMap<>();
-        final Iterator<Map.Entry<String, JsonNode>> fields = vpToken.fields();
-        while (fields.hasNext()) {
-            final Map.Entry<String, JsonNode> field = fields.next();
+        for (final Map.Entry<String, JsonNode> field : vpToken.properties()) {
             final CredentialQuery cq = query.credentials().get(field.getKey());
             if (cq == null) {
                 throw fail(WalletErrorCode.INVALID_RESPONSE, "vp_token has an entry for an unknown credential query");
@@ -172,10 +169,10 @@ public final class DcqlResultMatcher {
             }
             final List<String> raws = new ArrayList<>(value.size());
             for (final JsonNode presentation : value) {
-                if (!presentation.isTextual()) {
+                if (!presentation.isString()) {
                     throw fail(WalletErrorCode.INVALID_RESPONSE, "vp_token presentation is not a string");
                 }
-                raws.add(presentation.textValue());
+                raws.add(presentation.stringValue());
             }
             answers.put(field.getKey(), raws);
         }
@@ -337,10 +334,10 @@ public final class DcqlResultMatcher {
                 }
                 final List<String> ids = new ArrayList<>();
                 for (final JsonNode id : option) {
-                    if (!id.isTextual() || !byId.containsKey(id.textValue())) {
+                    if (!id.isString() || !byId.containsKey(id.stringValue())) {
                         throw new IllegalArgumentException("credential set names an unknown credential query");
                     }
-                    ids.add(id.textValue());
+                    ids.add(id.stringValue());
                 }
                 parsedOptions.add(List.copyOf(ids));
             }
@@ -453,7 +450,7 @@ public final class DcqlResultMatcher {
             path.forEach(s -> segments.add(text(s, "claims path segment (only strings are supported)")));
             paths.add(List.copyOf(segments));
             if (claim.get("id") != null) {
-                byId.put(claim.get("id").textValue(), List.copyOf(segments));
+                byId.put(claim.get("id").stringValue(), List.copyOf(segments));
             }
         }
         return new Claims(List.copyOf(paths), claimSets == null ? null : claimSets(claimSets, byId));
@@ -470,10 +467,10 @@ public final class DcqlResultMatcher {
             }
             final List<List<String>> optionPaths = new ArrayList<>();
             for (final JsonNode id : option) {
-                if (!id.isTextual() || !byId.containsKey(id.textValue())) {
+                if (!id.isString() || !byId.containsKey(id.stringValue())) {
                     throw new IllegalArgumentException("a claim_sets option names an unknown claim id");
                 }
-                optionPaths.add(byId.get(id.textValue()));
+                optionPaths.add(byId.get(id.stringValue()));
             }
             options.add(List.copyOf(optionPaths));
         }
@@ -484,7 +481,7 @@ public final class DcqlResultMatcher {
         if (node == null || !node.isObject()) {
             throw new IllegalArgumentException(what + " must be an object");
         }
-        node.fieldNames().forEachRemaining(name -> {
+        node.propertyNames().forEach(name -> {
             if (!allowed.contains(name)) {
                 throw new IllegalArgumentException(what + " member not supported: " + name);
             }
@@ -492,10 +489,10 @@ public final class DcqlResultMatcher {
     }
 
     private static String text(final JsonNode node, final String what) {
-        if (node == null || !node.isTextual() || node.textValue().isEmpty()) {
+        if (node == null || !node.isString() || node.stringValue().isEmpty()) {
             throw new IllegalArgumentException(what + " must be a non-empty string");
         }
-        return node.textValue();
+        return node.stringValue();
     }
 
     private static WalletVerificationException fail(final WalletErrorCode code, final String safeDetail) {

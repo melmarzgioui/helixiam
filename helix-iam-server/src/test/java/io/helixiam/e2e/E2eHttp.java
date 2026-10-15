@@ -5,8 +5,8 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -123,12 +123,7 @@ public final class E2eHttp {
 
     /** Sends a JSON body with an arbitrary method (POST/PUT/PATCH); {@code json} may be a String or any POJO. */
     public Response sendJson(final String method, final String pathOrUrl, final Object json, final String... headers) {
-        final String body;
-        try {
-            body = json instanceof String s ? s : JSON.writeValueAsString(json);
-        } catch (final IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        final String body = json instanceof String s ? s : JSON.writeValueAsString(json);
         return send(request(pathOrUrl, headers)
                 .header("Content-Type", "application/json")
                 .method(method, HttpRequest.BodyPublishers.ofString(body)));
@@ -404,7 +399,7 @@ public final class E2eHttp {
         public JsonNode json() {
             try {
                 return JSON.readTree(body);
-            } catch (final IOException e) {
+            } catch (final tools.jackson.core.JacksonException e) {
                 throw new AssertionError("Body is not JSON (" + this + ")", e);
             }
         }

@@ -5,9 +5,10 @@
 
 package io.helixiam.upgrade;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -31,9 +32,9 @@ class PlainJsonMapperUpgradeTest {
     private static final TypeReference<LinkedHashMap<String, String>> STRING_MAP = new TypeReference<>() { };
     private static final TypeReference<List<String>> STRINGS = new TypeReference<>() { };
 
-    /** The mapper the stores use. */
+    /** The mapper the stores use (Jackson 2: {@code new ObjectMapper()}). */
     private static ObjectMapper mapper() {
-        return new ObjectMapper();
+        return JsonMappers.plain();
     }
 
     private static Map<String, String> settings() {

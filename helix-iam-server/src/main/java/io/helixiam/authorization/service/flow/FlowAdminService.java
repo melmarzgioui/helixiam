@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.service.flow;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.domain.flow.admin.FlowDefinitionDto;
 import io.helixiam.authorization.domain.flow.admin.FlowExecutionDto;
 import io.helixiam.authorization.domain.flow.admin.FlowSaveDto;
@@ -39,7 +40,7 @@ public class FlowAdminService {
     private static final TypeReference<Map<String, String>> CONFIG_TYPE = new TypeReference<>() {
     };
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     private final AuthFlowService authFlowService;
     private final AuthFlowRepository flowRepository;

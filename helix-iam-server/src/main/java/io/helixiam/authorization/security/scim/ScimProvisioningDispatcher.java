@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.security.scim;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.scim.ScimTargetConfigPublisher;
 import io.helixiam.authorization.amqp.scim.ScimTargetDto;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
@@ -147,7 +148,7 @@ public class ScimProvisioningDispatcher {
             final JsonNode resources = root.get("Resources");
             if (resources != null && resources.isArray() && !resources.isEmpty()) {
                 final JsonNode id = resources.get(0).get("id");
-                return id == null ? null : id.asText();
+                return id == null ? null : JsonNodes.text(id);
             }
             return null;
         } catch (final Exception e) {

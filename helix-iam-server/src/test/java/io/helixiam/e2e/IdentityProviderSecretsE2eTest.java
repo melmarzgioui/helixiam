@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfigPublisher;
 import io.helixiam.authorization.amqp.federation.IdentityProviderRef;

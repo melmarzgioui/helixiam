@@ -5,12 +5,11 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,8 +99,7 @@ class DiscoveryDocumentsE2eTest extends AbstractE2eTest {
     private static Map<String, Object> normalized(final Object document) {
         final JsonNode node = new ObjectMapper().valueToTree(document);
         final Map<String, Object> out = new TreeMap<>();
-        for (final Iterator<Map.Entry<String, JsonNode>> it = node.fields(); it.hasNext(); ) {
-            final Map.Entry<String, JsonNode> field = it.next();
+        for (final Map.Entry<String, JsonNode> field : node.properties()) {
             out.put(field.getKey(), value(field.getValue()));
         }
         return out;

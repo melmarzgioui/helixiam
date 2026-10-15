@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.security.scim;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.scim.ScimTargetConfigPublisher;
 import io.helixiam.authorization.amqp.scim.ScimTargetDto;
 import io.helixiam.testsupport.RebindingTarget;

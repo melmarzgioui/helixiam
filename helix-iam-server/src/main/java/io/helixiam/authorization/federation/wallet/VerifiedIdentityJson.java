@@ -5,14 +5,13 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 import io.helixiam.authorization.federation.spi.BrokeredIdentity;
 
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -189,10 +188,10 @@ public final class VerifiedIdentityJson {
             throw invalid();
         }
         final JsonNode link = node.get(LINK);
-        if (!link.isObject() || !link.path(KIND).isTextual()) {
+        if (!link.isObject() || !link.path(KIND).isString()) {
             throw invalid();
         }
-        return switch (link.get(KIND).asText()) {
+        return switch (link.get(KIND).asString()) {
             case NUMBER -> {
                 onlyMembers(link, Set.of(KIND, "subject", TUPLE));
                 yield new WalletSubject.AdminNumber(text(link, "subject"), link.has(TUPLE) ? text(link, TUPLE) : null);
@@ -292,12 +291,11 @@ public final class VerifiedIdentityJson {
             throw invalid();
         }
         final Map<String, Object> claims = new LinkedHashMap<>();
-        for (final Iterator<Map.Entry<String, JsonNode>> it = verify.get("claims").fields(); it.hasNext(); ) {
-            final Map.Entry<String, JsonNode> entry = it.next();
+        for (final Map.Entry<String, JsonNode> entry : verify.get("claims").properties()) {
             if (entry.getValue().isBoolean()) {
                 claims.put(entry.getKey(), entry.getValue().asBoolean());
-            } else if (entry.getValue().isTextual()) {
-                claims.put(entry.getKey(), entry.getValue().asText());
+            } else if (entry.getValue().isString()) {
+                claims.put(entry.getKey(), entry.getValue().asString());
             } else {
                 throw invalid();
             }
@@ -353,7 +351,7 @@ public final class VerifiedIdentityJson {
     private static String toJson(final ObjectNode node) {
         try {
             return StrictJson.MAPPER.writeValueAsString(node);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException("Could not encode the verified identity", e);
         }
     }
@@ -403,24 +401,24 @@ public final class VerifiedIdentityJson {
         final JsonNode node;
         try {
             node = StrictJson.MAPPER.readTree(json);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw invalid();
         }
         if (node == null || !node.isObject()) {
             throw invalid();
         }
-        for (final Iterator<String> names = node.fieldNames(); names.hasNext(); ) {
-            if (!MEMBERS.contains(names.next())) {
+        for (final String name : node.propertyNames()) {
+            if (!MEMBERS.contains(name)) {
                 throw invalid();
             }
         }
         if (!node.path("v").isIntegralNumber() || node.path("v").asInt() != VERSION
-                || node.has("externalSubject") && !node.get("externalSubject").isTextual()
+                || node.has("externalSubject") && !node.get("externalSubject").isString()
                 || !node.path("emailVerified").isBoolean() || !node.path("attributes").isObject()
-                || node.has("email") && !node.get("email").isTextual()
-                || node.has("levelOfAssurance") && !node.get("levelOfAssurance").isTextual()
-                || node.has("format") && !node.get("format").isTextual()
-                || node.has("issuerDn") && !node.get("issuerDn").isTextual()) {
+                || node.has("email") && !node.get("email").isString()
+                || node.has("levelOfAssurance") && !node.get("levelOfAssurance").isString()
+                || node.has("format") && !node.get("format").isString()
+                || node.has("issuerDn") && !node.get("issuerDn").isString()) {
             throw invalid();
         }
         if (node.has("decision")) {
@@ -430,28 +428,27 @@ public final class VerifiedIdentityJson {
     }
 
     private static BrokeredIdentity identity(final String idpAlias, final JsonNode node) {
-        if (!node.path("externalSubject").isTextual() || node.path("externalSubject").asText().isBlank()) {
+        if (!node.path("externalSubject").isString() || node.path("externalSubject").asString().isBlank()) {
             throw invalid();
         }
         final Map<String, String> attributes = new LinkedHashMap<>();
-        for (final Iterator<Map.Entry<String, JsonNode>> it = node.get("attributes").fields(); it.hasNext(); ) {
-            final Map.Entry<String, JsonNode> entry = it.next();
-            if (!entry.getValue().isTextual()) {
+        for (final Map.Entry<String, JsonNode> entry : node.get("attributes").properties()) {
+            if (!entry.getValue().isString()) {
                 throw invalid();
             }
-            attributes.put(entry.getKey(), entry.getValue().asText());
+            attributes.put(entry.getKey(), entry.getValue().asString());
         }
-        return new BrokeredIdentity(idpAlias, node.get("externalSubject").asText(),
-                node.has("email") ? node.get("email").asText() : null, node.get("emailVerified").asBoolean(),
+        return new BrokeredIdentity(idpAlias, node.get("externalSubject").asString(),
+                node.has("email") ? node.get("email").asString() : null, node.get("emailVerified").asBoolean(),
                 Collections.unmodifiableMap(attributes),
-                node.has("levelOfAssurance") ? node.get("levelOfAssurance").asText() : null);
+                node.has("levelOfAssurance") ? node.get("levelOfAssurance").asString() : null);
     }
 
     private static WalletLinkService.Decision decision(final JsonNode node) {
-        if (node == null || !node.isObject() || !node.path(KIND).isTextual()) {
+        if (node == null || !node.isObject() || !node.path(KIND).isString()) {
             throw invalid();
         }
-        return switch (node.get(KIND).asText()) {
+        return switch (node.get(KIND).asString()) {
             case EXISTING -> {
                 onlyMembers(node, Set.of(KIND, "userId", "pendingLink"));
                 final String userId = text(node, "userId");
@@ -485,18 +482,18 @@ public final class VerifiedIdentityJson {
     }
 
     private static void onlyMembers(final JsonNode node, final Set<String> allowed) {
-        for (final Iterator<String> names = node.fieldNames(); names.hasNext(); ) {
-            if (!allowed.contains(names.next())) {
+        for (final String name : node.propertyNames()) {
+            if (!allowed.contains(name)) {
                 throw invalid();
             }
         }
     }
 
     private static String text(final JsonNode node, final String member) {
-        if (!node.path(member).isTextual() || node.get(member).asText().isBlank()) {
+        if (!node.path(member).isString() || node.get(member).asString().isBlank()) {
             throw invalid();
         }
-        return node.get(member).asText();
+        return node.get(member).asString();
     }
 
     private static WalletVerificationException invalid() {

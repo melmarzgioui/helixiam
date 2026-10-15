@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.security.flow;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.mfa.MfaWebAuthnPublisher;
 import io.helixiam.authorization.amqp.mfa.WebAuthnResidentAssertion;
 import io.helixiam.authorization.flow.authenticators.ResidentKeyResolver;
@@ -28,7 +29,7 @@ public class AmqpResidentKeyResolver implements ResidentKeyResolver {
     private static final Logger LOG = LogManager.getLogger(AmqpResidentKeyResolver.class);
 
     private final MfaWebAuthnPublisher publisher;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     public AmqpResidentKeyResolver(final MfaWebAuthnPublisher publisher) {
         this.publisher = publisher;
@@ -51,6 +52,6 @@ public class AmqpResidentKeyResolver implements ResidentKeyResolver {
     }
 
     private static String text(final JsonNode node, final String field) {
-        return node.path(field).asText("");
+        return node.path(field).asString("");
     }
 }

@@ -7,7 +7,7 @@ package io.helixiam.authorization.theme;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -47,7 +47,7 @@ public record LocalizedList(Map<String, List<String>> values) {
             throw new IllegalArgumentException("A localised list must be an array or an object of locale to array.");
         }
         final Map<String, List<String>> out = new LinkedHashMap<>();
-        node.fields().forEachRemaining(e -> out.put(e.getKey(), strings(e.getValue())));
+        node.properties().forEach(e -> out.put(e.getKey(), strings(e.getValue())));
         return new LocalizedList(out);
     }
 
@@ -57,10 +57,10 @@ public record LocalizedList(Map<String, List<String>> values) {
         }
         final List<String> out = new ArrayList<>();
         array.forEach(n -> {
-            if (!n.isTextual()) {
+            if (!n.isString()) {
                 throw new IllegalArgumentException("A localised list item must be a string.");
             }
-            out.add(n.asText());
+            out.add(n.asString());
         });
         return out;
     }

@@ -6,9 +6,9 @@
 package io.helixiam.authorization.controller.admin.io;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.security.audit.AuditContext;
 import io.helixiam.authorization.security.audit.AuditEvent;
 import io.helixiam.authorization.security.audit.AuditLog;
@@ -346,7 +346,7 @@ public class RealmArchiveService {
     private <T> T parse(final byte[] bytes, final TypeReference<T> type, final String entry) {
         try {
             return json.readValue(bytes, type);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             Throwable c = e;
             while (c != null) {
                 if (c instanceof ThemeValidationException tve) {
@@ -355,8 +355,6 @@ public class RealmArchiveService {
                 c = c.getCause();
             }
             throw new RealmArchiveException("The archive entry " + entry + " is not valid JSON for its format.");
-        } catch (final IOException e) {
-            throw new UncheckedIOException(e);
         }
     }
 

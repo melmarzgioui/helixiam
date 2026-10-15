@@ -5,9 +5,9 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
@@ -283,7 +283,7 @@ public final class OidcFlow {
         }
         try {
             return JSON.readValue(Base64.getUrlDecoder().decode(parts[1]), new TypeReference<Map<String, Object>>() { });
-        } catch (final java.io.IOException e) {
+        } catch (final tools.jackson.core.JacksonException e) {
             throw new AssertionError("JWT payload is not JSON", e);
         }
     }

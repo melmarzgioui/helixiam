@@ -5,8 +5,10 @@
 
 package io.helixiam.authorization.controller.admin.io;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.dataformat.yaml.YAMLFactory;
+import tools.jackson.dataformat.yaml.YAMLMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,8 +43,11 @@ public class RealmConfigFolderLoader implements ApplicationRunner {
     private final String location;
     private final String onConflict;
     private final boolean requireEnv;
-    private final ObjectMapper json = new ObjectMapper();
-    private final ObjectMapper yaml = new ObjectMapper(new YAMLFactory());
+    private final ObjectMapper json = JsonMappers.plain();
+    private final ObjectMapper yaml = JsonMappers.jackson2Compatible(
+            YAMLMapper.builder(YAMLFactory.builder()
+                    .streamReadConstraints(JsonMappers.readConstraints().build()).build())
+                    .configureForJackson2()).build();
 
     @Autowired
     public RealmConfigFolderLoader(final RealmImportService importService,

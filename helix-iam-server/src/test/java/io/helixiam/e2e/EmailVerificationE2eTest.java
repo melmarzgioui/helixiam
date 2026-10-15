@@ -222,7 +222,7 @@ class EmailVerificationE2eTest extends AbstractE2eTest {
                 r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
     }
 
-    private com.fasterxml.jackson.databind.JsonNode userJson(final String userId) {
+    private tools.jackson.databind.JsonNode userJson(final String userId) {
         return admin.get("/admin/realms/" + realm + "/users/" + userId).json();
     }
 

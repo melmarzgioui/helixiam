@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.controller.account;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.user.CredentialRevokeRef;
 import io.helixiam.authorization.amqp.user.UserAdminDto;
 import io.helixiam.authorization.amqp.user.UserAdminPublisher;

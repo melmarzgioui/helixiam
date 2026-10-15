@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.security.flow;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher;
 import io.helixiam.authorization.domain.UserCredentials;
 import io.helixiam.authorization.flow.spi.AuthenticationContext;

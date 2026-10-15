@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.saml.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.saml.SamlRelyingPartyConfig;
 import io.helixiam.authorization.amqp.saml.SamlRelyingPartyConfigPublisher;
 import io.helixiam.authorization.amqp.saml.SamlRelyingPartyRef;

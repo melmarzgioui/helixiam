@@ -5,8 +5,8 @@
 
 package io.helixiam.authorization.federation.wallet.mdoc;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.jwk.ECKey;
 import io.helixiam.authorization.federation.wallet.testwallet.TestWallet;
 import org.junit.jupiter.api.BeforeAll;
