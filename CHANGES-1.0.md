@@ -5,6 +5,27 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.10`)
 
+- **Changed (dependencies)** — the post-1.0 platform-upgrade items from `ROADMAP.md` landed:
+  - `helix-sandbox-rp`: **Express 4.22 → 5.3**, **openid-client 5.7 → 6.8** (a full API rewrite — the
+    `Issuer`/`Client`/`generators` object API is replaced by the functional API: `discovery()`,
+    `buildAuthorizationUrl`, `authorizationCodeGrant`, `refreshTokenGrant`, `fetchUserInfo`,
+    `buildEndSessionUrl`, `randomPKCECodeVerifier`/`calculatePKCECodeChallenge`/`randomState`/`randomNonce`,
+    and `AuthorizationResponseError` in place of `errors.OPError`; the package was already ESM so no
+    conversion was needed). openid-client 6 enforces HTTPS by default where v5 didn't — the harness talks to
+    Helix over plain `http://localhost`, so `ensureClient()` now opts out via `discovery()`'s
+    `execute: [allowInsecureRequests]` only when the issuer itself is `http:`. Also **otplib 12.0 → 13.5**
+    (declared for TOTP code generation in manual testing; not imported by any committed source, so no call-site
+    changes were needed). The now-redundant/conflicting `body-parser` and `qs` npm overrides were dropped —
+    Express 5 depends on `body-parser@^2.3.0` and `qs@^6.16.0` directly, and forcing the old `body-parser@^1.20.6`
+    override would have broken Express 5's own body-parsing internals.
+  - CI release workflow: **cosign-installer 3.10.1 → 4.1.2**, which moves its default installed **cosign 2.6.1 →
+    3.1.3**. No flag changes were needed in `release.yml` — cosign 3's new default bundle format
+    (`--new-bundle-format`) only changes behavior when `--bundle` writes a local bundle file, which this
+    workflow doesn't use (it signs/attests directly against the pushed OCI reference).
+  - Verified: `helix-sandbox-rp`'s unit tests and `npm audit` are clean (0 vulnerabilities); a live
+    authorization_code + PKCE login, a `/claims` userinfo fetch, a refresh_token grant, RP-initiated logout,
+    and a `prompt=none` → `login_required` round trip were driven via Playwright against a locally built
+    `helix-iam-server` jar. Behavior is unchanged; see `helix-sandbox-rp/server.js`.
 - **EUDI Wallet: W3C Digital Credentials API (`dc_api` / `dc_api.jwt`)** — a wallet connection can now also offer
   OpenID4VP over the browser's Digital Credentials API (OpenID4VP 1.0 Appendix A, HAIP 1.0 §5.2), the path the EU
   wallet ecosystem recommends instead of a redirect-based cross-device flow. Opt-in per connection (`dcApi.enabled`,

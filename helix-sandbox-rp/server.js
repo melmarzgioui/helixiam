@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import session from 'express-session';
 import { rateLimit } from 'express-rate-limit';
-import { Issuer, generators, errors as oidcErrors } from 'openid-client';
+import * as oidc from 'openid-client';
 import { decodeJwt, groupClaims } from './lib/jwt.js';
 import { buildSamlSp } from './lib/saml.js';
 import { page, kvTable, esc } from './lib/ui.js';
@@ -54,25 +54,30 @@ async function ensureSaml() {
   return samlSp;
 }
 
-// ---- discover the IdP + build the RP client ---------------------------------
-let client = null;
+// ---- discover the IdP + build the RP client's configuration -----------------
+let oidcConfig = null;
 let idpUp = false;
 async function ensureClient() {
-  if (client) return client;
-  const issuer = await Issuer.discover(cfg.issuer);
+  if (oidcConfig) return oidcConfig;
   // Public client + PKCE (no secret) so the sandbox needs no secret provisioning against Helix.
   const publicClient = !cfg.clientSecret || cfg.clientSecret === 'none';
-  client = new issuer.Client({
-    client_id: cfg.clientId,
-    ...(publicClient ? {} : { client_secret: cfg.clientSecret }),
-    redirect_uris: [cfg.redirectUri],
-    post_logout_redirect_uris: [cfg.postLogout],
-    response_types: ['code'],
-    token_endpoint_auth_method: publicClient ? 'none' : 'client_secret_basic',
-  });
+  const issuerUrl = new URL(cfg.issuer);
+  oidcConfig = await oidc.discovery(
+    issuerUrl,
+    cfg.clientId,
+    { token_endpoint_auth_method: publicClient ? 'none' : 'client_secret_basic' },
+    publicClient ? oidc.None() : oidc.ClientSecretBasic(cfg.clientSecret),
+    // The harness normally talks to Helix over plain http://localhost; openid-client 6 enforces
+    // HTTPS by default (unlike v5), so opt out of that check only when the issuer itself is http.
+    issuerUrl.protocol === 'http:' ? { execute: [oidc.allowInsecureRequests] } : undefined,
+  );
   idpUp = true;
-  return client;
+  return oidcConfig;
 }
+
+// Build an absolute URL for the current request (openid-client's response helpers read the
+// authorization-response / callback parameters off it; host/path beyond the query don't matter).
+const currentUrl = (req) => new URL(req.originalUrl, `${req.protocol}://${req.get('host') || 'localhost'}`);
 
 const app = express();
 if (cfg.trustProxy) app.set('trust proxy', 1);
@@ -121,21 +126,22 @@ const regenerateSession = (req) =>
 
 // kick off an authorization request with the given extra params (prompt/max_age)
 async function startAuth(req, res, extra = {}) {
-  const c = await ensureClient();
+  const config = await ensureClient();
   await regenerateSession(req);
-  const code_verifier = generators.codeVerifier();
+  const code_verifier = oidc.randomPKCECodeVerifier();
   req.session.code_verifier = code_verifier;
-  req.session.state = generators.state();
-  req.session.nonce = generators.nonce();
-  const url = c.authorizationUrl({
+  req.session.state = oidc.randomState();
+  req.session.nonce = oidc.randomNonce();
+  const url = oidc.buildAuthorizationUrl(config, {
+    redirect_uri: cfg.redirectUri,
     scope: cfg.scope,
-    code_challenge: generators.codeChallenge(code_verifier),
+    code_challenge: await oidc.calculatePKCECodeChallenge(code_verifier),
     code_challenge_method: 'S256',
     state: req.session.state,
     nonce: req.session.nonce,
     ...extra,
   });
-  res.redirect(url);
+  res.redirect(url.href);
 }
 
 // ---- routes -----------------------------------------------------------------
@@ -267,28 +273,28 @@ app.get('/stepup', (req, res, next) => startAuth(req, res, { prompt: 'login' }).
 
 app.get('/callback', async (req, res, next) => {
   try {
-    const c = await ensureClient();
-    const params = c.callbackParams(req);
-    const tokenSet = await c.callback(cfg.redirectUri, params, {
-      code_verifier: req.session.code_verifier,
-      state: req.session.state,
-      nonce: req.session.nonce,
+    const config = await ensureClient();
+    const tokens = await oidc.authorizationCodeGrant(config, currentUrl(req), {
+      pkceCodeVerifier: req.session.code_verifier,
+      expectedState: req.session.state,
+      expectedNonce: req.session.nonce,
     });
+    const claims = tokens.claims();
     await regenerateSession(req);
     req.session.tokens = {
-      access_token: tokenSet.access_token,
-      id_token: tokenSet.id_token,
-      refresh_token: tokenSet.refresh_token,
-      token_type: tokenSet.token_type,
-      scope: tokenSet.scope,
-      expires_at: tokenSet.expires_at,
-      claims: tokenSet.claims(),
+      access_token: tokens.access_token,
+      id_token: tokens.id_token,
+      refresh_token: tokens.refresh_token,
+      token_type: tokens.token_type,
+      scope: tokens.scope,
+      expires_at: Math.floor(Date.now() / 1000) + (tokens.expiresIn() ?? 0),
+      claims,
     };
     req.session.flash = { kind: 'ok', msg: 'Signed in — tokens received from Helix IAM.' };
     res.redirect('/');
   } catch (err) {
     // prompt=none with no active session comes back as login_required, etc.
-    if (err instanceof oidcErrors.OPError) {
+    if (err instanceof oidc.AuthorizationResponseError) {
       req.session.flash = {
         kind: err.error === 'login_required' ? 'info' : 'err',
         msg: `IdP returned: ${err.error}${err.error_description ? ' — ' + err.error_description : ''}`,
@@ -303,11 +309,12 @@ app.get('/claims', async (req, res, next) => {
   const t = req.session.tokens;
   if (!t) return res.redirect('/');
   try {
-    const c = await ensureClient();
+    const config = await ensureClient();
     let userinfo = null;
     let userinfoErr = null;
     try {
-      userinfo = await c.userinfo(t.access_token);
+      const expectedSubject = t.claims?.sub ?? oidc.skipSubjectCheck;
+      userinfo = await oidc.fetchUserInfo(config, t.access_token, expectedSubject);
     } catch (e) {
       userinfoErr = e.error || e.message;
     }
@@ -349,21 +356,22 @@ app.get('/refresh', async (req, res, next) => {
     return res.redirect('/');
   }
   try {
-    const c = await ensureClient();
+    const config = await ensureClient();
     const before = t.access_token.slice(-12);
-    const refreshed = await c.refresh(t.refresh_token);
+    const refreshed = await oidc.refreshTokenGrant(config, t.refresh_token);
+    const expires_at = Math.floor(Date.now() / 1000) + (refreshed.expiresIn() ?? 0);
     req.session.tokens = {
       access_token: refreshed.access_token,
       id_token: refreshed.id_token || t.id_token,
       refresh_token: refreshed.refresh_token || t.refresh_token,
       token_type: refreshed.token_type,
       scope: refreshed.scope,
-      expires_at: refreshed.expires_at,
-      claims: refreshed.claims ? refreshed.claims() : t.claims,
+      expires_at,
+      claims: refreshed.id_token ? refreshed.claims() : t.claims,
     };
     req.session.flash = {
       kind: 'ok',
-      msg: `Refreshed — access token …${before} → …${refreshed.access_token.slice(-12)} (new expiry ${new Date(refreshed.expires_at * 1000).toISOString()}).`,
+      msg: `Refreshed — access token …${before} → …${refreshed.access_token.slice(-12)} (new expiry ${new Date(expires_at * 1000).toISOString()}).`,
     };
     res.redirect('/');
   } catch (err) {
@@ -375,14 +383,14 @@ app.get('/logout', async (req, res, next) => {
   const t = req.session.tokens;
   if (!t) return res.redirect('/');
   try {
-    const c = await ensureClient();
-    const url = c.endSessionUrl({
+    const config = await ensureClient();
+    const url = oidc.buildEndSessionUrl(config, {
       id_token_hint: t.id_token,
       post_logout_redirect_uri: cfg.postLogout,
     });
     req.session.tokens = null;
     req.session.flash = { kind: 'ok', msg: 'Logged out at Helix IAM (RP-initiated single logout).' };
-    res.redirect(url);
+    res.redirect(url.href);
   } catch (err) {
     next(err);
   }
