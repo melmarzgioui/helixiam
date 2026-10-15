@@ -298,7 +298,7 @@ export function TrustedListDetailPage({ api, realmId, id, onBack }: TrustedListD
           {signerRefused && (
             <Alert tone="danger" title={t("tl.alert.signerRefused.title")}>{t("tl.alert.signerRefused")}</Alert>
           )}
-          {list.lastError && (
+          {list.lastError && !signerRefused && (
             <Alert tone={list.anchorsInUse ? "warning" : "danger"} title={t("tl.lastError")}>
               <span className="hx-mono">{list.lastError}</span>
             </Alert>

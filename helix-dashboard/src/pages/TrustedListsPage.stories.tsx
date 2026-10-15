@@ -54,6 +54,8 @@ const lists = [
     anchorsInUse: false, anchorCount: 0, lastError: "SIGNER: the pinned signer certificate expired on "
       + "2026-09-15T08:22:10Z (ETSI TS 119 615 PRO-4.1.4: an expired signer makes the list indeterminate)" }),
 ];
+lists.push(sampleTrustedList({ id: "tl-3", name: "tampered", status: "INTEGRITY", anchorsInUse: false, anchorCount: 0,
+  lastError: "INTEGRITY: the stored settings failed the integrity check (missing or wrong MAC); check and save them again" }));
 const api = () => createTrustedListMemoryClient({ lists: lists.map((l) => ({ ...l })),
   anchors: [anchor("PID Issuer CA - UT 01", "UT"), anchor("PID Issuer CA - NL 01", "NL"),
     anchor("reader-issuer@idakto.com", "FR", false)] });
@@ -72,4 +74,8 @@ export const DetailDegraded: Story = {
 
 export const DetailSignerExpired: Story = {
   render: () => wrap(<TrustedListDetailPage api={api()} realmId="master" id="tl-2" onBack={() => undefined} />),
+};
+
+export const DetailIntegrity: Story = {
+  render: () => wrap(<TrustedListDetailPage api={api()} realmId="master" id="tl-3" onBack={() => undefined} />),
 };
