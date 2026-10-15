@@ -581,7 +581,7 @@ func normalizeListDefaults(ctx context.Context, m *walletIdentityProviderModel) 
 	for _, l := range []*types.List{
 		&m.CredentialFormats, &m.PidSdJwtVcts, &m.PidRequestedClaims,
 		&m.CustomCredentialQueries, &m.StatusListAllowedHosts, &m.DcApiExpectedOrigins, &m.TrustedLists,
-		&m.TrustedListServiceTypes,
+		&m.TrustedListServiceTypes, &m.VerifyReleasedClaims,
 	} {
 		if l.ElementType(ctx) == nil {
 			*l = types.ListNull(types.StringType)

@@ -80,6 +80,8 @@ var walletConfigAttr = map[string]string{
 	"dcApi.request":                      "dc_api_request",
 	"dcApi.expectedOrigins":              "dc_api_expected_origins",
 	"trustedLists.sources":               "trusted_lists",
+	"verify.linkedProvider":              "verify_linked_provider",
+	"verify.releasedClaims":              "verify_released_claims",
 	"trustedLists.serviceTypes":          "trusted_list_service_types",
 }
 
@@ -183,6 +185,8 @@ type walletIdentityProviderModel struct {
 	DcApiRequest                  types.String `tfsdk:"dc_api_request"`
 	DcApiExpectedOrigins          types.List   `tfsdk:"dc_api_expected_origins"`
 	TrustedLists                  types.List   `tfsdk:"trusted_lists"`
+	VerifyLinkedProvider          types.String `tfsdk:"verify_linked_provider"`
+	VerifyReleasedClaims          types.List   `tfsdk:"verify_released_claims"`
 	TrustedListServiceTypes       types.List   `tfsdk:"trusted_list_service_types"`
 
 	ID types.String `tfsdk:"id"`
@@ -258,7 +262,7 @@ func (r *walletIdentityProviderResource) Schema(_ context.Context, _ resource.Sc
 			"status_list_on_unavailable":       schema.StringAttribute{Optional: true, MarkdownDescription: "Policy when the status list cannot be fetched (default `FAIL_CLOSED`)."},
 			"status_list_max_cache_seconds":    schema.Int64Attribute{Optional: true, MarkdownDescription: "Status-list cache TTL, 0–900 seconds (default 900)."},
 			"status_list_allowed_hosts":        schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Allow-listed status-list host names (bare host, no scheme/port/path); empty means any https host."},
-			"subject_strategy":                 schema.StringAttribute{Optional: true, MarkdownDescription: "How the Helix subject is derived: `ADMINISTRATIVE_NUMBER` (default) or `ATTRIBUTE_TUPLE`. `NONE` is not supported yet."},
+			"subject_strategy":                 schema.StringAttribute{Optional: true, MarkdownDescription: "How the Helix subject is derived: `ADMINISTRATIVE_NUMBER` (default) or `ATTRIBUTE_TUPLE`; or `NONE` for a verify-only / step-up connection that never signs anyone in (set `verify_linked_provider`)."},
 			"subject_acknowledge_weak_subject": schema.BoolAttribute{Optional: true, MarkdownDescription: "Required (`true`) to use `subject_strategy = \"ATTRIBUTE_TUPLE\"`, acknowledging its weaker, re-linkable subject binding."},
 			"minimum_loa":                      schema.StringAttribute{Optional: true, MarkdownDescription: "Minimum eIDAS level of assurance asserted (default `http://eidas.europa.eu/LoA/high`)."},
 			"clock_skew_seconds":               schema.Int64Attribute{Optional: true, MarkdownDescription: "Allowed clock skew when verifying presentation timestamps, 0–60 seconds (default 60)."},
@@ -271,6 +275,8 @@ func (r *walletIdentityProviderResource) Schema(_ context.Context, _ resource.Sc
 			"dc_api_enabled":                   schema.BoolAttribute{Optional: true, MarkdownDescription: "Also offer the W3C Digital Credentials API (OpenID4VP 1.0 Appendix A, HAIP 1.0 §5.2) on the wallet page where the browser supports it (server default false). The response is `dc_api.jwt` when `response_mode` is `direct_post.jwt`."},
 			"dc_api_request":                   schema.StringAttribute{Optional: true, MarkdownDescription: "DC API request type: `signed` (server default; `openid4vp-v1-signed`, access certificate and `expected_origins`) or `unsigned` (`openid4vp-v1-unsigned`)."},
 			"dc_api_expected_origins":          schema.ListAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Web origins a DC API response may be bound to (e.g. `https://login.example.eu`; at most 10, each on a host the server answers for). Unset means the origin of the server's `IDP_BASE_URL`."},
+			"verify_linked_provider":           schema.StringAttribute{Optional: true, MarkdownDescription: "With `subject_strategy = \"NONE\"` (verify-only): the alias of the realm's wallet sign-in connection whose links prove whose wallet it is. Required with `NONE`, refused otherwise."},
+			"verify_released_claims":           schema.ListAttribute{Optional: true, ElementType: types.StringType, Validators: []validator.List{notEmptyListValidator{}}, MarkdownDescription: "With `subject_strategy = \"NONE\"`: the verified claims released into the ID token as `verified_claims` (requested mapped PID claims, or `age_over_NN`), only to a client that asks for the `verified_claims` scope. Leave unset to release nothing; an empty list is refused."},
 			"trusted_lists":                    schema.ListAttribute{Optional: true, ElementType: types.StringType, Validators: []validator.List{notEmptyListValidator{}}, MarkdownDescription: "Names of the realm's trusted list sources (console: Federation → Trusted lists; admin API `/admin/realms/{realm}/trusted-lists`) whose verified PID issuer anchors this connection also trusts, in addition to `trust_anchors`. Each name must exist in the realm. Leave unset for none; an empty list is refused."},
 			"trusted_list_service_types":       schema.ListAttribute{Optional: true, ElementType: types.StringType, Validators: []validator.List{notEmptyListValidator{}}, MarkdownDescription: "Narrows `trusted_lists` to these service type URIs (e.g. `http://uri.etsi.org/19602/SvcType/PID/Issuance`). Unset: every service type the sources load."},
 
@@ -441,6 +447,8 @@ func (m *walletIdentityProviderModel) toWrite(ctx context.Context) (IdentityProv
 	putStr(cfg, "dcApi.request", m.DcApiRequest)
 	putList(ctx, &diags, "dc_api_expected_origins", "dcApi.expectedOrigins", cfg, m.DcApiExpectedOrigins)
 	putList(ctx, &diags, "trusted_lists", "trustedLists.sources", cfg, m.TrustedLists)
+	putStr(cfg, "verify.linkedProvider", m.VerifyLinkedProvider)
+	putList(ctx, &diags, "verify_released_claims", "verify.releasedClaims", cfg, m.VerifyReleasedClaims)
 	putList(ctx, &diags, "trusted_list_service_types", "trustedLists.serviceTypes", cfg, m.TrustedListServiceTypes)
 
 	if diags.HasError() {
@@ -539,6 +547,8 @@ func applyRead(ctx context.Context, m *walletIdentityProviderModel, ip *Identity
 	m.DcApiRequest = getStr(ip, "dcApi.request")
 	m.DcApiExpectedOrigins = getList(ctx, ip, "dcApi.expectedOrigins")
 	m.TrustedLists = getList(ctx, ip, "trustedLists.sources")
+	m.VerifyLinkedProvider = getStr(ip, "verify.linkedProvider")
+	m.VerifyReleasedClaims = getList(ctx, ip, "verify.releasedClaims")
 	m.TrustedListServiceTypes = getList(ctx, ip, "trustedLists.serviceTypes")
 }
 
