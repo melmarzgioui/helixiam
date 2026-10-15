@@ -314,6 +314,47 @@ class WalletVerifyOnlyE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void withTheFlowEngineOff_aPasswordLoginOfTheStepUpClient_isRefused_neverIssuedSilently() {
+        final E2eHttp browser = newBrowser();
+        final OidcFlow.Pkce pkce = OidcFlow.Pkce.create();
+        final E2eHttp.Response loginPage = browser.followRedirects(browser.get("/realms/" + realm
+                + "/oauth2/authorize?response_type=code&client_id=bank&redirect_uri=" + E2eSeed.REDIRECT_URI
+                + "&scope=openid&state=st&code_challenge=" + pkce.challenge() + "&code_challenge_method=S256",
+                "Accept", "text/html"));
+        final Map<String, String> form = new LinkedHashMap<>(E2eHttp.hiddenInputs(
+                E2eHttp.form(loginPage.body(), "name=\"password\"").orElseThrow()));
+        form.put("username", ada.username());
+        form.put("password", PASSWORD);
+        final E2eHttp.Response after = browser.postForm(E2eHttp.formAction(loginPage.body(), "name=\"password\"")
+                .orElseThrow(), form);
+        assertThat(after.isRedirect()).as(after.toString()).isTrue();
+        assertThat(after.location().toString()).contains("/login?error=flow");
+        final E2eHttp.Response shown = browser.followRedirectsUntil(after, r -> r.locationStartsWith(E2eSeed.REDIRECT_URI));
+        assertThat(shown.locationStartsWith(E2eSeed.REDIRECT_URI)).as("no code").isFalse();
+        assertThat(shown.body()).contains("id=\"flow-error\"");
+    }
+
+    @Test
+    void withTheFlowEngineOff_theAdminApiRefusesTheStep_andSaysTheEngineIsOff() {
+        final E2eAdminSession admin = adminSession();
+        final Map<String, Object> step = new LinkedHashMap<>();
+        step.put("executionId", "wallet-verify");
+        step.put("parentId", null);
+        step.put("authenticatorId", "eudi-wallet-verify");
+        step.put("requirement", "REQUIRED");
+        step.put("condition", false);
+        step.put("priority", 10);
+        step.put("config", Map.of("providerAlias", verifyAlias));
+        final E2eHttp.Response saved = admin.put("/admin/realms/" + realm + "/flows/" + STEP_UP_FLOW,
+                Map.of("executions", List.of(step)));
+        assertThat(saved.status()).as(saved.toString()).isEqualTo(400);
+        assertThat(saved.json().path("fieldErrors").has("executions[0].authenticatorId")).isTrue();
+        final E2eHttp.Response engine = admin.get("/admin/realms/" + realm + "/flow-engine");
+        assertThat(engine.status()).isEqualTo(200);
+        assertThat(engine.json().path("enabled").asBoolean()).isFalse();
+    }
+
+    @Test
     void theVerifyOnlyConnection_isNeverASignInMethod() {
         final E2eHttp browser = newBrowser();
         final String authorize = "/realms/" + realm + "/oauth2/authorize?response_type=code&client_id=web"

@@ -427,6 +427,22 @@ public class SecurityConfig {
                 if (requiredActionsGate.intercept(request, response, authentication)) {
                     return;
                 }
+                if (!flowEngineEnabled && io.helixiam.authorization.security.flow.FlowEngineGuard.needsEngine(
+                        authFlowPublisher, io.helixiam.authorization.security.realm.RealmContextHolder.get(),
+                        io.helixiam.authorization.security.flow.InFlightClientResolver.clientId(request, response))) {
+                    // Security review item 3a: the login's flow has a step only the flow engine runs (the EUDI wallet
+                    // verification); with the engine off it would be skipped, so refuse instead of issuing a code.
+                    org.apache.logging.log4j.LogManager.getLogger(SecurityConfig.class).warn("Login refused: its flow needs helix.flow-engine.enabled=true (it has a wallet "
+                            + "verification step) in realm {}", io.helixiam.common.log.LogSafe.sanitize(
+                            io.helixiam.authorization.security.realm.RealmContextHolder.get()));
+                    org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                    final jakarta.servlet.http.HttpSession session = request.getSession(false);
+                    if (session != null) {
+                        session.invalidate();
+                    }
+                    response.sendRedirect(request.getContextPath() + "/login?error=flow");
+                    return;
+                }
                 if (flowEngineEnabled) {
                     flowSuccessHandler.onAuthenticationSuccess(request, response, authentication);
                 } else if (mfaEnabled || mfaPolicyService.required(io.helixiam.authorization.security.realm.RealmContextHolder.get())

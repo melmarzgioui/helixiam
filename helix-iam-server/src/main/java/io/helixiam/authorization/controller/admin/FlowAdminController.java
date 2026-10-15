@@ -53,7 +53,7 @@ public class FlowAdminController {
 
     @PutMapping("/flow")
     public FlowDefinitionDto saveBrowser(@PathVariable final String realmId, @RequestBody final FlowSaveRequest request) {
-        return publisher.save(new FlowSaveDto(realmId, BROWSER_ALIAS, exec(request)));
+        return publisher.save(new FlowSaveDto(realmId, BROWSER_ALIAS, exec(realmId, request)));
     }
 
     // ---- named flows ----
@@ -74,7 +74,7 @@ public class FlowAdminController {
 
     @PutMapping("/flows/{alias}")
     public FlowDefinitionDto save(@PathVariable final String realmId, @PathVariable final String alias, @RequestBody final FlowSaveRequest request) {
-        return publisher.save(new FlowSaveDto(realmId, alias, exec(request)));
+        return publisher.save(new FlowSaveDto(realmId, alias, exec(realmId, request)));
     }
 
     @PatchMapping("/flows/{alias}")
@@ -87,8 +87,25 @@ public class FlowAdminController {
         publisher.delete(new FlowRefDto(realmId, alias));
     }
 
-    private static List<FlowExecutionDto> exec(final FlowSaveRequest request) {
-        return FlowSaveValidator.requireValid(request.executions() == null ? List.of() : request.executions());
+    private List<FlowExecutionDto> exec(final String realmId, final FlowSaveRequest request) {
+        final List<FlowExecutionDto> executions = request.executions() == null ? List.of() : request.executions();
+        return checks == null ? FlowSaveValidator.requireValid(executions) : checks.requireValid(realmId, executions);
+    }
+
+    /** What the console's flow editor needs to know about this server: whether the flow engine runs. */
+    public record FlowEngineDto(boolean enabled) {
+    }
+
+    @GetMapping("/flow-engine")
+    public FlowEngineDto engine(@PathVariable final String realmId) {
+        return new FlowEngineDto(checks != null && checks.engineEnabled());
+    }
+
+    private FlowSaveChecks checks;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setChecks(final FlowSaveChecks checks) {
+        this.checks = checks;
     }
 
     public record FlowSaveRequest(List<FlowExecutionDto> executions) { }
