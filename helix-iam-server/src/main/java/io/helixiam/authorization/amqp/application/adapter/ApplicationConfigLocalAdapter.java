@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.application.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.application.ApplicationConfig;
 import io.helixiam.authorization.amqp.application.ApplicationConfigPublisher;
 import io.helixiam.authorization.amqp.application.ApplicationRef;

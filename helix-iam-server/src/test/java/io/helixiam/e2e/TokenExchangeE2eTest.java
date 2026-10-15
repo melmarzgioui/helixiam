@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.nimbusds.jwt.JWTClaimsSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,7 +74,7 @@ class TokenExchangeE2eTest extends AbstractE2eTest {
         assertThat(((Map<?, ?>) exchanged.getClaim("act")).get("sub")).isEqualTo("web");
 
         final JsonNode orgs = r.json().path("access_token").isMissingNode() ? null
-                : new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(OidcFlow.claims(r.json().path("access_token").asText()))
+                : new tools.jackson.databind.ObjectMapper().valueToTree(OidcFlow.claims(r.json().path("access_token").asText()))
                 .path("organizations");
         assertThat(orgs).isNotNull();
         assertThat(orgs.isArray()).as("organizations claim kept: %s", orgs).isTrue();

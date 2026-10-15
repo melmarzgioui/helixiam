@@ -5,6 +5,7 @@
 
 package io.helixiam.authorization.security.session;
 
+import io.helixiam.common.json.JsonMappers;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
 
@@ -26,7 +27,7 @@ public final class IdTokenSessionClaims {
     public static final String ACR = "acr";
     /** Verify-only wallet step: the OIDC-for-Identity-Assurance-style object of verified attributes. */
     public static final String VERIFIED_CLAIMS = "verified_claims";
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final tools.jackson.databind.ObjectMapper JSON = JsonMappers.plain();
 
     private IdTokenSessionClaims() {
     }
@@ -78,7 +79,7 @@ public final class IdTokenSessionClaims {
                 final java.util.Map<String, Object> object = (java.util.Map<String, Object>) mutable(map);
                 return object;
             }
-        } catch (final com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (final tools.jackson.core.JacksonException e) {
             return null;
         }
         return null;

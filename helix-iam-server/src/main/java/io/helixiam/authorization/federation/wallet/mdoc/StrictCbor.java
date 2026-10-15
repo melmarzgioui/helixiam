@@ -5,15 +5,16 @@
 
 package io.helixiam.authorization.federation.wallet.mdoc;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.core.exc.StreamConstraintsException;
-import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
-import com.fasterxml.jackson.dataformat.cbor.CBORParser;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.core.exc.StreamConstraintsException;
+import tools.jackson.dataformat.cbor.CBORFactory;
+import tools.jackson.dataformat.cbor.CBORParser;
+import tools.jackson.dataformat.cbor.CBORReadFeature;
 import io.helixiam.authorization.federation.wallet.WalletErrorCode;
 import io.helixiam.authorization.federation.wallet.WalletVerificationException;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -54,8 +55,9 @@ public final class StrictCbor {
 
     /** Undefined and simple values surface as embedded objects so they can be told apart from bytes and refused. */
     private static final CBORFactory FACTORY = CBORFactory.builder()
-            .enable(CBORParser.Feature.READ_UNDEFINED_AS_EMBEDDED_OBJECT)
-            .enable(CBORParser.Feature.READ_SIMPLE_VALUE_AS_EMBEDDED_OBJECT)
+            .streamReadConstraints(JsonMappers.readConstraints().build())
+            .enable(CBORReadFeature.READ_UNDEFINED_AS_EMBEDDED_OBJECT)
+            .enable(CBORReadFeature.READ_SIMPLE_VALUE_AS_EMBEDDED_OBJECT)
             .build();
 
     private StrictCbor() {
@@ -93,7 +95,7 @@ public final class StrictCbor {
             throw e;
         } catch (StreamConstraintsException e) {
             throw limit("CBOR exceeds parser constraints");
-        } catch (IOException | RuntimeException e) {
+        } catch (RuntimeException e) {
             // Jackson messages can quote input; never propagate them.
             throw invalid("malformed CBOR");
         }
@@ -112,14 +114,14 @@ public final class StrictCbor {
         }
 
         /** Reads the item whose first token is {@code token}; {@code depth} is the number of enclosing containers. */
-        CborValue read(JsonToken token, int depth) throws IOException {
+        CborValue read(JsonToken token, int depth) {
             countItem();
             int start = (int) parser.currentTokenLocation().getByteOffset();
             Long tag = currentTag(start);
             CborValue value = switch (token) {
                 case START_ARRAY -> readArray(depth + 1);
                 case START_OBJECT -> readMap(depth + 1);
-                case VALUE_STRING -> new CborValue.Text(parser.getText());
+                case VALUE_STRING -> new CborValue.Text(parser.getString());
                 case VALUE_EMBEDDED_OBJECT -> readBytes();
                 case VALUE_NUMBER_INT -> readInt();
                 case VALUE_NUMBER_FLOAT -> readFloat();
@@ -173,7 +175,7 @@ public final class StrictCbor {
             return new CborValue.Tagged(tag, value);
         }
 
-        private CborValue readArray(int depth) throws IOException {
+        private CborValue readArray(int depth) {
             checkDepth(depth);
             List<CborValue> items = new ArrayList<>();
             while (true) {
@@ -188,7 +190,7 @@ public final class StrictCbor {
             }
         }
 
-        private CborValue readMap(int depth) throws IOException {
+        private CborValue readMap(int depth) {
             checkDepth(depth);
             Map<CborValue, CborValue> entries = new LinkedHashMap<>();
             while (true) {
@@ -196,7 +198,7 @@ public final class StrictCbor {
                 if (token == JsonToken.END_OBJECT) {
                     return new CborValue.Dict(entries);
                 }
-                if (token != JsonToken.FIELD_NAME) {
+                if (token != JsonToken.PROPERTY_NAME) {
                     throw invalid("truncated CBOR map");
                 }
                 countItem();
@@ -216,7 +218,7 @@ public final class StrictCbor {
          * text, integers stay integers ({@code 33} and {@code "33"} are different keys). Tagged keys and byte-string
          * keys are refused.
          */
-        private CborValue readKey() throws IOException {
+        private CborValue readKey() {
             int offset = (int) parser.currentTokenLocation().getByteOffset();
             int major = majorType(input[offset]);
             String name = parser.currentName();
@@ -234,7 +236,7 @@ public final class StrictCbor {
             throw invalid("CBOR map key must be text or integer");
         }
 
-        private CborValue readBytes() throws IOException {
+        private CborValue readBytes() {
             Object embedded = parser.getEmbeddedObject();
             if (embedded instanceof byte[] bytes) {
                 return new CborValue.Bytes(bytes);
@@ -242,14 +244,14 @@ public final class StrictCbor {
             throw invalid("unsupported CBOR simple value");
         }
 
-        private CborValue readInt() throws IOException {
+        private CborValue readInt() {
             if (parser.getNumberType() == JsonParser.NumberType.BIG_INTEGER) {
                 throw invalid("CBOR integer out of range");
             }
             return new CborValue.Int(parser.getLongValue());
         }
 
-        private CborValue readFloat() throws IOException {
+        private CborValue readFloat() {
             if (parser.getNumberType() == JsonParser.NumberType.BIG_DECIMAL) {
                 throw invalid("unsupported CBOR decimal");
             }

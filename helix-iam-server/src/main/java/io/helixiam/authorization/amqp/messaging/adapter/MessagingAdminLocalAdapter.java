@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.messaging.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.messaging.DevicePushTokenDto;
 import io.helixiam.authorization.amqp.messaging.MessageTemplateDto;
 import io.helixiam.authorization.amqp.messaging.MessagingAdminPublisher;

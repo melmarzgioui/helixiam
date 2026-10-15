@@ -5,8 +5,8 @@
 
 package io.helixiam.testsupport;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
@@ -40,11 +40,7 @@ public final class CloudflareApiMock implements AutoCloseable {
                           Instant at) {
 
         public JsonNode json() {
-            try {
-                return JSON.readTree(body);
-            } catch (final IOException e) {
-                throw new UncheckedIOException(e);
-            }
+            return JSON.readTree(body);
         }
 
         /** The first {@code to} address. */

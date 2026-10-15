@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.idp.workloadidentity;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import io.helixiam.authorization.amqp.clientrole.ClientRolePublisher;
@@ -78,7 +79,7 @@ public class WorkloadIdentityTokenController {
     private final AuditLog auditLog;
     private final long lifetimeSeconds;
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMappers.plain();
     private final WorkloadExchangeRateLimiter rateLimiter = new WorkloadExchangeRateLimiter();
 
     public WorkloadIdentityTokenController(final WorkloadIdentityConfigPublisher credentials,

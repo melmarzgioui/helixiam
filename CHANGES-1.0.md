@@ -5,6 +5,41 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.10`)
 
+- **Changed (platform): the application is on Jackson 3** (`tools.jackson` 3.2.3), closing the last open item of
+  `DEFERRED-SECURITY-WORK.md`. Spring Boot's deprecated `spring-boot-jackson2` module and
+  `spring.http.converters.preferred-json-mapper=jackson2` are removed; Spring MVC and every mapper of the application
+  use Jackson 3, configured to keep Jackson 2's formats (Jackson 3 changed many defaults: alphabetical member order,
+  enums written with `toString()`, `null` for a primitive and trailing tokens refused, `java.beans` property names,
+  `Locale` as a language tag, characters outside the BMP written raw in UTF-8, a 100 MB string limit):
+  - Boot's `JsonMapper`: `spring.jackson.use-jackson2-defaults=true`, `spring.jackson.mapper.detect-parameter-names`,
+    `spring.jackson.json.write.combine-unicode-surrogates-in-utf8=false`, `max-string-length` 20 MB, and `JacksonConfig`
+    (Jackson 2 bean names, `Locale` as `toString()`).
+  - The application's own mappers (stores, outbound payloads, wallet parsers) come from `JsonMappers`, which behaves
+    like a default Jackson 2 `ObjectMapper`; the strict wallet, status-list and LoTE parsers keep their own limits
+    (depth 64 / 16, duplicate members and trailing tokens refused) and the canonical theme form stays sorted.
+  - Jackson 3's `JsonNode` accessors throw where Jackson 2 returned a default (`asText()` on an object, `textValue()`
+    on a number, `asBoolean()` on `"yes"`); code reading JSON it does not control keeps Jackson 2's lenient reads
+    (`JsonNodes`). Jackson 3's exceptions are unchecked: every `catch (IOException)` around a Jackson call now catches
+    `JacksonException` too, so a malformed wallet disclosure, SD-JWT segment, status-list token, decrypted VP payload
+    or file theme is still refused with its usual error instead of escaping as a 500.
+  - Stricter: the nesting limit is Jackson 3's 500 (Jackson 2: 1000). Read limits are pinned by `JsonMappersTest`.
+  - No change for stored state: authorizations and sessions are Java-serialized (no Jackson classes are allowlisted),
+    and every Jackson-written store (wallet transactions, DCQL queries, trusted-list `services_json` and MACed
+    settings, `config_json` / `secret_json`, flow and messaging config, email retries, pending `verified_claims`, theme
+    JSON and its version hash, audit detail) reads what rc.10 wrote and writes the same bytes. Fixtures recorded on the
+    Jackson 2 code (`src/test/resources/upgrade/jackson2`) prove it, together with the wire formats: the MVC mapper's
+    behaviour, webhook bodies and their `X-Helix-Signature`, the outbound SCIM user, admin error bodies, member order
+    and types of admin/token/userinfo/introspection responses, UTF-8 escaping, and the import of an rc.10 realm export
+    (`*UpgradeTest`, `PlainJsonMapperUpgradeTest`, `JsonWireFormatE2eTest`).
+  - Jackson 2 stays on the classpath only as a transitive dependency of OpenSAML 5 (`opensaml-core-impl`) and
+    springdoc-openapi (swagger-core 2.2.x builds `/v3/api-docs` with Jackson 2); no HelixIAM class imports it
+    (`JsonMappersTest`), and the 2.21.7 BOM pin stays for its CVE fixes.
+
+  > **Operator note:** nothing to do for an upgrade from rc.10: stored state, sessions and refresh tokens carry over,
+  > and a rolling update is safe in both directions as far as JSON is concerned. Only if you configured Jackson through
+  > Spring properties: `spring.jackson2.*` is no longer read; use `spring.jackson.*` (Jackson 3 names, e.g.
+  > `spring.jackson.datatype.datetime.*` for date features).
+
 - **Changed (dependencies)** — the post-1.0 platform-upgrade items from `ROADMAP.md` landed:
   - `helix-sandbox-rp`: **Express 4.22 → 5.3**, **openid-client 5.7 → 6.8** (a full API rewrite — the
     `Issuer`/`Client`/`generators` object API is replaced by the functional API: `discovery()`,

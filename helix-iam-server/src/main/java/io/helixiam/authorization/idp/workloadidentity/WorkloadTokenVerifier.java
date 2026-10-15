@@ -5,6 +5,8 @@
 
 package io.helixiam.authorization.idp.workloadidentity;
 
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
@@ -14,8 +16,8 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.common.net.OutboundUrlGuard;
 import io.helixiam.common.net.PinnedHttpFetcher;
 import io.helixiam.common.net.PinnedResourceRetriever;
@@ -57,7 +59,7 @@ public class WorkloadTokenVerifier {
     private final PinnedResourceRetriever jwksRetriever;
     private static final PinnedHttpFetcher.Limits DISCOVERY_LIMITS = new PinnedHttpFetcher.Limits(
             Duration.ofSeconds(5), Duration.ofSeconds(5), 1024 * 1024);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMappers.plain();
 
     /** Secure default (block-private) for non-Spring construction (tests that build their own JWKSource). */
     public WorkloadTokenVerifier() {
@@ -91,10 +93,10 @@ public class WorkloadTokenVerifier {
             throw new IllegalStateException("issuer discovery returned " + resp.status());
         }
         final JsonNode jwks = MAPPER.readTree(resp.bodyAsString()).path("jwks_uri");
-        if (jwks.isMissingNode() || jwks.asText().isBlank()) {
+        if (jwks.isMissingNode() || JsonNodes.text(jwks).isBlank()) {
             throw new IllegalStateException("issuer discovery has no jwks_uri");
         }
-        return jwks.asText();
+        return JsonNodes.text(jwks);
     }
 
     /** A cached JWKS handle for {@code jwksUri} (Nimbus refreshes the key set behind it). */

@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.scope.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.scope.ClaimDto;
 import io.helixiam.authorization.amqp.scope.ClaimScopePublisher;
 import io.helixiam.authorization.amqp.scope.ClaimWriteDto;

@@ -5,10 +5,12 @@
 
 package io.helixiam.authorization.messaging.driver;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
 import io.helixiam.authorization.messaging.email.DeliveryResult;
 import io.helixiam.authorization.messaging.email.DeliveryResult.Reason;
@@ -22,7 +24,7 @@ import io.helixiam.common.net.SsrfBlockedException;
 import io.helixiam.common.startup.DeploymentProfile;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
+import tools.jackson.core.JacksonException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -67,7 +69,7 @@ public class CloudflareEmailDriver implements EmailTransport {
     static final int DEFAULT_CONNECT_TIMEOUT_MS = 5_000;
     static final int DEFAULT_READ_TIMEOUT_MS = 15_000;
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMappers.plain();
     private static final int MAX_CLIENTS = 32;
 
     private final OutboundUrlGuard egressGuard;
@@ -105,7 +107,7 @@ public class CloudflareEmailDriver implements EmailTransport {
         final String body;
         try {
             body = JSON.writeValueAsString(requestBody(message));
-        } catch (final IOException e) {
+        } catch (final JacksonException e) {
             return DeliveryResult.permanent(Reason.MESSAGE_REJECTED, "The email could not be encoded");
         }
         final Map<String, String> headers = new LinkedHashMap<>();
@@ -189,7 +191,7 @@ public class CloudflareEmailDriver implements EmailTransport {
             if (json == null) {
                 return DeliveryResult.accepted(null, diagnostic);
             }
-            if (!json.path("success").asBoolean(false)) {
+            if (!JsonNodes.bool(json.path("success"), false)) {
                 return DeliveryResult.permanent(Reason.PROVIDER_ERROR, diagnostic + " (success: false)");
             }
             final JsonNode result = json.path("result");
@@ -231,7 +233,7 @@ public class CloudflareEmailDriver implements EmailTransport {
         try {
             final JsonNode node = JSON.readTree(body);
             return node != null && node.isObject() ? node : null;
-        } catch (final IOException e) {
+        } catch (final JacksonException e) {
             return null;
         }
     }
@@ -245,8 +247,8 @@ public class CloudflareEmailDriver implements EmailTransport {
         if (first.isMissingNode() || first.isNull()) {
             return "";
         }
-        final String code = first.path("code").asText("");
-        final String msg = first.path("message").asText("");
+        final String code = JsonNodes.text(first.path("code"), "");
+        final String msg = JsonNodes.text(first.path("message"), "");
         final String joined = (code + " " + msg).trim();
         return joined.isEmpty() ? "" : ": " + (joined.length() > 200 ? joined.substring(0, 200) + "…" : joined);
     }
@@ -255,7 +257,7 @@ public class CloudflareEmailDriver implements EmailTransport {
         final List<String> out = new ArrayList<>();
         if (list.isArray()) {
             list.forEach(n -> {
-                final String v = n.isTextual() ? n.asText() : n.path("address").asText("");
+                final String v = n.isString() ? n.asString() : JsonNodes.text(n.path("address"), "");
                 if (recipients.contains(v.toLowerCase(Locale.ROOT))) {
                     out.add(v);
                 }
@@ -267,8 +269,8 @@ public class CloudflareEmailDriver implements EmailTransport {
     private static String text(final JsonNode node, final String... fields) {
         for (final String f : fields) {
             final JsonNode v = node.path(f);
-            if (v.isTextual() && !v.asText().isBlank()) {
-                return v.asText();
+            if (v.isString() && !v.asString().isBlank()) {
+                return v.asString();
             }
         }
         return null;

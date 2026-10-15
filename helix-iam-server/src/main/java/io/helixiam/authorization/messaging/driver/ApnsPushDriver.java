@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.messaging.driver;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.ECDSASigner;
@@ -42,7 +43,7 @@ public class ApnsPushDriver implements PushDriver {
     private static final String PROD_HOST = "https://" + ApnsHttp2Transport.PRODUCTION_HOST;
 
     private final HttpTransport http;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     /** Production: HTTP/2 to Apple's hosts only (the pinned HTTP/1.1 transport cannot talk to APNs). */
     @org.springframework.beans.factory.annotation.Autowired

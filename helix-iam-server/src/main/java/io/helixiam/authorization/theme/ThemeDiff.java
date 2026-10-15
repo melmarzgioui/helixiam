@@ -5,12 +5,11 @@
 
 package io.helixiam.authorization.theme;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -31,8 +30,8 @@ public final class ThemeDiff {
     private static void diff(final String path, final JsonNode a, final JsonNode b, final Set<String> out) {
         if (a != null && b != null && a.isObject() && b.isObject()) {
             final Set<String> keys = new LinkedHashSet<>();
-            a.fieldNames().forEachRemaining(keys::add);
-            b.fieldNames().forEachRemaining(keys::add);
+            a.propertyNames().forEach(keys::add);
+            b.propertyNames().forEach(keys::add);
             for (final String k : keys) {
                 diff(path.isEmpty() ? k : path + "." + k, a.get(k), b.get(k), out);
             }
@@ -65,9 +64,7 @@ public final class ThemeDiff {
             return b;
         }
         final ObjectNode out = JsonNodeFactory.instance.objectNode();
-        final Iterator<String> names = b.fieldNames();
-        while (names.hasNext()) {
-            final String k = names.next();
+        for (final String k : b.propertyNames()) {
             final JsonNode child = keepChanged(a.get(k), b.get(k));
             if (child != null) {
                 out.set(k, child);

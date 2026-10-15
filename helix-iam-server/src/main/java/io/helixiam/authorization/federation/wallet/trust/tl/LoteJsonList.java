@@ -5,10 +5,11 @@
 
 package io.helixiam.authorization.federation.wallet.trust.tl;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSObject;
@@ -47,9 +48,10 @@ final class LoteJsonList {
     private static final Set<String> DEFERRED_CRIT = Set.of("sigT", "x5t#o", "sigX5ts", "srCms", "srAts", "sigPl",
             "adoTst", "sigPId", "cty");
     private static final int MAX_CERTS = 16;
-    private static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
-            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(SecureXml.MAX_DEPTH)
-                    .maxStringLength(1024 * 1024).build()).build());
+    private static final ObjectMapper JSON = JsonMappers.jackson2Compatible(JsonMapper.builder(
+                    JsonMappers.factoryBuilder(c -> c.maxNestingDepth(SecureXml.MAX_DEPTH).maxStringLength(1024 * 1024))
+                            .build())
+                    .configureForJackson2()).build();
 
     private LoteJsonList() {
     }
@@ -121,12 +123,12 @@ final class LoteJsonList {
         if (seq == null || !seq.canConvertToLong()) {
             throw malformed("the list has no valid LoTESequenceNumber");
         }
-        final java.time.Instant issued = Etsi119612List.time(info.path("ListIssueDateTime").asText(null));
+        final java.time.Instant issued = Etsi119612List.time(JsonNodes.text(info.path("ListIssueDateTime"), null));
         if (issued == null) {
             throw malformed("the list has no valid ListIssueDateTime");
         }
-        final java.time.Instant nextUpdate = Etsi119612List.time(info.path("NextUpdate").asText(null));
-        final String territory = info.path("SchemeTerritory").asText(null);
+        final java.time.Instant nextUpdate = Etsi119612List.time(JsonNodes.text(info.path("NextUpdate"), null));
+        final String territory = JsonNodes.text(info.path("SchemeTerritory"), null);
         final List<Etsi119612List.Service> services = new ArrayList<>();
         for (final JsonNode entity : lote.path("TrustedEntitiesList")) {
             final JsonNode teInfo = entity.path("TrustedEntityInformation");
@@ -134,27 +136,27 @@ final class LoteJsonList {
             final String country = firstText(teInfo.path("TEAddress").path("TEPostalAddress"), "Country");
             for (final JsonNode svc : entity.path("TrustedEntityServices")) {
                 final JsonNode si = svc.path("ServiceInformation");
-                final String status = si.path("ServiceStatus").asText(null);
+                final String status = JsonNodes.text(si.path("ServiceStatus"), null);
                 final List<X509Certificate> certs = new ArrayList<>();
                 for (final JsonNode c : si.path("ServiceDigitalIdentity").path("X509Certificates")) {
                     if (certs.size() >= MAX_CERTS) {
                         throw malformed("too many certificates in one service");
                     }
-                    certs.add(Etsi119612List.certificate(c.path("val").asText(null)));
+                    certs.add(Etsi119612List.certificate(JsonNodes.text(c.path("val"), null)));
                 }
                 services.add(new Etsi119612List.Service(provider, multilingual(si.path("ServiceName")),
-                        si.path("ServiceTypeIdentifier").asText(null), status, null, country, certs));
+                        JsonNodes.text(si.path("ServiceTypeIdentifier"), null), status, null, country, certs));
             }
         }
-        return new Etsi119612List(info.path("LoTEType").asText(null), territory, seq.asLong(), issued, nextUpdate,
+        return new Etsi119612List(JsonNodes.text(info.path("LoTEType"), null), territory, seq.asLong(), issued, nextUpdate,
                 List.of(), services);
     }
 
     private static String multilingual(final JsonNode values) {
         String first = null;
         for (final JsonNode v : values) {
-            final String text = v.path("value").asText(null);
-            if ("en".equalsIgnoreCase(v.path("lang").asText(""))) {
+            final String text = JsonNodes.text(v.path("value"), null);
+            if ("en".equalsIgnoreCase(JsonNodes.text(v.path("lang"), ""))) {
                 return text;
             }
             if (first == null) {
@@ -166,7 +168,7 @@ final class LoteJsonList {
 
     private static String firstText(final JsonNode array, final String field) {
         for (final JsonNode v : array) {
-            final String text = v.path(field).asText(null);
+            final String text = JsonNodes.text(v.path(field), null);
             if (text != null && !text.isBlank()) {
                 return text;
             }

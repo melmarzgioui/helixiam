@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e.browser;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.service.messaging.MessagingAdminService;
 import io.helixiam.e2e.AbstractE2eTest;
 import io.helixiam.e2e.E2eAdminSession;

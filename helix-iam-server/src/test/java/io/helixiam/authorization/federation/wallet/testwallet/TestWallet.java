@@ -5,10 +5,10 @@
 
 package io.helixiam.authorization.federation.wallet.testwallet;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
-import com.fasterxml.jackson.dataformat.cbor.CBORGenerator;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.dataformat.cbor.CBORFactory;
+import tools.jackson.dataformat.cbor.CBORGenerator;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
@@ -600,7 +600,7 @@ public final class TestWallet {
      */
     public static byte[] cbor(final Object value) {
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (CBORGenerator g = CBOR.createGenerator(out)) {
+        try (CBORGenerator g = (CBORGenerator) CBOR.createGenerator(out)) {
             writeCbor(g, value);
         } catch (final IOException e) {
             throw new IllegalStateException(e);
@@ -632,9 +632,9 @@ public final class TestWallet {
             g.writeStartObject(map, map.size());
             for (final Map.Entry<?, ?> e : map.entrySet()) {
                 if (e.getKey() instanceof String name) {
-                    g.writeFieldName(name);
+                    g.writeName(name);
                 } else if (e.getKey() instanceof Integer || e.getKey() instanceof Long) {
-                    g.writeFieldId(((Number) e.getKey()).longValue());
+                    g.writePropertyId(((Number) e.getKey()).longValue());
                 } else {
                     throw new IllegalArgumentException("CBOR map key must be text or integer");
                 }
@@ -710,7 +710,7 @@ public final class TestWallet {
     public static String json(final Object value) {
         try {
             return JSON.writeValueAsString(value);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException(e);
         }
     }

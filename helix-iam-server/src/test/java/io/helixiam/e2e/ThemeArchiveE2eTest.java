@@ -5,10 +5,10 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.helixiam.authorization.theme.asset.AssetFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,8 +97,8 @@ class ThemeArchiveE2eTest extends AbstractE2eTest {
                 "theme-assets/" + font.path("id").asText() + ".woff2", "theme-assets/" + logo.path("id").asText() + ".svg");
         final JsonNode manifest = JSON.readTree(entries.get("theme-assets/manifest.json"));
         assertThat(manifest).hasSize(2);
-        assertThat(manifest.findValuesAsText("sha256")).contains(font.path("sha256").asText(), logo.path("sha256").asText());
-        assertThat(manifest.findValuesAsText("name")).contains("Public Sans");
+        assertThat(manifest.findValuesAsString("sha256")).contains(font.path("sha256").asText(), logo.path("sha256").asText());
+        assertThat(manifest.findValuesAsString("name")).contains("Public Sans");
 
         // Into a different realm: assets get new ids there, and every reference follows.
         final String target = E2eSeed.unique("copy");
@@ -111,7 +111,7 @@ class ThemeArchiveE2eTest extends AbstractE2eTest {
 
         final JsonNode copied = master.get("/admin/realms/" + target + "/theme/assets").json();
         assertThat(copied).hasSize(2);
-        final String newLogo = copied.findValuesAsText("url").stream().filter(u -> u.endsWith(".svg")).findFirst().orElseThrow();
+        final String newLogo = copied.findValuesAsString("url").stream().filter(u -> u.endsWith(".svg")).findFirst().orElseThrow();
         assertThat(newLogo).startsWith("/realms/" + target + "/theme/assets/").doesNotContain(logo.path("id").asText());
 
         final JsonNode theme = master.get("/admin/realms/" + target + "/theme").json();
@@ -247,7 +247,7 @@ class ThemeArchiveE2eTest extends AbstractE2eTest {
         final E2eHttp.Response overwrite = master.postBytes(importPath, "application/zip", archive);
         assertThat(overwrite.status()).as(overwrite.toString()).isEqualTo(200);
         assertThat(fontSha(master, targetAssets)).isEqualTo(sha256(AssetFixtures.woff2(2048)));
-        assertThat(master.get(targetAssets).json().findValuesAsText("kind").stream().filter("font"::equals).count())
+        assertThat(master.get(targetAssets).json().findValuesAsString("kind").stream().filter("font"::equals).count())
                 .isEqualTo(1);
         assertThat(master.get("/admin/realms/" + target + "/theme").json().path("typography").path("fontSans").asText())
                 .isEqualTo("Public Sans");

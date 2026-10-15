@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.theme.asset.AssetFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,7 +82,7 @@ class ThemeAssetE2eTest extends AbstractE2eTest {
         assertThat(list.isArray()).isTrue();
         assertThat(list).hasSize(4);
         for (final JsonNode e : list) {
-            assertThat(e.fieldNames()).toIterable().contains("id", "kind", "name", "ext", "size", "sha256", "created", "url")
+            assertThat(e.propertyNames()).contains("id", "kind", "name", "ext", "size", "sha256", "created", "url")
                     .doesNotContain("content", "bytes", "realmId");
         }
 

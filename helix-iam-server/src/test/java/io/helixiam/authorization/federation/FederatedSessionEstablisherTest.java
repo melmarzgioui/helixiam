@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.federation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.federation.FederatedIdentityPublisher;
 import io.helixiam.authorization.domain.UserCredentials;
 import org.junit.jupiter.api.AfterEach;

@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.flow.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.flow.FlowAdminPublisher;
 import io.helixiam.authorization.amqp.flow.FlowCreateDto;
 import io.helixiam.authorization.amqp.flow.FlowDefinitionDto;

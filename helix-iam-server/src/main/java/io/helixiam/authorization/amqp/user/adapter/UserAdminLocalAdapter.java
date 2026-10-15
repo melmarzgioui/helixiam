@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.user.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.support.DtoBridge;
 import io.helixiam.authorization.amqp.user.CredentialRevokeRef;
 import io.helixiam.authorization.amqp.user.CredentialSummary;

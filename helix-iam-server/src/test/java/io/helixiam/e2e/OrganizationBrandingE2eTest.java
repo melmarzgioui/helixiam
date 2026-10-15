@@ -62,7 +62,7 @@ class OrganizationBrandingE2eTest extends AbstractE2eTest {
                 Map.of("displayName", "x".repeat(101)))) {
             final E2eHttp.Response r = admin.put(brandingPath(orgId), bad);
             assertThat(r.status()).as("%s -> %s", bad, r).isEqualTo(400);
-            assertThat(r.json().path("fieldErrors").fieldNames().next()).isEqualTo(bad.keySet().iterator().next());
+            assertThat(r.json().path("fieldErrors").propertyNames().iterator().next()).isEqualTo(bad.keySet().iterator().next());
         }
         assertThat(admin.put("/admin/realms/" + realm + "/organizations/no-such-org/branding",
                 Map.of("primaryColor", COLOR)).status()).isEqualTo(404);
@@ -116,13 +116,13 @@ class OrganizationBrandingE2eTest extends AbstractE2eTest {
 
     @Test
     void theLegacyBrandingPut_changesOnlyTheFieldsItIsGiven_nullMeansUnchanged() {
-        final String orgId = admin.get("/admin/realms/" + realm + "/organizations").json().findValuesAsText("orgId")
+        final String orgId = admin.get("/admin/realms/" + realm + "/organizations").json().findValuesAsString("orgId")
                 .stream().filter(id -> admin.get(brandingPath(id)).json().path("primaryColor").asText().equals(COLOR))
                 .findFirst().orElseThrow();
         final String themePath = "/admin/realms/" + realm + "/organizations/" + orgId + "/theme";
         // The org theme also carries a field the legacy API does not know.
-        final com.fasterxml.jackson.databind.node.ObjectNode theme =
-                (com.fasterxml.jackson.databind.node.ObjectNode) admin.get(themePath).json();
+        final tools.jackson.databind.node.ObjectNode theme =
+                (tools.jackson.databind.node.ObjectNode) admin.get(themePath).json();
         theme.putObject("shape").put("radius", 4);
         assertThat(admin.put(themePath, theme).status()).isEqualTo(200);
 
@@ -135,7 +135,7 @@ class OrganizationBrandingE2eTest extends AbstractE2eTest {
         assertThat(renamed.json().path("displayName").asText()).isEqualTo("Harbor & Pine LLP");
         assertThat(renamed.json().path("primaryColor").asText()).as("null = unchanged").isEqualTo(COLOR);
         assertThat(renamed.json().path("logoUrl").asText()).isEqualTo(LOGO);
-        final com.fasterxml.jackson.databind.JsonNode after = admin.get(themePath).json();
+        final tools.jackson.databind.JsonNode after = admin.get(themePath).json();
         assertThat(after.path("colors").path("primary").path("light").asText()).isEqualToIgnoringCase(COLOR);
         assertThat(after.path("shape").path("radius").asInt()).isEqualTo(4);
 

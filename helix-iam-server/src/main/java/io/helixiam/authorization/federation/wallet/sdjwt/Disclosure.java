@@ -60,7 +60,7 @@ public record Disclosure(String encoded, String digest, String claimName, Object
         final Object parsed;
         try {
             parsed = StrictJson.MAPPER.readValue(json, Object.class);
-        } catch (java.io.IOException e) {
+        } catch (tools.jackson.core.JacksonException e) {
             throw invalid("disclosure is not valid JSON");
         }
         if (!(parsed instanceof List<?> array) || array.isEmpty() || !(array.get(0) instanceof String)) {

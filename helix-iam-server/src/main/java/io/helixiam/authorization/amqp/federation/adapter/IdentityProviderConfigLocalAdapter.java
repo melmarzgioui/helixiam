@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.federation.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfig;
 import io.helixiam.authorization.amqp.federation.IdentityProviderConfigPublisher;
 import io.helixiam.authorization.amqp.federation.IdentityProviderRef;

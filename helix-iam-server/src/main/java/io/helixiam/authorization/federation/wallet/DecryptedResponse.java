@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The success shape of a decrypted OpenID4VP Authorization Response (§8.1): {@code vp_token} as a JSON object keyed

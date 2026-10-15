@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.messaging.driver;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
 import io.helixiam.authorization.messaging.email.DeliveryResult;
 import io.helixiam.authorization.messaging.email.DeliveryResult.Reason;
@@ -35,7 +36,7 @@ public class HttpEmailDriver implements EmailTransport {
     public static final String DRIVER = "HTTP";
 
     private final HttpTransport http;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     public HttpEmailDriver(final HttpTransport http) {
         this.http = http;

@@ -558,7 +558,7 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
 
         final com.microsoft.playwright.Download download = page().waitForDownload(() -> page().locator("#export").click());
         assertThat(download.suggestedFilename()).isEqualTo("account-data-" + realm.realm() + ".json");
-        final com.fasterxml.jackson.databind.JsonNode data = new com.fasterxml.jackson.databind.ObjectMapper()
+        final tools.jackson.databind.JsonNode data = new tools.jackson.databind.ObjectMapper()
                 .readTree(java.nio.file.Files.readString(download.path()));
         assertThat(data.toString()).contains(ada.username()).contains(ada.dto().email()).doesNotContain("password");
         awaitAudit(realm, "ACCOUNT_DATA_EXPORT", "SUCCESS");
@@ -673,12 +673,12 @@ class AccountConsoleBrowserE2eTest extends AbstractBrowserE2eTest {
     }
 
     /** The newest audit event of {@code type} with {@code outcome} in the realm (the audit store is written async). */
-    com.fasterxml.jackson.databind.JsonNode awaitAudit(final ReferenceSetup.Realm realm, final String type,
+    tools.jackson.databind.JsonNode awaitAudit(final ReferenceSetup.Realm realm, final String type,
                                                       final String outcome) {
         final java.time.Instant deadline = java.time.Instant.now().plus(WAIT);
         final io.helixiam.e2e.E2eAdminSession admin = adminSession();
         do {
-            final com.fasterxml.jackson.databind.JsonNode items = admin.get("/admin/realms/" + realm.realm()
+            final tools.jackson.databind.JsonNode items = admin.get("/admin/realms/" + realm.realm()
                     + "/events?type=" + type + "&outcome=" + outcome).json().path("items");
             if (items.size() > 0) {
                 return items.get(0);

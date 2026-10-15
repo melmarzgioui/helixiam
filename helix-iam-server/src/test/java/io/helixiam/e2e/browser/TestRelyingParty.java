@@ -5,8 +5,8 @@
 
 package io.helixiam.e2e.browser;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
@@ -450,11 +450,7 @@ public final class TestRelyingParty implements AutoCloseable {
     }
 
     private static JsonNode readJson(final String body) {
-        try {
-            return JSON.readTree(body);
-        } catch (final IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return JSON.readTree(body);
     }
 
     private static void redirect(final HttpExchange ex, final String location) throws IOException {

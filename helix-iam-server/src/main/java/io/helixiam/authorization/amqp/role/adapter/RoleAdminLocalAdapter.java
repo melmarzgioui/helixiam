@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.role.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.role.RoleAdminPublisher;
 import io.helixiam.authorization.amqp.role.RoleAssignment;
 import io.helixiam.authorization.amqp.role.RoleDto;

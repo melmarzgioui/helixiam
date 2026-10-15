@@ -5,10 +5,10 @@
 
 package io.helixiam.authorization.theme.file;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.theme.Theme;
 import io.helixiam.authorization.theme.ThemeAssetCatalog;
 import io.helixiam.authorization.theme.ThemeAssets;
@@ -65,7 +65,7 @@ public final class FileThemeLoader {
     private static final int MAX_ASSET_BYTES = Math.max(ThemeAssetRules.MAX_FONT_BYTES, ThemeAssetRules.MAX_RASTER_BYTES);
     private static final String ASSET_REF = "assets/";
     private static final Pattern CSS_ASSET_URL = Pattern.compile("url\\(\\s*(['\"]?)assets/([^'\")\\s]*)\\1\\s*\\)");
-    private static final ObjectMapper JSON = JsonMapper.builder()
+    private static final ObjectMapper JSON = JsonMappers.plainBuilder()
             .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
 
     private FileThemeLoader() {
@@ -179,7 +179,7 @@ public final class FileThemeLoader {
                 } else {
                     out.add(e);
                 }
-            } catch (final IOException | IllegalArgumentException e) {
+            } catch (final tools.jackson.core.JacksonException | IllegalArgumentException e) {
                 problems.put("fonts.json[" + i + "]", "Invalid entry (fields: file, family, weight, style).");
             }
         }
@@ -285,7 +285,7 @@ public final class FileThemeLoader {
             return JSON.readTree(bytes);
         } catch (final java.nio.file.NoSuchFileException e) {
             problems.put(label, "Missing.");
-        } catch (final IOException | IllegalArgumentException e) {
+        } catch (final IOException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
             problems.put(label, "Not valid JSON or not readable: " + message(e));
         }
         return null;
@@ -390,7 +390,7 @@ public final class FileThemeLoader {
         if (e instanceof java.nio.file.AccessDeniedException) {
             return "Not readable (permission denied).";
         }
-        if (e instanceof com.fasterxml.jackson.core.JsonProcessingException j) {
+        if (e instanceof tools.jackson.core.JacksonException j) {
             return j.getOriginalMessage();
         }
         if (e instanceof IllegalArgumentException) {

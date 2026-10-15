@@ -5,7 +5,7 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.nimbusds.jose.JOSEException;
 import io.helixiam.authorization.domain.audit.AuditQuery;
 import io.helixiam.authorization.domain.audit.AuditRecord;

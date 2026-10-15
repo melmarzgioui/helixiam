@@ -1,0 +1,23 @@
+probe {"zeta":"z / \"q\" <b>&</b> Zoë   😀","alpha":"a","instant":"2026-10-01T10:00:00.123456789Z","duration":"PT1M30.000000005S","date":"2026-10-01T10:00:00.000+00:00","localDate":"2026-02-28","offsetDateTime":"2026-10-01T12:00:00+02:00","present":"p","absent":null,"color":"DARK_GREEN","nothing":null,"primitive":7,"boxed":null,"big":12345678901,"dbl":0.1,"flt":1.5,"decimal":1.10,"bytes":"AQID/w==","letter":"c","flag":true,"uri":"https://a.example/p?q=1&r=2","locale":"nl_NL","uuid":"00000000-0000-0000-0000-000000000001","nested":{"zulu":"z","alpha":"a","count":null},"map":{"z":1,"a":null,"m":["x",2]},"list":["s",null,1.5],"enumKeys":{"DARK_GREEN":"g","RED":"r"}}
+sparse {"present":"p","renamed_member":"r"}
+bean {"publicField":"pf","xvalue":"x","count":3,"active":true,"url":"u"}
+tree {"z":1,"a":1.1,"e":100.0,"n":null,"s":"a/b","l":12345678901,"bi":123456789012345678901234567890}
+read full -> ok n|1|2|2026-10-01T10:00:00Z|PT1M|color-dark_green|[a]
+read unknown-member -> ok n|0|null|null|null|null|null
+read null-for-primitive -> ok null|0|null|null|null|null|null
+read missing-primitive -> ok null|0|null|null|null|null|null
+read trailing-tokens -> ok n|0|null|null|null|null|null
+read enum-by-tostring -> refused
+read enum-lowercase -> refused
+read enum-index -> ok null|0|null|null|null|color-dark_green|null
+read instant-epoch-seconds -> ok null|0|null|2026-09-21T14:13:20Z|null|null|null
+read instant-epoch-decimal -> ok null|0|null|2026-09-21T14:13:20.500Z|null|null|null
+read instant-offset -> ok null|0|null|2026-10-01T10:00:00Z|null|null|null
+read duration-number -> ok null|0|null|null|PT1M|null|null
+read string-for-int -> ok null|5|null|null|null|null|null
+read empty-string-for-boxed -> ok null|0|null|null|null|null|null
+read float-for-int -> ok null|1|null|null|null|null|null
+read scalar-for-list -> refused
+read number-for-string -> ok 12|0|null|null|null|null|null
+read duplicate-member -> ok b|0|null|null|null|null|null
+read comment -> refused

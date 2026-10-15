@@ -5,8 +5,8 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.theme.asset.AssetFixtures;
 import io.helixiam.authorization.theme.file.FileThemeRegistry;
 import io.helixiam.testsupport.LogCapture;

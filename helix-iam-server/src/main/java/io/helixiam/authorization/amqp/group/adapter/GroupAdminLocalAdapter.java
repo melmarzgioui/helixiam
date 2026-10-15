@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.group.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.group.GroupAdminPublisher;
 import io.helixiam.authorization.amqp.group.GroupDto;
 import io.helixiam.authorization.amqp.group.GroupMemberDto;

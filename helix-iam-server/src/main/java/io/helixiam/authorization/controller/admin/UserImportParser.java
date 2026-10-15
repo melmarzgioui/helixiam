@@ -5,8 +5,10 @@
 
 package io.helixiam.authorization.controller.admin;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,7 +24,7 @@ import java.util.Map;
  */
 public final class UserImportParser {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMappers.plain();
 
     /** One user to import. {@code password} is optional (null → the importer assigns a temp one + UPDATE_PASSWORD). */
     public record Row(String username, String email, boolean enabled, String password, Map<String, String> attributes) {
@@ -55,10 +57,10 @@ public final class UserImportParser {
                 final Map<String, String> attrs = new LinkedHashMap<>();
                 final JsonNode attrNode = node.get("attributes");
                 if (attrNode != null && attrNode.isObject()) {
-                    attrNode.fields().forEachRemaining(e -> attrs.put(e.getKey(), e.getValue().asText()));
+                    attrNode.properties().forEach(e -> attrs.put(e.getKey(), JsonNodes.text(e.getValue())));
                 }
                 final JsonNode enabled = node.get("enabled");
-                rows.add(new Row(username, text(node, "email"), enabled == null || enabled.asBoolean(),
+                rows.add(new Row(username, text(node, "email"), enabled == null || JsonNodes.bool(enabled, false),
                         text(node, "password"), attrs));
             }
             return rows;
@@ -138,7 +140,7 @@ public final class UserImportParser {
         if (v == null || v.isNull()) {
             return null;
         }
-        final String s = v.asText().trim();
+        final String s = JsonNodes.text(v).trim();
         return s.isEmpty() ? null : s;
     }
 }

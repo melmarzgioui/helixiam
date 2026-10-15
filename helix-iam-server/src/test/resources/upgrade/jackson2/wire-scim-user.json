@@ -1,0 +1,1 @@
+{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"zoë/ünal","externalId":"u-1","active":true,"name":{"givenName":"Zoë","familyName":"O'Brien \"Ü\""},"emails":[{"value":"zoe@example.eu","primary":true}]}

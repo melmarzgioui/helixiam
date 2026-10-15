@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.gdpr.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.gdpr.GdprConsentRecordDto;
 import io.helixiam.authorization.amqp.gdpr.GdprConsentWithdrawDto;
 import io.helixiam.authorization.amqp.gdpr.GdprConsentWriteDto;

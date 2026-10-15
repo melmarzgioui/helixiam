@@ -5,9 +5,9 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 import io.helixiam.authorization.federation.IdentityProviderRegistry;
 import io.helixiam.authorization.federation.spi.IdentityProvider;
 import io.helixiam.authorization.flow.spi.AuthenticationContext;
@@ -319,7 +319,7 @@ public class WalletVerifyAuthenticator implements Authenticator {
         });
         try {
             return StrictJson.MAPPER.writeValueAsString(node);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException("Could not encode verified_claims", e);
         }
     }

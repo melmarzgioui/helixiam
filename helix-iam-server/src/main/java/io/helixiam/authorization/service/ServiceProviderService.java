@@ -5,7 +5,8 @@
 
 package io.helixiam.authorization.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.domain.ServiceProviderOAuthClient;
 import io.helixiam.authorization.repository.ServiceProviderRepository;
 import io.helixiam.common.exception.ValidationException;
@@ -32,7 +33,7 @@ public class ServiceProviderService {
     private final String fileLocation;
 
     private static final Logger LOG = LogManager.getLogger(ServiceProviderService.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = JsonMappers.plain();
 
     /**
      * Constructs the service with repository and file location for initial config.

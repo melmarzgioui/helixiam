@@ -5,9 +5,10 @@
 
 package io.helixiam.authorization.federation.wallet.trust.tl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.federation.wallet.trust.tl.TrustedListSource.Member;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -31,7 +32,7 @@ import java.util.Optional;
  */
 public class TrustedListRepository {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMappers.plain();
     private static final TypeReference<List<String>> STRINGS = new TypeReference<>() {
     };
     private static final String COLUMNS = "id, realm_id, name, url, format, signer_certificates, service_types, "
@@ -429,7 +430,7 @@ public class TrustedListRepository {
     private static String json(final List<String> values) {
         try {
             return JSON.writeValueAsString(values);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException(e);
         }
     }
@@ -437,7 +438,7 @@ public class TrustedListRepository {
     private static List<String> strings(final String json) {
         try {
             return json == null ? List.of() : JSON.readValue(json, STRINGS);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             return List.of();
         }
     }

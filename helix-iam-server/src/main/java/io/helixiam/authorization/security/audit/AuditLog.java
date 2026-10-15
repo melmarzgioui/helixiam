@@ -5,8 +5,8 @@
 
 package io.helixiam.authorization.security.audit;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.audit.AuditLogPublisher;
 import io.helixiam.authorization.amqp.audit.AuditRecord;
 import io.helixiam.authorization.security.webhook.WebhookDispatcher;
@@ -107,7 +107,7 @@ public class AuditLog {
     private String toJsonSafe(final Object value) {
         try {
             return mapper.writeValueAsString(value);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             return null;
         }
     }
@@ -116,7 +116,7 @@ public class AuditLog {
     String toJson(final AuditEvent event) {
         try {
             return mapper.writeValueAsString(event);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             LOG.warn("Could not serialize audit event {}: {}", event.type(), e.getMessage());
             return null;
         }

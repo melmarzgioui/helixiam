@@ -5,8 +5,8 @@
 
 package io.helixiam.authorization.controller.admin.io;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.amqp.client.ClientDto;
 import org.junit.jupiter.api.Test;
 

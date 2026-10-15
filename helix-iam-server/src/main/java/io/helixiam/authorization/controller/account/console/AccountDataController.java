@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.controller.account.console;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.gdpr.GdprExportDto;
 import io.helixiam.authorization.amqp.gdpr.GdprPublisher;
 import io.helixiam.authorization.amqp.gdpr.GdprUserRef;

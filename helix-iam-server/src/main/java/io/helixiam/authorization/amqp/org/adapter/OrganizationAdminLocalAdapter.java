@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.org.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.org.OrgDto;
 import io.helixiam.authorization.amqp.org.OrgMemberChange;
 import io.helixiam.authorization.amqp.org.OrgMemberDto;

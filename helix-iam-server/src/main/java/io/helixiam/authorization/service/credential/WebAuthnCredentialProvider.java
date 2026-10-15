@@ -5,8 +5,10 @@
 
 package io.helixiam.authorization.service.credential;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.service.mfa.WebAuthnService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -25,7 +27,7 @@ public class WebAuthnCredentialProvider implements CredentialProvider {
     private static final Logger LOG = LogManager.getLogger(WebAuthnCredentialProvider.class);
 
     private final WebAuthnService webAuthnService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
     public WebAuthnCredentialProvider(final WebAuthnService webAuthnService) {
         this.webAuthnService = webAuthnService;
@@ -47,9 +49,9 @@ public class WebAuthnCredentialProvider implements CredentialProvider {
                     urlDecode(node, "authenticatorData"),
                     urlDecode(node, "clientDataJSON"),
                     urlDecode(node, "signature"),
-                    node.path("challenge").asText(),
-                    node.path("origin").asText(),
-                    node.path("rpId").asText());
+                    JsonNodes.text(node.path("challenge")),
+                    JsonNodes.text(node.path("origin")),
+                    JsonNodes.text(node.path("rpId")));
         } catch (final Exception e) {
             LOG.warn("Malformed WebAuthn assertion input for user {}: {}", userId, e.getMessage());
             return false;
@@ -57,7 +59,7 @@ public class WebAuthnCredentialProvider implements CredentialProvider {
     }
 
     private static byte[] urlDecode(final JsonNode node, final String field) {
-        final String value = node.path(field).asText("");
+        final String value = JsonNodes.text(node.path(field), "");
         return value.isEmpty() ? new byte[0] : Base64.getUrlDecoder().decode(value);
     }
 }

@@ -5,8 +5,8 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JOSEObjectType;
@@ -399,7 +399,7 @@ class AuthorizationRequestFactoryTest {
         final JsonNode formats = payload(factory.signedRequestObject(tx(), sdJwtOnly, key, BASE))
                 .get("client_metadata").get("vp_formats_supported");
 
-        assertThat(formats.fieldNames()).toIterable().containsExactly("dc+sd-jwt");
+        assertThat(formats.propertyNames()).containsExactly("dc+sd-jwt");
     }
 
     @Test

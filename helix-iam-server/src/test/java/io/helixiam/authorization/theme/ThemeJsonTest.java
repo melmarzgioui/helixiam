@@ -39,7 +39,7 @@ class ThemeJsonTest {
 
     @Test
     void strictParsing_reportsUnknownFieldsByPath() throws Exception {
-        final com.fasterxml.jackson.databind.ObjectMapper m = new com.fasterxml.jackson.databind.ObjectMapper();
+        final tools.jackson.databind.ObjectMapper m = new tools.jackson.databind.ObjectMapper();
         for (final String[] c : new String[][] {
                 {"{\"colors\":{\"primry\":{\"light\":\"#000000\"}}}", "colors.primry"},
                 {"{\"bogus\":1}", "bogus"},

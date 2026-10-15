@@ -5,9 +5,9 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.jwk.ECKey;
 import io.helixiam.authorization.federation.AccountLinkingPolicy;
@@ -451,7 +451,7 @@ public class WalletResponseHandler {
                 throw new WalletVerificationException(WalletErrorCode.INVALID_RESPONSE, "vp_token is not a JSON object");
             }
             return node;
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new WalletVerificationException(WalletErrorCode.INVALID_RESPONSE, "vp_token is not strict JSON");
         }
     }
@@ -459,7 +459,7 @@ public class WalletResponseHandler {
     private static ObjectNode query(final WalletTransaction tx) {
         try {
             return (ObjectNode) StrictJson.MAPPER.readTree(tx.dcqlQueryJson());
-        } catch (final JsonProcessingException | ClassCastException e) {
+        } catch (final JacksonException | ClassCastException e) {
             throw new IllegalStateException("The wallet transaction's DCQL query is unreadable");
         }
     }
@@ -492,11 +492,11 @@ public class WalletResponseHandler {
             final JsonNode root;
             try {
                 root = StrictJson.MAPPER.readTree(body);
-            } catch (final JsonProcessingException e) {
+            } catch (final JacksonException e) {
                 return null;
             }
             if (root == null || !root.isObject() || !onlyKnown(root, TOP)
-                    || !root.path("protocol").isTextual() || !expectedProtocol.equals(root.get("protocol").asText())
+                    || !root.path("protocol").isString() || !expectedProtocol.equals(root.get("protocol").asString())
                     || !root.path("data").isObject() || !onlyKnown(root.get("data"), DATA)) {
                 return null;
             }
@@ -506,20 +506,19 @@ public class WalletResponseHandler {
             final JsonNode error = data.get("error");
             final JsonNode description = data.get("error_description");
             final int kinds = (response != null ? 1 : 0) + (vpToken != null ? 1 : 0) + (error != null ? 1 : 0);
-            if (kinds != 1 || response != null && (!response.isTextual() || response.asText().isEmpty())
+            if (kinds != 1 || response != null && (!response.isString() || response.asString().isEmpty())
                     || vpToken != null && !vpToken.isObject()
-                    || error != null && (!error.isTextual() || error.asText().isEmpty())
-                    || description != null && (error == null || !description.isTextual())) {
+                    || error != null && (!error.isString() || error.asString().isEmpty())
+                    || description != null && (error == null || !description.isString())) {
                 return null;
             }
-            return new DcApiBody(response == null ? null : response.asText(), vpToken,
-                    error == null ? null : error.asText());
+            return new DcApiBody(response == null ? null : response.asString(), vpToken,
+                    error == null ? null : error.asString());
         }
 
         private static boolean onlyKnown(final JsonNode node, final Set<String> known) {
-            final java.util.Iterator<String> names = node.fieldNames();
-            while (names.hasNext()) {
-                if (!known.contains(names.next())) {
+            for (final String name : node.propertyNames()) {
+                if (!known.contains(name)) {
                     return false;
                 }
             }

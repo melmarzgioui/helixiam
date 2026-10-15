@@ -130,7 +130,7 @@ public class RealmIoController {
      */
     @PostMapping("/import/keycloak")
     public ResponseEntity<RealmImportResult> importKeycloak(@PathVariable final String realmId,
-                                                            @RequestBody final com.fasterxml.jackson.databind.JsonNode keycloakExport) {
+                                                            @RequestBody final tools.jackson.databind.JsonNode keycloakExport) {
         final RealmExportDocument document = KeycloakImporter.translate(keycloakExport);
         return respond(importService.importInto(realmId, document));
     }

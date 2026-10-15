@@ -5,9 +5,9 @@
 
 package io.helixiam.e2e;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.federation.wallet.testwallet.DcApiWalletClient;
 import io.helixiam.authorization.federation.wallet.testwallet.Oid4vpWalletClient;
 import io.helixiam.authorization.federation.wallet.testwallet.TestWallet;

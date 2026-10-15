@@ -5,11 +5,13 @@
 
 package io.helixiam.authorization.federation.wallet.trust.tl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.security.cert.CertificateEncodingException;
 import java.util.ArrayList;
@@ -19,7 +21,7 @@ import java.util.List;
 /** The stored form of verified services ({@code trusted_list_source.services_json}): a JSON array. */
 final class ServicesCodec {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMappers.plain();
 
     private ServicesCodec() {
     }
@@ -41,7 +43,7 @@ final class ServicesCodec {
         }
         try {
             return JSON.writeValueAsString(array);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException(e);
         }
     }
@@ -54,11 +56,11 @@ final class ServicesCodec {
         final List<ListedService> out = new ArrayList<>();
         try {
             for (final JsonNode n : JSON.readTree(json)) {
-                out.add(new ListedService(Etsi119612List.certificate(n.path("certificate").asText(null)),
-                        n.path("serviceType").asText(), text(n, "serviceName"), text(n, "provider"),
+                out.add(new ListedService(Etsi119612List.certificate(JsonNodes.text(n.path("certificate"), null)),
+                        JsonNodes.text(n.path("serviceType")), text(n, "serviceName"), text(n, "provider"),
                         text(n, "country"), text(n, "status")));
             }
-        } catch (final JsonProcessingException | TrustedListException | RuntimeException e) {
+        } catch (final TrustedListException | RuntimeException e) {
             return List.of();
         }
         return List.copyOf(out);
@@ -66,6 +68,6 @@ final class ServicesCodec {
 
     private static String text(final JsonNode n, final String field) {
         final JsonNode v = n.get(field);
-        return v == null || v.isNull() ? null : v.asText();
+        return v == null || v.isNull() ? null : JsonNodes.text(v);
     }
 }

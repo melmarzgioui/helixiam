@@ -5,14 +5,14 @@
 
 package io.helixiam.authorization.theme;
 
+import io.helixiam.common.json.JsonMappers;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.MapperFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,15 +26,19 @@ import java.util.HexFormat;
  */
 public final class ThemeJson {
 
-    private static final ObjectMapper MAPPER = JsonMapper.builder()
-            .serializationInclusion(JsonInclude.Include.NON_NULL)
+    private static final ObjectMapper MAPPER = JsonMappers.plainBuilder()
+            .changeDefaultPropertyInclusion(incl -> incl.withValueInclusion(JsonInclude.Include.NON_NULL))
             .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
+            // Jackson 3 keeps creator (record component) properties first, in declaration order; Jackson 2 sorted
+            // them too (SORT_CREATOR_PROPERTIES_BY_DECLARATION_ORDER=false). The canonical form, and so the stored
+            // rows and the version hash, stay sorted as 1.0 wrote them (ThemeJsonUpgradeTest).
+            .configure(MapperFeature.SORT_CREATOR_PROPERTIES_FIRST, false)
             .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .build();
 
     /** Admin-API input: unknown fields are errors (a typo must never silently clear a field under PUT-replace). */
-    private static final ObjectMapper STRICT = JsonMapper.builder()
+    private static final ObjectMapper STRICT = JsonMappers.plainBuilder()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
             .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true)
             .build();
@@ -56,11 +60,11 @@ public final class ThemeJson {
         try {
             final Theme t = STRICT.treeToValue(node, Theme.class);
             return t == null ? Theme.EMPTY : t;
-        } catch (final com.fasterxml.jackson.databind.JsonMappingException e) {
+        } catch (final tools.jackson.databind.DatabindException e) {
             throw new ThemeValidationException(java.util.Map.of(path(e),
-                    e instanceof com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException
+                    e instanceof tools.jackson.databind.exc.UnrecognizedPropertyException
                             ? "Unknown field." : "Invalid value."));
-        } catch (final JsonProcessingException | IllegalArgumentException e) {
+        } catch (final JacksonException | IllegalArgumentException e) {
             throw new ThemeValidationException(java.util.Map.of("theme", "Invalid value."));
         }
     }
@@ -71,11 +75,11 @@ public final class ThemeJson {
     }
 
     /** {@code a.b[0].c} from a mapping exception's reference path. */
-    public static String path(final com.fasterxml.jackson.databind.JsonMappingException e) {
+    public static String path(final tools.jackson.databind.DatabindException e) {
         final StringBuilder out = new StringBuilder();
-        for (final com.fasterxml.jackson.databind.JsonMappingException.Reference ref : e.getPath()) {
-            if (ref.getFieldName() != null) {
-                out.append(out.isEmpty() ? "" : ".").append(ref.getFieldName());
+        for (final tools.jackson.core.JacksonException.Reference ref : e.getPath()) {
+            if (ref.getPropertyName() != null) {
+                out.append(out.isEmpty() ? "" : ".").append(ref.getPropertyName());
             } else if (ref.getIndex() >= 0) {
                 out.append('[').append(ref.getIndex()).append(']');
             }
@@ -87,7 +91,7 @@ public final class ThemeJson {
     public static String write(final Theme theme) {
         try {
             return MAPPER.writeValueAsString(theme == null ? Theme.EMPTY : theme);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException("Theme could not be serialised", e);
         }
     }
@@ -100,7 +104,7 @@ public final class ThemeJson {
         try {
             final Theme t = MAPPER.readValue(json, Theme.class);
             return t == null ? Theme.EMPTY : t;
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalArgumentException("Stored theme is not valid JSON: " + e.getOriginalMessage(), e);
         }
     }

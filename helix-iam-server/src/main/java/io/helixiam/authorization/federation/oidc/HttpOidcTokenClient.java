@@ -5,8 +5,10 @@
 
 package io.helixiam.authorization.federation.oidc;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import io.helixiam.common.json.JsonNodes;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
@@ -40,7 +42,7 @@ public class HttpOidcTokenClient implements OidcTokenClient {
     /** Token endpoint: 5 s connect, 10 s in total, response body at most 1 MB. */
     static final PinnedHttpFetcher.Limits TOKEN_LIMITS = new PinnedHttpFetcher.Limits(Duration.ofSeconds(5),
             Duration.ofSeconds(10), 1024 * 1024);
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
     /** M6: token endpoint and JWKS are fetched on the address the guard validated, without redirects. */
     private final PinnedHttpFetcher http;
     private final PinnedResourceRetriever jwksRetriever;
@@ -78,11 +80,11 @@ public class HttpOidcTokenClient implements OidcTokenClient {
                         + " for provider " + config.alias());
             }
             final JsonNode body = objectMapper.readTree(response.bodyAsString());
-            final String idToken = body.path("id_token").asText(null);
+            final String idToken = JsonNodes.text(body.path("id_token"), null);
             if (idToken == null) {
                 throw new IllegalStateException("OIDC token response has no id_token for provider " + config.alias());
             }
-            return new OidcTokens(validateAndExtract(config, idToken), body.path("access_token").asText(null));
+            return new OidcTokens(validateAndExtract(config, idToken), JsonNodes.text(body.path("access_token"), null));
         } catch (final IllegalStateException e) {
             throw e;
         } catch (final Exception e) {

@@ -5,8 +5,9 @@
 
 package io.helixiam.authorization.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.user.UserPublisher;
 
 import java.io.IOException;
@@ -31,7 +32,7 @@ public class UserInfoService {
     private final UserPublisher userPublisher;
     private final Map<String, String> claimMapping = new HashMap<>();
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMappers.plain();
 
 
     @Autowired
@@ -102,7 +103,7 @@ public class UserInfoService {
             // Parse the JSON file into a Map
             final Map<String, String> mapping = objectMapper.readValue(resource.getInputStream(), new TypeReference<>() {});
             claimMapping.putAll(mapping);
-        } catch (IOException e) {
+        } catch (IOException | tools.jackson.core.JacksonException e) {
             LOG.error("Error loading oidc claim mapping", e);
         }
     }

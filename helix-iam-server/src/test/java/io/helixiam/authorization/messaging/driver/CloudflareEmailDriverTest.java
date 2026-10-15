@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.messaging.driver;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
 import io.helixiam.authorization.messaging.email.DeliveryResult;
 import io.helixiam.authorization.messaging.email.DeliveryResult.Reason;

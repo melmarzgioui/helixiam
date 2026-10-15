@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.controller.admin;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.helixiam.authorization.amqp.realm.RealmSettingsDto;
 import io.helixiam.authorization.security.realm.RealmSettingsResolver;
 import io.helixiam.authorization.theme.EffectiveTheme;

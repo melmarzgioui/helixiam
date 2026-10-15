@@ -56,20 +56,22 @@
              deeply nested JSON claim sets; affects < 9.37.4 and 9.38-rc1 .. < 10.0.2). Pinned to a patched 10.x
              release; NimbusNestedJsonRegressionTest guards it. -->
         <nimbus-jose-jwt.version>10.10</nimbus-jose-jwt.version>
-        <!-- Jackson 2 (com.fasterxml.jackson): the application code, the wallet's StrictJson/StrictCbor and the
-             MVC message converters stay on Jackson 2 through Boot's spring-boot-jackson2 module (see BOOT4 notes in
-             CHANGES-1.0.md). Boot 4.1.1 manages the Jackson 2 BOM at 2.21.5; 2.21.7 fixes CVE-2026-89407,
-             CVE-2026-89425 (jackson-core DoS), CVE-2026-68497, CVE-2026-91776, CVE-2026-91777 (jackson-databind
-             DoS). jackson-annotations is shared by Jackson 2 and Jackson 3.
+        <!-- Jackson 3 (tools.jackson) is the application's JSON library: our code, Spring MVC's converters (Boot's
+             spring-boot-jackson, spring.jackson.*), Spring Security 7, Flyway 12 and webauthn4j. Kept on the 3.2.x line
+             webauthn4j 0.31.11 is built against (it was 3.2.3 on Boot 3.5 too); Boot 4.1.1 manages 3.1.5. -->
+        <jackson-bom.version>3.2.3</jackson-bom.version>
+        <!-- Jackson 2 (com.fasterxml.jackson) is no longer used by HelixIAM's code, but OpenSAML 5's opensaml-core-impl
+             (jackson-databind, -datatype-jsr310, and metrics-json's jackson-core) and springdoc-openapi's swagger-core
+             2.2.x (-dataformat-yaml; it builds /v3/api-docs with its own Jackson 2 mapper) still depend on it, so it
+             stays on the runtime classpath. Boot 4.1.1 manages the
+             Jackson 2 BOM at 2.21.5; 2.21.7 fixes CVE-2026-89407, CVE-2026-89425 (jackson-core DoS), CVE-2026-68497,
+             CVE-2026-91776, CVE-2026-91777 (jackson-databind DoS).
              httpcore5/httpcore5-h2 5.4.3 (Boot-managed) -> 5.4.4 (via OpenSAML's httpclient5): CVE-2026-54399,
              CVE-2026-54428 (DoS via oversized headers). -->
         <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
-        <!-- Jackson 3 (tools.jackson) is used by webauthn4j 0.31.x and by Spring Security 7 internally. Kept on the
-             3.2.x line webauthn4j 0.31.11 is built against (it was 3.2.3 on Boot 3.5 too); Boot 4.1.1 manages 3.1.5. -->
-        <jackson-bom.version>3.2.3</jackson-bom.version>
         <!-- One jackson-annotations for both lines: Jackson 3.2 needs 2.22 (e.g. JsonApplyView, used when Flyway 12 reads
              its configuration), the Jackson 2 BOM would pin 2.21. Annotations are backward compatible, so Jackson 2.21
-             runs unchanged on 2.22. -->
+             (swagger-core) runs unchanged on 2.22. -->
         <jackson-annotations.version>2.22</jackson-annotations.version>
         <httpcore5.version>5.4.4</httpcore5.version>
     </properties>
@@ -346,8 +348,9 @@
             <artifactId>webauthn4j-core</artifactId>
             <version>0.31.11.RELEASE</version>
         </dependency>
+        <!-- mdoc (ISO 18013-5) decoding, StrictCbor. Jackson 3, as is webauthn4j's. -->
         <dependency>
-            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <groupId>tools.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-cbor</artifactId>
         </dependency>
         <!-- EUDI Wallet verifier: SD-JWT / KB-JWT / JWE on Nimbus. Declared directly (it was only transitive via
@@ -394,18 +397,11 @@
         </dependency>
 
         <!-- ============ Config / misc ============ -->
+        <!-- Realm config folders (RealmConfigFolderLoader). Jackson 3: the application's JSON is on tools.jackson,
+             auto-configured by Boot's spring-boot-jackson (spring.jackson.*, see application.properties). -->
         <dependency>
-            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <groupId>tools.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-yaml</artifactId>
-        </dependency>
-        <!-- Jackson 2 on Boot 4: the application (ObjectMapper injection, JsonNode responses, the wallet's
-             StrictJson/StrictCbor) stays on com.fasterxml.jackson. spring-boot-jackson2 auto-configures the Jackson 2
-             ObjectMapper from spring.jackson2.* exactly as Boot 3 did from spring.jackson.*, and
-             spring.http.converters.preferred-json-mapper=jackson2 keeps Spring MVC's JSON wire format unchanged.
-             Deprecated in Boot 4; the move to Jackson 3 is tracked in DEFERRED-SECURITY-WORK.md. -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-jackson2</artifactId>
         </dependency>
 
         <!-- Logging: both source trees use Log4j2 (default logback excluded above/below). -->

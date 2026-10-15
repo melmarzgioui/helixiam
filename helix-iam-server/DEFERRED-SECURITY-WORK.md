@@ -5,15 +5,29 @@ Everything higher-severity has been remediated (see `SECURITY-REVIEW.md` and the
 [`docs/security/`](../docs/security/)).
 
 ## Spring Boot 4: application code still on Jackson 2 (`spring-boot-jackson2`, deprecated)
-**Status: OPEN (low).** The Spring Boot 4.1 upgrade (2026-10-13) closed CVE-2026-47884 / CVE-2026-47890 and moved
-the server to a supported framework line. The application's own JSON code (`com.fasterxml.jackson`: controllers
-returning `JsonNode`, the wallet's `StrictJson` / `StrictCbor`, ~400 files) deliberately stayed on Jackson 2.21.x,
-auto-configured by Boot's `spring-boot-jackson2` module, with `spring.http.converters.preferred-json-mapper=jackson2`
-keeping Spring MVC's wire format. Jackson 2.21 still receives fixes, but Boot ships the module deprecated and will
-remove it in a future 4.x. Move to Jackson 3 (`tools.jackson`) before that, in its own change: Jackson 3's defaults
-differ (e.g. alphabetical property order, `FAIL_ON_NULL_FOR_PRIMITIVES`, unchecked `JacksonException`), and the
-wallet's strict parsers need their own review and tests. Spring Security 7, Flyway 12 and webauthn4j already use
-Jackson 3 (3.2.3) internally.
+**Status: DONE (2026-10-15, branch `chore/jackson3`).** The application's JSON code and Spring MVC's converters are
+on Jackson 3 (`tools.jackson` 3.2.3); `spring-boot-jackson2` and `spring.http.converters.preferred-json-mapper=jackson2`
+are gone. Formats are unchanged:
+- Boot's `JsonMapper`: `spring.jackson.use-jackson2-defaults=true` plus `detect-parameter-names`,
+  `combine-unicode-surrogates-in-utf8=false` and the 20 MB string limit (`application.properties`), and `JacksonConfig`
+  (Jackson 2 bean property names, `Locale` as `toString()`).
+- The application's own mappers come from `io.helixiam.common.json.JsonMappers` (`plain()` = a default Jackson 2
+  `ObjectMapper`'s behaviour; the strict wallet / status-list / LoTE / theme mappers keep their limits on top of it).
+  Jackson 3's stricter `JsonNode` accessors are used only after a type check; elsewhere `JsonNodes` keeps Jackson 2's
+  lenient reads. Every `catch (IOException)` around a Jackson call (Jackson 3's exceptions are unchecked) now catches
+  `JacksonException`.
+- Evidence, recorded on the Jackson 2 code before the move (`src/test/resources/upgrade/jackson2`): every
+  wallet-transaction record kind, the DCQL query, trusted-list services and MACed settings, email retry payloads,
+  pending `verified_claims`, canonical theme JSON and its hash, the flat settings-map stores, and on the wire the MVC
+  mapper's behaviour, webhook bodies and signatures, admin error bodies, response member order/types, UTF-8 escaping
+  and the import of a Jackson 2 realm export (`*UpgradeTest`, `PlainJsonMapperUpgradeTest`, `JsonWireFormatE2eTest`).
+- Stricter: Jackson 3's nesting limit (500, Jackson 2: 1000) is kept; read limits are checked by `JsonMappersTest`.
+
+Jackson 2 stays on the runtime classpath only as a transitive dependency of OpenSAML 5 (`opensaml-core-impl`:
+`jackson-databind`, `-datatype-jsr310`, and `jackson-core` via `metrics-json`) and of springdoc-openapi's swagger-core
+2.2.x (`-dataformat-yaml`; it builds `/v3/api-docs` with its own Jackson 2 mapper); the Jackson 2 BOM pin (2.21.7)
+stays for them. No HelixIAM class
+imports Jackson 2 (`JsonMappersTest.theApplicationCode_usesOnlyJackson3`); `jackson-annotations` is shared by both lines.
 
 ## M7 — OpenSAML 4.3.2 is EOL (upgrade to 5.x)
 **Status: DONE — OpenSAML 5.2.3 (latest 5.x).** First moved to 5.1.4 (2026-09-17), then to 5.2.3 (Dependabot),

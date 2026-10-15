@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.messaging.driver;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.amqp.messaging.ResolvedProviderDto;
 import org.junit.jupiter.api.Test;
 

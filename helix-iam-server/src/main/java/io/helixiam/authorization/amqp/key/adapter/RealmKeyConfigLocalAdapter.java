@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.key.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.key.RealmKeyConfigPublisher;
 import io.helixiam.authorization.amqp.key.RealmKeyView;
 import io.helixiam.authorization.amqp.support.DtoBridge;

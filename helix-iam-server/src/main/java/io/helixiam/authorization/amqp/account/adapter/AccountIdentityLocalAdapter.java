@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.account.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.account.AccountIdentityPublisher;
 import io.helixiam.authorization.amqp.account.AccountUnlinkRef;
 import io.helixiam.authorization.amqp.account.FederatedLinkDto;

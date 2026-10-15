@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.httpsession.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.httpsession.HttpSessionRecord;
 import io.helixiam.authorization.amqp.httpsession.HttpSessionStorePublisher;
 import io.helixiam.authorization.amqp.support.DtoBridge;

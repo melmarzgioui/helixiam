@@ -5,9 +5,10 @@
 
 package io.helixiam.authorization.federation.wallet;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.helixiam.common.json.JsonMappers;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.helixiam.authorization.federation.ProviderSecretKeys;
 import io.helixiam.authorization.federation.wallet.dcql.DcqlQueryBuilder;
 import io.helixiam.authorization.federation.wallet.dcql.PidQuerySpec;
@@ -78,7 +79,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
     public static final String DEFAULT_MINIMUM_LOA = "http://eidas.europa.eu/LoA/high";
     public static final int DEFAULT_CLOCK_SKEW_SECONDS = 60;
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMappers.plain();
     /** The protocol whose secret keys {@link #toStored} leaves out (the same set for every wallet alias). */
     private static final String SECRET_PROTOCOL = "eudi-wallet";
 
@@ -665,7 +666,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
             final JsonNode node;
             try {
                 node = JSON.readTree(v);
-            } catch (final JsonProcessingException e) {
+            } catch (final JacksonException e) {
                 return fail(key, key + " must be a JSON array of strings");
             }
             if (node == null || !node.isArray()) {
@@ -673,10 +674,10 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
             }
             final List<String> out = new ArrayList<>();
             for (final JsonNode element : node) {
-                if (!element.isTextual()) {
+                if (!element.isString()) {
                     return fail(key, key + " must be a JSON array of strings");
                 }
-                out.add(element.textValue());
+                out.add(element.stringValue());
             }
             return out;
         }
@@ -685,7 +686,7 @@ public record WalletProviderConfig(String alias, String displayName, ClientIdSch
     private static String json(final List<String> values) {
         try {
             return JSON.writeValueAsString(values);
-        } catch (final JsonProcessingException e) {
+        } catch (final JacksonException e) {
             throw new IllegalStateException("Could not encode a list", e);
         }
     }

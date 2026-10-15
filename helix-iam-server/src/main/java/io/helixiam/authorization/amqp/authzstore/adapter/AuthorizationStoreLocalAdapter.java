@@ -5,7 +5,7 @@
 
 package io.helixiam.authorization.amqp.authzstore.adapter;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.core.type.TypeReference;
 import io.helixiam.authorization.amqp.authzstore.AuthorizationRecord;
 import io.helixiam.authorization.amqp.authzstore.AuthorizationStorePublisher;
 import io.helixiam.authorization.amqp.support.DtoBridge;
