@@ -146,6 +146,36 @@ trusted lists (§7.3). `WalletConfigValidator` rejects an
 invalid combination with `400 {message, fieldErrors}` naming the field, same shape as every other admin write
 (`AdminValidationAdvice`).
 
+### 2.5 Data retention when a realm is deleted
+
+`realm_wallet_pepper`, `verifier_signing_key` and the PostgreSQL `wallet_transaction` rows are realm-scoped and now
+get removed when their realm is: a `realm_config_delete_wallet_secrets` trigger (Flyway V85, `AFTER DELETE ON
+realm_config`) deletes all three the moment a `realm_config` row is deleted — not soft-deleted, not recoverable —
+including any in-flight wallet transactions. This matters because the pepper is the HMAC key behind every
+weak-tuple subject (§6.2) and the administrative-number subject (§6.1): a realm created again under the same id
+used to silently **inherit** the previous realm's pepper and verifier access key (whatever was left behind), which
+is exactly the collision the trigger removes — a re-created realm now starts with neither, same as a brand-new one.
+
+The same trigger deletes the realm's trusted list sources (`trusted_list_source`, §7.3); their members
+(`trusted_list_member`) and rollback high-water marks (`trusted_list_hwm`) go with them through their own foreign keys.
+
+It is a trigger, not a foreign key, deliberately: all three tables are routinely written for a realm id that has
+no `realm_config` row yet (verifier-key import/generate and wallet-connection creation live under `/admin/**`,
+which is never gated on realm existence, and `JdbcWalletTransactionStore` is exercised the same way by its own
+tests) — a real `ON DELETE CASCADE` foreign key would also be an insert constraint and would turn a working admin
+flow or transaction write into a constraint violation the first time it hit such a realm. The trigger only acts on
+an actual `realm_config` delete, in the same transaction as that delete (so the cleanup is all-or-nothing), and
+never touches a row whose `realm_id` has no matching `realm_config` row.
+
+Two things this does **not** cover, by design:
+
+- There is still no admin realm-delete operation or endpoint in HelixIAM today; this is schema-level preparation
+  for whichever path removes a `realm_config` row, operator SQL included.
+- `federated_link` (the account-link row behind `POST /account/wallet/link`, §6) has no `realm_id` column — it is
+  keyed by `idp_alias` + `external_subject` + `user_id` — so it cannot be cascaded by realm. Wallet links are
+  removed when the linked **user** is deleted, independent of the realm; deleting a realm today does not delete its
+  users either, so this is consistent with the rest of the realm-deletion story, not a gap specific to the wallet.
+
 ## 3. Transaction store: PostgreSQL or Redis
 
 Each wallet login's in-flight state (nonce, decryption key, bound-browser hash, DCQL query, TTL) lives in a

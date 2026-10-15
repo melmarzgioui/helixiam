@@ -1077,6 +1077,10 @@ UPDATE notification_code SET code = encode(sha256(convert_to(code, 'UTF8')), 'he
 ALTER TABLE identity_provider ADD COLUMN IF NOT EXISTS secret_json text;
 -- EUDI Wallet (same as Flyway V76): per-realm verifier access-certificate signing keys; private_key encrypted at rest
 -- (DB_ENCRYPTION, AttributeEncryption), certificate chain leaf first without the trust anchor.
+-- Realm deletion cleanup (same as Flyway V85): NOT a foreign key — WalletAdminController imports/generates these
+-- under /admin/**, which is never gated on realm_config existing (see the V85 migration comment), so a real FK
+-- would turn a routine import into a constraint violation. Removed instead by the
+-- realm_config_delete_wallet_secrets trigger below, which only fires on an actual realm_config delete.
 CREATE TABLE IF NOT EXISTS verifier_signing_key (
     realm_id              character varying(255) NOT NULL,
     name                  character varying(64)  NOT NULL,
@@ -1088,6 +1092,10 @@ CREATE TABLE IF NOT EXISTS verifier_signing_key (
 );
 -- EUDI Wallet (same as Flyway V77): the per-realm 256-bit pepper of the wallet subject HMAC, created lazily, the base64
 -- value encrypted at rest (DB_ENCRYPTION, AttributeEncryption). Never exported.
+-- Realm deletion cleanup (same as Flyway V85): NOT a foreign key, for the same reason as verifier_signing_key
+-- above (the pepper is created lazily and nothing requires realm_config to exist first); removed by the
+-- realm_config_delete_wallet_secrets trigger below instead, so the pepper is unrecoverable the instant an
+-- actual realm_config row is deleted, without constraining when a pepper can be created.
 CREATE TABLE IF NOT EXISTS realm_wallet_pepper (
     realm_id   character varying(255) NOT NULL PRIMARY KEY,
     pepper     text                   NOT NULL,
@@ -1100,6 +1108,12 @@ CREATE TABLE IF NOT EXISTS idp_config_version (
     updated_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 -- Production readiness (same as Flyway V79): the PostgreSQL wallet transaction store; secrets hashed or encrypted.
+-- Realm deletion cleanup (same as Flyway V85): NOT a foreign key, for the same reason as verifier_signing_key /
+-- realm_wallet_pepper above — JdbcWalletTransactionStore is exercised directly (its own contract-suite tests, and
+-- any caller that isn't the realm-prefixed broker/account HTTP path) against realm ids that were never given a
+-- realm_config row, and a real FK would turn that into an insert failure. Removed instead by the
+-- realm_config_delete_wallet_secrets trigger below (in-flight wallet flows are also short-lived and already
+-- swept by expires_at, but the trigger removes them immediately rather than waiting on the sweep).
 CREATE TABLE IF NOT EXISTS wallet_transaction (
     transaction_id            character varying(64)  NOT NULL PRIMARY KEY,
     same_device_request_hash  character varying(64)  NOT NULL UNIQUE,
@@ -1188,3 +1202,28 @@ CREATE TABLE IF NOT EXISTS trusted_list_hwm (
     mac             character varying(64),
     PRIMARY KEY (source_id, territory, tsl_type)
 );
+-- Supports the realm_config_delete_wallet_secrets trigger's DELETE FROM wallet_transaction WHERE realm_id = ...
+CREATE INDEX IF NOT EXISTS wallet_transaction_realm_idx ON wallet_transaction (realm_id);
+
+-- Realm deletion cleanup (same as Flyway V85): deletes realm_wallet_pepper / verifier_signing_key / wallet_transaction
+-- rows when their realm_config row is deleted. One trigger for all three tables, not a foreign key on any of them:
+-- it never rejects an insert for a realm_id that has no realm_config row yet (all three routinely get one — see
+-- the comments above), it only acts on an actual delete. The function body is a classic single-quoted string, not
+-- a $$-quoted one: this file is also run by Spring Boot's plain SQL-script initializer (spring.sql.init.mode, the
+-- sql-init test path), whose statement splitter does not understand Postgres dollar-quoting and would cut this
+-- statement in two at the first internal ';'. A single-quoted body has the same internal ';'s, but the splitter
+-- correctly leaves them alone inside a string literal.
+CREATE OR REPLACE FUNCTION helix_delete_wallet_secrets_for_realm() RETURNS trigger AS '
+BEGIN
+    DELETE FROM realm_wallet_pepper WHERE realm_id = OLD.realm_id;
+    DELETE FROM verifier_signing_key WHERE realm_id = OLD.realm_id;
+    DELETE FROM trusted_list_source WHERE realm_id = OLD.realm_id;
+    DELETE FROM wallet_transaction WHERE realm_id = OLD.realm_id;
+    RETURN OLD;
+END;
+' LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS realm_config_delete_wallet_secrets ON realm_config;
+CREATE TRIGGER realm_config_delete_wallet_secrets
+    AFTER DELETE ON realm_config
+    FOR EACH ROW
+    EXECUTE FUNCTION helix_delete_wallet_secrets_for_realm();

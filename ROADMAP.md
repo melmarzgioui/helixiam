@@ -63,9 +63,14 @@ paths are hardened and tested."
     following LoTE pointers, XAdES signed-properties checks, realm export/import of trusted list sources, and a
     production EU list of PID providers to point at (only the EUDI test list and the Commission's acceptance list are
     published as of 2026-10-15).
-  - Realm deletion cleanup: delete the realm's wallet pepper (`realm_wallet_pepper`) and verifier keys
-    (`verifier_signing_key`) with the realm. No realm-delete operation exists today; without this, a realm created
-    again under the same name would inherit the previous realm's verifier access key and pepper.
+  - Done (2026-10-15): **realm deletion cleanup.** `realm_wallet_pepper`, `verifier_signing_key` and
+    `wallet_transaction` (and the realm's trusted list sources) now get removed with the realm (a `realm_config_delete_wallet_secrets` trigger on
+    `realm_config`, Flyway V85) — not a foreign key: all three are routinely written for a realm id that has no
+    `realm_config` row yet (the admin wallet/identity-provider APIs never require one), so a real FK would turn a
+    working insert into a constraint violation. There is still no admin realm-delete operation; this closes the gap
+    it would otherwise have (a realm created again under the same id silently inheriting the
+    previous realm's verifier access key and pepper) for whichever path removes a `realm_config` row. See
+    `docs/eudi-wallet.md` §2.5.
 - **Post-1.0 platform upgrades** — each a planned major upgrade with its own test pass, not a weekly
   bump (Dependabot ignores these majors until then): Jackson 3 for the application code (the server
   runs on Spring Boot 4.1 / Spring Security 7.1 / springdoc 3 / Flyway 12 since the Boot 4 upgrade, with Jackson 2 kept

@@ -46,6 +46,18 @@ question. Newest first within each phase.
   gated live test (`TestLiveWalletIdentityProviderCRUD`) has been run against a dev-profile server and
   passed. Closes the item `ROADMAP.md` listed as "a Terraform resource for the wallet identity-provider
   connection."
+- **Fixed — EUDI Wallet: realm deletion no longer leaves wallet secrets behind.** `realm_wallet_pepper`,
+  `verifier_signing_key` and the PostgreSQL `wallet_transaction` rows had no cleanup wired to `realm_config`, so
+  nothing removed them when a realm row was deleted; a realm created again under the same id would silently
+  inherit the previous realm's verifier access key and wallet pepper. A new `realm_config_delete_wallet_secrets`
+  trigger (Flyway `V85__wallet_realm_cascade.sql`) now deletes all three on an actual `realm_config` delete — not a
+  foreign key: all three are routinely written for a realm id that has no `realm_config` row yet (the admin
+  wallet/identity-provider APIs never require one, and `JdbcWalletTransactionStore` is exercised the same way by
+  its own tests), so a real FK would turn a working insert into a constraint violation. The trigger is a single
+  statement in the deleting transaction — all-or-nothing — and the pepper is unrecoverable the instant the realm
+  row is gone. The same trigger also deletes the realm's EU trusted list sources (`trusted_list_source`), whose members and rollback high-water marks cascade with them. `federated_link` (wallet account links) has no `realm_id` column and is unaffected; it
+  already cascades off the linked user. `FlywayWalletRealmCascadeTest`; `docs/eudi-wallet.md` §2.5;
+  `ROADMAP.md`.
 - **EUDI Wallet: interop with the EU reference wallet (test only, no product change)** — the EU Digital Identity Wallet
   reference app for Android (2026.10.43-Demo, released APK, `demo` flavour) signed in to HelixIAM on an Android 15
   emulator with SD-JWT VC and mdoc PIDs from the EU test issuer `issuer.eudiw.dev`: same-device and cross-device, both
