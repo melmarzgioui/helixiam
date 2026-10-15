@@ -3,8 +3,58 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
-## Next release (after `v1.0.0-rc.10`)
+## v1.0.0-rc.11 (2026-10-15)
 
+rc.11 closes out the EUDI Wallet program: the EU reference-wallet interop (SD-JWT VC and mdoc, same-device and
+cross-device, with third-party DeviceAuth test vectors drawn from it), an OpenID Foundation conformance self-run, the
+W3C Digital Credentials API, a verify-only / step-up mode, EU trusted lists for wallet trust anchors (ETSI TS 119 612
+/ 119 602), a Terraform resource for the wallet identity-provider connection, and realm-delete cleanup of wallet
+secrets. It also moves the application onto Jackson 3, closes the Info/Low findings of an internal pentest, and picks
+up the post-1.0 dependency upgrades (Express 5, `openid-client` 6, otplib 13, cosign 3) — on top of the rc.10 CodeQL
+fixes. On the strength of the reference-wallet interop, the third-party vectors, the conformance self-run and the
+pentest, the maintainer has lifted the core OpenID4VP verifier's **Experimental** label; the Digital Credentials API
+and verify-only mode are new and carry a **Preview** label instead. Read the Upgrade checklist below and
+`docs/UPGRADING.md` before upgrading.
+
+> **Upgrade checklist.**
+> 1. **Rolling upgrades (wallet providers).** An old-version node refuses a DCQL query carrying `trusted_authorities`;
+>    a transaction started on an upgraded node and answered on an old one sharing the Redis/PostgreSQL store then
+>    fails. Upgrade every replica in one step, drain wallet transactions first (wait out `transactionTtlSeconds`), or
+>    set HAIP-profile providers' `dcql.trustedAuthorities` to Off for the duration of the roll.
+> 2. **Trusted-list signer grace now defaults to 0 (behaviour change).** `signer-expiry-grace-days` (admin-pinned
+>    top-level signers) now defaults to **0**, split from the new `member-signer-expiry-grace-days` (180, for signers
+>    named by a verified LOTL). As of 2026-10-15 the EUDI test LOTL needs `signer-expiry-grace-days` ≥ ~120 and the EC
+>    acceptance LoTE ≥ ~30; set these before upgrading if you use trusted-list sources, or the console will say a list
+>    is refused for an expired pinned signer.
+> 3. **`eudi-wallet-verify` needs the flow engine on.** With `helix.flow-engine.enabled=false` (the default), a login
+>    whose flow has the wallet-verification step is refused (`error=flow`), and such a flow cannot be saved or bound
+>    (400). Turn the flow engine on before binding a verify-only step to a flow.
+> 4. **New standard scope `verified_claims`.** Seeded (and backfilled) in every realm; a client must request it to
+>    receive the verify-only step's released claims in the ID token. No action needed unless a client enumerates or
+>    restricts its realm's scopes.
+> 5. **`view-identity-providers` is now on the built-in auditor role.** Auditor-role admins can now read identity
+>    providers and trusted lists (writes still need `manage-identity-providers`). Review the auditor role if you rely
+>    on it carrying no federation read access.
+> 6. **Flyway V81–V85.** New storage for trusted-list sources, their config-version guard, member lists, integrity
+>    MACs, and the wallet realm-delete cascade trigger; applied automatically on startup, no manual step.
+> 7. **Jackson 3.** The nesting limit for parsed JSON is now 500 (Jackson 2's default was 1000); `max-string-length`
+>    stays 20 MB. Nothing to do for an upgrade from rc.10 — stored state and wire formats are unchanged — unless you
+>    configure Jackson through Spring properties directly: `spring.jackson2.*` is no longer read, use
+>    `spring.jackson.*`.
+> 8. **Wallet request objects may be re-fetched (behaviour change).** A `request_uri` now returns the same request
+>    again until the wallet answers, instead of 404ing after the first fetch; a relying party that assumed
+>    single-fetch semantics should not depend on that.
+
+- **EUDI Wallet: the core OpenID4VP verifier is no longer Experimental (maintainer ruling).** The redirect
+  same-device flow, the QR cross-device flow, `direct_post.jwt`, and SD-JWT VC and mdoc presentations are promoted out
+  of the **Experimental** status in `docs/FEATURES.md` and `docs/eudi-wallet.md`, on the strength of the EU
+  reference-wallet interop (§10), the third-party DeviceAuth test vectors drawn from it, the OpenID Foundation
+  conformance self-run (§11), and the internal pentest of 2026-10-15 (no exploitable Critical/High/Medium issue). Two
+  newer parts are **Preview** instead: the W3C Digital Credentials API (§12, not yet tested with a real wallet) and
+  the verify-only / step-up mode (§13). Honest limits stay as documented: no national wallet has been tested, the DC
+  API has not been tested with a real wallet, and the OIDF conformance run was a self-run, not a certification.
+  Console: the Digital Credentials API section and the verify-only option now carry a Preview badge (EN + NL, the
+  existing `Badge`/`Section` kit, no inline styles).
 - **Changed (platform): the application is on Jackson 3** (`tools.jackson` 3.2.3), closing the last open item of
   `DEFERRED-SECURITY-WORK.md`. Spring Boot's deprecated `spring-boot-jackson2` module and
   `spring.http.converters.preferred-json-mapper=jackson2` are removed; Spring MVC and every mapper of the application

@@ -10,9 +10,11 @@ Work toward a credible 1.0 is tracked on the `overhaul/1.0-gaps` branch and in
 [`CHANGES-1.0.md`](CHANGES-1.0.md).
 
 ### Added
-- **EUDI Wallet (OpenID4VP verifier) — Experimental.** Sign in with an EU Digital Identity Wallet (PID, SD-JWT VC
+- **EUDI Wallet (OpenID4VP verifier) — Beta.** Sign in with an EU Digital Identity Wallet (PID, SD-JWT VC
   and/or ISO mdoc) as a per-realm identity-provider connection, same-device and cross-device (QR) flows, Token
-  Status List revocation checking. See [`docs/eudi-wallet.md`](docs/eudi-wallet.md) and `docs/FEATURES.md`.
+  Status List revocation checking. Proven against the EU reference wallet and an OpenID Foundation conformance
+  self-run (rc.11); no national wallet has been tested yet. The W3C Digital Credentials API and a verify-only /
+  step-up mode are **Preview**. See [`docs/eudi-wallet.md`](docs/eudi-wallet.md) and `docs/FEATURES.md`.
 
 ### Changed
 - **Identity-provider secrets are write-only in the admin API (API change).** `GET /admin/realms/{realm}/identity-providers`

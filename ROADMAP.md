@@ -50,9 +50,13 @@ paths are hardened and tested."
     issuer, same-device and cross-device, with no product change; its presentations, with their request objects and
     decryption keys, are offline test vectors, and DeviceAuth is verified over the real SessionTranscript
     (`docs/compliance/eudi-reference-wallet/README.md`). This was the one item listed as needed before the
-    "Experimental" label is lifted; lifting it is a maintainer decision. Still untested: `x509_san_dns` with the
-    reference wallet (the test registrar's access certificates have no dNSName) and its QR scanner (the QR content was
-    passed by an Android intent).
+    "Experimental" label is lifted. **Done (2026-10-15): the maintainer has lifted it** — together with the OpenID
+    Foundation conformance self-run and the internal pentest, the core OpenID4VP verifier (redirect same-device, QR
+    cross-device, `direct_post.jwt`, SD-JWT VC and mdoc) is now **Beta** in `docs/FEATURES.md` (see `CHANGES-1.0.md`,
+    rc.11). Still untested: `x509_san_dns` with the reference wallet (the test registrar's access certificates have no
+    dNSName) and its QR scanner (the QR content was passed by an Android intent); no national wallet has been tested.
+    The newer Digital Credentials API and verify-only mode (below) are **Preview**, not Beta: the DC API has not been
+    tested with a real wallet.
   - Done: a PostgreSQL wallet transaction store, cross-replica identity-provider refresh, and the "wallet linked"
     notification (see `CHANGES-1.0.md`, rc.9).
   - Done, from the conformance run (`docs/compliance/oid4vp-conformance/README.md`):

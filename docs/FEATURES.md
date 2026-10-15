@@ -8,6 +8,9 @@ status.
 - **Stable** — implemented and covered by automated tests in this repo; API expected to stay.
 - **Beta** — implemented and tested, but the API may change, external conformance is not yet
   proven, or it needs your own third-party agreement to exercise end-to-end.
+- **Preview** — implemented and tested in this repo, but not yet exercised against a real-world
+  counterpart (no live third-party peer, or a newer path layered on a Beta/Stable feature); expect
+  rough edges.
 - **Experimental** — present but not yet solid enough to depend on.
 - **Planned** — claimed somewhere but not implemented (or only partially).
 
@@ -35,7 +38,9 @@ status.
 | SAML / OIDC / social brokering | Beta | `authorization/federation` | broker + validator suites |
 | LDAP / Active Directory | Beta | `authorization/federation/ldap` | federation tests |
 | Single Logout (front / back / SAML) | Beta | SLO controllers | SLO tests |
-| EUDI Wallet (OpenID4VP verifier) | Experimental | `authorization/federation/wallet` | 1323 |
+| EUDI Wallet (OpenID4VP verifier) — redirect same-device, QR cross-device, SD-JWT VC + mdoc | Beta — proven against the EU reference wallet and an OIDF conformance self-run | `authorization/federation/wallet` | 1323 |
+| EUDI Wallet: W3C Digital Credentials API (`dc_api`/`dc_api.jwt`) | Preview — not yet tested with a real wallet | `authorization/federation/wallet` | `WalletDcApiFlowE2eTest` |
+| EUDI Wallet: verify-only / step-up (`subject.strategy=NONE`) | Preview | `authorization/federation/wallet` | `WalletVerifyDcApiE2eTest`, verify-only suites |
 
 ## Non-human identity (the differentiator)
 | Feature | Status | Code | Tests |

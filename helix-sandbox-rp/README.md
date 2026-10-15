@@ -107,7 +107,7 @@ Live-verified (Playwright): `/saml/login` → IdP AuthnRequest → password → 
 flow applies MFA to this user) → signed assertion auto-POSTed to `/saml/acs` → validated → NameID +
 `mail` attribute shown; then RP-initiated SLO clears the session at the IdP.
 
-## EUDI Wallet (OpenID4VP) — experimental
+## EUDI Wallet (OpenID4VP)
 
 The sandbox's "Sign in with EUDI Wallet" button runs the real OpenID4VP verifier flow (request
 object, DCQL query, encrypted `direct_post.jwt` response, SD-JWT VC and mdoc presentation

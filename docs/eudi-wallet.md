@@ -1,9 +1,13 @@
 # EUDI Wallet (OpenID4VP verifier) — operator guide
 
-**Status: Experimental.** HelixIAM can act as an OpenID4VP *Verifier* so a realm's users can sign in by presenting a
+**Status: Beta.** HelixIAM can act as an OpenID4VP *Verifier* so a realm's users can sign in by presenting a
 PID (Person Identification Data) credential from an EU Digital Identity Wallet, instead of (or alongside) a
-password. This is a relying-party verifier, not a wallet, and not an issuer. See `docs/FEATURES.md` for the status
-line and test count, `helix-iam-server/SECURITY-REVIEW.md` for the threat model, and
+password. This is a relying-party verifier, not a wallet, and not an issuer. The redirect same-device flow, the QR
+cross-device flow, `direct_post.jwt`, and SD-JWT VC and mdoc presentations are no longer Experimental as of rc.11
+(proven against the EU reference wallet, §10, and an OpenID Foundation conformance self-run, §11); no national
+wallet has been tested, and the OIDF run was a self-run, not a certification. The W3C Digital Credentials API (§12)
+and the verify-only / step-up mode (§13) are newer and carry a **Preview** label instead. See `docs/FEATURES.md` for
+the status line and test count, `helix-iam-server/SECURITY-REVIEW.md` for the threat model, and
 `helix-iam-server/DEFERRED-SECURITY-WORK.md` for what is deliberately not done yet.
 
 **"Bring your own registration."** HelixIAM does **not** register you with any national wallet registrar, trust
@@ -664,7 +668,7 @@ until the source exists in the target realm.
 
 The fastest way to see the whole flow (both credential formats, cross-device QR and same-device, plus linking a
 wallet to an existing account) is the sandbox relying party's walkthrough:
-**[`helix-sandbox-rp/README.md`](../helix-sandbox-rp/README.md) § "EUDI Wallet (OpenID4VP) — experimental"**. It
+**[`helix-sandbox-rp/README.md`](../helix-sandbox-rp/README.md) § "EUDI Wallet (OpenID4VP)"**. It
 uses a throwaway, dev-only test wallet CLI (`TestWalletCli`) and a one-shot seed script
 (`e2e/wallet-demo/seed.sh`) — nothing in that walkthrough is suitable for production credentials or keys.
 
@@ -744,6 +748,9 @@ are in **[`docs/compliance/oid4vp-conformance/README.md`](compliance/oid4vp-conf
 `e2e/oid4vp-conformance/`).
 
 ## 12. The W3C Digital Credentials API (`dc_api` / `dc_api.jwt`)
+
+**Status: Preview** — implemented and covered by the tests in §12.6, but not yet run against a real wallet (see
+§12.6); treat it as newer and less exercised than the redirect/QR flows.
 
 OpenID4VP 1.0 Appendix A defines how a verifier's web page asks for a credential through the browser itself:
 `navigator.credentials.get({digital: {requests: [{protocol, data}]}})`. The browser and the operating system show the
@@ -855,6 +862,8 @@ A live check needs a physical Android phone with a current Chrome and the refere
 supports the DC API), or an emulator image with Play Store plus a TLS certificate from a public CA for the verifier.
 
 ## 13. Verify-only / step-up (`subject.strategy=NONE`)
+
+**Status: Preview** — new in rc.11 (see §13.5 for what is not in this release yet).
 
 Some applications do not need the wallet to *sign the user in*; they need proof, for a user who is already signed in,
 that their own wallet confirms it is them (a step-up to eIDAS high), or a verified detail such as "18 or over" or a

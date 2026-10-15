@@ -516,7 +516,8 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
               title={t("wallet.subject.tuple")} description={t("wallet.subject.tupleDesc")} />
             <RadioCard roving selected={form.subjectStrategy === "NONE"}
               onSelect={() => onChange({ subjectStrategy: "NONE", acknowledgeWeakSubject: false })}
-              title={t("wallet.subject.verify")} description={t("wallet.subject.verifyDesc")} />
+              title={<>{t("wallet.subject.verify")} <Badge tone="accent">{t("wallet.badge.preview")}</Badge></>}
+              description={t("wallet.subject.verifyDesc")} />
           </div>
         </FormField>
         {warnings.includes("weakTuple") && (
@@ -587,7 +588,8 @@ export function WalletPoliciesSection(props: WalletSectionProps) {
         </div>
       </Section>
 
-      <Section title={t("wallet.dcApi.title")} description={t("wallet.dcApi.desc")}>
+      <Section title={t("wallet.dcApi.title")} description={t("wallet.dcApi.desc")}
+        actions={<Badge tone="accent">{t("wallet.badge.preview")}</Badge>}>
         <div className="hx-switchrow">
           <div className="hx-switchrow__text">
             <span className="hx-switchrow__title" id={dcApiId}>{t("wallet.dcApi.enabled")}</span>
