@@ -580,7 +580,7 @@ func nullObject(ctx context.Context, sch schema.Schema) tftypes.Value {
 func normalizeListDefaults(ctx context.Context, m *walletIdentityProviderModel) {
 	for _, l := range []*types.List{
 		&m.CredentialFormats, &m.PidSdJwtVcts, &m.PidRequestedClaims,
-		&m.CustomCredentialQueries, &m.StatusListAllowedHosts,
+		&m.CustomCredentialQueries, &m.StatusListAllowedHosts, &m.DcApiExpectedOrigins,
 	} {
 		if l.ElementType(ctx) == nil {
 			*l = types.ListNull(types.StringType)

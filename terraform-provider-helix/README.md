@@ -83,6 +83,9 @@ import helix_wallet_identity_provider.<name> <alias>`.
 | `allow_legacy_vc_sd_jwt_typ` | optional | default false |
 | `limits_max_jwt_bytes` / `limits_cbor_max_depth` / `limits_cbor_max_items` / `limits_cbor_max_bytes` | optional | parser bounds |
 | `dcql_trusted_authorities` | optional | whether the DCQL query carries the `aki` Trusted Authorities Query naming `trust_anchors`' key identifiers. Unset (the default): server decides — on for `client_id_scheme = "x509_hash"` + `response_mode = "direct_post.jwt"`, off otherwise. `true` requires every trust anchor to carry a SubjectKeyIdentifier extension |
+| `dc_api_enabled` | optional | also offer the W3C Digital Credentials API (OpenID4VP Appendix A, HAIP §5.2) on the wallet page where the browser supports it. Unset: server default `false`. The response is `dc_api.jwt` when `response_mode` is `direct_post.jwt` |
+| `dc_api_request` | optional | `signed` (server default: `openid4vp-v1-signed`, access certificate + `expected_origins`) or `unsigned` (`openid4vp-v1-unsigned`) |
+| `dc_api_expected_origins` | optional | list of web origins a DC API response may be bound to, written as a browser reports them (`https://login.example.eu`); at most 10, each on a host the server answers for (`IDP_BASE_URL` or `HELIX_ALLOWED_HOSTS`). Unset: the origin of `IDP_BASE_URL` |
 | `id` | computed | the connection alias |
 
 Every attribute above maps to a key of the connection's `config` map on the server
