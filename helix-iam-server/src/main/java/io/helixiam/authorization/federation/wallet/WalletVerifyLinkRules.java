@@ -63,14 +63,40 @@ public final class WalletVerifyLinkRules {
         return errors;
     }
 
-    /** Whether every trust anchor of {@code verifyAnchors} is also one of {@code linkedAnchors} (false if unreadable). */
-    public static boolean anchorsWithin(final String verifyAnchors, final String linkedAnchors) {
+    /**
+     * pentest-b LOW: whether {@code verify} trusts nothing {@code linked} does not, across BOTH trust sources — the
+     * pasted PEM {@code trustAnchors} and the named {@code trustedLists} (sources + service types). Comparing only
+     * the PEM anchors (the original check) meant a connection that relies solely on trusted lists (no PEM anchors
+     * at all) always failed this check, even against an identically-configured linked connection — a spurious
+     * warning every time. False (not within) if either side's PEM bundle cannot be parsed.
+     * <p>
+     * An empty set on the {@code verify} side never widens trust, so it is always "within". An empty
+     * {@code trustedLists.serviceTypes} means "every type the source extracts" ({@link TrustedLists}), the
+     * broadest case, so it is always within too. Otherwise {@code verify}'s set must be a subset of {@code linked}'s.
+     */
+    public static boolean anchorsWithin(final WalletProviderConfig verify, final WalletProviderConfig linked) {
+        final List<X509Certificate> mine;
+        final Set<X509Certificate> theirs;
         try {
-            final List<X509Certificate> mine = SoftwareRealmSigningKeys.parseCertificateChain(verifyAnchors);
-            final Set<X509Certificate> theirs = new HashSet<>(SoftwareRealmSigningKeys.parseCertificateChain(linkedAnchors));
-            return !mine.isEmpty() && theirs.containsAll(mine);
+            mine = parseAnchorsOrEmpty(verify.trustAnchors());
+            theirs = new HashSet<>(parseAnchorsOrEmpty(linked.trustAnchors()));
         } catch (final RuntimeException e) {
             return false;
         }
+        if (!mine.isEmpty() && !theirs.containsAll(mine)) {
+            return false;
+        }
+        final Set<String> theirSources = new HashSet<>(linked.trustedLists().sources());
+        if (!theirSources.containsAll(verify.trustedLists().sources())) {
+            return false;
+        }
+        final List<String> theirTypes = linked.trustedLists().serviceTypes();
+        final List<String> myTypes = verify.trustedLists().serviceTypes();
+        return theirTypes.isEmpty() || new HashSet<>(theirTypes).containsAll(myTypes);
+    }
+
+    /** No PEM anchors declared (null/blank) is an empty set, not a parse error. */
+    private static List<X509Certificate> parseAnchorsOrEmpty(final String pem) {
+        return (pem == null || pem.isBlank()) ? List.of() : SoftwareRealmSigningKeys.parseCertificateChain(pem);
     }
 }

@@ -25,6 +25,7 @@ public final class AdminRoutePermissions {
     public static final String VIEW_CLIENTS = "view-clients";
     public static final String MANAGE_CLIENTS = "manage-clients";
     public static final String MANAGE_ROLES = "manage-roles";
+    public static final String VIEW_IDENTITY_PROVIDERS = "view-identity-providers";
     public static final String MANAGE_IDENTITY_PROVIDERS = "manage-identity-providers";
     public static final String MANAGE_AUTHORIZATION = "manage-authorization";
     public static final String MANAGE_ORGANIZATIONS = "manage-organizations";
@@ -67,7 +68,9 @@ public final class AdminRoutePermissions {
             case "claims" -> MANAGE_AUTHORIZATION;
             // Task 24: the EUDI wallet's verifier access keys and the wallet form's helpers (metadata, certificate
             // preview) are identity-provider management, read and write.
-            case "identity-providers", "verifier-keys", "wallet", "trusted-lists" -> MANAGE_IDENTITY_PROVIDERS;
+            case "identity-providers", "verifier-keys", "wallet" -> MANAGE_IDENTITY_PROVIDERS;
+            // pentest-b INFO: trusted lists have a view/manage split — a view-only admin can read them.
+            case "trusted-lists" -> read ? VIEW_IDENTITY_PROVIDERS : MANAGE_IDENTITY_PROVIDERS;
             case "groups", "organizations" -> MANAGE_ORGANIZATIONS;
             case "flows", "authenticators", "authorization" -> MANAGE_AUTHORIZATION;
             case "sessions" -> read ? VIEW_EVENTS : MANAGE_EVENTS;

@@ -33,8 +33,10 @@ import java.util.Set;
  *
  * <p>Refused as {@link WalletErrorCode#INVALID_RESPONSE}: malformed or truncated input, trailing bytes, any other tag
  * (including those Jackson would interpret itself: bignums, decimal fractions, string references), stacked tags,
- * duplicate map keys, map keys that are not text or integer, {@code undefined}, unassigned simple values, and integers
- * outside the {@code long} range. Refused as {@link WalletErrorCode#LIMIT_EXCEEDED}: anything over {@link CborLimits}.
+ * duplicate map keys, map keys that are not text or integer, {@code undefined}, unassigned simple values, integers
+ * outside the {@code long} range, and indefinite-length byte strings, text strings, arrays and maps (additional info
+ * 31 on the head byte) — ISO 18013-5 requires definite length throughout, including under a COSE/date tag. Refused as
+ * {@link WalletErrorCode#LIMIT_EXCEEDED}: anything over {@link CborLimits}.
  * Exception messages never contain input content.
  */
 public final class StrictCbor {
@@ -49,8 +51,14 @@ public final class StrictCbor {
 
     private static final int MAJOR_UINT = 0;
     private static final int MAJOR_NINT = 1;
+    private static final int MAJOR_BYTES = 2;
     private static final int MAJOR_TEXT = 3;
+    private static final int MAJOR_ARRAY = 4;
+    private static final int MAJOR_MAP = 5;
     private static final int MAJOR_TAG = 6;
+
+    /** The additional-info value (low 5 bits of the head byte) CBOR reserves for indefinite length. */
+    private static final int ADDINFO_INDEFINITE = 31;
 
     /** Undefined and simple values surface as embedded objects so they can be told apart from bytes and refused. */
     private static final CBORFactory FACTORY = CBORFactory.builder()
@@ -116,6 +124,7 @@ public final class StrictCbor {
             countItem();
             int start = (int) parser.currentTokenLocation().getByteOffset();
             Long tag = currentTag(start);
+            checkDefinite(token, valueStart(start, tag));
             CborValue value = switch (token) {
                 case START_ARRAY -> readArray(depth + 1);
                 case START_OBJECT -> readMap(depth + 1);
@@ -153,6 +162,65 @@ public final class StrictCbor {
                 throw invalid("unsupported CBOR tag");
             }
             return tag;
+        }
+
+        /**
+         * {@code start} is the head byte of the item itself when untagged, or of the preceding tag when
+         * {@code tag} is non-null (see {@link #applyTag}, which needs the tag-inclusive offset for tag 24). The
+         * indefinite-length check below needs the item's OWN head byte, so a recognized tag's head length is
+         * skipped first — otherwise a tag (e.g. the COSE_Sign1 wrapper) would hide an indefinite-length array.
+         */
+        private int valueStart(int start, Long tag) {
+            if (tag == null || start < 0 || start >= input.length) {
+                return start;
+            }
+            return start + headLength(input[start]);
+        }
+
+        /** Bytes consumed by a CBOR head (type/additional-info byte plus any following length-extension bytes). */
+        private static int headLength(byte head) {
+            return switch (head & 0x1F) {
+                case 24 -> 2;
+                case 25 -> 3;
+                case 26 -> 5;
+                case 27 -> 9;
+                default -> 1; // 0–23 direct; 28–30 unassigned (never produced for our allowed tags); 31 n/a to tags
+            };
+        }
+
+        /** ISO 18013-5 requires definite length: refuse additional info 31 on bytes, text, arrays and maps. */
+        private void checkDefinite(JsonToken token, int valueStart) {
+            if (valueStart < 0 || valueStart >= input.length) {
+                return; // let Jackson's own truncation/constraint errors surface instead
+            }
+            int head = input[valueStart] & 0xff;
+            if ((head & 0x1F) != ADDINFO_INDEFINITE) {
+                return;
+            }
+            int major = head >>> 5;
+            switch (token) {
+                case START_ARRAY -> {
+                    if (major == MAJOR_ARRAY) {
+                        throw invalid("indefinite-length CBOR array");
+                    }
+                }
+                case START_OBJECT -> {
+                    if (major == MAJOR_MAP) {
+                        throw invalid("indefinite-length CBOR map");
+                    }
+                }
+                case VALUE_STRING -> {
+                    if (major == MAJOR_TEXT) {
+                        throw invalid("indefinite-length CBOR text string");
+                    }
+                }
+                case VALUE_EMBEDDED_OBJECT -> {
+                    if (major == MAJOR_BYTES) {
+                        throw invalid("indefinite-length CBOR byte string");
+                    }
+                }
+                default -> { }
+            }
         }
 
         private CborValue applyTag(long tag, CborValue value, int start) {
@@ -219,6 +287,9 @@ public final class StrictCbor {
         private CborValue readKey() throws IOException {
             int offset = (int) parser.currentTokenLocation().getByteOffset();
             int major = majorType(input[offset]);
+            if (major == MAJOR_TEXT && (input[offset] & 0x1F) == ADDINFO_INDEFINITE) {
+                throw invalid("indefinite-length CBOR text string");
+            }
             String name = parser.currentName();
             if (major == MAJOR_TEXT) {
                 return new CborValue.Text(name);

@@ -28,6 +28,7 @@ public enum AdminPermission {
     VIEW_CLIENTS("view-clients", "View clients / applications"),
     MANAGE_CLIENTS("manage-clients", "Manage clients / applications"),
     MANAGE_ROLES("manage-roles", "Manage realm & client roles"),
+    VIEW_IDENTITY_PROVIDERS("view-identity-providers", "View identity providers & federation"),
     MANAGE_IDENTITY_PROVIDERS("manage-identity-providers", "Manage identity providers & federation"),
     MANAGE_AUTHORIZATION("manage-authorization", "Manage authorization (flows, scopes, claims, authz services)"),
     MANAGE_ORGANIZATIONS("manage-organizations", "Manage organizations & groups"),

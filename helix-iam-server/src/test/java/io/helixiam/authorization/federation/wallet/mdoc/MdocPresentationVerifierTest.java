@@ -692,8 +692,9 @@ class MdocPresentationVerifierTest {
     @Test
     void deviceNameSpacesAreBoundByTheDeviceSignature() {
         final Map<Object, Object> response = response(pid());
-        // a different (still empty) encoding of the map: a0 vs bf ff
-        deviceSigned(response).put("nameSpaces", new CborTag(24, new byte[] {(byte) 0xbf, (byte) 0xff}));
+        // a different (still empty, still definite-length) encoding of the map: a0 (direct) vs b8 00 (1-byte
+        // extended length form of 0) — same semantics, different bytes, so the signature must not verify.
+        deviceSigned(response).put("nameSpaces", new CborTag(24, new byte[] {(byte) 0xb8, 0x00}));
 
         assertRejected(encode(response), WalletErrorCode.HOLDER_BINDING_INVALID);
     }

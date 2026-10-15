@@ -89,14 +89,6 @@ class StrictCborTest {
     }
 
     @Test
-    void indefiniteLengthNestingBombIsLimitExceeded() {
-        // 0x9f = start of an indefinite-length array, repeated without ever closing.
-        byte[] bomb = new byte[100_000];
-        Arrays.fill(bomb, (byte) 0x9f);
-        assertLimitExceeded(bomb);
-    }
-
-    @Test
     void tenThousandItemsAreAccepted() {
         // array header + 9 999 elements = 10 000 data items
         assertThat(StrictCbor.decode(flatArray(9_999), CborLimits.DEFAULTS)).isInstanceOf(CborValue.Array.class);
@@ -262,6 +254,53 @@ class StrictCborTest {
         assertInvalid(HEX.parseHex("c0d903ec6a313939302d30312d3031"));
     }
 
+    // ---------------------------------------------------------------- indefinite length (ISO 18013-5 requires definite)
+
+    @Test
+    void indefiniteLengthByteStringIsRejected() {
+        // 0x5f = byte string, additional info 31 (indefinite), 0xff = break; an empty indefinite byte string.
+        assertInvalid(HEX.parseHex("5fff"));
+    }
+
+    @Test
+    void indefiniteLengthTextStringIsRejected() {
+        // 0x7f = text string, additional info 31 (indefinite), 0xff = break; an empty indefinite text string.
+        assertInvalid(HEX.parseHex("7fff"));
+    }
+
+    @Test
+    void indefiniteLengthArrayIsRejected() {
+        // 0x9f = array, additional info 31 (indefinite), 0xff = break; an empty indefinite array.
+        assertInvalid(HEX.parseHex("9fff"));
+    }
+
+    @Test
+    void indefiniteLengthMapIsRejected() {
+        // 0xbf = map, additional info 31 (indefinite), 0xff = break; an empty indefinite map.
+        assertInvalid(HEX.parseHex("bfff"));
+    }
+
+    @Test
+    void indefiniteLengthArrayNestedInATagIsStillRejected() {
+        // 18(_ 1, 2) — a COSE_Sign1 tag wrapping an indefinite-length array; the tag bytes must not hide it.
+        assertInvalid(HEX.parseHex("d29f0102ff"));
+    }
+
+    @Test
+    void indefiniteLengthTextMapKeyIsRejected() {
+        // {_"a": 1} — an indefinite-length text string used as a map key.
+        assertInvalid(HEX.parseHex("a17f6161ff01"));
+    }
+
+    @Test
+    void indefiniteLengthNestingBombIsRejectedImmediately_notJustAtTheDepthLimit() {
+        // 0x9f repeated never closes; it is now refused as invalid at the very first indefinite array, which is
+        // both correct per ISO 18013-5 and cheaper than before (no longer needs to walk to the depth limit).
+        byte[] bomb = new byte[100_000];
+        Arrays.fill(bomb, (byte) 0x9f);
+        assertInvalid(bomb);
+    }
+
     // ---------------------------------------------------------------- strictness
 
     @Test
@@ -400,7 +439,7 @@ class StrictCborTest {
     private static byte[] issuerSignedItem() throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (CBORGenerator g = (CBORGenerator) FACTORY.createGenerator(out)) {
-            g.writeStartObject();
+            g.writeStartObject(null, 4); // digestID, random, elementIdentifier, elementValue
             g.writeNumberField("digestID", 0);
             g.writeBinaryField("random", new byte[16]);
             g.writeStringField("elementIdentifier", "birth_date");
@@ -412,29 +451,30 @@ class StrictCborTest {
         return out.toByteArray();
     }
 
+    /** Definite-length throughout (ISO 18013-5): every {@code writeStartObject}/{@code writeStartArray} is sized. */
     private static byte[] deviceResponse(byte[] issuerSignedItem) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (CBORGenerator g = (CBORGenerator) FACTORY.createGenerator(out)) {
-            g.writeStartObject();
+            g.writeStartObject(null, 3); // version, documents, status
             g.writeStringField("version", "1.0");
             g.writeFieldName("documents");
-            g.writeStartArray();
-            g.writeStartObject();
+            g.writeStartArray(null, 1);
+            g.writeStartObject(null, 3); // docType, issuerSigned, deviceSigned
             g.writeStringField("docType", "eu.europa.ec.eudi.pid.1");
             g.writeFieldName("issuerSigned");
-            g.writeStartObject();
+            g.writeStartObject(null, 2); // nameSpaces, issuerAuth
             g.writeFieldName("nameSpaces");
-            g.writeStartObject();
+            g.writeStartObject(null, 1); // "eu.europa.ec.eudi.pid.1"
             g.writeFieldName("eu.europa.ec.eudi.pid.1");
-            g.writeStartArray();
+            g.writeStartArray(null, 1);
             g.writeTag(24);
             g.writeBinary(issuerSignedItem);
             g.writeEndArray();
             g.writeEndObject();
             g.writeFieldName("issuerAuth"); // COSE_Sign1 [protected, unprotected, payload, signature]
-            g.writeStartArray();
+            g.writeStartArray(null, 4);
             g.writeBinary(HEX.parseHex("a10126")); // {1: -7}
-            g.writeStartObject();
+            g.writeStartObject(null, 1); // 33: x5chain
             g.writeFieldId(33); // x5chain
             g.writeBinary(new byte[] {1, 2, 3});
             g.writeEndObject();
@@ -443,16 +483,16 @@ class StrictCborTest {
             g.writeEndArray();
             g.writeEndObject();
             g.writeFieldName("deviceSigned");
-            g.writeStartObject();
+            g.writeStartObject(null, 2); // nameSpaces, deviceAuth
             g.writeFieldName("nameSpaces");
             g.writeTag(24);
             g.writeBinary(HEX.parseHex("a0"));
             g.writeFieldName("deviceAuth");
-            g.writeStartObject();
+            g.writeStartObject(null, 1); // deviceSignature
             g.writeFieldName("deviceSignature");
-            g.writeStartArray();
+            g.writeStartArray(null, 4);
             g.writeBinary(HEX.parseHex("a10126"));
-            g.writeStartObject();
+            g.writeStartObject(null, 0); // empty unprotected header
             g.writeEndObject();
             g.writeNull();
             g.writeBinary(new byte[64]);

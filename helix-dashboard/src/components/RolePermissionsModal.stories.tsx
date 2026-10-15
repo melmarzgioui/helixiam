@@ -16,6 +16,7 @@ const CATALOG: AdminPermission[] = [
   { key: "view-clients", label: "View clients" },
   { key: "manage-clients", label: "Manage clients" },
   { key: "manage-roles", label: "Manage roles" },
+  { key: "view-identity-providers", label: "View identity providers" },
   { key: "manage-identity-providers", label: "Manage identity providers" },
   { key: "manage-authorization", label: "Manage authorization" },
   { key: "manage-organizations", label: "Manage organizations" },
@@ -26,7 +27,7 @@ const CATALOG: AdminPermission[] = [
 
 const GRANTS: AdminRoleGrants[] = [
   { realmId: "acme", roleId: "r-admin", roleName: "admin", permissions: ["realm-admin"] },
-  { realmId: "acme", roleId: "r-auditor", roleName: "auditor", permissions: ["view-users", "view-clients", "view-events"] },
+  { realmId: "acme", roleId: "r-auditor", roleName: "auditor", permissions: ["view-users", "view-clients", "view-events", "view-identity-providers"] },
 ];
 
 const meta: Meta = { title: "Roles/RolePermissionsModal" };
