@@ -402,8 +402,11 @@ helix:
    received or the transaction has ended or expired. *Ruling (2026-10-15, after the OpenID Foundation conformance run,
    `docs/compliance/oid4vp-conformance/README.md` D2):* real wallets retry a `request_uri` fetch after a network error,
    and the HAIP certification plan tests it (`request-uri-fetched-twice`). A re-fetch exposes nothing new: it returns the
-   same signed request (same nonce, state, response URI, ephemeral key, `iat`, `exp`) to whoever holds the same bearer
-   id, and the response stays single use, so it cannot be used to answer twice.
+   same signed request (same nonce, state, response URI, ephemeral key, `iat`, `exp`; `response_mode` and
+   `client_metadata` follow the live provider config, and a POST fetch carries its own `wallet_nonce`) to whoever holds
+   the same bearer id, and the response stays single use, so it cannot be used to answer twice. The residual risk (an
+   observer of a cross-device QR code can also fetch the request and race their own response) is recorded in
+   `helix-iam-server/SECURITY-REVIEW.md` §B.2.
 3. **No session fixation:** rotate the Helix session id on successful login, as the existing broker does; verify this.
 4. All random identifiers use `SecureRandom` with ≥128 bits.
 5. Strict input limits:

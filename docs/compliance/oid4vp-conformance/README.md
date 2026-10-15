@@ -143,8 +143,13 @@ certification plan tests for this.
 - The response stays strictly single use.
 - This is one atomic step in all three stores: the in-memory compute, the Redis Lua script, and one PostgreSQL
   `UPDATE … RETURNING`.
-- The request object's `iat` is now the transaction's creation, so a re-fetch carries identical claims. Only a POST
-  fetch's `wallet_nonce` and the ECDSA signature differ, which is why the object is re-signed rather than stored.
+- The request object's `iat` is now the transaction's creation, so a re-fetch carries the same claims, unless an admin
+  edits the provider between fetches (`response_mode` and `client_metadata` are read from the live config). A POST
+  fetch's `wallet_nonce` and the ECDSA signature always differ, which is why the object is re-signed rather than
+  stored.
+- A request id fetched under another realm or alias is a `404` that leaves the transaction alone (before, it failed
+  the transaction, which with re-fetching would let a QR observer cancel the real login). The residual risk of
+  re-fetching is recorded in `SECURITY-REVIEW.md` §B.2.
 
 Tests: the store contract suite runs the same cases against memory, Redis and PostgreSQL: a same-flow re-fetch, a
 cross-flow fetch, a fetch after the response, after the end of the transaction and after expiry, the single-use
@@ -192,6 +197,9 @@ Every PID Credential Query now carries:
   `direct_post.jwt`) and off otherwise. The console has a Default/On/Off choice in the Credentials section.
 - **Enforcement.** PKIX validation to the trust anchors still decides. The matcher accepts one well-formed `aki`
   query and does not act on it.
+- **Never guessed.** If any anchor or pinned intermediate has no SubjectKeyIdentifier, the query leaves
+  `trusted_authorities` out (one WARN per loaded provider), and saving the setting explicitly On is refused with a
+  `400` on `dcql.trustedAuthorities`. If a wallet returns no credential, Off is the escape hatch.
 
 ### Variants not run
 

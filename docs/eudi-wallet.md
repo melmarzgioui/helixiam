@@ -440,7 +440,7 @@ reach; `OFF` only for testing. Providers stored before this change without a `re
   session just expires, and expiry is not observed on every session store).
 - **Request objects: re-fetch until the response, one flow only.** The first fetch of a `request_uri` binds the
   login to that flow (same-device or cross-device); the other invocation is `404` from then on. The same `request_uri`
-  can be fetched again, and returns the same request (same claims), until the wallet has posted its response; after
+  can be fetched again, and returns the same request, until the wallet has posted its response; after
   that, or once the login ended or expired, it is `404`. The response itself is single use.
 
 ## 9. Try it: the sandbox demo
@@ -482,6 +482,12 @@ added after the run:
   request"). Unset means on for the HAIP profile (`x509_hash` with `direct_post.jwt`) and off otherwise.
 - **Enforcement.** It only tells the wallet which issuers to offer; validating the chain to `trustAnchors` still
   decides.
+- **Anchors without a SubjectKeyIdentifier.** The values are never guessed. If any trust anchor (or pinned
+  intermediate) has no SubjectKeyIdentifier extension, `trusted_authorities` is left out of the query and the server
+  logs one WARN when it loads the provider. Saving a provider with the setting explicitly **On** and such an anchor is
+  refused (`400`, field `dcql.trustedAuthorities`, naming the anchor).
+- **Escape hatch.** If a wallet answers with no credential (it filters on `trusted_authorities` and finds no match),
+  set the provider to **Off**. Nothing else changes, because the trust decision never depended on the query.
 
 The results per plan and module, the root cause of each finding, the logs of both runs and the harness to repeat them
 are in **[`docs/compliance/oid4vp-conformance/README.md`](compliance/oid4vp-conformance/README.md)** (harness:

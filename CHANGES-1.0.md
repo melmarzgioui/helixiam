@@ -30,8 +30,15 @@ question. Newest first within each phase.
     the response, or once the login ended or expired, it is `404`. The response stays single use.
   - The change is atomic in all three transaction stores (memory, Redis, PostgreSQL), and the store contract suite
     covers it against each.
-  - The request object's `iat` is now the transaction's creation time, not the fetch time, so a re-fetch carries
-    identical claims.
+  - The request object's `iat` is now the transaction's creation time, not the fetch time, so a re-fetch carries the
+    same claims, unless an admin edits the provider between fetches (`response_mode` and `client_metadata` are read
+    from the live config).
+  - **`wallet_nonce` caveat:** a `request_uri_method=post` re-fetch carries the `wallet_nonce` of *that* POST (OpenID4VP
+    §5.10 requires echoing it), so a POST re-fetch is not byte-identical and its `wallet_nonce` differs from the first
+    fetch's.
+  - A request id fetched under another realm or alias is now a `404` that leaves the transaction alone; before, it
+    failed the transaction. The residual risk of re-fetching (a cross-device QR observer can also fetch the request
+    and race their own response) is recorded in `SECURITY-REVIEW.md` §B.2.
   - Wallet spec security requirement 2 and `SECURITY-REVIEW.md` §B.2 record the ruling.
 - **EUDI Wallet: HAIP `trusted_authorities` in the DCQL query** — each PID Credential Query now carries
   `{"type": "aki", "values": [...]}` (OpenID4VP §6.1.1.1, required by HAIP §5).
@@ -40,7 +47,22 @@ question. Newest first within each phase.
     request", Default/On/Off) defaults to on for `x509_hash` with `direct_post.jwt` (the HAIP profile) and off
     otherwise.
   - Existing HAIP-profile providers start sending it without a configuration change.
-  - PKIX validation to the trust anchors still decides which issuers are accepted.
+  - PKIX validation to the trust anchors still decides which issuers are accepted. If a wallet answers with no
+    credential, set the provider to Off.
+  - Key identifiers are never guessed: if any anchor or pinned intermediate has no SubjectKeyIdentifier, the query
+    leaves `trusted_authorities` out, with one WARN per loaded provider. Saving the setting explicitly On with such an
+    anchor is a `400` on `dcql.trustedAuthorities`.
+
+> **Upgrade note (rolling upgrades, wallet providers).** A node of an earlier version refuses a DCQL query that carries
+> `trusted_authorities`. A wallet transaction started on an upgraded node and answered on an old node that shares the
+> Redis or PostgreSQL transaction store therefore fails. Do one of these:
+> 1. upgrade every replica in one step;
+> 2. drain wallet transactions first: no new wallet logins on old nodes, then wait out their lifetime
+>    (`transactionTtlSeconds`, 300 s by default);
+> 3. set the HAIP-profile providers to Off (`dcql.trustedAuthorities=false`) for the duration of the roll, then back to
+>    Default.
+>
+> The new version reads both forms: it accepts a query with or without `trusted_authorities`.
 - **tests** — `TokenStatusListClientTest.connectTimeoutIsThreeSeconds` no longer assumes `10.255.255.1` is
   unroutable. That address answers at once on some networks, which made the test fail there. It now connects to a
   loopback listener whose accept queue is full, and it still asserts the 3 s connect timeout.
