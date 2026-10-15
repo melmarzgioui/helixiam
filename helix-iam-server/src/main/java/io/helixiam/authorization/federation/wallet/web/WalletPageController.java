@@ -104,7 +104,11 @@ public class WalletPageController {
         final WalletIdentityProvider provider = bound.get().provider();
         final WalletTransaction tx = bound.get().tx();
         // Task 21b: a link from the account console says "link" and leads back to the account, not to sign-in.
-        model.addAttribute("walletPurpose", tx.purpose() == WalletTransaction.Purpose.LINK ? "link" : "login");
+        model.addAttribute("walletPurpose", switch (tx.purpose()) {
+            case LINK -> "link";
+            case VERIFY -> "verify"; // the verify-only flow step: verify wording, "try again" back to the step
+            case LOGIN -> "login";
+        });
         model.addAttribute("providerName", provider.metadata().displayName());
         model.addAttribute("statusUrl", request.getContextPath() + "/broker/" + segment(alias) + "/wallet/status?tx="
                 + UriUtils.encodeQueryParam(tx.transactionId(), StandardCharsets.UTF_8));

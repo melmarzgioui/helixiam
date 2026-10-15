@@ -104,6 +104,13 @@ public class FlowController {
         // Expose data a challenge screen needs. WebAuthn renders the server challenge + rpId so
         // the browser can run navigator.credentials.get(); other views simply ignore these.
         final Map<String, Object> execAttributes = state.attributesFor(state.currentChallengeExecutionId());
+        // A step that challenges on another page (the EUDI wallet verification: the wallet page) sends the browser
+        // there ONCE; coming back to /flow renders its view.
+        if (execAttributes.remove(io.helixiam.authorization.flow.spi.AuthenticationContext.REDIRECT_ATTRIBUTE)
+                instanceof String target && target.startsWith("/") && !target.startsWith("//")) {
+            session.setAttribute(FlowLoginSuccessHandler.FLOW_STATE_ATTRIBUTE, state);
+            return REDIRECT_PREFIX + flowPath(target);
+        }
         model.addAttribute("webauthnChallenge", execAttributes.get("webauthn.challenge"));
         // (10) passwordless usernameless passkey login challenge (resident-key / conditional UI).
         model.addAttribute("passkeyLoginChallenge", execAttributes.get("passkey-login.challenge"));
@@ -176,6 +183,25 @@ public class FlowController {
                 yield VIEW_PREFIX + state.currentChallengeView();
             }
         };
+    }
+
+    /**
+     * Verify-only EUDI wallet step: the wallet's same-device {@code redirect_uri} and the wallet page's cross-device
+     * {@code next} come back here with the response code; it is fed to the step that is challenging, exactly like a
+     * submitted form (the step redeems it against this session's state and browser binding, single use). Only while a
+     * wallet verification is the current challenge.
+     */
+    @GetMapping("/flow/wallet/callback")
+    public String walletCallback(@RequestParam(name = "response_code", required = false) final String responseCode,
+                                 final HttpSession session, final Model model,
+                                 final HttpServletRequest request, final HttpServletResponse response) {
+        final FlowExecutionState state = state(session);
+        if (state == null || responseCode == null || responseCode.isBlank()
+                || !io.helixiam.authorization.federation.wallet.WalletVerifyAuthenticator.VIEW
+                        .equals(state.currentChallengeView())) {
+            return REDIRECT_PREFIX + flowPath("/login");
+        }
+        return submitChallenge(Map.of("response_code", responseCode), session, model, request, response);
     }
 
     /** Final review F2: the federated login of this flow ended without a session; reported once. */

@@ -22,6 +22,13 @@ public class AuthenticationContext {
 
     public enum Status {ATTEMPTING, SUCCESS, FAILURE, CHALLENGE}
 
+    /**
+     * An execution attribute naming a realm-relative page ({@code /...}, never {@code //...}) that {@code GET /flow}
+     * sends the browser to ONCE instead of rendering the challenge view (e.g. the EUDI wallet page of the wallet
+     * verification step). It is removed when used, so coming back to {@code /flow} renders the view.
+     */
+    public static final String REDIRECT_ATTRIBUTE = "flow.redirect";
+
     private final String executionId;
     private final String realmId;
     private String userId;
