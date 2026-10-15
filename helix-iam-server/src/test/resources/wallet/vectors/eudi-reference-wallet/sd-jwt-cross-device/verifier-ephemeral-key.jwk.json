@@ -1,0 +1,10 @@
+{
+  "kty": "EC",
+  "d": "NaH9p3t4D1celYGxa3UpLZFG9AGd3DwKWJCToXMNbS0",
+  "use": "enc",
+  "crv": "P-256",
+  "kid": "Am1xt3znUBvgrzeq6THysQ",
+  "x": "_ALiAYOsQTZv-NBjvcm9E22Q7TmWLlt3blVHsWagRlc",
+  "y": "f2JeRDO84-nAuUDeQQEvUemNeOTaQVgK8y06GG1COTE",
+  "alg": "ECDH-ES"
+}
