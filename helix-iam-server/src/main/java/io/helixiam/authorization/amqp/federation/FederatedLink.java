@@ -12,5 +12,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * provider) to a local user. JSON-marshalled, two-copy on each side.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record FederatedLink(String idpAlias, String externalSubject, String userId) {
+public record FederatedLink(String idpAlias, String externalSubject, String userId, String createdVia) {
+
+    /** A link of unknown provenance counts as an automatic one (the least trusted). */
+    public FederatedLink(final String idpAlias, final String externalSubject, final String userId) {
+        this(idpAlias, externalSubject, userId, null);
+    }
 }

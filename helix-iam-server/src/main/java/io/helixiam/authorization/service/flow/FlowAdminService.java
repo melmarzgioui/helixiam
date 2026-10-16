@@ -46,6 +46,22 @@ public class FlowAdminService {
     private final AuthFlowRepository flowRepository;
     private final AuthFlowExecutionRepository executionRepository;
 
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    /** Round 6: guards what administrators sign in through (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
+    }
+
+    /** Round 6: the flows administrators sign in through need realm-admin to change. */
+    private void guard(final String realmId, final String alias, final String what) {
+        if (privileged != null) {
+            privileged.requireMayChangeFlow(realmId, alias, what);
+        }
+    }
+
     public FlowAdminService(final AuthFlowService authFlowService, final AuthFlowRepository flowRepository,
                             final AuthFlowExecutionRepository executionRepository) {
         this.authFlowService = authFlowService;
@@ -66,6 +82,7 @@ public class FlowAdminService {
     /** Replaces the flow's executions with the submitted set, then returns the reloaded definition. */
     @Transactional
     public FlowDefinitionDto save(final FlowSaveDto dto) {
+        guard(dto.realmId(), dto.alias(), "Changing flow " + dto.alias());
         final AuthFlowEntity flow = requireFlow(dto.realmId(), dto.alias());
         executionRepository.deleteByFlowId(flow.getFlowId());
         final List<AuthFlowExecutionEntity> entities = dto.executions().stream()
@@ -99,6 +116,7 @@ public class FlowAdminService {
         if (flowRepository.findFirstByRealmIdAndAlias(realmId, clean).isPresent()) {
             throw new IllegalArgumentException("A flow named '" + clean + "' already exists in this realm");
         }
+        guard(realmId, clean, "Creating flow " + clean);
         final String flowId = UUID.randomUUID().toString();
         flowRepository.save(new AuthFlowEntity(flowId, realmId, clean, false));
         if (copyFromAlias != null && !copyFromAlias.isBlank()) {
@@ -125,6 +143,8 @@ public class FlowAdminService {
         if (!clean.equals(alias) && flowRepository.findFirstByRealmIdAndAlias(realmId, clean).isPresent()) {
             throw new IllegalArgumentException("A flow named '" + clean + "' already exists in this realm");
         }
+        guard(realmId, alias, "Renaming flow " + alias);
+        guard(realmId, clean, "Renaming a flow to " + clean);
         final AuthFlowEntity flow = requireFlow(realmId, alias);
         flow.setAlias(clean);
         flowRepository.save(flow);
@@ -135,6 +155,7 @@ public class FlowAdminService {
     @Transactional
     public void delete(final String realmId, final String alias) {
         if (AuthFlowService.BROWSER_FLOW.equals(alias)) throw new IllegalArgumentException("The built-in browser flow cannot be deleted");
+        guard(realmId, alias, "Deleting flow " + alias);
         final AuthFlowEntity flow = requireFlow(realmId, alias);
         executionRepository.deleteByFlowId(flow.getFlowId());
         flowRepository.delete(flow);

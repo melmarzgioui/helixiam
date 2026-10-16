@@ -151,8 +151,10 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
             // keep working (including during an RBAC outage), ordinary users are denied.
             return RealmAdminAuthorities.isAdminOf(auth, realmId);
         }
-        final boolean granted = eff.permissions().contains(AdminRoutePermissions.REALM_ADMIN)
-                || eff.permissions().contains(permission);
+        // Round 6: manage-X includes view-X (users, clients, identity providers, events), as in the grant guard.
+        final java.util.Set<String> held = io.helixiam.authorization.service.adminrbac.AdminGrantGuard.withIncluded(
+                new java.util.LinkedHashSet<>(eff.permissions()));
+        final boolean granted = held.contains(AdminRoutePermissions.REALM_ADMIN) || held.contains(permission);
         if (!granted) {
             LOG.debug("Admin RBAC denied {} {} (needs {}) for roles {} in realm {}",
                     LogSafe.sanitize(method), LogSafe.sanitize(adminPath),

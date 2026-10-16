@@ -34,6 +34,15 @@ public class ApplicationConfigService {
     private final ServiceProviderRepository serviceProviders;
     private final SamlRelyingPartyRepository relyingParties;
 
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    /** Round 6: guards the Applications of the built-in sign-in clients (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
+    }
+
     public ApplicationConfigService(final ApplicationRepository repository,
                                     final ServiceProviderRepository serviceProviders,
                                     final SamlRelyingPartyRepository relyingParties) {
@@ -49,9 +58,14 @@ public class ApplicationConfigService {
         if (config.name() == null || config.name().isBlank()) {
             throw new IllegalArgumentException("Application name is required.");
         }
-        final ApplicationEntity entity = repository
-                .findById(ApplicationEntity.key(config.realmId(), config.name()))
-                .orElseGet(ApplicationEntity::new);
+        final Optional<ApplicationEntity> stored = repository.findById(ApplicationEntity.key(config.realmId(), config.name()));
+        if (privileged != null && stored.isPresent() && !onlyCosmetic(stored.get(), config)) {
+            // Round 6: the subject claim, flow and enabled flag of a sign-in client's Application decide how
+            // administrators sign in; display name and description stay open to client managers.
+            privileged.requireMayChangeApplication(config.realmId(), config.name(),
+                    "Changing application " + config.name());
+        }
+        final ApplicationEntity entity = stored.orElseGet(ApplicationEntity::new);
         entity.setId(ApplicationEntity.key(config.realmId(), config.name()));
         entity.setRealmId(config.realmId());
         entity.setName(config.name());
@@ -86,6 +100,13 @@ public class ApplicationConfigService {
             return false;
         }
         final String applicationId = ApplicationEntity.key(realmId, name);
+        if (privileged != null) {
+            // Round 6: the cascade soft-deletes the child clients, so it needs what deleting each of them needs.
+            privileged.requireMayChangeApplication(realmId, name, "Deleting application " + name);
+            for (final ServiceProviderOAuthClient child : serviceProviders.findAllByApplicationIdAndDeleted(applicationId, false)) {
+                privileged.requireMayActOnClient(realmId, child.getClientId(), "Deleting application " + name);
+            }
+        }
         for (final ServiceProviderOAuthClient client : serviceProviders.findAllByApplicationIdAndDeleted(applicationId, false)) {
             client.setDeleted(true);
             serviceProviders.save(client);
@@ -100,6 +121,17 @@ public class ApplicationConfigService {
         repository.deleteByRealmIdAndName(realmId, name);
         LOG.debug("Deleted application {} for realm {}", LogSafe.sanitize(name), LogSafe.sanitize(realmId));
         return true;
+    }
+
+    /** Whether the write changes only the display name or description of the stored application. */
+    static boolean onlyCosmetic(final ApplicationEntity stored, final ApplicationConfig config) {
+        return java.util.Objects.equals(blankToNull(stored.getSubjectClaim()), blankToNull(config.subjectClaim()))
+                && java.util.Objects.equals(blankToNull(stored.getAuthFlowAlias()), blankToNull(config.authFlowAlias()))
+                && stored.isEnabled() == config.enabled();
+    }
+
+    private static String blankToNull(final String s) {
+        return s == null || s.isBlank() ? null : s;
     }
 
     private ApplicationConfig toDto(final ApplicationEntity entity) {

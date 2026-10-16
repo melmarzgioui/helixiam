@@ -39,6 +39,18 @@ public class FederatedLinkEntity {
     @Column(name = "creation_date", updatable = false)
     private Date creationDate;
 
+    /** Round 6: how the link was made ({@link LinkProvenance}); null on rows of unknown origin. */
+    @Column(name = "created_via")
+    private String createdVia;
+
+    public String getCreatedVia() {
+        return createdVia;
+    }
+
+    public void setCreatedVia(final String createdVia) {
+        this.createdVia = createdVia;
+    }
+
     public FederatedLinkEntity() {
     }
 

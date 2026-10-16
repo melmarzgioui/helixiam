@@ -54,3 +54,21 @@ CREATE TABLE IF NOT EXISTS realm_signing_settings (
     saml_alg    character varying(10)  DEFAULT 'RS256' NOT NULL,
     updated_at  timestamp DEFAULT CURRENT_TIMESTAMP
     );
+
+-- Round 6: how a federated link was made (JIT, AUTO, SELF, WALLET). An administrator signs in through a link only
+-- when they made it themselves (JIT, SELF, WALLET); AUTO links (made by matching a verified e-mail address) are
+-- refused for administrators. Backfill of existing rows: links of a wallet connection are WALLET (the account console
+-- is the only way to make them); a link made within 120 seconds of its user is JIT (that sign-in created the user);
+-- anything else is AUTO, the safe default. Idempotent: only rows without a value are filled.
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);
+UPDATE federated_link f SET created_via = 'WALLET'
+ WHERE f.created_via IS NULL
+   AND EXISTS (SELECT 1 FROM identity_provider p
+                WHERE p.alias = f.idp_alias AND lower(p.protocol) IN ('eudi-wallet', 'openid4vp', 'wallet'));
+UPDATE federated_link f SET created_via = 'JIT'
+ WHERE f.created_via IS NULL
+   AND EXISTS (SELECT 1 FROM user_credentials u
+                WHERE u.user_id = f.user_id AND u.creation_date IS NOT NULL AND f.creation_date IS NOT NULL
+                  AND abs(extract(epoch FROM (f.creation_date - u.creation_date))) <= 120);
+UPDATE federated_link SET created_via = 'AUTO' WHERE created_via IS NULL;
+CREATE INDEX IF NOT EXISTS federated_link_alias_idx ON federated_link (idp_alias);

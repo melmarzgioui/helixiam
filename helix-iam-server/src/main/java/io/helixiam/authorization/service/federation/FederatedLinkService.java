@@ -36,7 +36,23 @@ public class FederatedLinkService {
     /** Record (or overwrite) the link from an external subject to a local user. */
     @Transactional
     public void link(final String idpAlias, final String externalSubject, final String userId) {
-        repository.save(new FederatedLinkEntity(idpAlias, externalSubject, userId));
+        link(idpAlias, externalSubject, userId, null);
+    }
+
+    /** Record (or overwrite) the link with its provenance; an unknown one is stored as {@code AUTO}. */
+    @Transactional
+    public void link(final String idpAlias, final String externalSubject, final String userId,
+                     final String createdVia) {
+        final FederatedLinkEntity entity = new FederatedLinkEntity(idpAlias, externalSubject, userId);
+        entity.setCreatedVia(io.helixiam.authorization.domain.federation.LinkProvenance.normalize(createdVia));
+        repository.save(entity);
+    }
+
+    /** Round 6: how the link of (alias, subject) was created, if it exists. */
+    @Transactional(readOnly = true)
+    public Optional<String> provenance(final String idpAlias, final String externalSubject) {
+        return repository.findById(FederatedLinkEntity.key(idpAlias, externalSubject))
+                .map(l -> io.helixiam.authorization.domain.federation.LinkProvenance.normalize(l.getCreatedVia()));
     }
 
     /**

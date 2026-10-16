@@ -33,11 +33,23 @@ public class DevicePushTokenService {
         this.memberships = memberships;
     }
 
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    /** Round 6: a push token receives the user's sign-in approvals (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
+    }
+
     /** Register (idempotent upsert by realm + user + platform + token) a device push token. */
     @Transactional
     public DevicePushTokenDto register(final DevicePushTokenDto dto) {
         if (memberships != null && memberships.findByTenantIdAndUserId(dto.realmId(), dto.userId()).isEmpty()) {
             return null; // review rc.3 #1: only users of the path realm
+        }
+        if (privileged != null) {
+            privileged.requireMayActOnUser(dto.realmId(), dto.userId(), "Registering a push device for this user");
         }
         final DevicePushToken entity = tokens
                 .findByRealmIdAndUserIdAndPlatformAndToken(dto.realmId(), dto.userId(), dto.platform(), dto.token())

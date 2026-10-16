@@ -95,6 +95,15 @@ public class GroupAdminService {
             return null; // review rc.3 #1
         }
         final UserGroup group = existing.get();
+        if (adminGrantGuard != null && !java.util.Objects.equals(group.getParentId(), write.parentId())) {
+            // Round 6: moving a group moves its members' admin permissions with it (and under the new parent's).
+            final java.util.Set<String> moved = new java.util.LinkedHashSet<>(
+                    adminGrantGuard.grantsOfGroup(write.realmId(), group.getGroupId()));
+            if (write.parentId() != null) {
+                moved.addAll(adminGrantGuard.grantsOfGroup(write.realmId(), write.parentId()));
+            }
+            adminGrantGuard.requireMayGrant(write.realmId(), moved, "Moving this group");
+        }
         group.setName(write.name());
         group.setParentId(write.parentId());
         return toDto(groups.save(group));
@@ -107,9 +116,19 @@ public class GroupAdminService {
         if (group.isEmpty() || !realmId.equals(group.get().getTenantId())) {
             return false;
         }
+        if (adminGrantGuard != null) {
+            // Round 6: deleting a group takes its admin permissions away from its members.
+            adminGrantGuard.requireMayGrant(realmId, grantsOfTree(realmId, group.get()), "Deleting this group");
+        }
         deleteRecursively(group.get());
         LOG.debug("Deleted group {} from realm {}", LogSafe.sanitize(groupId), LogSafe.sanitize(realmId));
         return true;
+    }
+
+    private java.util.Set<String> grantsOfTree(final String realmId, final UserGroup group) {
+        final java.util.Set<String> out = new java.util.LinkedHashSet<>(adminGrantGuard.grantsOfGroup(realmId, group.getGroupId()));
+        groups.findAllByParentId(group.getGroupId()).forEach(child -> out.addAll(grantsOfTree(realmId, child)));
+        return out;
     }
 
     private void deleteRecursively(final UserGroup group) {

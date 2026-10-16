@@ -42,6 +42,16 @@ public class TenantService {
     private final DefaultRolesBootstrapService defaultRolesBootstrapService;
     private final ConsoleClientBootstrapService consoleClientBootstrapService;
 
+    private io.helixiam.authorization.service.client.CliClientBootstrapService cliClientBootstrapService;
+
+    /** Round 6: every realm gets helix-cli at creation, like helix-console, so it cannot be squatted. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCliClientBootstrapService(
+            final io.helixiam.authorization.service.client.CliClientBootstrapService cliClientBootstrapService) {
+        this.cliClientBootstrapService = cliClientBootstrapService;
+    }
+
+
     @Autowired
     public TenantService(
             final TenantRepository tenantRepository,
@@ -82,6 +92,9 @@ public class TenantService {
             defaultRolesBootstrapService.ensureDefaultRoles(tenantId);
             // Seed the standard helix-console OIDC client so this realm's admins can log into the console via SSO.
             consoleClientBootstrapService.ensureConsoleClient(tenantId);
+            if (cliClientBootstrapService != null) {
+                cliClientBootstrapService.ensureCliClient(tenantId);
+            }
 
             LOG.debug("Created tenant {} by {}", tenant, userId);
 

@@ -90,6 +90,10 @@ public class RoleAdminService {
         if (role.isEmpty() || !realmId.equals(role.get().getTenantId()) || role.get().isSystemRole()) {
             return false;
         }
+        if (adminGrantGuard != null) {
+            // Round 6: deleting a role takes its admin permissions away from everyone holding it.
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOf(realmId, roleId), "Deleting this role");
+        }
         userInRoleRepository.deleteAll(userInRoleRepository.findAllByRoleId(roleId));
         userRolesRepository.delete(role.get());
         LOG.debug("Deleted realm role {} from {}", LogSafe.sanitize(roleId), LogSafe.sanitize(realmId));

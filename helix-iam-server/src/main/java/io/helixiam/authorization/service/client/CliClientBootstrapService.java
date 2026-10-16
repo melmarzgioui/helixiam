@@ -44,15 +44,34 @@ public class CliClientBootstrapService {
     private static final int REFRESH_TOKEN_LIFESPAN_SECONDS = 30 * 24 * 60 * 60;
 
     private final ServiceProviderRepository repository;
+    private io.helixiam.authorization.security.audit.AuditLog audit;
 
     public CliClientBootstrapService(final ServiceProviderRepository repository) {
         this.repository = repository;
     }
 
-    /** Ensures the {@code helix-cli} public client exists in {@code realmId}. Idempotent. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditLog(final io.helixiam.authorization.security.audit.AuditLog audit) {
+        this.audit = audit;
+    }
+
+    /**
+     * Ensures the {@code helix-cli} public client exists in {@code realmId} and reconciles its sign-in settings.
+     * Idempotent.
+     *
+     * <p>Round 6: before 1.0 a client manager could create a client named {@code helix-cli} in a realm that did not
+     * have one yet, with its own redirect URIs or a secret, and so receive the authorization codes of administrators
+     * signing in with the CLI. Creating a client with that id now needs realm-admin, and every start resets what
+     * decides where codes and tokens go to the built-in values: public client, no secret, the built-in grant types and
+     * the loopback redirect URIs. A client that differed is logged as a warning and audited
+     * ({@code SIGN_IN_CLIENT_RECONCILED}); its name, scopes, flow and other settings stay as they are.
+     */
     @Transactional
     public void ensureCliClient(final String realmId) {
-        if (repository.findByClientIdAndRealmIdAndDeleted(CLI_CLIENT_ID, realmId, false).isPresent()) {
+        final java.util.Optional<ServiceProviderOAuthClient> existing =
+                repository.findByClientIdAndRealmIdAndDeleted(CLI_CLIENT_ID, realmId, false);
+        if (existing.isPresent()) {
+            reconcile(realmId, existing.get());
             return;
         }
         final ServiceProviderOAuthClient client = new ServiceProviderOAuthClient();
@@ -73,5 +92,39 @@ public class CliClientBootstrapService {
         client.setDisplayOnConsentScreen(false);
         repository.save(client);
         LOG.info("Seeded built-in '{}' public CLI client in realm {}", CLI_CLIENT_ID, realmId);
+    }
+
+    private void reconcile(final String realmId, final ServiceProviderOAuthClient client) {
+        final java.util.List<String> changed = new java.util.ArrayList<>();
+        if (!Boolean.TRUE.equals(client.getPublicClient())) {
+            changed.add("publicClient");
+        }
+        if (client.getClientSecret() != null && !client.getClientSecret().isBlank()) {
+            changed.add("clientSecret");
+        }
+        if (!client.getRedirectUris().equals(java.util.Set.of(REDIRECT_URIS.split(",")))) {
+            changed.add("redirectUris");
+        }
+        final java.util.Set<String> grants = new java.util.HashSet<>();
+        client.getAuthorizationGrantTypes().forEach(g -> grants.add(g.getValue()));
+        if (!grants.equals(java.util.Set.of(GRANT_TYPES.split(",")))) {
+            changed.add("grantTypes");
+        }
+        if (changed.isEmpty()) {
+            return;
+        }
+        client.setPublicClient(true);
+        client.setClientSecret(null);
+        client.setRedirectUris(REDIRECT_URIS);
+        client.setAuthorizationGrantTypes(GRANT_TYPES);
+        repository.save(client);
+        LOG.warn("The built-in '{}' client of realm {} differed from the built-in sign-in settings ({}); reset them. "
+                + "Check who created or changed it.", CLI_CLIENT_ID, realmId, String.join(", ", changed));
+        if (audit != null) {
+            audit.emit(io.helixiam.authorization.security.audit.AuditEvent.admin(
+                    io.helixiam.authorization.security.audit.AuditContext.nowIso(), "SIGN_IN_CLIENT_RECONCILED",
+                    realmId, "system", null, "client", CLI_CLIENT_ID, "SUCCESS",
+                    java.util.Map.of("fields", String.join(",", changed))));
+        }
     }
 }

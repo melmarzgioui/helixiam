@@ -99,6 +99,12 @@ public class FederatedIdentityService {
         links.link(idpAlias, externalSubject, userId);
     }
 
+    /** Record the federated link with its provenance. */
+    public void link(final String idpAlias, final String externalSubject, final String userId,
+                     final String createdVia) {
+        links.link(idpAlias, externalSubject, userId, createdVia);
+    }
+
     /** A local user with this email (the username is the email), if any. */
     public Optional<String> findUserByEmail(final String email) {
         if (email == null || email.isBlank()) {

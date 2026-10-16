@@ -139,6 +139,34 @@ class FlywayRealmKeyCertificatesTest {
     }
 
     @Test
+    void v86_recordsHowExistingFederatedLinksWereMade() throws Exception {
+        final PostgreSQLContainer<?> db = POSTGRES;
+        final DriverManagerDataSource ds = new DriverManagerDataSource(db.getJdbcUrl(), db.getUsername(), db.getPassword());
+        final JdbcTemplate jdbc = new JdbcTemplate(ds);
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("85").load().migrate();
+        final String user = "INSERT INTO user_credentials (user_id, username, creation_date) VALUES (?, ?, ?)";
+        jdbc.update(user, "u-jit", "jit", java.sql.Timestamp.valueOf("2026-01-01 10:00:00"));
+        jdbc.update(user, "u-old", "old", java.sql.Timestamp.valueOf("2025-01-01 10:00:00"));
+        jdbc.update("INSERT INTO identity_provider (id, realm_id, alias, protocol, config_json) "
+                + "VALUES ('acme|wallet', 'acme', 'wallet', 'eudi-wallet', '{}')");
+        final String link = "INSERT INTO federated_link (id, idp_alias, external_subject, user_id, creation_date) "
+                + "VALUES (?, ?, ?, ?, ?)";
+        jdbc.update(link, "corp|a", "corp", "a", "u-jit", java.sql.Timestamp.valueOf("2026-01-01 10:00:30"));
+        jdbc.update(link, "corp|b", "corp", "b", "u-old", java.sql.Timestamp.valueOf("2026-01-01 10:00:00"));
+        jdbc.update(link, "wallet|c", "wallet", "c", "u-old", java.sql.Timestamp.valueOf("2026-01-01 10:00:00"));
+
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
+
+        assertThat(jdbc.queryForMap("SELECT "
+                + "(SELECT created_via FROM federated_link WHERE id = 'corp|a') AS jit, "
+                + "(SELECT created_via FROM federated_link WHERE id = 'corp|b') AS auto, "
+                + "(SELECT created_via FROM federated_link WHERE id = 'wallet|c') AS wallet"))
+                .containsEntry("jit", "JIT").containsEntry("auto", "AUTO").containsEntry("wallet", "WALLET");
+    }
+
+    @Test
     void v86_refusesTheSameKeyInTwoRealms_namingThem() throws Exception {
         final DriverManagerDataSource ds = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword());

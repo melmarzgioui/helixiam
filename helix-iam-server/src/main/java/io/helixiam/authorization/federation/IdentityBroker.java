@@ -45,6 +45,20 @@ public class IdentityBroker {
         this.isAdmin = guard::isAdmin;
     }
 
+    /** Round 6: how the link of (alias, subject) was made; unknown means {@code AUTO}. */
+    private java.util.function.BiFunction<String, String, java.util.Optional<String>> provenance =
+            (alias, subject) -> java.util.Optional.empty();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLinkService(final io.helixiam.authorization.service.federation.FederatedLinkService links) {
+        this.provenance = links::provenance;
+    }
+
+    /** Tests: the provenance lookup. */
+    void setProvenance(final java.util.function.BiFunction<String, String, java.util.Optional<String>> provenance) {
+        this.provenance = provenance;
+    }
+
     /** Tests: who counts as an administrator (realm, userId). */
     void setAdminCheck(final java.util.function.BiPredicate<String, String> isAdmin) {
         this.isAdmin = isAdmin;
@@ -68,6 +82,15 @@ public class IdentityBroker {
         // 1. Returning identity: an existing link wins outright.
         final var linked = store.findLinkedUser(alias, subject);
         if (linked.isPresent()) {
+            final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get() == null
+                    ? "master" : io.helixiam.authorization.security.realm.RealmContextHolder.get();
+            if (isAdmin.test(realm, linked.get()) && !io.helixiam.authorization.domain.federation.LinkProvenance
+                    .mayAuthenticateAdmin(provenance.apply(alias, subject).orElse(null))) {
+                // Round 6: an administrator signs in through a link only if they made it themselves.
+                LOG.warn("Refusing federated sign-in {}:{} to an administrator: the link was not made by the "
+                        + "administrator (relink from the account console)", alias, subject);
+                return BrokerResult.unresolved();
+            }
             return BrokerResult.existingLink(linked.get());
         }
 
@@ -85,7 +108,8 @@ public class IdentityBroker {
                 return BrokerResult.unresolved();
             }
             if (existing.isPresent()) {
-                store.link(alias, subject, existing.get());
+                store.link(alias, subject, existing.get(),
+                        io.helixiam.authorization.domain.federation.LinkProvenance.AUTO);
                 LOG.info("Linked federated identity {}:{} to existing user {} by verified email",
                         alias, subject, existing.get());
                 return BrokerResult.linkedExisting(existing.get());
@@ -98,7 +122,7 @@ public class IdentityBroker {
             final java.util.Map<String, String> attributes = new java.util.HashMap<>(attributeMapper.map(identity));
             attributes.putAll(AttributeMapperRules.apply(identity, mapperConfig));
             final String userId = store.provisionUser(identity, attributes);
-            store.link(alias, subject, userId);
+            store.link(alias, subject, userId, io.helixiam.authorization.domain.federation.LinkProvenance.JIT);
             LOG.info("JIT-provisioned user {} for federated identity {}:{}", userId, alias, subject);
             return BrokerResult.provisioned(userId);
         }

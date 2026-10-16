@@ -303,12 +303,29 @@ public class ClaimScopeAdminService {
                 .orElse(DEFAULT_SUBJECT_CLAIM);
     }
 
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    /** Round 6: the realm's subject claim decides who every token names (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
+    private void requireRealmAdmin(final String realmId, final String what) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireRealmAdmin(realmId, what);
+        }
+    }
+
     /** Chooses which catalogue claim populates the OIDC {@code sub} for the realm. */
     @Transactional
     public SubjectClaimDto setSubjectClaim(final SubjectClaimDto write) {
         ensureTenant(write.realmId());
         final RealmConfig config = realmConfigs.findById(write.realmId())
                 .orElseGet(() -> RealmConfig.defaults(write.realmId()));
+        if (!java.util.Objects.equals(blank(config.getSubjectClaim()), blank(write.claimKey()))) {
+            requireRealmAdmin(write.realmId(), "Changing the realm's subject claim");
+        }
         config.setSubjectClaim(write.claimKey());
         realmConfigs.save(config);
         LOG.debug("Realm {} subject claim set to {}", write.realmId(), write.claimKey());
@@ -364,5 +381,9 @@ public class ClaimScopeAdminService {
             tenant.setTenantId(realmId);
             tenants.save(tenant);
         }
+    }
+
+    private static String blank(final String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 }

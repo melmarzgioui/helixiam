@@ -136,6 +136,93 @@ public class PrivilegedPrincipalGuard {
     }
 
     private io.helixiam.authorization.repository.agent.AgentIdentityRepository agents;
+    private io.helixiam.authorization.repository.federation.FederatedLinkRepository links;
+    private io.helixiam.authorization.repository.tenant.TenantUserRepository memberships;
+    private io.helixiam.authorization.repository.application.ApplicationRepository applications;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSignInSurfaces(final io.helixiam.authorization.repository.federation.FederatedLinkRepository links,
+                                  final io.helixiam.authorization.repository.tenant.TenantUserRepository memberships,
+                                  final io.helixiam.authorization.repository.application.ApplicationRepository applications) {
+        this.links = links;
+        this.memberships = memberships;
+        this.applications = applications;
+    }
+
+    // ------------------------------------------------------------------------------------------------ sign-in surfaces
+
+    /**
+     * The admin permissions of the realm's users linked to the identity provider {@code alias}: whoever controls that
+     * provider can sign in as them.
+     */
+    public Set<String> linkedPermissions(final String realmId, final String alias) {
+        final Set<String> out = new LinkedHashSet<>();
+        if (links == null || alias == null) {
+            return out;
+        }
+        for (final io.helixiam.authorization.domain.federation.FederatedLinkEntity l : links.findAllByIdpAlias(alias)) {
+            if (memberships == null || memberships.findByTenantIdAndUserId(realmId, l.getUserId()).isPresent()) {
+                out.addAll(userPermissions(realmId, l.getUserId()));
+            }
+        }
+        return out;
+    }
+
+    /** Changing or deleting an identity provider that administrators are linked to needs their permissions. */
+    public void requireMayChangeIdentityProvider(final String realmId, final String alias, final String what) {
+        try {
+            grants.requireMayGrant(realmId, linkedPermissions(realmId, alias), what);
+        } catch (final AdminGrantGuard.AdminGrantDeniedException e) {
+            throw new AdminGrantGuard.AdminGrantDeniedException(what + ": administrators sign in through this identity "
+                    + "provider and hold admin permissions you do not hold. Ask a realm admin.");
+        }
+    }
+
+    /**
+     * The flows administrators sign in through: the realm's browser flow, and the flows bound to the built-in sign-in
+     * clients or their Applications.
+     */
+    public Set<String> protectedFlows(final String realmId) {
+        final Set<String> out = new LinkedHashSet<>();
+        out.add(io.helixiam.authorization.service.flow.AuthFlowService.BROWSER_FLOW);
+        for (final String clientId : io.helixiam.authorization.service.client.ClientAdminService.SIGN_IN_CLIENTS) {
+            clients.findByClientIdAndRealmIdAndDeleted(clientId, realmId, false).ifPresent(c -> {
+                if (c.getAuthFlowAlias() != null) {
+                    out.add(c.getAuthFlowAlias());
+                }
+                if (c.getApplicationId() != null && applications != null) {
+                    applications.findById(c.getApplicationId()).ifPresent(a -> {
+                        if (a.getAuthFlowAlias() != null) {
+                            out.add(a.getAuthFlowAlias());
+                        }
+                    });
+                }
+            });
+        }
+        return out;
+    }
+
+    /** Editing, creating, renaming or deleting a flow administrators sign in through needs realm-admin. */
+    public void requireMayChangeFlow(final String realmId, final String alias, final String what) {
+        if (alias != null && protectedFlows(realmId).contains(alias)) {
+            grants.requireRealmAdmin(realmId, what + " (administrators sign in through this flow)");
+        }
+    }
+
+    /** Whether the Application {@code name} is the parent of a built-in sign-in client. */
+    public boolean isSignInApplication(final String realmId, final String name) {
+        final String key = io.helixiam.authorization.domain.application.ApplicationEntity.key(realmId, name);
+        return clients.findAllByApplicationIdAndDeleted(key, false).stream()
+                .anyMatch(c -> io.helixiam.authorization.service.client.ClientAdminService.SIGN_IN_CLIENTS
+                        .contains(c.getClientId()));
+    }
+
+    /** Changing or deleting the parent Application of a built-in sign-in client needs realm-admin. */
+    public void requireMayChangeApplication(final String realmId, final String name, final String what) {
+        if (isSignInApplication(realmId, name)) {
+            grants.requireRealmAdmin(realmId, what + " (it holds a built-in sign-in client)");
+        }
+    }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setAgents(final io.helixiam.authorization.repository.agent.AgentIdentityRepository agents) {

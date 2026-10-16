@@ -123,7 +123,7 @@ public class AdminGrantGuard {
     }
 
     /** {@code manage-X} includes {@code view-X} (users, clients, identity providers, events). */
-    static Set<String> withIncluded(final Set<String> held) {
+    public static Set<String> withIncluded(final Set<String> held) {
         final Set<String> out = new LinkedHashSet<>(held);
         for (final String area : List.of("users", "clients", "identity-providers", "events")) {
             if (held.contains("manage-" + area)) {

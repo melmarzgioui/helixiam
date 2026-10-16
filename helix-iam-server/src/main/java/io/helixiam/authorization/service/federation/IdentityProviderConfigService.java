@@ -46,6 +46,15 @@ public class IdentityProviderConfigService {
     private final IdentityProviderConfigRepository repository;
     private final ObjectMapper objectMapper = JsonMappers.plain();
 
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    /** Guards providers that administrators sign in through (absent in slim unit-test wiring). */
+    @Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
+    }
+
     @Autowired
     public IdentityProviderConfigService(final IdentityProviderConfigRepository repository) {
         this.repository = repository;
@@ -54,6 +63,10 @@ public class IdentityProviderConfigService {
     /** Creates or updates the config for {@code (realmId, alias)} (upsert by surrogate key). */
     @Transactional
     public IdentityProviderConfig saveOrUpdate(final IdentityProviderConfig config) {
+        if (privileged != null) {
+            privileged.requireMayChangeIdentityProvider(config.realmId(), config.alias(),
+                    "Changing identity provider " + config.alias());
+        }
         final IdentityProviderEntity entity = repository
                 .findById(IdentityProviderEntity.key(config.realmId(), config.alias()))
                 .orElseGet(IdentityProviderEntity::new);
@@ -155,6 +168,9 @@ public class IdentityProviderConfigService {
     /** Removes a config; returns {@code false} if it did not exist. */
     @Transactional
     public boolean delete(final String realmId, final String alias) {
+        if (privileged != null) {
+            privileged.requireMayChangeIdentityProvider(realmId, alias, "Deleting identity provider " + alias);
+        }
         if (!repository.existsByRealmIdAndAlias(realmId, alias)) {
             return false;
         }

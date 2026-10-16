@@ -168,9 +168,13 @@ CREATE TABLE IF NOT EXISTS federated_link (
     idp_alias         character varying(255) NOT NULL,
     external_subject  character varying(512) NOT NULL,
     user_id           character varying(255) NOT NULL,
-    creation_date     timestamp DEFAULT CURRENT_TIMESTAMP
+    creation_date     timestamp DEFAULT CURRENT_TIMESTAMP,
+    -- Round 6 (V86): JIT, AUTO, SELF or WALLET; an administrator signs in only through JIT, SELF or WALLET links.
+    created_via       character varying(16)
     );
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);
 CREATE INDEX IF NOT EXISTS federated_link_user_idx ON federated_link (user_id);
+CREATE INDEX IF NOT EXISTS federated_link_alias_idx ON federated_link (idp_alias);
 
 -- IDENTITY PROVIDER CONFIG (Helix IAM E8.1) --
 -- Per-realm identity-provider connections the admin console (E8.2) manages and the

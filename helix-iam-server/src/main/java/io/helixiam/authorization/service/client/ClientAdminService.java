@@ -66,6 +66,12 @@ public class ClientAdminService {
         if (write.clientId() == null || write.clientId().isBlank()) {
             throw new IllegalArgumentException("Client ID is required.");
         }
+        if (SIGN_IN_CLIENTS.contains(write.clientId().trim()) && adminGrantGuard != null) {
+            // Round 6: whoever creates helix-console or helix-cli in a realm decides where administrators' sign-in
+            // codes go. Only a realm admin (or the system bootstrap) may.
+            adminGrantGuard.requireRealmAdmin(write.realmId(), "Creating the built-in sign-in client "
+                    + write.clientId().trim());
+        }
         final boolean publicClient = Boolean.TRUE.equals(write.publicClient());
         final String supplied = write.clientSecret();
         if (supplied != null) {

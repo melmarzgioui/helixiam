@@ -27,7 +27,7 @@ class IdentityBrokerTest {
     private final AttributeMapper mapper = new DefaultAttributeMapper();
 
     /** A configurable in-memory store standing in for the subscriber. */
-    private static final class FakeStore implements FederatedIdentityStore {
+    private static class FakeStore implements FederatedIdentityStore {
         final Map<String, String> links = new HashMap<>();         // "alias|subject" -> userId
         final Map<String, String> usersByEmail = new HashMap<>();  // email -> userId
         final AtomicReference<Map<String, String>> lastProvisionAttrs = new AtomicReference<>();
@@ -172,5 +172,44 @@ class IdentityBrokerTest {
         assertThat(result.resolved()).isFalse();
         assertThat(store.links).isEmpty();
         assertThat(store.provisionSeq).isZero();
+    }
+
+    @Test
+    void signsInAnAdministratorOnlyThroughALinkTheyMade() {
+        final FakeStore store = new FakeStore();
+        store.link("google", "sub-boss", "u-admin");
+        final IdentityBroker broker = new IdentityBroker(store, mapper);
+        broker.setAdminCheck((realm, userId) -> "u-admin".equals(userId));
+        final Map<String, String> via = new HashMap<>();
+        broker.setProvenance((alias, subject) -> Optional.ofNullable(via.get(alias + "|" + subject)));
+
+        assertThat(broker.broker(identity("sub-boss", null, false), AccountLinkingPolicy.defaults()).resolved())
+                .as("unknown provenance").isFalse();
+        via.put("google|sub-boss", "AUTO");
+        assertThat(broker.broker(identity("sub-boss", null, false), AccountLinkingPolicy.defaults()).resolved())
+                .as("made by matching an e-mail address").isFalse();
+        for (final String self : java.util.List.of("JIT", "SELF", "WALLET")) {
+            via.put("google|sub-boss", self);
+            assertThat(broker.broker(identity("sub-boss", null, false), AccountLinkingPolicy.defaults()).userId())
+                    .as(self).isEqualTo("u-admin");
+        }
+    }
+
+    @Test
+    void recordsHowEachLinkWasMade() {
+        final Map<String, String> made = new HashMap<>();
+        final FakeStore store = new FakeStore() {
+            @Override public void link(final String a, final String s, final String userId, final String createdVia) {
+                super.link(a, s, userId);
+                made.put(a + "|" + s, createdVia);
+            }
+        };
+        store.usersByEmail.put("ada@x.io", "user-7");
+        final IdentityBroker broker = new IdentityBroker(store, mapper);
+
+        broker.broker(identity("sub-1", "ada@x.io", true), AccountLinkingPolicy.defaults());
+        broker.broker(identity("sub-2", "new@x.io", true), AccountLinkingPolicy.defaults());
+
+        assertThat(made).containsEntry("google|sub-1", "AUTO").containsEntry("google|sub-2", "JIT");
     }
 }

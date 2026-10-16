@@ -126,4 +126,22 @@ class ApplicationConfigServiceTest {
         verify(serviceProviders, never()).save(any());
         verify(relyingParties, never()).delete(any());
     }
+
+    @Test
+    void onlyCosmetic_allowsDisplayNameAndDescriptionOnly() {
+        final ApplicationEntity e = new ApplicationEntity();
+        e.setRealmId("master");
+        e.setName("console");
+        e.setSubjectClaim("sub");
+        e.setAuthFlowAlias(null);
+        e.setEnabled(true);
+        assertThat(ApplicationConfigService.onlyCosmetic(e,
+                new ApplicationConfig("master", "console", "new desc", "sub", "", true, "New name"))).isTrue();
+        assertThat(ApplicationConfigService.onlyCosmetic(e,
+                new ApplicationConfig("master", "console", null, "email", null, true, null))).isFalse();
+        assertThat(ApplicationConfigService.onlyCosmetic(e,
+                new ApplicationConfig("master", "console", null, "sub", "partner", true, null))).isFalse();
+        assertThat(ApplicationConfigService.onlyCosmetic(e,
+                new ApplicationConfig("master", "console", null, "sub", null, false, null))).isFalse();
+    }
 }
