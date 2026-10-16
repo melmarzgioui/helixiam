@@ -52,15 +52,25 @@ public class RealmSigningSettingsService {
     private final TransactionTemplate tx;
     private final KeyMaterialService keys;
     private final ApplicationEventPublisher events;
+    private final RealmKeyLock lock;
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
 
     public RealmSigningSettingsService(final JdbcTemplate jdbc, final PlatformTransactionManager transactions,
-                                       final KeyMaterialService keys, final ApplicationEventPublisher events) {
+                                       final KeyMaterialService keys, final ApplicationEventPublisher events,
+                                       final RealmKeyLock lock) {
+        this.lock = lock;
         this.jdbc = jdbc;
         this.tx = new TransactionTemplate(transactions);
         this.tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.keys = keys;
         this.events = events;
+    }
+
+    /** The realm's settings straight from the database (no cache) — for decisions taken under the realm key lock. */
+    public Settings getUncached(final String realmId) {
+        final List<Settings> rows = jdbc.query("SELECT default_alg, saml_alg FROM realm_signing_settings "
+                + "WHERE realm_id = ?", (rs, i) -> new Settings(rs.getString(1), rs.getString(2)), realmId);
+        return rows.isEmpty() ? Settings.DEFAULTS : rows.get(0);
     }
 
     /** The realm's settings (defaults when it has none). */
@@ -90,31 +100,34 @@ public class RealmSigningSettingsService {
      * @return field errors ({@code defaultAlg}, {@code samlAlg}); empty when saved
      */
     public Map<String, String> put(final String realmId, final String defaultAlg, final String samlAlg) {
-        final Map<String, String> errors = new LinkedHashMap<>();
         final String d = defaultAlg == null || defaultAlg.isBlank() ? "RS256" : defaultAlg.trim().toUpperCase();
         final String sa = samlAlg == null || samlAlg.isBlank() ? "RS256" : samlAlg.trim().toUpperCase();
-        final Set<String> active = keys.activeAlgorithms(realmId);
-        if (!DEFAULT_ALGS.contains(d)) {
-            errors.put("defaultAlg", "The default signing algorithm must be RS256, PS256 or ES256");
-        } else if (!active.contains(d)) {
-            errors.put("defaultAlg", "The realm has no active " + d + " key; activate an EC key first");
-        }
-        if (!SAML_ALGS.contains(sa)) {
-            errors.put("samlAlg", "The SAML signing algorithm must be RS256 or ES256");
-        } else if (!active.contains(sa)) {
-            errors.put("samlAlg", "The realm has no active " + sa + " key; activate an EC key first");
-        }
-        if (!errors.isEmpty()) {
-            return errors;
-        }
-        tx.executeWithoutResult(t -> {
-            if (jdbc.update("UPDATE realm_signing_settings SET default_alg = ?, saml_alg = ?, updated_at = CURRENT_TIMESTAMP "
-                    + "WHERE realm_id = ?", d, sa, realmId) == 0) {
+        // Check and write under the realm key lock, so a concurrent retire of the EC key cannot slip in between.
+        final Map<String, String> errors = tx.execute(t -> {
+            lock.lock(realmId);
+            final Map<String, String> e = new LinkedHashMap<>();
+            final Set<String> active = keys.activeAlgorithms(realmId);
+            if (!DEFAULT_ALGS.contains(d)) {
+                e.put("defaultAlg", "The default signing algorithm must be RS256, PS256 or ES256");
+            } else if (!active.contains(d)) {
+                e.put("defaultAlg", "The realm has no active " + d + " key; activate an EC key first");
+            }
+            if (!SAML_ALGS.contains(sa)) {
+                e.put("samlAlg", "The SAML signing algorithm must be RS256 or ES256");
+            } else if (!active.contains(sa)) {
+                e.put("samlAlg", "The realm has no active " + sa + " key; activate an EC key first");
+            }
+            if (e.isEmpty() && jdbc.update("UPDATE realm_signing_settings SET default_alg = ?, saml_alg = ?, "
+                    + "updated_at = CURRENT_TIMESTAMP WHERE realm_id = ?", d, sa, realmId) == 0) {
                 jdbc.update("INSERT INTO realm_signing_settings (realm_id, default_alg, saml_alg) VALUES (?, ?, ?) "
                         + "ON CONFLICT (realm_id) DO UPDATE SET default_alg = EXCLUDED.default_alg, "
                         + "saml_alg = EXCLUDED.saml_alg, updated_at = CURRENT_TIMESTAMP", realmId, d, sa);
             }
+            return e;
         });
+        if (errors != null && !errors.isEmpty()) {
+            return errors;
+        }
         cache.remove(realmId);
         events.publishEvent(new RealmKeysChangedEvent(realmId));
         LOG.info("Signing settings of realm {} set: defaultAlg={} samlAlg={}", LogSafe.sanitize(realmId), d, sa);

@@ -199,6 +199,8 @@ public class RealmKeyAdminController {
     /** Retire a key so it drops out of the JWKS and SAML metadata. 404 unknown here, 409 for the ACTIVE key. */
     @DeleteMapping("/{keyId}")
     public ResponseEntity<?> retire(@PathVariable final String realmId, @PathVariable final String keyId,
+                                    @org.springframework.web.bind.annotation.RequestParam(value = "force",
+                                            defaultValue = "false") final boolean force,
                                     final HttpServletRequest http) {
         final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
         if (denied != null) {
@@ -206,7 +208,16 @@ public class RealmKeyAdminController {
         }
         final RealmKeyView before = publisher.list(realmId).stream().filter(k -> keyId.equals(k.keyId()))
                 .findFirst().orElse(null);
-        return switch (publisher.retire(realmId, keyId)) {
+        final RealmKeyConfigPublisher.RetireOutcome outcome;
+        try {
+            outcome = publisher.retire(realmId, keyId, force);
+        } catch (final RealmKeyService.KeyStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "in_use", "message", e.getMessage()));
+        }
+        if (force) {
+            http.setAttribute(FORCED, Boolean.TRUE);
+        }
+        return switch (outcome) {
             case NOT_FOUND -> ResponseEntity.notFound().build();
             case ACTIVE_REFUSED -> conflict("The active RS256 key cannot be retired: OpenID Connect requires RS256. "
                     + "Activate or rotate to another RSA key first.");

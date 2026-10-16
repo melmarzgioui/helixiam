@@ -333,9 +333,12 @@ public class RealmKeyService {
 
     /**
      * Retires a key of this realm (drops it from JWKS and metadata). The ACTIVE RSA key is refused (OIDC requires
-     * RS256); the ACTIVE EC key is refused while the realm's signing settings choose ES256.
+     * RS256); the ACTIVE EC key is refused while the realm's signing settings choose ES256, and — unless
+     * {@code force} — while clients ask for ES256.
+     *
+     * @throws KeyStateException the ACTIVE EC key is still used by clients (the message names them)
      */
-    public RetireOutcome retire(final String realmId, final String keyId) {
+    public RetireOutcome retire(final String realmId, final String keyId, final boolean force) {
         return locked(realmId, () -> {
             final Optional<RealmKey> found = find(realmId, keyId);
             if (found.isEmpty()) {
@@ -348,19 +351,49 @@ public class RealmKeyService {
                 }
                 final RealmSigningSettingsService s = settings == null ? null : settings.getIfAvailable();
                 if (s != null) {
-                    final RealmSigningSettingsService.Settings current = s.get(realmId);
+                    final RealmSigningSettingsService.Settings current = s.getUncached(realmId);
                     if (RealmKeyMaterial.ES256.equals(current.defaultAlg())
                             || RealmKeyMaterial.ES256.equals(current.samlAlg())) {
                         return RetireOutcome.IN_USE;
                     }
                 }
+                final List<String> clients = es256Clients == null ? List.of() : es256Clients.apply(realmId);
+                if (!force && !clients.isEmpty()) {
+                    throw new KeyStateException(clients.size() + " client(s) ask for ES256 ID tokens ("
+                            + String.join(", ", clients.subList(0, Math.min(10, clients.size())))
+                            + (clients.size() > 10 ? ", …" : "") + "); they would get RS256 from now on. Change them, "
+                            + "or retire with force.");
+                }
             }
             key.setStatus(RealmKey.Status.RETIRED);
             realmKeyRepository.save(key);
-            LOG.info("Retired signing key realm={} keyId={}", LogSafe.sanitize(realmId), LogSafe.sanitize(keyId));
+            LOG.info("Retired signing key realm={} keyId={} forced={}", LogSafe.sanitize(realmId),
+                    LogSafe.sanitize(keyId), force);
             changed(realmId);
             return RetireOutcome.RETIRED;
         });
+    }
+
+    /** {@link #retire(String, String, boolean)} without force. */
+    public RetireOutcome retire(final String realmId, final String keyId) {
+        return retire(realmId, keyId, false);
+    }
+
+    /** The names (never ids) of the realm's clients that ask for ES256-signed ID tokens. */
+    private java.util.function.Function<String, List<String>> es256Clients;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setClientLookup(final ObjectProvider<io.helixiam.authorization.amqp.client.ClientAdminPublisher> clients) {
+        this.es256Clients = realmId -> {
+            final io.helixiam.authorization.amqp.client.ClientAdminPublisher p = clients.getIfAvailable();
+            if (p == null) {
+                return List.of();
+            }
+            return p.list(realmId).stream()
+                    .filter(c -> RealmKeyMaterial.ES256.equalsIgnoreCase(c.idTokenSignatureAlg()))
+                    .map(c -> c.name() != null && !c.name().isBlank() ? c.name() : c.clientId())
+                    .toList();
+        };
     }
 
     // ------------------------------------------------------------------------------------------------ helpers

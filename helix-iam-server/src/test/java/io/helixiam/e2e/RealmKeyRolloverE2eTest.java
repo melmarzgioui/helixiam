@@ -281,7 +281,15 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
         // Back to RS256: then the EC key may be retired, and discovery drops ES256 (RS256 is always there).
         assertThat(admin.put("/admin/realms/" + realm + "/settings/signing", Map.of("defaultAlg", "RS256",
                 "samlAlg", "RS256")).status()).isEqualTo(200);
-        assertThat(admin.delete(keys(realm) + "/" + ecKeyId).status()).isEqualTo(204);
+        // A client still asks for ES256 ID tokens: refused (naming it, never by id) unless forced; forced is audited.
+        final E2eHttp.Response inUse = admin.delete(keys(realm) + "/" + ecKeyId);
+        assertThat(inUse.status()).isEqualTo(409);
+        assertThat(inUse.json().path("message").asText()).contains("1 client").contains("ecweb")
+                .doesNotContain(ecClient.id());
+        try (LogCapture audit = LogCapture.named("helix.audit")) {
+            assertThat(admin.delete(keys(realm) + "/" + ecKeyId + "?force=true").status()).isEqualTo(204);
+            assertThat(audit.text()).contains("REALM_KEY_RETIRE").contains("\"forced\":\"true\"");
+        }
         assertThat(discoveryAlgs(oidc)).containsExactly("RS256", "PS256");
         assertThat(alg(oidc(realm).authorizationCode("ecweb", ecClient.secret(), ecClient.redirectUri(),
                 user.username(), PASSWORD, "openid profile").idToken()))

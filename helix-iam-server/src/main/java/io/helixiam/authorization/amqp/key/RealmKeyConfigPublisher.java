@@ -52,5 +52,5 @@ public interface RealmKeyConfigPublisher {
     RealmKeyView activate(String realmId, String keyId, boolean force);
 
     /** Retire a key of this realm (the ACTIVE key is refused). */
-    RetireOutcome retire(String realmId, String keyId);
+    RetireOutcome retire(String realmId, String keyId, boolean force);
 }

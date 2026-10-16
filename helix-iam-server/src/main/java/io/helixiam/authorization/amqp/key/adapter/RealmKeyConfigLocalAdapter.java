@@ -69,8 +69,8 @@ public class RealmKeyConfigLocalAdapter implements RealmKeyConfigPublisher {
     }
 
     @Override
-    public RetireOutcome retire(final String realmId, final String keyId) {
-        return RetireOutcome.valueOf(service.retire(realmId, keyId).name());
+    public RetireOutcome retire(final String realmId, final String keyId, final boolean force) {
+        return RetireOutcome.valueOf(service.retire(realmId, keyId, force).name());
     }
 
     private RealmKeyView view(final RealmKey key) {
