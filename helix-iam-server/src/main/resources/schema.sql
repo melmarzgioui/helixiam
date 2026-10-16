@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS realm_key (
     expiry_warned_on      date DEFAULT NULL
     );
 CREATE INDEX IF NOT EXISTS realm_key_realm_status_idx ON realm_key (realm_id, status);
+-- V86: rc.11 could store the same key twice (two concurrent first-use requests of a realm): keep, per public key, an
+-- ACTIVE row (the newest) or, without one, the newest row, so the unique index below can be built. Idempotent.
+DELETE FROM realm_key k
+    USING (SELECT key_id,
+                  ROW_NUMBER() OVER (PARTITION BY public_key
+                                     ORDER BY (status = 'ACTIVE') DESC, creation_date DESC NULLS LAST, key_id DESC) AS rn
+             FROM realm_key) d
+    WHERE k.key_id = d.key_id AND d.rn > 1;
 -- V86: the same public key can never be stored twice.
 CREATE UNIQUE INDEX IF NOT EXISTS realm_key_public_key_uidx ON realm_key (public_key);
 -- V86: per-realm signing algorithm choices (optional rows; RS256 when absent).

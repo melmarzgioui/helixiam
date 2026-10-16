@@ -41,8 +41,10 @@ class FlywayRealmKeyCertificatesTest {
     void v86_migratesRc11Rows_andTheyStillSign() throws Exception {
         final DriverManagerDataSource ds = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword());
-        Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("85").load().migrate();
         final JdbcTemplate jdbc = new JdbcTemplate(ds);
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("85").load().migrate();
 
         // Two rows exactly as rc.11 wrote them: the column default ('RSA') and an explicit 'RSA'.
         final KeyPairGenerator g = KeyPairGenerator.getInstance("RSA");
@@ -102,6 +104,38 @@ class FlywayRealmKeyCertificatesTest {
         jdbc.update("INSERT INTO realm_signing_settings (realm_id) VALUES ('acme')");
         assertThat(jdbc.queryForMap("SELECT default_alg, saml_alg FROM realm_signing_settings WHERE realm_id = 'acme'"))
                 .containsEntry("default_alg", "RS256").containsEntry("saml_alg", "RS256");
+    }
+
+    @Test
+    void v86_deduplicatesRc11FirstUseRaces_beforeTheUniqueIndex() throws Exception {
+        final PostgreSQLContainer<?> db = POSTGRES;
+        final DriverManagerDataSource ds = new DriverManagerDataSource(db.getJdbcUrl(), db.getUsername(), db.getPassword());
+        final JdbcTemplate jdbc = new JdbcTemplate(ds);
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("85").load().migrate();
+        final KeyPairGenerator g = KeyPairGenerator.getInstance("RSA");
+        g.initialize(2048);
+        final String pubA = b64(g.generateKeyPair().getPublic().getEncoded());
+        final String pubB = b64(g.generateKeyPair().getPublic().getEncoded());
+        // rc.11: two concurrent first-use requests stored the same key twice (both ACTIVE), and an older duplicate.
+        final String insert = "INSERT INTO realm_key (key_id, realm_id, public_key, private_key, status, creation_date) "
+                + "VALUES (?, 'acme', ?, 'x', ?, ?)";
+        jdbc.update(insert, "a-old", pubA, "ROTATED", java.sql.Timestamp.valueOf("2026-01-01 00:00:00"));
+        jdbc.update(insert, "a-active", pubA, "ACTIVE", java.sql.Timestamp.valueOf("2026-01-02 00:00:00"));
+        jdbc.update(insert, "a-active2", pubA, "ACTIVE", java.sql.Timestamp.valueOf("2026-01-02 00:00:01"));
+        jdbc.update(insert, "b-1", pubB, "ROTATED", java.sql.Timestamp.valueOf("2026-01-01 00:00:00"));
+        jdbc.update(insert, "b-2", pubB, "RETIRED", java.sql.Timestamp.valueOf("2026-02-01 00:00:00"));
+
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
+
+        assertThat(jdbc.queryForList("SELECT key_id FROM realm_key WHERE public_key = ?", String.class, pubA))
+                .containsExactly("a-active2"); // an ACTIVE row, the newest
+        assertThat(jdbc.queryForList("SELECT key_id FROM realm_key WHERE public_key = ?", String.class, pubB))
+                .containsExactly("b-2"); // no ACTIVE row: the newest
+        // Idempotent: running the dedupe again changes nothing.
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM realm_key", Integer.class)).isEqualTo(2);
     }
 
     private static String b64(final byte[] b) {

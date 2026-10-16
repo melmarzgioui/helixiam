@@ -157,15 +157,15 @@ public class RealmKeyService {
      */
     public RealmKey getOrImportActive(final String realmId, final String algorithm,
                                       final String publicKeyBase64, final String privateKeyBase64) {
-        return activeKey(realmId, RealmKeyMaterial.RS256)
-                .orElseGet(() -> {
+        return activeKey(realmId, RealmKeyMaterial.RS256).orElseGet(() -> locked(realmId, () ->
+                activeKey(realmId, RealmKeyMaterial.RS256).orElseGet(() -> {
                     final RealmKey seed = new RealmKey(UUID.randomUUID().toString(), realmId,
                             RealmKeyMaterial.normalizeAlgorithm(algorithm), publicKeyBase64, privateKeyBase64);
                     seed.setActivatedDate(new Date());
                     final RealmKey imported = realmKeyRepository.save(seed);
                     LOG.debug("Imported seed ACTIVE key {} for realm {}", imported.getKeyId(), realmId);
                     return imported;
-                });
+                })));
     }
 
     /** Keys to publish for verification: ACTIVE + ROTATED. */

@@ -19,6 +19,14 @@ ALTER TABLE realm_key ADD COLUMN IF NOT EXISTS activated_date timestamp DEFAULT 
 -- replica claims the day first.
 ALTER TABLE realm_key ADD COLUMN IF NOT EXISTS expiry_warned_on date DEFAULT NULL;
 
+-- rc.11 could store the same key twice (two concurrent first-use requests of a realm): keep, per public key, an
+-- ACTIVE row (the newest) or, without one, the newest row, so the unique index below can be built. Idempotent.
+DELETE FROM realm_key k
+    USING (SELECT key_id,
+                  ROW_NUMBER() OVER (PARTITION BY public_key
+                                     ORDER BY (status = 'ACTIVE') DESC, creation_date DESC NULLS LAST, key_id DESC) AS rn
+             FROM realm_key) d
+    WHERE k.key_id = d.key_id AND d.rn > 1;
 -- A key belongs to one realm (its kid is derived from it): the same public key can never be stored twice.
 CREATE UNIQUE INDEX IF NOT EXISTS realm_key_public_key_uidx ON realm_key (public_key);
 
