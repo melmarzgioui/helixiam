@@ -61,13 +61,22 @@ public class RealmJwkSource implements JWKSource<SecurityContext> {
 
     @Override
     public List<JWK> get(final com.nimbusds.jose.jwk.JWKSelector selector, final SecurityContext context) {
-        final JWKSet set = current();
-        final List<JWK> selected = selector.select(set);
+        return select(current(), selector);
+    }
 
+    /**
+     * Selection over a fixed set. A <i>signing</i> selection (the matcher is constrained by key type or algorithm)
+     * that matches several keys returns only the ones holding a private key — the ACTIVE key of that family; an
+     * unconstrained selection (the JWKS publish) returns every key.
+     */
+    static List<JWK> select(final JWKSet set, final com.nimbusds.jose.jwk.JWKSelector selector) {
+        if (set == null) {
+            return List.of();
+        }
+        final List<JWK> selected = selector.select(set);
         final boolean signingSelection =
                 (selector.getMatcher().getKeyTypes() != null && !selector.getMatcher().getKeyTypes().isEmpty())
                         || (selector.getMatcher().getAlgorithms() != null && !selector.getMatcher().getAlgorithms().isEmpty());
-
         if (signingSelection && selected.size() > 1) {
             final List<JWK> withPrivate = new ArrayList<>();
             for (final JWK jwk : selected) {
@@ -80,6 +89,29 @@ public class RealmJwkSource implements JWKSource<SecurityContext> {
             }
         }
         return selected;
+    }
+
+    /** The current realm's key set, fetched once — for an encoder that must not see the cache change mid-encode. */
+    public JWKSet snapshot() {
+        return current();
+    }
+
+    /** A JWK source over a fixed snapshot, with this source's selection rules. */
+    public static JWKSource<SecurityContext> fixed(final JWKSet snapshot) {
+        return (selector, context) -> select(snapshot, selector);
+    }
+
+    /** The JWS algorithms the ACTIVE (private) keys of {@code set} can sign: RS256 + PS256 (RSA), ES256 (EC). */
+    public static java.util.Set<String> signingAlgorithms(final JWKSet set) {
+        final java.util.Set<String> algs = new java.util.LinkedHashSet<>();
+        if (set != null) {
+            for (final JWK jwk : set.getKeys()) {
+                if (jwk.isPrivate() && jwk.getAlgorithm() != null) {
+                    algs.add(jwk.getAlgorithm().getName());
+                }
+            }
+        }
+        return algs;
     }
 
     private JWKSet current() {
@@ -99,42 +131,22 @@ public class RealmJwkSource implements JWKSource<SecurityContext> {
     }
 
     /**
-     * The JWS algorithm of the current realm's ACTIVE key (RS256 or ES256): the key that signs. {@code null} when the
-     * key set cannot be loaded.
-     */
-    public String activeAlgorithm() {
-        final JWKSet set = current();
-        if (set == null) {
-            return null;
-        }
-        for (final JWK jwk : set.getKeys()) {
-            if (jwk.isPrivate()) {
-                return jwk instanceof com.nimbusds.jose.jwk.ECKey ? "ES256" : "RS256";
-            }
-        }
-        return null;
-    }
-
-    /**
-     * The JWS algorithms the current realm's published keys allow (ID-token discovery metadata), the ACTIVE key's
-     * first: RSA keys give RS256 and PS256, EC keys ES256.
+     * Discovery's {@code id_token_signing_alg_values_supported}: exactly the algorithms of the realm's ACTIVE keys
+     * (PENDING and ROTATED keys are excluded), RS256 first — OpenID Connect requires RS256, and every realm has an
+     * ACTIVE RSA key.
      */
     public List<String> publishedAlgorithms() {
-        final java.util.LinkedHashSet<String> algs = new java.util.LinkedHashSet<>();
-        final JWKSet set = current();
-        if (set != null) {
-            final List<JWK> ordered = new ArrayList<>(set.getKeys());
-            ordered.sort(java.util.Comparator.comparing(j -> !j.isPrivate()));
-            for (final JWK jwk : ordered) {
-                if (jwk.getAlgorithm() != null) {
-                    algs.add(jwk.getAlgorithm().getName());
-                }
+        final java.util.Set<String> active = signingAlgorithms(current());
+        final List<String> out = new ArrayList<>();
+        for (final String alg : List.of("RS256", "PS256", "ES256")) {
+            if (active.contains(alg)) {
+                out.add(alg);
             }
         }
-        if (algs.isEmpty()) {
-            algs.add("RS256");
+        if (!out.contains("RS256")) {
+            out.add(0, "RS256");
         }
-        return new ArrayList<>(algs);
+        return out;
     }
 
     /** A realm's keys changed on this replica: drop its cached set so the change shows at once. */

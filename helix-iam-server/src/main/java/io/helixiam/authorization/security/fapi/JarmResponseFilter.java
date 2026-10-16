@@ -12,7 +12,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -151,7 +150,7 @@ public class JarmResponseFilter extends OncePerRequestFilter {
                 }
             });
             return jwtEncoder.encode(JwtEncoderParameters.from(
-                    JwsHeader.with(SignatureAlgorithm.RS256).build(), set.build())).getTokenValue();
+                    JwsHeader.with(io.helixiam.authorization.security.RealmAlgorithmJwtEncoder.REALM_DEFAULT).build(), set.build())).getTokenValue();
         }
 
         private void parseInto(final String raw, final Map<String, String> out) {

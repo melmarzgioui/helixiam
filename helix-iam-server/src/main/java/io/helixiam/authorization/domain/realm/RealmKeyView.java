@@ -25,10 +25,12 @@ import java.util.List;
  * @param hasCsr               whether a CSR can be downloaded again ({@code GET /keys/{keyId}/csr})
  * @param publicKeyFingerprint SHA-256 of the public key (SPKI)
  * @param certificate          the leaf certificate's facts, or {@code null} when the key has no certificate
+ * @param activatableAt        for a PENDING key: when the minimum staging time has passed (epoch millis)
  */
 public record RealmKeyView(String keyId, String algorithm, String status, String publicKey,
                            Long createdAt, Long rotatedAt, String kid, String source, Long activatedAt,
-                           boolean hasCsr, String publicKeyFingerprint, CertificateInfo certificate) {
+                           boolean hasCsr, String publicKeyFingerprint, CertificateInfo certificate,
+                           Long activatableAt) {
 
     /** Days before notAfter from which a certificate counts as expiring (console chip, expiry warnings). */
     public static final long EXPIRY_WARNING_DAYS = 30;
@@ -42,10 +44,10 @@ public record RealmKeyView(String keyId, String algorithm, String status, String
 
     /** Maps a stored key to its public projection (drops the private key). */
     public static RealmKeyView from(final RealmKey key) {
-        return from(key, Instant.now());
+        return from(key, Instant.now(), Duration.ZERO);
     }
 
-    public static RealmKeyView from(final RealmKey key, final Instant now) {
+    public static RealmKeyView from(final RealmKey key, final Instant now, final Duration minStaging) {
         String kid = null;
         String fingerprint = null;
         try {
@@ -59,7 +61,9 @@ public record RealmKeyView(String keyId, String algorithm, String status, String
                 key.getKeyId(), key.getJwsAlgorithm(), key.getStatus(), key.getPublicKey(),
                 millis(key.getCreationDate()), millis(key.getRotatedDate()), kid, key.getSource(),
                 millis(key.getActivatedDate()), key.getCsrPem() != null && !key.getCsrPem().isBlank(), fingerprint,
-                certificate(key.getCertificateChainPem(), now));
+                certificate(key.getCertificateChainPem(), now),
+                key.hasStatus(RealmKey.Status.PENDING) && key.getCreationDate() != null
+                        ? key.getCreationDate().getTime() + minStaging.toMillis() : null);
     }
 
     /** The leaf facts of a stored chain, or {@code null}. */

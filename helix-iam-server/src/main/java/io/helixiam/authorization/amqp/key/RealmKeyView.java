@@ -11,7 +11,8 @@ package io.helixiam.authorization.amqp.key;
  */
 public record RealmKeyView(String keyId, String algorithm, String status, String publicKey,
                            Long createdAt, Long rotatedAt, String kid, String source, Long activatedAt,
-                           boolean hasCsr, String publicKeyFingerprint, CertificateInfo certificate) {
+                           boolean hasCsr, String publicKeyFingerprint, CertificateInfo certificate,
+                           Long activatableAt) {
 
     /** The leaf certificate's public facts. */
     public record CertificateInfo(String subject, String issuer, String serialNumber, Long notBefore, Long notAfter,

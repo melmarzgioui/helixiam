@@ -64,8 +64,8 @@ public class RealmKeyConfigLocalAdapter implements RealmKeyConfigPublisher {
     }
 
     @Override
-    public RealmKeyView activate(final String realmId, final String keyId) {
-        return view(service.activate(realmId, keyId));
+    public RealmKeyView activate(final String realmId, final String keyId, final boolean force) {
+        return view(service.activate(realmId, keyId, force));
     }
 
     @Override
@@ -74,6 +74,7 @@ public class RealmKeyConfigLocalAdapter implements RealmKeyConfigPublisher {
     }
 
     private RealmKeyView view(final RealmKey key) {
-        return bridge.to(io.helixiam.authorization.domain.realm.RealmKeyView.from(key), RealmKeyView.class);
+        return bridge.to(io.helixiam.authorization.domain.realm.RealmKeyView.from(key, java.time.Instant.now(),
+                service.minStaging()), RealmKeyView.class);
     }
 }

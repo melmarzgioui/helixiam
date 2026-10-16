@@ -28,7 +28,7 @@ public interface RealmKeyConfigPublisher {
     }
 
     /** Outcome of {@link #retire}: RETIRED, NOT_FOUND or ACTIVE_REFUSED. */
-    enum RetireOutcome { RETIRED, NOT_FOUND, ACTIVE_REFUSED }
+    enum RetireOutcome { RETIRED, NOT_FOUND, ACTIVE_REFUSED, IN_USE }
 
     /** All keys for a realm (every status), newest first. */
     List<RealmKeyView> list(String realmId);
@@ -48,8 +48,8 @@ public interface RealmKeyConfigPublisher {
     /** Attach a certificate chain to a PENDING or ACTIVE key of this realm. */
     RealmKeyView attachCertificate(String realmId, String keyId, String certificateChainPem);
 
-    /** Activate a PENDING key of this realm. */
-    RealmKeyView activate(String realmId, String keyId);
+    /** Activate a PENDING key of this realm ({@code force}: skip the minimum staging time). */
+    RealmKeyView activate(String realmId, String keyId, boolean force);
 
     /** Retire a key of this realm (the ACTIVE key is refused). */
     RetireOutcome retire(String realmId, String keyId);

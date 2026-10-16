@@ -39,6 +39,32 @@ public class ClientAdminController {
         this(publisher, io.helixiam.common.startup.DeploymentProfile.production());
     }
 
+    /** BYO keys: an ID-token algorithm needs an ACTIVE key for it in the realm. */
+    private io.helixiam.authorization.service.key.KeyMaterialService keyMaterial;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKeyMaterial(final io.helixiam.authorization.service.key.KeyMaterialService keyMaterial) {
+        this.keyMaterial = keyMaterial;
+    }
+
+    /**
+     * 400 when the client asks for ID tokens signed with an algorithm the realm has no ACTIVE key for (OIDC
+     * {@code id_token_signed_response_alg}); null when fine or unset (RS256).
+     */
+    private ResponseEntity<?> idTokenAlgProblem(final String realmId, final String alg) {
+        if (keyMaterial == null || alg == null || alg.isBlank()) {
+            return null;
+        }
+        final java.util.Set<String> active = keyMaterial.activeAlgorithms(realmId);
+        if (active.contains(alg.trim())) {
+            return null;
+        }
+        final String message = "The realm has no active key for " + alg.trim() + "; ID tokens can be signed with "
+                + String.join(", ", active) + ". Activate an ES256 key on the Realm keys page first.";
+        return ResponseEntity.badRequest().body(Map.of("message", message, "fieldErrors",
+                Map.of("idTokenSignatureAlg", message)));
+    }
+
     /** Security review item 3b: a flow that needs the engine cannot be bound while it is off. */
     private FlowSaveChecks checks;
 
@@ -87,6 +113,10 @@ public class ClientAdminController {
                     Map.of("jwksUrl", jwksUrlProblem), "fieldErrorCodes",
                     Map.of("jwksUrl", jwksUrlCode(request.jwksUrl()))));
         }
+        final ResponseEntity<?> algProblem = idTokenAlgProblem(realmId, request.idTokenSignatureAlg());
+        if (algProblem != null) {
+            return algProblem;
+        }
         final ClientDto saved = publisher.create(new ClientWriteDto(realmId, null, request.clientId(),
                 request.grantTypes(), request.redirectUris(), request.scopes(), request.subjectClaim(),
                 request.authFlowAlias(), request.name(), request.description(), request.postLogoutRedirectUris(),
@@ -123,6 +153,10 @@ public class ClientAdminController {
             return ResponseEntity.badRequest().body(Map.of("message", jwksUrlProblem, "fieldErrors",
                     Map.of("jwksUrl", jwksUrlProblem), "fieldErrorCodes",
                     Map.of("jwksUrl", jwksUrlCode(request.jwksUrl()))));
+        }
+        final ResponseEntity<?> algProblem = idTokenAlgProblem(realmId, request.idTokenSignatureAlg());
+        if (algProblem != null) {
+            return algProblem;
         }
         final ClientDto saved = publisher.update(new ClientWriteDto(realmId, id, request.clientId(),
                 request.grantTypes(), request.redirectUris(), request.scopes(), request.subjectClaim(),

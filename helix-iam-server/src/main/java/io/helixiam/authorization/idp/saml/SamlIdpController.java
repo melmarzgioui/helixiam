@@ -486,7 +486,8 @@ public class SamlIdpController {
         // SP that trusts this realm's metadata verifies assertions this realm actually signs.
         final SamlIdpConfig idp = credentialSource.forRealm(realm);
         // BYO keys (D25): the ACTIVE certificate first, then PENDING and ROTATED ones (SPs that re-read metadata
-        // roll over); encryption only with an RSA active key (SPs encrypt to the IdP with RSA-OAEP).
+        // roll over); encryption only with an RSA signing certificate whose keyUsage allows keyEncipherment (or has
+        // none) — SPs encrypt to the IdP with RSA-OAEP.
         final String cert = certBody(idp.signingCertificate());
         final StringBuilder signing = new StringBuilder(keyDescriptor("signing", cert));
         final java.util.Set<String> seen = new java.util.HashSet<>(java.util.List.of(cert));
@@ -532,11 +533,14 @@ public class SamlIdpController {
                 + "</md:KeyDescriptor>";
     }
 
-    private static boolean isRsaCertificate(final String pem) {
+    /** Whether SPs may encrypt to this certificate: an RSA key whose keyUsage (if any) allows keyEncipherment. */
+    static boolean isRsaCertificate(final String pem) {
         try {
-            return "RSA".equals(SamlSigningSupport.parseCertificate(pem).getPublicKey().getAlgorithm());
+            final java.security.cert.X509Certificate cert = SamlSigningSupport.parseCertificate(pem);
+            final boolean[] usage = cert.getKeyUsage();
+            return "RSA".equals(cert.getPublicKey().getAlgorithm()) && (usage == null || (usage.length > 2 && usage[2]));
         } catch (final Exception e) {
-            return true;
+            return false;
         }
     }
 }

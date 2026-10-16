@@ -17,6 +17,9 @@ import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -95,5 +98,40 @@ class KeyMaterialServiceTest {
     @Test
     void adminRealmConstant_isMaster() {
         assertEquals(RealmConfig.ADMIN_REALM_ID, KeyMaterialService.SIGNING_REALM_ID);
+    }
+
+    @Test
+    void twoActiveKeysOfOneFamily_signWithTheNewest_publishTheOther_andAuditOnce() {
+        final java.security.KeyPair a = io.helixiam.testsupport.TestPki.rsa(2048);
+        final java.security.KeyPair b = io.helixiam.testsupport.TestPki.rsa(2048);
+        final RealmKey older = row("older", a, new java.util.Date(1_000));
+        final RealmKey newer = row("newer", b, new java.util.Date(2_000));
+        final RealmKeyService realmKeyService = mock(RealmKeyService.class);
+        when(realmKeyService.getOrCreateActive("acme")).thenReturn(newer);
+        when(realmKeyService.publishedKeys("acme")).thenReturn(List.of(older, newer));
+        final io.helixiam.authorization.security.audit.AuditLog audit =
+                mock(io.helixiam.authorization.security.audit.AuditLog.class);
+        @SuppressWarnings("unchecked")
+        final org.springframework.beans.factory.ObjectProvider<io.helixiam.authorization.security.audit.AuditLog> p =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(p.getIfAvailable()).thenReturn(audit);
+        final KeyMaterialService service = new KeyMaterialService(realmKeyService, p);
+
+        final List<PublishedKey> keys = service.publishedKeys("acme");
+        service.publishedKeys("acme");
+
+        assertThat(keys).extracting(PublishedKey::keyId, PublishedKey::status)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("newer", "ACTIVE"),
+                        org.assertj.core.groups.Tuple.tuple("older", "ROTATED"));
+        verify(audit, org.mockito.Mockito.times(1)).emit(org.mockito.ArgumentMatchers.argThat(
+                e -> "REALM_KEY_DUPLICATE_ACTIVE".equals(e.type())));
+    }
+
+    private static RealmKey row(final String id, final java.security.KeyPair kp, final java.util.Date activated) {
+        final RealmKey k = new RealmKey(id, "acme", "RS256",
+                java.util.Base64.getEncoder().encodeToString(kp.getPublic().getEncoded()),
+                java.util.Base64.getEncoder().encodeToString(kp.getPrivate().getEncoded()));
+        k.setActivatedDate(activated);
+        return k;
     }
 }

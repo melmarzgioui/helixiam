@@ -54,19 +54,39 @@ public class RealmSamlCredentialSource {
     private record Cached(String kid, SamlIdpConfig config, long fetchedAtMs) {
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
+    /** Tests: SAML signs with the ACTIVE RSA key. */
     public RealmSamlCredentialSource(final ServiceProviderPublisher serviceProviderPublisher,
                                      final SamlIdpProperties properties) {
         this(serviceProviderPublisher, properties, REFRESH_TTL_MS);
     }
 
-    /** TTL-overridable constructor for tests (rotation propagation). */
+    @org.springframework.beans.factory.annotation.Autowired
+    public RealmSamlCredentialSource(final ServiceProviderPublisher serviceProviderPublisher,
+                                     final SamlIdpProperties properties,
+                                     final org.springframework.beans.factory.ObjectProvider<
+                                             io.helixiam.authorization.service.key.RealmSigningSettingsService> settings) {
+        this(serviceProviderPublisher, properties, REFRESH_TTL_MS, realm -> {
+            final io.helixiam.authorization.service.key.RealmSigningSettingsService s = settings.getIfAvailable();
+            return s == null ? "RS256" : s.get(realm).samlAlg();
+        });
+    }
+
+    /** TTL-overridable constructor for tests (rotation propagation); SAML signs RS256. */
     RealmSamlCredentialSource(final ServiceProviderPublisher serviceProviderPublisher,
                               final SamlIdpProperties properties, final long ttlMs) {
+        this(serviceProviderPublisher, properties, ttlMs, realm -> "RS256");
+    }
+
+    RealmSamlCredentialSource(final ServiceProviderPublisher serviceProviderPublisher,
+                              final SamlIdpProperties properties, final long ttlMs,
+                              final java.util.function.Function<String, String> samlAlgorithm) {
         this.serviceProviderPublisher = serviceProviderPublisher;
         this.properties = properties;
         this.ttlMs = ttlMs;
+        this.samlAlgorithm = samlAlgorithm;
     }
+
+    private final java.util.function.Function<String, String> samlAlgorithm;
 
     /** The SAML IdP signing config for the CURRENT realm (from {@link RealmContextHolder}). */
     public SamlIdpConfig current() {
@@ -84,14 +104,15 @@ public class RealmSamlCredentialSource {
         final java.util.List<io.helixiam.authorization.service.key.PublishedKey> published =
                 serviceProviderPublisher.retrievePublishedKeys(realm);
         if (published != null && !published.isEmpty()) {
-            final String fingerprint = published.stream().map(k -> k.keyId() + ":" + k.status() + ":"
+            final String samlAlg = samlAlgorithm.apply(realm);
+            final String fingerprint = samlAlg + ";" + published.stream().map(k -> k.keyId() + ":" + k.status() + ":"
                     + (k.leaf() == null ? "-" : io.helixiam.authorization.service.key.RealmKeyMaterial.fingerprint(k.leaf())))
                     .collect(java.util.stream.Collectors.joining(","));
             if (existing != null && existing.kid().equals(fingerprint)) {
                 byRealm.put(realm, new Cached(fingerprint, existing.config(), now));
                 return existing.config();
             }
-            final SamlIdpConfig config = build(realm, published);
+            final SamlIdpConfig config = build(realm, published, samlAlg);
             byRealm.put(realm, new Cached(fingerprint, config, now));
             return config;
         }
@@ -126,13 +147,27 @@ public class RealmSamlCredentialSource {
      * deterministic self-signed certificate. PENDING then ROTATED keys follow as extra signing certificates.
      */
     private SamlIdpConfig build(final String realm,
-                                final java.util.List<io.helixiam.authorization.service.key.PublishedKey> published) {
+                                final java.util.List<io.helixiam.authorization.service.key.PublishedKey> published,
+                                final String samlAlg) {
+        // SAML signs with the ACTIVE RSA key unless the realm's signing settings choose ES256 (and an EC key is
+        // ACTIVE): many service providers accept RSA signatures only.
+        final boolean wantEc = "ES256".equals(samlAlg);
         io.helixiam.authorization.service.key.PublishedKey active = null;
+        for (final io.helixiam.authorization.service.key.PublishedKey k : published) {
+            if (k.active() && wantEc == "ES256".equals(k.algorithm()) && active == null) {
+                active = k;
+            }
+        }
+        if (active == null) {
+            for (final io.helixiam.authorization.service.key.PublishedKey k : published) {
+                if (k.active() && !"ES256".equals(k.algorithm()) && active == null) {
+                    active = k;
+                }
+            }
+        }
         final java.util.List<String> additional = new java.util.ArrayList<>();
         for (final io.helixiam.authorization.service.key.PublishedKey k : published) {
-            if (k.active() && active == null) {
-                active = k;
-            } else {
+            if (k != active) {
                 additional.add(pem("CERTIFICATE", encoded(certificateFor(realm, k))));
             }
         }

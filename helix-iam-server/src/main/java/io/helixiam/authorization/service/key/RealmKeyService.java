@@ -17,10 +17,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
@@ -28,6 +31,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Manages per-realm signing keys with zero-downtime, staged rollover (Helix IAM E1.4; bring-your-own keys, see
@@ -52,28 +56,53 @@ public class RealmKeyService {
     private final boolean encrypted;
     private final DeploymentProfile profile;
     private final ApplicationEventPublisher events;
+    private final TransactionTemplate tx;
+    private final RealmKeyLock lock;
+    private final Duration minStaging;
+    private final ObjectProvider<RealmSigningSettingsService> settings;
 
-    /** Tests: encryption assumed configured, no cache events. */
+    /** Tests: encryption assumed configured, no cache events, no transactions/locks, no minimum staging time. */
     public RealmKeyService(final RealmKeyRepository realmKeyRepository, final SigningKeyProvider keyProvider) {
-        this(realmKeyRepository, keyProvider, true, DeploymentProfile.production(), null);
+        this(realmKeyRepository, keyProvider, true, DeploymentProfile.production(), null, null, null, Duration.ZERO,
+                null);
     }
 
     @Autowired
     public RealmKeyService(final RealmKeyRepository realmKeyRepository, final SigningKeyProvider keyProvider,
                            @Value("${database.encryption:#{null}}") final String encryptionKey,
-                           final DeploymentProfile profile, final ApplicationEventPublisher events) {
+                           final DeploymentProfile profile, final ApplicationEventPublisher events,
+                           final PlatformTransactionManager transactions, final RealmKeyLock lock,
+                           @Value("${helix.keys.min-staging:PT5M}") final Duration minStaging,
+                           final ObjectProvider<RealmSigningSettingsService> settings) {
         this(realmKeyRepository, keyProvider,
                 !ENCRYPTION_PROBE.equals(new AttributeEncryption(encryptionKey).convertToDatabaseColumn(ENCRYPTION_PROBE)),
-                profile, events);
+                profile, events, new TransactionTemplate(transactions), lock, minStaging, settings);
     }
 
     RealmKeyService(final RealmKeyRepository realmKeyRepository, final SigningKeyProvider keyProvider,
-                    final boolean encrypted, final DeploymentProfile profile, final ApplicationEventPublisher events) {
+                    final boolean encrypted, final DeploymentProfile profile, final ApplicationEventPublisher events,
+                    final TransactionTemplate tx, final RealmKeyLock lock, final Duration minStaging,
+                    final ObjectProvider<RealmSigningSettingsService> settings) {
         this.realmKeyRepository = realmKeyRepository;
         this.keyProvider = keyProvider;
         this.encrypted = encrypted;
         this.profile = profile;
         this.events = events;
+        this.tx = tx;
+        this.lock = lock;
+        this.minStaging = minStaging == null ? Duration.ZERO : minStaging;
+        this.settings = settings;
+    }
+
+    /** Tests: the unencrypted-store variant. */
+    RealmKeyService(final RealmKeyRepository realmKeyRepository, final SigningKeyProvider keyProvider,
+                    final boolean encrypted, final DeploymentProfile profile, final ApplicationEventPublisher events) {
+        this(realmKeyRepository, keyProvider, encrypted, profile, events, null, null, Duration.ZERO, null);
+    }
+
+    /** How long a key must be PENDING (published) before it can be activated without {@code force}. */
+    public Duration minStaging() {
+        return minStaging;
     }
 
     /** A CSR key and its PKCS#10 request (PEM). */
@@ -81,7 +110,14 @@ public class RealmKeyService {
     }
 
     /** The outcome of {@link #retire}. */
-    public enum RetireOutcome { RETIRED, NOT_FOUND, ACTIVE_REFUSED }
+    public enum RetireOutcome { RETIRED, NOT_FOUND, ACTIVE_REFUSED, IN_USE }
+
+    /** Activation before the minimum staging time without {@code force}: the admin API's 409. */
+    public static class KeyStagingException extends KeyStateException {
+        public KeyStagingException(final String message) {
+            super(message);
+        }
+    }
 
     /** A state conflict (activate a non-PENDING key, attach to a retired key …): the admin API's 409. */
     public static class KeyStateException extends RuntimeException {
@@ -94,9 +130,24 @@ public class RealmKeyService {
 
     /** Returns the realm's ACTIVE signing key, generating + persisting one if none exists. */
     public RealmKey getOrCreateActive(final String realmId) {
-        return realmKeyRepository
-                .findFirstByRealmIdAndStatusOrderByCreationDateDesc(realmId, RealmKey.Status.ACTIVE.name())
-                .orElseGet(() -> generateActive(realmId, RealmKeyMaterial.RS256));
+        return activeKey(realmId, RealmKeyMaterial.RS256).orElseGet(() -> locked(realmId, () ->
+                activeKey(realmId, RealmKeyMaterial.RS256).orElseGet(() -> generateActive(realmId, RealmKeyMaterial.RS256))));
+    }
+
+    /**
+     * The realm's ACTIVE key of {@code algorithm}'s family (RS256: the RSA key, ES256: the EC key) — the newest by
+     * activation if (against the rules) there are several.
+     */
+    public Optional<RealmKey> activeKey(final String realmId, final String algorithm) {
+        final boolean ec = RealmKeyMaterial.ES256.equals(RealmKeyMaterial.normalizeAlgorithm(algorithm));
+        return realmKeyRepository.findAllByRealmIdAndStatusIn(realmId, List.of(RealmKey.Status.ACTIVE.name())).stream()
+                .filter(k -> ec == RealmKeyMaterial.ES256.equals(k.getJwsAlgorithm()))
+                .max(java.util.Comparator.comparing(RealmKeyService::activatedOrCreated));
+    }
+
+    static Date activatedOrCreated(final RealmKey k) {
+        return k.getActivatedDate() != null ? k.getActivatedDate()
+                : k.getCreationDate() != null ? k.getCreationDate() : new Date(0);
     }
 
     /**
@@ -106,8 +157,7 @@ public class RealmKeyService {
      */
     public RealmKey getOrImportActive(final String realmId, final String algorithm,
                                       final String publicKeyBase64, final String privateKeyBase64) {
-        return realmKeyRepository
-                .findFirstByRealmIdAndStatusOrderByCreationDateDesc(realmId, RealmKey.Status.ACTIVE.name())
+        return activeKey(realmId, RealmKeyMaterial.RS256)
                 .orElseGet(() -> {
                     final RealmKey seed = new RealmKey(UUID.randomUUID().toString(), realmId,
                             RealmKeyMaterial.normalizeAlgorithm(algorithm), publicKeyBase64, privateKeyBase64);
@@ -133,7 +183,7 @@ public class RealmKeyService {
     public List<RealmKeyView> listViews(final String realmId) {
         final Instant now = Instant.now();
         return realmKeyRepository.findAllByRealmIdOrderByCreationDateDesc(realmId).stream()
-                .map(k -> RealmKeyView.from(k, now))
+                .map(k -> RealmKeyView.from(k, now, minStaging))
                 .toList();
     }
 
@@ -148,13 +198,15 @@ public class RealmKeyService {
     // ------------------------------------------------------------------------------------------------ writes
 
     /** Generates a key of {@code algorithm} and activates it at once (the previous ACTIVE key becomes ROTATED). */
-    @Transactional
     public RealmKey rotate(final String realmId, final String algorithm) {
         final String alg = RealmKeyMaterial.requireSupportedAlgorithm(algorithm);
-        demoteActive(realmId);
-        final RealmKey key = generateActive(realmId, alg);
-        changed(realmId);
-        return key;
+        return locked(realmId, () -> {
+            requireRsaForEc(realmId, alg);
+            demoteActive(realmId, alg);
+            final RealmKey key = generateActive(realmId, alg);
+            changed(realmId);
+            return key;
+        });
     }
 
     /** RS256 rotation (the pre-BYO behaviour). */
@@ -163,8 +215,11 @@ public class RealmKeyService {
     }
 
     /** Imports a PEM private key and its certificate chain (leaf first) as a PENDING key. */
-    @Transactional
     public RealmKey importKey(final String realmId, final String privateKeyPem, final String certificateChainPem) {
+        return locked(realmId, () -> doImport(realmId, privateKeyPem, certificateChainPem));
+    }
+
+    private RealmKey doImport(final String realmId, final String privateKeyPem, final String certificateChainPem) {
         requireEncryption(KeyImportException.PRIVATE_KEY, realmId);
         final RealmKeyMaterial.Parsed parsed = RealmKeyMaterial.parsePrivateKey(privateKeyPem);
         final List<X509Certificate> chain = RealmKeyMaterial.parseChain(certificateChainPem);
@@ -188,9 +243,13 @@ public class RealmKeyService {
     }
 
     /** Generates a PENDING key of {@code algorithm} and a PKCS#10 CSR for it; the private key stays on the server. */
-    @Transactional
     public CsrResult createCsr(final String realmId, final String algorithm, final String subject,
                                final List<String> dnsNames) {
+        return locked(realmId, () -> doCreateCsr(realmId, algorithm, subject, dnsNames));
+    }
+
+    private CsrResult doCreateCsr(final String realmId, final String algorithm, final String subject,
+                                  final List<String> dnsNames) {
         final String alg = RealmKeyMaterial.requireSupportedAlgorithm(algorithm);
         RealmKeyMaterial.parseSubject(subject);
         requireEncryption(RealmKeyMaterial.ALGORITHM, realmId);
@@ -213,8 +272,11 @@ public class RealmKeyService {
      * @throws NoSuchElementException no such key in this realm
      * @throws KeyStateException      the key is ROTATED or RETIRED
      */
-    @Transactional
     public RealmKey attachCertificate(final String realmId, final String keyId, final String certificateChainPem) {
+        return locked(realmId, () -> doAttach(realmId, keyId, certificateChainPem));
+    }
+
+    private RealmKey doAttach(final String realmId, final String keyId, final String certificateChainPem) {
         final RealmKey key = find(realmId, keyId).orElseThrow(() -> new NoSuchElementException("No such key"));
         if (!key.hasStatus(RealmKey.Status.PENDING) && !key.hasStatus(RealmKey.Status.ACTIVE)) {
             throw new KeyStateException("A certificate can only be attached to a pending or active key");
@@ -231,50 +293,107 @@ public class RealmKeyService {
     }
 
     /**
-     * Activates a PENDING key: it signs from now on; the realm's ACTIVE key becomes ROTATED (still published).
+     * Activates a PENDING key: it signs from now on; the realm's ACTIVE key of the same family (RSA or EC) becomes
+     * ROTATED (still published). An EC key needs an ACTIVE RSA key beside it (OIDC requires RS256). Unless
+     * {@code force}, the key must have been published for {@link #minStaging()}.
      *
      * @throws NoSuchElementException no such key in this realm
-     * @throws KeyStateException      the key is not PENDING
+     * @throws KeyStateException      the key is not PENDING, or an EC key has no ACTIVE RSA key beside it
+     * @throws KeyStagingException    published for less than the minimum staging time
      */
-    @Transactional
-    public RealmKey activate(final String realmId, final String keyId) {
-        final RealmKey key = find(realmId, keyId).orElseThrow(() -> new NoSuchElementException("No such key"));
-        if (!key.hasStatus(RealmKey.Status.PENDING)) {
-            throw new KeyStateException("Only a pending key can be activated (this key is " + key.getStatus() + ")");
-        }
-        demoteActive(realmId);
-        key.setStatus(RealmKey.Status.ACTIVE);
-        key.setActivatedDate(new Date());
-        final RealmKey saved = realmKeyRepository.save(key);
-        LOG.info("Activated signing key realm={} keyId={} alg={}", LogSafe.sanitize(realmId), saved.getKeyId(),
-                saved.getJwsAlgorithm());
-        changed(realmId);
-        return saved;
+    public RealmKey activate(final String realmId, final String keyId, final boolean force) {
+        return locked(realmId, () -> {
+            final RealmKey key = find(realmId, keyId).orElseThrow(() -> new NoSuchElementException("No such key"));
+            if (!key.hasStatus(RealmKey.Status.PENDING)) {
+                throw new KeyStateException("Only a pending key can be activated (this key is " + key.getStatus() + ")");
+            }
+            final Instant since = key.getCreationDate() == null ? Instant.EPOCH : key.getCreationDate().toInstant();
+            final Duration published = Duration.between(since, Instant.now());
+            if (!force && published.compareTo(minStaging) < 0) {
+                final long left = Math.max(1, minStaging.minus(published).toSeconds());
+                throw new KeyStagingException("This key was published " + published.toMinutes() + " min ago; relying "
+                        + "parties may not have fetched it yet. Activate it in " + left + " s, or force the activation.");
+            }
+            requireRsaForEc(realmId, key.getJwsAlgorithm());
+            demoteActive(realmId, key.getJwsAlgorithm());
+            key.setStatus(RealmKey.Status.ACTIVE);
+            key.setActivatedDate(new Date());
+            final RealmKey saved = realmKeyRepository.save(key);
+            LOG.info("Activated signing key realm={} keyId={} alg={} forced={}", LogSafe.sanitize(realmId),
+                    saved.getKeyId(), saved.getJwsAlgorithm(), force);
+            changed(realmId);
+            return saved;
+        });
     }
 
-    /** Retires a key of this realm (drops it from JWKS and metadata). The ACTIVE key is refused. */
-    @Transactional
+    /** {@link #activate(String, String, boolean)} without force. */
+    public RealmKey activate(final String realmId, final String keyId) {
+        return activate(realmId, keyId, false);
+    }
+
+    /**
+     * Retires a key of this realm (drops it from JWKS and metadata). The ACTIVE RSA key is refused (OIDC requires
+     * RS256); the ACTIVE EC key is refused while the realm's signing settings choose ES256.
+     */
     public RetireOutcome retire(final String realmId, final String keyId) {
-        final Optional<RealmKey> found = find(realmId, keyId);
-        if (found.isEmpty()) {
-            return RetireOutcome.NOT_FOUND;
-        }
-        final RealmKey key = found.get();
-        if (key.isActive()) {
-            return RetireOutcome.ACTIVE_REFUSED;
-        }
-        key.setStatus(RealmKey.Status.RETIRED);
-        realmKeyRepository.save(key);
-        LOG.info("Retired signing key realm={} keyId={}", LogSafe.sanitize(realmId), LogSafe.sanitize(keyId));
-        changed(realmId);
-        return RetireOutcome.RETIRED;
+        return locked(realmId, () -> {
+            final Optional<RealmKey> found = find(realmId, keyId);
+            if (found.isEmpty()) {
+                return RetireOutcome.NOT_FOUND;
+            }
+            final RealmKey key = found.get();
+            if (key.isActive()) {
+                if (!RealmKeyMaterial.ES256.equals(key.getJwsAlgorithm())) {
+                    return RetireOutcome.ACTIVE_REFUSED;
+                }
+                final RealmSigningSettingsService s = settings == null ? null : settings.getIfAvailable();
+                if (s != null) {
+                    final RealmSigningSettingsService.Settings current = s.get(realmId);
+                    if (RealmKeyMaterial.ES256.equals(current.defaultAlg())
+                            || RealmKeyMaterial.ES256.equals(current.samlAlg())) {
+                        return RetireOutcome.IN_USE;
+                    }
+                }
+            }
+            key.setStatus(RealmKey.Status.RETIRED);
+            realmKeyRepository.save(key);
+            LOG.info("Retired signing key realm={} keyId={}", LogSafe.sanitize(realmId), LogSafe.sanitize(keyId));
+            changed(realmId);
+            return RetireOutcome.RETIRED;
+        });
     }
 
     // ------------------------------------------------------------------------------------------------ helpers
 
-    private void demoteActive(final String realmId) {
+    /** Runs {@code body} in one transaction holding the realm's key lock (no-op wrapping in unit tests). */
+    private <T> T locked(final String realmId, final Supplier<T> body) {
+        if (tx == null) {
+            return body.get();
+        }
+        return tx.execute(status -> {
+            if (lock != null) {
+                lock.lock(realmId);
+            }
+            return body.get();
+        });
+    }
+
+    private void requireRsaForEc(final String realmId, final String alg) {
+        if (RealmKeyMaterial.ES256.equals(RealmKeyMaterial.normalizeAlgorithm(alg))
+                && activeKey(realmId, RealmKeyMaterial.RS256).isEmpty()) {
+            throw new KeyStateException("An ES256 key can only be active alongside an active RS256 key (OpenID Connect "
+                    + "requires RS256); activate or rotate an RSA key first");
+        }
+    }
+
+    /** Demotes the ACTIVE key(s) of {@code alg}'s family to ROTATED. */
+    private void demoteActive(final String realmId, final String alg) {
+        final boolean ec = RealmKeyMaterial.ES256.equals(RealmKeyMaterial.normalizeAlgorithm(alg));
         for (final RealmKey current : realmKeyRepository.findAllByRealmIdAndStatusIn(realmId,
                 List.of(RealmKey.Status.ACTIVE.name()))) {
+            if (ec != RealmKeyMaterial.ES256.equals(current.getJwsAlgorithm())) {
+                continue;
+            }
             current.setStatus(RealmKey.Status.ROTATED);
             current.setRotatedDate(new Date());
             realmKeyRepository.save(current);

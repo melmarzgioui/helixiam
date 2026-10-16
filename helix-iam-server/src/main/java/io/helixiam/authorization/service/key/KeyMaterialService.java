@@ -43,8 +43,20 @@ public class KeyMaterialService {
 
     private final RealmKeyService realmKeyService;
 
+    private final org.springframework.beans.factory.ObjectProvider<io.helixiam.authorization.security.audit.AuditLog> audit;
+    /** Duplicate-ACTIVE sets already reported (realm|keyIds), so the backstop warns once, not every refresh. */
+    private final java.util.Set<String> reportedDuplicates = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** Tests: no audit log. */
     public KeyMaterialService(final RealmKeyService realmKeyService) {
+        this(realmKeyService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public KeyMaterialService(final RealmKeyService realmKeyService,
+                              final org.springframework.beans.factory.ObjectProvider<io.helixiam.authorization.security.audit.AuditLog> audit) {
         this.realmKeyService = realmKeyService;
+        this.audit = audit;
     }
 
     /**
@@ -95,23 +107,52 @@ public class KeyMaterialService {
         activeKeyPair(realmId);
         final List<RealmKey> rows = new ArrayList<>(realmKeyService.publishedKeys(realmId));
         rows.sort(java.util.Comparator.comparingInt((RealmKey k) -> statusOrder(k.getStatus()))
-                .thenComparing(k -> k.getCreationDate() == null ? new java.util.Date(0) : k.getCreationDate(),
-                        java.util.Comparator.reverseOrder()));
+                .thenComparing(RealmKeyService::activatedOrCreated, java.util.Comparator.reverseOrder()));
+        // Backstop: at most one ACTIVE key per family may sign. The transitions are serialised per realm, so this
+        // should never happen; if it does (manual SQL, a bug), keep the newest by activation, publish the others as
+        // verification-only, and say so loudly — never fail signing.
+        final java.util.Set<String> activeFamilies = new java.util.HashSet<>();
+        final List<String> demoted = new ArrayList<>();
         final List<PublishedKey> out = new ArrayList<>();
         for (final RealmKey row : rows) {
+            String status = row.getStatus();
+            if (RealmKey.Status.ACTIVE.name().equals(status)
+                    && !activeFamilies.add(RealmKeyMaterial.ES256.equals(row.getJwsAlgorithm()) ? "EC" : "RSA")) {
+                status = RealmKey.Status.ROTATED.name();
+                demoted.add(row.getKeyId());
+            }
             try {
                 final KeyPair kp = RealmKeyMaterial.decode(row.getJwsAlgorithm(), row.getPublicKey(), row.getPrivateKey());
                 final List<java.security.cert.X509Certificate> chain = row.getCertificateChainPem() == null
                         || row.getCertificateChainPem().isBlank() ? List.of()
                         : RealmKeyMaterial.parseChain(row.getCertificateChainPem());
-                out.add(new PublishedKey(row.getKeyId(), row.getStatus(), row.getJwsAlgorithm(), kp.getPublic(),
+                out.add(new PublishedKey(row.getKeyId(), status, row.getJwsAlgorithm(), kp.getPublic(),
                         kp.getPrivate(), chain));
             } catch (final RuntimeException e) {
                 LOG.warn("Skipping unreadable signing key realm={} keyId={}", io.helixiam.common.log.LogSafe.sanitize(realmId),
                         io.helixiam.common.log.LogSafe.sanitize(row.getKeyId()));
             }
         }
+        if (!demoted.isEmpty()) {
+            reportDuplicates(realmId, demoted);
+        }
         return out;
+    }
+
+    private void reportDuplicates(final String realmId, final List<String> demoted) {
+        if (!reportedDuplicates.add(realmId + "|" + String.join(",", demoted))) {
+            return;
+        }
+        LOG.error("Realm {} has more than one ACTIVE signing key of a family; signing with the newest, publishing {} "
+                + "as verification-only. Retire or re-activate keys to resolve.",
+                io.helixiam.common.log.LogSafe.sanitize(realmId), demoted);
+        final io.helixiam.authorization.security.audit.AuditLog log = audit == null ? null : audit.getIfAvailable();
+        if (log != null) {
+            log.emit(io.helixiam.authorization.security.audit.AuditEvent.admin(
+                    io.helixiam.authorization.security.audit.AuditContext.nowIso(), "REALM_KEY_DUPLICATE_ACTIVE",
+                    realmId, "system", null, "realm-key", demoted.get(0), "FAILURE",
+                    java.util.Map.of("demotedKeyIds", String.join(",", demoted))));
+        }
     }
 
     /**

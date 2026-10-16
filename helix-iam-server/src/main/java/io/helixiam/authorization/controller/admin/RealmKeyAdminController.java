@@ -41,7 +41,8 @@ import java.util.function.Supplier;
  *   <li>{@code POST /keys/csr} {@code {algorithm, subject, dnsNames}} — a PENDING key + PKCS#10 CSR (201).</li>
  *   <li>{@code GET /keys/{keyId}/csr} — that CSR again.</li>
  *   <li>{@code PUT /keys/{keyId}/certificate} {@code {certificateChainPem}} — attach a CA-signed chain.</li>
- *   <li>{@code POST /keys/{keyId}/activate} — the PENDING key signs; the previous ACTIVE key becomes ROTATED.</li>
+ *   <li>{@code POST /keys/{keyId}/activate[?force=true]} — the PENDING key signs (after the minimum staging time,
+ *       unless forced); the previous ACTIVE key of its family becomes ROTATED.</li>
  *   <li>{@code POST /keys/rotate} {@code {algorithm?}} — generate and activate at once.</li>
  *   <li>{@code DELETE /keys/{keyId}} — retire (the ACTIVE key is refused, 409).</li>
  * </ul>
@@ -54,6 +55,7 @@ import java.util.function.Supplier;
 public class RealmKeyAdminController {
 
     private static final int MAX_PEM = 65_536;
+    private static final String FORCED = RealmKeyAdminController.class.getName() + ".forced";
 
     private final RealmKeyConfigPublisher publisher;
     private final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager rbac;
@@ -159,12 +161,17 @@ public class RealmKeyAdminController {
 
     @PostMapping("/{keyId}/activate")
     public ResponseEntity<?> activate(@PathVariable final String realmId, @PathVariable final String keyId,
+                                      @org.springframework.web.bind.annotation.RequestParam(value = "force",
+                                              defaultValue = "false") final boolean force,
                                       final HttpServletRequest http) {
         final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
         if (denied != null) {
             return denied;
         }
-        return write(http, HttpStatus.OK, () -> publisher.activate(realmId, keyId));
+        if (force) {
+            http.setAttribute(FORCED, Boolean.TRUE);
+        }
+        return write(http, HttpStatus.OK, () -> publisher.activate(realmId, keyId, force));
     }
 
     /** Generate a key (RS256 unless {@code algorithm} says ES256) and activate it at once. */
@@ -192,7 +199,10 @@ public class RealmKeyAdminController {
                 .findFirst().orElse(null);
         return switch (publisher.retire(realmId, keyId)) {
             case NOT_FOUND -> ResponseEntity.notFound().build();
-            case ACTIVE_REFUSED -> conflict("The active key cannot be retired; activate or rotate to another key first.");
+            case ACTIVE_REFUSED -> conflict("The active RS256 key cannot be retired: OpenID Connect requires RS256. "
+                    + "Activate or rotate to another RSA key first.");
+            case IN_USE -> conflict("The active ES256 key is in use: the realm's signing settings choose ES256. "
+                    + "Switch them to RS256 first.");
             case RETIRED -> {
                 if (before != null) {
                     audit(http, before);
@@ -212,6 +222,9 @@ public class RealmKeyAdminController {
             throw invalid(e);
         } catch (final NoSuchElementException e) {
             return ResponseEntity.notFound().build();
+        } catch (final RealmKeyService.KeyStagingException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "staging", "message", e.getMessage()));
         } catch (final RealmKeyService.KeyStateException e) {
             return conflict(e.getMessage());
         }
@@ -237,6 +250,9 @@ public class RealmKeyAdminController {
         }
         if (view.kid() != null) {
             detail.put("kid", view.kid());
+        }
+        if (Boolean.TRUE.equals(http.getAttribute(FORCED))) {
+            detail.put("forced", "true");
         }
         AuditContext.attachDetail(http, detail);
     }
