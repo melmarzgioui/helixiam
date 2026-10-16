@@ -101,8 +101,11 @@ public class ClientAdminService {
             requireSettableSecret(write.clientSecret(), Boolean.TRUE.equals(write.publicClient()));
         }
         return inRealm(write.realmId(), write.id()).map(client -> {
-            requireRealmAdminForSignInChanges(write, client);
+            final ClientDto before = toDto(client, null);
             applyWrite(client, write);
+            // Compare the state the write produces with the stored one (the writer's own normalisation: a null list
+            // is empty, a null flag false, the auth method normalised) — rolled back if refused.
+            requireRealmAdminForSignInChanges(write.realmId(), client.getClientId(), before, toDto(client, null));
             if (write.clientSecret() != null) {
                 client.setClientSecret(write.clientSecret());
             }
@@ -195,33 +198,41 @@ public class ClientAdminService {
         this.adminGrantGuard = adminGrantGuard;
     }
 
+    /** The only fields of a built-in sign-in client a non-realm-admin may change: cosmetic ones. */
+    static final java.util.Set<String> COSMETIC_FIELDS = java.util.Set.of("name", "description", "alwaysDisplayInConsole");
+
     /**
-     * On a built-in sign-in client, changing where codes and logouts go (redirect and post-logout URIs), how it
-     * authenticates (grant types, public/confidential, token endpoint auth method) needs realm-admin: otherwise a
-     * client manager could send the master admin's authorization code to their own site.
+     * On a built-in sign-in client (console, CLI) any change outside {@link #COSMETIC_FIELDS} needs realm-admin: those
+     * clients carry the admins' sign-in, so their redirect and logout URIs, origins, grant types, authentication,
+     * flows, scopes, lifespans, consent and FAPI settings decide where an admin's code and tokens go.
      */
-    private void requireRealmAdminForSignInChanges(final ClientWriteDto write, final ServiceProviderOAuthClient client) {
-        if (adminGrantGuard == null || !SIGN_IN_CLIENTS.contains(client.getClientId())) {
+    private void requireRealmAdminForSignInChanges(final String realmId, final String clientId, final ClientDto before,
+                                                   final ClientDto after) {
+        if (adminGrantGuard == null || !SIGN_IN_CLIENTS.contains(clientId)) {
             return;
         }
-        final ClientDto current = toDto(client, null);
-        final boolean changed = changedList(write.redirectUris(), current.redirectUris())
-                || changedList(write.postLogoutRedirectUris(), current.postLogoutRedirectUris())
-                || changedList(write.grantTypes(), current.grantTypes())
-                || (write.publicClient() != null && !write.publicClient().equals(current.publicClient()))
-                || (write.tokenEndpointAuthMethod() != null && !write.tokenEndpointAuthMethod().isBlank()
-                        && !write.tokenEndpointAuthMethod().equals(current.tokenEndpointAuthMethod()));
-        if (changed) {
-            adminGrantGuard.requireRealmAdmin(write.realmId(), "Changing how admins sign in through "
-                    + client.getClientId());
+        for (final java.lang.reflect.RecordComponent rc : ClientDto.class.getRecordComponents()) {
+            if (COSMETIC_FIELDS.contains(rc.getName()) || "secret".equals(rc.getName())) {
+                continue;
+            }
+            try {
+                final Object a = rc.getAccessor().invoke(before);
+                final Object b = rc.getAccessor().invoke(after);
+                if (!sameValue(a, b)) {
+                    adminGrantGuard.requireRealmAdmin(realmId, "Changing " + rc.getName() + " of the built-in sign-in "
+                            + "client " + clientId);
+                }
+            } catch (final ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 
-    private static boolean changedList(final List<String> requested, final List<String> current) {
-        if (requested == null) {
-            return false;
+    private static boolean sameValue(final Object a, final Object b) {
+        if (a instanceof java.util.Collection<?> ca && b instanceof java.util.Collection<?> cb) {
+            return new java.util.HashSet<>(ca).equals(new java.util.HashSet<>(cb));
         }
-        return !new java.util.HashSet<>(requested).equals(new java.util.HashSet<>(current == null ? List.of() : current));
+        return java.util.Objects.equals(a, b);
     }
 
     /** Soft-deletes a client (the OAuth server stops resolving it); {@code false} if absent. */

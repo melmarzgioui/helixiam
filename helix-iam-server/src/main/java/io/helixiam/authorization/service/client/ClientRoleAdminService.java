@@ -55,6 +55,9 @@ public class ClientRoleAdminService {
     /** Defines a client role; idempotent on name within the client. */
     @Transactional
     public ClientRoleDto createClientRole(final ClientRoleWriteDto write) {
+        if (principalGuard != null) {
+            principalGuard.requireMayChangeSignInClient(write.realmId(), write.clientId(), "Adding a client role");
+        }
         // Invariant guard: a client role must have a name.
         if (write.name() == null || write.name().isBlank()) {
             throw new IllegalArgumentException("Role name is required.");
@@ -80,6 +83,9 @@ public class ClientRoleAdminService {
     /** Removes a client role; {@code false} when absent. */
     @Transactional
     public boolean deleteClientRole(final String realmId, final String clientId, final String name) {
+        if (principalGuard != null) {
+            principalGuard.requireMayChangeSignInClient(realmId, clientId, "Removing a client role");
+        }
         return roles.findByRealmIdAndClientIdAndName(realmId, clientId, name).map(e -> {
             roles.delete(e);
             LOG.debug("Deleted client role {} from {} in {}",
@@ -92,6 +98,14 @@ public class ClientRoleAdminService {
     @Transactional(readOnly = true)
     public List<ServiceAccountRoleDto> listServiceAccountRoles(final String realmId, final String clientId) {
         return saRoles.findAllByRealmIdAndClientIdOrderByRoleName(realmId, clientId).stream().map(this::toDto).toList();
+    }
+
+    /** Security review H5: the built-in sign-in clients' roles need realm-admin. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
     }
 
     /** Security review (rc.11): no admin may grant admin permissions they do not hold. */

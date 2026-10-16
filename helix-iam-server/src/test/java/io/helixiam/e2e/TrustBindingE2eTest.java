@@ -100,6 +100,56 @@ class TrustBindingE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void builtInSignInClients_allowOnlyCosmeticChangesBelowRealmAdmin_nullsCountAsChanges() {
+        context.getBean(io.helixiam.authorization.service.client.ConsoleClientBootstrapService.class)
+                .ensureConsoleClient(realm);
+        final E2eAdminSession mc = scoped("manage-clients");
+        final JsonNode console = clientNamed("helix-console");
+        final String path = base() + "/clients/" + console.path("id").asText();
+        // A request without redirectUris would store none (the writer treats null as empty): refused.
+        final Map<String, Object> wipe = body(console, null);
+        wipe.remove("redirectUris");
+        assertThat(mc.put(path, wipe).status()).isEqualTo(403);
+        for (final Map.Entry<String, Object> change : List.<Map.Entry<String, Object>>of(
+                Map.entry("authFlowAlias", "custom-flow"), Map.entry("webOrigins", List.of("https://evil.example")),
+                Map.entry("scopes", List.of("openid", "offline_access")), Map.entry("accessTokenLifespan", 86400),
+                Map.entry("frontchannelLogoutUri", "https://evil.example/logout"),
+                Map.entry("consentRequired", !console.path("consentRequired").asBoolean()),
+                Map.entry("jarmResponseMode", "query.jwt"))) {
+            final Map<String, Object> b = body(console, null);
+            b.put(change.getKey(), change.getValue());
+            assertThat(mc.put(path, b).status()).as(change.getKey()).isEqualTo(403);
+        }
+        final JsonNode after = admin.get(path).json();
+        assertThat(after.path("redirectUris")).isEqualTo(console.path("redirectUris"));
+        // Cosmetic fields are fine.
+        final Map<String, Object> cosmetic = body(console, null);
+        cosmetic.put("name", "Admin console");
+        cosmetic.put("description", "Where admins sign in");
+        assertThat(mc.put(path, cosmetic).status()).isEqualTo(200);
+        // Client roles of the console need realm-admin too.
+        assertThat(mc.post(base() + "/clients/helix-console/roles", Map.of("name", "evil")).status()).isEqualTo(403);
+        assertThat(admin.post(base() + "/clients/helix-console/roles", Map.of("name", "ok")).status()).isIn(200, 201);
+    }
+
+    @Test
+    void anAgentsAdminRoles_makeItsClientPrivileged_andGateItsTransitions() {
+        final E2eSeed.SeededClient plain = seed().serviceAccountClient(realm, E2eSeed.unique("agentsvc"), List.of("openid"));
+        final E2eHttp.Response created = admin.post(base() + "/agents", agent(plain.clientId(), "admin"));
+        assertThat(created.status()).as(created.toString()).isEqualTo(201);
+        final String agentId = created.json().path("id").asText();
+        // The client's tokens carry the agent's admin role: its secret is off limits below realm-admin.
+        assertThat(scoped("manage-clients").get(base() + "/clients/" + plain.id() + "/secret").status())
+                .isEqualTo(403);
+        assertThat(admin.post(base() + "/agents/" + agentId + "/suspend", Map.of()).status()).isEqualTo(200);
+        final E2eAdminSession mr = scoped("manage-realm");
+        assertThat(mr.post(base() + "/agents/" + agentId + "/activate", Map.of()).status()).isEqualTo(403);
+        assertThat(scoped("manage-clients").post(base() + "/agents/" + agentId + "/activate", Map.of()).status())
+                .isEqualTo(403);
+        assertThat(admin.post(base() + "/agents/" + agentId + "/activate", Map.of()).status()).isEqualTo(200);
+    }
+
+    @Test
     void manageUsers_includesViewUsers_whenComparingPermissions() {
         final String viewer = admin.post(base() + "/roles", Map.of("name", "viewer")).json().path("roleId").asText();
         final String viewerId = viewer.isBlank() ? roleId("viewer") : viewer;

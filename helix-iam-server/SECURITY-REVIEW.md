@@ -374,8 +374,10 @@ bind an agent to an admin service account or give it admin roles; `manage-client
 built-in `helix-console` client and receive the master admin's authorization code. Workload-identity and agent
 create/update/delete now act on the bound client (`requireMayActOnClient`, controller and service, so the import is
 covered) and agent realm roles go through `AdminGrantGuard`; on the built-in sign-in clients (`helix-console`,
-`helix-cli`) changing redirect or post-logout URIs, grant types, public/confidential status or the token-endpoint auth
-method needs `realm-admin`. Verified covered already: `private_key_jwt`/`jwks_uri`, mTLS subject and token-exchange
+`helix-cli`) every change except the cosmetic name, description and "always display in console" needs `realm-admin`
+— judged on the state the write produces (a missing list empties it), and including their roles, mappers and other
+sub-resources. A client's privilege includes the realm roles of an agent bound to it, and suspending, activating or
+revoking an agent is acting on it. Verified covered already: `private_key_jwt`/`jwks_uri`, mTLS subject and token-exchange
 policies (client updates and `/clients/{id}/**` writes); DCR binds no existing client. `manage-X` now includes `view-X`
 when permissions are compared.
 

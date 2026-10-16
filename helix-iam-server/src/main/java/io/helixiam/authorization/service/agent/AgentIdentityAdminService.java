@@ -137,13 +137,26 @@ public class AgentIdentityAdminService {
         return AgentIdentityDto.from(repository.save(entity));
     }
 
+    private void requireMayActOnAgent(final String realmId, final AgentIdentity a, final String what) {
+        if (principalGuard != null && a.getClientId() != null) {
+            principalGuard.requireMayActOnClient(realmId, a.getClientId(), what);
+        }
+        if (adminGrantGuard != null) {
+            final java.util.Set<String> conferred = new java.util.LinkedHashSet<>();
+            for (final String role : io.helixiam.authorization.security.agent.AgentTokenEnricher.rawRolesFrom(a.getRoles())) {
+                if (role.indexOf('/') < 0 || role.startsWith("realm/")) {
+                    conferred.addAll(adminGrantGuard.grantsOfName(realmId, role.substring(role.indexOf('/') + 1)));
+                }
+            }
+            adminGrantGuard.requireMayGrant(realmId, conferred, what);
+        }
+    }
+
     @Transactional
     public boolean delete(final String realmId, final String id) {
         final Optional<AgentIdentity> found = repository.findById(id)
                 .filter(a -> realmId.equals(a.getRealmId()));
-        if (principalGuard != null && found.isPresent() && found.get().getClientId() != null) {
-            principalGuard.requireMayActOnClient(realmId, found.get().getClientId(), "Removing this client's agent");
-        }
+        found.ifPresent(a -> requireMayActOnAgent(realmId, a, "Removing this agent"));
         found.ifPresent(repository::delete);
         return found.isPresent();
     }
@@ -182,6 +195,8 @@ public class AgentIdentityAdminService {
         return repository.findById(id)
                 .filter(a -> realmId.equals(a.getRealmId()))
                 .map(a -> {
+                    // H5: suspending, activating or revoking an agent is acting on it — the same checks as save.
+                    requireMayActOnAgent(realmId, a, "Changing this agent's status");
                     a.setStatus(status);
                     return AgentIdentityDto.from(repository.save(a));
                 })

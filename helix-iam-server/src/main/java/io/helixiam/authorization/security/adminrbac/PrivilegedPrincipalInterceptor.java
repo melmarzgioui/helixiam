@@ -62,10 +62,18 @@ public class PrivilegedPrincipalInterceptor implements HandlerInterceptor {
                 guard.requireMayActOnUser(realm, id, "This action");
             } else if ("clients".equals(seg[3])) {
                 final boolean secretRead = read && "secret".equals(sub);
-                if ((read && !secretRead) || "service-account".equals(sub)) {
+                if (read && !secretRead) {
+                    return true;
+                }
+                if ("service-account".equals(sub)) {
+                    guard.requireMayChangeSignInClient(realm, id, "Changing service-account roles");
                     return true;
                 }
                 guard.requireMayActOnClient(realm, id, secretRead ? "Revealing this client's secret" : "This action");
+                if (!read && sub != null) {
+                    // Roles, mappers, authorization, token exchange of the console or CLI client: realm-admin.
+                    guard.requireMayChangeSignInClient(realm, id, "Changing " + sub);
+                }
             }
             return true;
         } catch (final AdminGrantGuard.AdminGrantDeniedException e) {

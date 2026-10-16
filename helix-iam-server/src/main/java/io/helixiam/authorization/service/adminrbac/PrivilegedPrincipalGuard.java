@@ -96,6 +96,16 @@ public class PrivilegedPrincipalGuard {
                 out.addAll(grants.grantsOfName(realmId, r.getRoleName()));
             }
         }
+        // The client's tokens also carry the realm roles of an agent bound to it (AgentTokenEnricher).
+        if (agents != null) {
+            agents.findFirstByRealmIdAndClientId(realmId, clientId).ifPresent(agent -> {
+                for (final String role : io.helixiam.authorization.security.agent.AgentTokenEnricher.rawRolesFrom(agent.getRoles())) {
+                    if (role.indexOf('/') < 0 || role.startsWith("realm/")) {
+                        out.addAll(grants.grantsOfName(realmId, role.substring(role.indexOf('/') + 1)));
+                    }
+                }
+            });
+        }
         return out;
     }
 
@@ -122,6 +132,26 @@ public class PrivilegedPrincipalGuard {
         } catch (final AdminGrantGuard.AdminGrantDeniedException e) {
             throw new AdminGrantGuard.AdminGrantDeniedException(what + ": this client's service account holds admin "
                     + "permissions you do not hold. Ask a realm admin.");
+        }
+    }
+
+    private io.helixiam.authorization.repository.agent.AgentIdentityRepository agents;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAgents(final io.helixiam.authorization.repository.agent.AgentIdentityRepository agents) {
+        this.agents = agents;
+    }
+
+    /** Whether {@code clientRef} (id or OAuth client id) is a built-in sign-in client (console, CLI). */
+    public boolean isSignInClient(final String realmId, final String clientRef) {
+        return io.helixiam.authorization.service.client.ClientAdminService.SIGN_IN_CLIENTS
+                .contains(resolveClientId(realmId, clientRef));
+    }
+
+    /** Changing anything of a built-in sign-in client besides its cosmetic fields needs realm-admin. */
+    public void requireMayChangeSignInClient(final String realmId, final String clientRef, final String what) {
+        if (isSignInClient(realmId, clientRef)) {
+            grants.requireRealmAdmin(realmId, what + " of a built-in sign-in client");
         }
     }
 
