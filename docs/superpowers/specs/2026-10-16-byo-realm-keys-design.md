@@ -128,3 +128,23 @@ The first reviews changed these decisions. Where a decision above conflicts with
 | R11 | **Stricter imports**: one PEM object and nothing else; RSA 2048–4096 bits with an odd exponent ≥ 65537 and ≤ 32 bits; the leaf must not be CA:true; chain certificates 2..n must be CA:true (and keyCertSign if keyUsage is present). CSR subjects allow CN, O, OU, C, L, ST, emailAddress, SERIALNUMBER, DC, UID only, values are built as typed ASN.1 strings (UTF8String; PrintableString for C/SERIALNUMBER; IA5String for emailAddress/DC), so no `#hex` value ever becomes raw DER. |
 | R12 | **Unique public key**: a unique index on `realm_key.public_key` (V86 + `schema.sql`) backs D8. |
 | R13 | **Console**: read-only Realm keys page without realm-admin; activate dialog states the key's current state, warns about an expired certificate and the staging time with a confirmed force option; a separate retire message for pending keys; short fingerprint with copy; kit-wide Modal focus management (focus in, Tab trap, focus back), wrapping page-header actions, RowMenu flips above near the viewport bottom. |
+
+## Revision 2 — H5 (admin escalation, present in rc.11)
+
+| # | Decision |
+|---|---|
+| R14 | **No admin grants admin permissions they do not hold** (`AdminGrantGuard`): assigning or removing a role (user, group role, group membership, service-account realm role, SCIM, realm import) needs the role's admin permissions (its RBAC grants; `realm-admin` for the role named `admin`) to be the caller's own; admin grants need `realm-admin`; a role with admin permissions cannot be the default role (existing ones are reported at start-up, not changed, and no longer handed to new users). |
+| R15 | **No admin acts on a more privileged principal** (`PrivilegedPrincipalGuard`, in `PrivilegedPrincipalInterceptor` on `/admin/realms/{r}/users/{id}/**` and `/clients/{id}/**` and in `UserAdminService`, `ClientAdminService`, `ImpersonationService`): password, credentials, impersonation, profile, status, required actions, GDPR erasure and deletion of users; secret reveal/set/rotate, update and deletion of clients (by their service account's realm roles). Session revocation stays allowed. Secret reveal needs `manage-clients`. IdP logins never auto-link by e-mail to an administrator. A `CLIENT` service-account role needs its client. |
+| R16 | **The acting principal is declared, never inferred from the URI** (`AdminActor`): `AdminAuthorizationManager` declares `ADMIN` (with the authenticated principal) on the request where it authorises an admin route (`DEV_OPEN` in dev-open mode); SCIM and DCR declare `UNPRIVILEGED` after authenticating their caller; self-service declares `SELF` (may act on that one user only); internal work runs in `AdminActor.asSystem(why, …)`. Without an actor, any action that confers or touches admin permissions is refused. |
+| R17 | **Target privilege across realms.** Users are per realm (`UserCredentials.realmId`), but one user can be a member of several realms through `tenant_user` links — a realm's creator is linked to it — and session authorities are the `<role>_<realm>` names of all its roles in every realm. Master admins administer every realm through the `admin_master` authority (`RealmAdminAuthorities.isMasterAdmin`); there is no other cross-realm grant. The guard evaluates a target's authorities exactly like `AdminAuthorizationManager` (`AdminGrantGuard.permissionsOfAuthorities`: `admin_master` or `admin_<realm>` is `realm-admin`, otherwise the realm's RBAC grants), unioned with role-by-role grants and group roles. |
+| R18 | **Publisher/subscriber split.** Since the RabbitMQ strip every admin publisher is an in-process adapter (`*LocalAdapter`), called on the request thread; no admin call crosses a queue. The guards enforce in the services on that thread, with the request's declared actor; work handed to another thread has no actor and is refused unless it runs in `asSystem`. |
+
+**`AdminActor.asSystem()` callers** (each reviewed):
+
+| Caller | Why it is internal |
+|---|---|
+| `BootstrapServiceAccountService` | The operator-configured bootstrap service account receives the `admin` role at start-up. |
+| `RealmConfigFolderLoader` | Realm-config files from the operator's folder are applied at start-up. |
+| `WalletLoginCompleter` | A wallet JIT login that lost a race removes the account it created a moment before. |
+
+Self-service runs as `SELF` (account profile update and account deletion, the UPDATE_PASSWORD required action), SCIM and DCR as `UNPRIVILEGED`.

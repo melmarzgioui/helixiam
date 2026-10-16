@@ -144,6 +144,88 @@ class PrivilegedPrincipalE2eTest extends AbstractE2eTest {
         E2eAdminSession.login(newBrowser(), realm, victim.username(), PASSWORD);
     }
 
+    @Test
+    void encodedPathVariants_ofGuardedActions_areStillRefused() {
+        final E2eSeed.SeededUser victim = seed().user(realm, E2eSeed.unique("encadm"), PASSWORD);
+        assertThat(admin.post(base() + "/users/" + victim.userId() + "/roles", Map.of("roleId", adminRoleId)).status())
+                .isEqualTo(204);
+        final E2eSeed.SeededClient sa = adminServiceAccount();
+        final Scoped mu = scoped("manage-users");
+        final Scoped mc = scoped("manage-clients");
+        final String token = xsrf(mu.session());
+        final String ctoken = xsrf(mc.session());
+        final String u = baseUrl() + base() + "/users/" + victim.userId();
+        for (final String[] t : new String[][] {{"PUT", u + "/p%61ssword"}, {"POST", u + "/impers%6Fnate"},
+                {"PUT", u + "/required%2Dactions"}, {"DELETE", baseUrl() + base() + "/users/" + victim.userId() + "%20"},
+                {"PUT", baseUrl() + base() + "/u%73ers/" + victim.userId() + "/password"}}) {
+            final E2eHttp.Response r = mu.session().http().sendJson(t[0], t[1],
+                    Map.of("newPassword", "Taken-Over-Passw0rd!x", "requiredActions", "UPDATE_PASSWORD"),
+                    "X-XSRF-TOKEN", token, "Accept", "application/json");
+            assertThat(r.status()).as(t[1] + " → " + r).isIn(400, 403, 404, 405);
+        }
+        final E2eHttp.Response secret = mc.session().http().get(baseUrl() + base() + "/clients/" + sa.id() + "/s%65cret",
+                "Accept", "application/json");
+        assertThat(secret.status()).as(secret.toString()).isIn(400, 403, 404);
+        assertThat(secret.body()).doesNotContain(sa.secret());
+        E2eAdminSession.login(newBrowser(), realm, victim.username(), PASSWORD);
+    }
+
+    @Test
+    void withoutADeclaredActor_guardedActionsOnAdminsAreRefused_asSystemIsExplicit() {
+        final E2eSeed.SeededUser victim = seed().user(realm, E2eSeed.unique("noactor"), PASSWORD);
+        assertThat(admin.post(base() + "/users/" + victim.userId() + "/roles", Map.of("roleId", adminRoleId)).status())
+                .isEqualTo(204);
+        final io.helixiam.authorization.service.user.UserAdminService users =
+                context.getBean(io.helixiam.authorization.service.user.UserAdminService.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> users.resetPassword(
+                        new io.helixiam.authorization.domain.user.admin.UserPasswordDto(realm, victim.userId(),
+                                "No-Actor-Passw0rd!1")))
+                .isInstanceOf(io.helixiam.authorization.service.adminrbac.AdminGrantGuard.AdminGrantDeniedException.class);
+        assertThat(io.helixiam.authorization.service.adminrbac.AdminActor.asSystem("test: explicit internal reset",
+                () -> users.resetPassword(new io.helixiam.authorization.domain.user.admin.UserPasswordDto(realm,
+                        victim.userId(), "System-Reset-Passw0rd!1")))).isTrue();
+    }
+
+    @Test
+    void aMasterAdminReachableFromTheRealm_isProtected_andMasterAdminsStillManageRealmUsers() {
+        // A master-realm admin who is also a member of this realm (as a tenant creator is).
+        final E2eSeed.SeededUser boss = seed().user(MASTER, E2eSeed.unique("boss"), PASSWORD);
+        String masterAdminRole = null;
+        for (final JsonNode r : admin.get("/admin/realms/master/roles").json()) {
+            if ("admin".equals(r.path("name").asText())) {
+                masterAdminRole = r.path("roleId").asText();
+            }
+        }
+        assertThat(admin.post("/admin/realms/master/users/" + boss.userId() + "/roles",
+                Map.of("roleId", masterAdminRole)).status()).isEqualTo(204);
+        final org.springframework.transaction.support.TransactionTemplate tx =
+                new org.springframework.transaction.support.TransactionTemplate(
+                        context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+        tx.executeWithoutResult(t -> {
+            final io.helixiam.authorization.domain.tenant.TenantUser link =
+                    new io.helixiam.authorization.domain.tenant.TenantUser();
+            link.setUserId(boss.userId());
+            link.setTenantId(realm);
+            context.getBean(io.helixiam.authorization.repository.tenant.TenantUserRepository.class).save(link);
+        });
+        final Scoped mu = scoped("manage-users");
+        assertThat(mu.session().put(base() + "/users/" + boss.userId() + "/password",
+                Map.of("newPassword", "Taken-Over-Passw0rd!x")).status()).isEqualTo(403);
+        assertThat(mu.session().post(base() + "/users/" + boss.userId() + "/impersonate", Map.of()).status())
+                .isEqualTo(403);
+        // The master admin keeps managing this realm's users.
+        final E2eSeed.SeededUser plain = seed().user(realm, E2eSeed.unique("plainm"), PASSWORD);
+        assertThat(admin.put(base() + "/users/" + plain.userId() + "/password",
+                Map.of("newPassword", "Master-Reset-Passw0rd!1")).status()).isIn(200, 204);
+    }
+
+    private static String xsrf(final E2eAdminSession session) {
+        session.get("/admin/realms/master/settings");
+        return session.http().cookieFor("XSRF-TOKEN", "/admin/realms/master/settings").orElseGet(() -> {
+            throw new AssertionError("no XSRF cookie");
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------ helpers
 
     private String base() {

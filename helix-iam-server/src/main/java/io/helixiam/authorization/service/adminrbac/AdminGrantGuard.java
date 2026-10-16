@@ -13,12 +13,9 @@ import io.helixiam.authorization.repository.group.UserGroupRoleRepository;
 import io.helixiam.authorization.security.SignInAuthorities;
 import io.helixiam.authorization.security.adminrbac.RealmAdminAuthorities;
 import io.helixiam.authorization.service.role.DefaultRoles;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
-import org.springframework.web.context.request.RequestContextHolder;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -35,9 +32,9 @@ import java.util.Set;
  * caller's own; a role conferring {@code realm-admin} always needs a caller holding {@code realm-admin}. Setting admin
  * grants needs {@code realm-admin}. A role with any admin permission cannot be the default role.
  *
- * <p>Callers: the authenticated principal of the current HTTP request (an admin session or an admin service
- * account). A request without an authenticated principal (SCIM, a federated login) holds no admin permission. Code
- * outside any request (start-up bootstrap) is the system and is not restricted. Dev-open admin mode is not restricted.
+ * <p>Callers are the explicitly declared {@link AdminActor} — never inferred from the request: an admin (declared
+ * where the admin route is authorised), an unprivileged machine (SCIM, DCR), self-service, or {@link AdminActor#asSystem}
+ * internal work. Without an actor, anything conferring admin permissions is refused.
  */
 @Component
 public class AdminGrantGuard {
@@ -59,15 +56,12 @@ public class AdminGrantGuard {
     private final UserRolesRepository roles;
     private final AdminRolePermissionRepository grants;
     private final UserGroupRoleRepository groupRoles;
-    private final boolean devOpen;
 
     public AdminGrantGuard(final UserRolesRepository roles, final AdminRolePermissionRepository grants,
-                           final UserGroupRoleRepository groupRoles,
-                           @Value("${helix.admin.dev-open:false}") final boolean devOpen) {
+                           final UserGroupRoleRepository groupRoles) {
         this.roles = roles;
         this.grants = grants;
         this.groupRoles = groupRoles;
-        this.devOpen = devOpen;
     }
 
     // ------------------------------------------------------------------------------------------------ what roles confer
@@ -118,7 +112,7 @@ public class AdminGrantGuard {
         if (conferred == null || conferred.isEmpty()) {
             return;
         }
-        final Set<String> held = callerPermissions(realmId);
+        final Set<String> held = callerPermissions(realmId, what);
         if (held == null || held.contains(AdminPermission.REALM_ADMIN.key())) {
             return; // the system, dev-open, or a realm admin
         }
@@ -142,21 +136,40 @@ public class AdminGrantGuard {
     }
 
     /**
-     * The caller's admin permissions in {@code realmId}: {@code null} for "unrestricted" (no request — the system — or
-     * dev-open), else the set (containing realm-admin for a realm or master admin).
+     * The acting principal's admin permissions in {@code realmId}, from the explicitly declared {@link AdminActor}
+     * (never inferred from the request URI): {@code null} for unrestricted ({@link AdminActor#asSystem} or dev-open),
+     * an empty set for an unprivileged machine caller or self-service, the principal's permissions for an admin.
+     *
+     * @throws AdminGrantDeniedException no actor was declared — refused, nothing is exempt by default
      */
-    Set<String> callerPermissions(final String realmId) {
-        if (devOpen || RequestContextHolder.getRequestAttributes() == null) {
-            return null;
-        }
-        final Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    public Set<String> callerPermissions(final String realmId, final String what) {
+        final AdminActor actor = AdminActor.current().orElseThrow(() -> new AdminGrantDeniedException(
+                what + " needs an acting administrator, and none was declared; refused."));
+        return switch (actor.kind()) {
+            case SYSTEM, DEV_OPEN -> null;
+            case UNPRIVILEGED, SELF -> Set.of();
+            case ADMIN -> permissionsOf(actor.authentication(), realmId);
+        };
+    }
+
+    private Set<String> permissionsOf(final Authentication auth, final String realmId) {
         if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
             return Set.of();
         }
-        if (RealmAdminAuthorities.isAdminOf(auth, realmId)) {
+        return permissionsOfAuthorities(SignInAuthorities.roleNames(auth), realmId);
+    }
+
+    /**
+     * The admin permissions a principal with these role authorities ({@code <role>_<realm>}, across every realm it
+     * belongs to) holds in {@code realmId} — exactly as {@code AdminAuthorizationManager} decides: {@code admin_master}
+     * (the master realm administers every realm) or {@code admin_<realmId>} is realm-admin; otherwise the admin-RBAC
+     * grants of the realm's roles the authorities name.
+     */
+    public Set<String> permissionsOfAuthorities(final List<String> names, final String realmId) {
+        final String master = "admin_" + io.helixiam.authorization.domain.realm.RealmConfig.ADMIN_REALM_ID;
+        if (names.contains(master) || names.contains("admin_" + realmId)) {
             return Set.of(AdminPermission.REALM_ADMIN.key());
         }
-        final List<String> names = SignInAuthorities.roleNames(auth);
         final List<String> roleIds = roles.findAllByTenantId(realmId).stream()
                 .filter(r -> !SignInAuthorities.isFactorName(r.getName()))
                 .filter(r -> names.contains(r.getName()) || names.contains(r.getTenantRoleName()))

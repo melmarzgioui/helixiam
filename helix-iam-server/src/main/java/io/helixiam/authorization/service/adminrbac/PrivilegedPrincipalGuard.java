@@ -36,11 +36,17 @@ public class PrivilegedPrincipalGuard {
     private final UserGroupMemberRepository groupMembers;
     private final ClientServiceAccountRoleRepository saRoles;
     private final ServiceProviderRepository clients;
+    private final io.helixiam.authorization.repository.UserRolesRepository roles;
+    private final io.helixiam.authorization.repository.group.UserGroupRoleRepository groupRoles;
 
     public PrivilegedPrincipalGuard(final AdminGrantGuard grants, final UserInRoleRepository userRoles,
                                     final UserGroupMemberRepository groupMembers,
                                     final ClientServiceAccountRoleRepository saRoles,
-                                    final ServiceProviderRepository clients) {
+                                    final ServiceProviderRepository clients,
+                                    final io.helixiam.authorization.repository.UserRolesRepository roles,
+                                    final io.helixiam.authorization.repository.group.UserGroupRoleRepository groupRoles) {
+        this.roles = roles;
+        this.groupRoles = groupRoles;
         this.grants = grants;
         this.userRoles = userRoles;
         this.groupMembers = groupMembers;
@@ -48,12 +54,23 @@ public class PrivilegedPrincipalGuard {
         this.clients = clients;
     }
 
-    /** The admin permissions a user of {@code realmId} holds (direct roles and group roles). */
+    /**
+     * The admin permissions a user holds in {@code realmId}: the union of every authority that reaches the realm —
+     * its roles in the realm, and roles of other realms that administer it (a master-realm admin administers every
+     * realm) — evaluated exactly as {@code AdminAuthorizationManager} evaluates a session; group roles count too.
+     */
     public Set<String> userPermissions(final String realmId, final String userId) {
         final Set<String> out = new LinkedHashSet<>();
         if (userId == null) {
             return out;
         }
+        final java.util.List<String> authorities = new java.util.ArrayList<>();
+        userRoles.findAllByUserId(userId).forEach(r -> roles.findById(r.getRoleId())
+                .ifPresent(role -> authorities.add(role.getTenantRoleName())));
+        groupMembers.findAllByUserId(userId).forEach(m -> groupRoles.findAllByGroupId(m.getGroupId())
+                .forEach(gr -> roles.findById(gr.getRoleId()).ifPresent(role -> authorities.add(role.getTenantRoleName()))));
+        out.addAll(grants.permissionsOfAuthorities(authorities, realmId));
+        // Role-by-role too (the role named admin is realm admin of its realm by name).
         userRoles.findAllByUserId(userId).forEach(r -> out.addAll(grants.grantsOf(realmId, r.getRoleId())));
         groupMembers.findAllByUserId(userId).forEach(m -> out.addAll(grants.grantsOfGroup(realmId, m.getGroupId())));
         return out;
@@ -82,40 +99,24 @@ public class PrivilegedPrincipalGuard {
         return out;
     }
 
-    /**
-     * The rule applies to admin actions: admin API requests and SCIM provisioning. A user's own self-service (account
-     * console, required actions, password reset by e-mail) and start-up code are not admin actions on someone else.
-     */
-    static boolean adminAction() {
-        final org.springframework.web.context.request.RequestAttributes attrs =
-                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
-        if (!(attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra)) {
-            return false;
-        }
-        final String uri = sra.getRequest().getRequestURI();
-        final String ctx = sra.getRequest().getContextPath();
-        final String path = ctx != null && !ctx.isEmpty() && uri.startsWith(ctx) ? uri.substring(ctx.length()) : uri;
-        return path.startsWith("/admin/") || path.contains("/scim/v2/");
-    }
-
     /** 403 unless the caller holds every admin permission of the user. */
     public void requireMayActOnUser(final String realmId, final String userId, final String what) {
-        if (!adminAction()) {
-            return;
+        final java.util.Optional<AdminActor> actor = AdminActor.current();
+        if (actor.isPresent() && actor.get().kind() == AdminActor.Kind.SELF) {
+            if (userId != null && userId.equals(actor.get().selfUserId())) {
+                return; // a user acting on their own account
+            }
         }
         try {
             grants.requireMayGrant(realmId, userPermissions(realmId, userId), what);
         } catch (final AdminGrantGuard.AdminGrantDeniedException e) {
             throw new AdminGrantGuard.AdminGrantDeniedException(what + ": this user holds admin permissions you do "
-                    + "not hold. Ask a realm admin.");
+                    + "not hold (or no acting administrator was declared). Ask a realm admin.");
         }
     }
 
     /** 403 unless the caller holds every admin permission of the client's service account. */
     public void requireMayActOnClient(final String realmId, final String clientRef, final String what) {
-        if (!adminAction()) {
-            return;
-        }
         try {
             grants.requireMayGrant(realmId, clientPermissions(realmId, clientRef), what);
         } catch (final AdminGrantGuard.AdminGrantDeniedException e) {

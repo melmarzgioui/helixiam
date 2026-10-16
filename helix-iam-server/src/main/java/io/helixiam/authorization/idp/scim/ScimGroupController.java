@@ -229,6 +229,8 @@ public class ScimGroupController {
         if (!Boolean.TRUE.equals(provisioning.verifyScimToken(new ScimTokenCheck(realm, token)))) {
             return scim(HttpStatus.UNAUTHORIZED, ScimError.of(401, "Invalid SCIM token."));
         }
+        // H5: a SCIM client holds no admin permission.
+        io.helixiam.authorization.service.adminrbac.AdminActor.declare(io.helixiam.authorization.service.adminrbac.AdminActor.unprivileged("SCIM"));
         return null;
     }
 

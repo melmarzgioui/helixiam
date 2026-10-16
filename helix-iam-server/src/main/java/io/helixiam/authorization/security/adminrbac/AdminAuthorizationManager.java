@@ -72,10 +72,12 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
     @Override
     public AuthorizationDecision authorize(final Supplier<? extends Authentication> authentication,
                                        final RequestAuthorizationContext context) {
+        final HttpServletRequest request = context.getRequest();
         if (devOpen) {
+            request.setAttribute(io.helixiam.authorization.service.adminrbac.AdminActor.ATTRIBUTE,
+                    io.helixiam.authorization.service.adminrbac.AdminActor.devOpen());
             return new AuthorizationDecision(true); // LOCAL-DEV: admin API is wide open, never enforce.
         }
-        final HttpServletRequest request = context.getRequest();
         // Security review: resolve on the DECODED path within the application (without ;matrix content) — the path
         // Spring MVC routes on — never on the raw request URI (k%65ys would otherwise not be "keys").
         final String adminPath = DECODED.getPathWithinApplication(request);
@@ -98,10 +100,23 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
             // Realm-independent admin path (e.g. /admin/audit/**): per-realm grants cannot be resolved, so
             // require the caller to be an admin of SOME realm. Previously this allowed ANY authenticated
             // user (a normal end user could reach realm-independent admin routes).
-            return new AuthorizationDecision(RealmAdminAuthorities.isAdminOfAny(auth));
+            return declared(request, auth, RealmAdminAuthorities.isAdminOfAny(auth));
         }
 
-        return new AuthorizationDecision(decide(auth, realmId, required.get(), request.getMethod(), adminPath));
+        return declared(request, auth, decide(auth, realmId, required.get(), request.getMethod(), adminPath));
+    }
+
+    /**
+     * H5: where an admin route is authorised, the acting administrator is declared for the guards downstream
+     * ({@link io.helixiam.authorization.service.adminrbac.AdminActor}) — they never infer it from the URI.
+     */
+    private static AuthorizationDecision declared(final HttpServletRequest request, final Authentication auth,
+                                                  final boolean granted) {
+        if (granted) {
+            request.setAttribute(io.helixiam.authorization.service.adminrbac.AdminActor.ATTRIBUTE,
+                    io.helixiam.authorization.service.adminrbac.AdminActor.admin(auth));
+        }
+        return new AuthorizationDecision(granted);
     }
 
     /**

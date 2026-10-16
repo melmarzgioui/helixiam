@@ -185,7 +185,8 @@ public class AccountDataController {
         final AccountReferrer.Link referrer = AccountConsoleAdvice.current(request);
         final int ended = sessions.signOutAll(realm, user.userId());
         revocation.revokeAll(user.userId());
-        final boolean removed = Boolean.TRUE.equals(users.delete(new UserAdminRef(realm, user.userId())));
+        final boolean removed = Boolean.TRUE.equals(io.helixiam.authorization.service.adminrbac.AdminActor.as(io.helixiam.authorization.service.adminrbac.AdminActor.self(user.userId()),
+                () -> users.delete(new UserAdminRef(realm, user.userId()))));
         audit.emit(request, "ACCOUNT_DELETE", realm, user.username(), user.userId(),
                 removed ? AccountAudit.SUCCESS : AccountAudit.FAILURE, Map.of("ssoSessionsEnded", String.valueOf(ended)));
         LOG.info("User {} deleted their account in realm {}", LogSafe.sanitize(user.userId()), LogSafe.sanitize(realm));
