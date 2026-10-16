@@ -23,6 +23,7 @@ import io.helixiam.authorization.idp.saml.SamlAssertionIssuer;
 import io.helixiam.authorization.idp.saml.SamlIdpConfig;
 import io.helixiam.authorization.amqp.saml.SamlSpOptions;
 import io.helixiam.authorization.service.key.RealmKeyMaterial;
+import io.helixiam.authorization.service.key.RealmKeyService;
 import io.helixiam.testsupport.LogCapture;
 import io.helixiam.testsupport.TestPki;
 import org.bouncycastle.asn1.x509.KeyUsage;
@@ -117,7 +118,7 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
             assertThat(stagedCerts).hasSize(2);
             assertThat(stagedCerts.get(1)).isEqualTo(Base64.getEncoder().encodeToString(leaf.getEncoded()));
 
-            final E2eHttp.Response activated = admin.post(keys(realm) + "/" + keyId + "/activate", Map.of());
+            final E2eHttp.Response activated = admin.post(keys(realm) + "/" + keyId + "/activate?force=true", Map.of());
             assertThat(activated.status()).as(activated.toString()).isEqualTo(200);
             assertThat(activated.json().path("status").asText()).isEqualTo("ACTIVE");
 
@@ -188,7 +189,7 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
         final String newKid = RealmKeyMaterial.kid(signed.getPublicKey());
         assertThat(oidc.jwks().getKeyByKeyId(newKid).getX509CertChain()).isNotEmpty();
 
-        assertThat(admin.post(keys(realm) + "/" + keyId + "/activate", Map.of()).status()).isEqualTo(200);
+        assertThat(admin.post(keys(realm) + "/" + keyId + "/activate?force=true", Map.of()).status()).isEqualTo(200);
         final String token = oidc.clientCredentials(sa.clientId(), sa.secret(), "openid").accessToken();
         assertThat(kid(token)).isEqualTo(newKid);
         oidc.verify(token);
@@ -199,15 +200,21 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
     // ------------------------------------------------------------------------------------------------ ES256
 
     @Test
-    void es256Realm_issuesIdTokensANimbusVerifierAccepts_andDiscoveryAdvertisesEs256() throws Exception {
+    void es256IsOfferedAlongsideRs256_eachClientGetsItsAlg_accessTokensFollowTheRealmDefault() throws Exception {
         final String realm = E2eSeed.unique("es");
         seed().realm(realm);
         final E2eSeed.SeededClient web = seed().confidentialClient(realm, "web", List.of("openid", "profile"));
+        final E2eSeed.SeededClient ecClient = seed().confidentialClient(realm, "ecweb", List.of("openid", "profile"));
         final E2eSeed.SeededUser user = seed().user(realm, E2eSeed.unique("eve"), PASSWORD);
         final E2eSeed.SeededClient sa = seed().serviceAccountClient(realm, E2eSeed.unique("svc"), List.of("openid"));
         final E2eAdminSession admin = adminSession();
-        final JWKSet rsaOnly = oidc(realm).jwks(); // the realm's generated RSA key exists first
-        assertThat(rsaOnly.getKeys()).isNotEmpty();
+        final OidcFlow oidc = oidc(realm);
+        assertThat(discoveryAlgs(oidc)).containsExactly("RS256", "PS256");
+
+        // No ACTIVE EC key yet: a client cannot ask for ES256 ID tokens, nor the realm for ES256 by default.
+        assertThat(setIdTokenAlg(admin, realm, ecClient, "ES256").status()).isEqualTo(400);
+        assertThat(admin.put("/admin/realms/" + realm + "/settings/signing", Map.of("defaultAlg", "ES256",
+                "samlAlg", "RS256")).json().path("fieldErrors").has("defaultAlg")).isTrue();
 
         final KeyPair ec = TestPki.ec("secp256r1");
         final X509Certificate self = TestPki.selfSigned(ec, "CN=" + realm + " ES256", 365);
@@ -215,45 +222,179 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
                 "privateKeyPem", TestPki.traditional(ec), "certificateChainPem", TestPki.pem(self)));
         assertThat(imported.status()).as(imported.toString()).isEqualTo(201);
         assertThat(imported.json().path("algorithm").asText()).isEqualTo("ES256");
-        final String keyId = imported.json().path("keyId").asText();
-        assertThat(admin.post(keys(realm) + "/" + keyId + "/activate", Map.of()).status()).isEqualTo(200);
+        final String ecKeyId = imported.json().path("keyId").asText();
+        assertThat(discoveryAlgs(oidc)).as("a PENDING key is not advertised").containsExactly("RS256", "PS256");
+        assertThat(admin.post(keys(realm) + "/" + ecKeyId + "/activate?force=true", Map.of()).status()).isEqualTo(200);
 
-        final OidcFlow oidc = oidc(realm);
-        final List<String> algs = new ArrayList<>();
-        oidc.discovery().path("id_token_signing_alg_values_supported").forEach(a -> algs.add(a.asText()));
-        assertThat(algs).first().isEqualTo("ES256");
-        assertThat(algs).contains("RS256", "PS256"); // the retained RSA key still verifies its tokens
+        // Both families are ACTIVE: discovery lists exactly their algorithms, RS256 first.
+        assertThat(discoveryAlgs(oidc)).containsExactly("RS256", "PS256", "ES256");
+        final List<String> statuses = new ArrayList<>();
+        admin.get(keys(realm)).json().forEach(k -> statuses.add(k.path("algorithm").asText() + ":" + k.path("status").asText()));
+        assertThat(statuses).containsExactlyInAnyOrder("RS256:ACTIVE", "ES256:ACTIVE");
 
-        final OidcFlow.Tokens tokens = oidc.authorizationCode("web", web.secret(), web.redirectUri(),
+        // The default client gets RS256 ID tokens; the client registered for ES256 gets ES256.
+        assertThat(setIdTokenAlg(admin, realm, ecClient, "ES256").status()).isEqualTo(200);
+        final OidcFlow.Tokens rsTokens = oidc(realm).authorizationCode("web", web.secret(), web.redirectUri(),
                 user.username(), PASSWORD, "openid profile");
-        final SignedJWT idToken = SignedJWT.parse(tokens.idToken());
+        assertThat(SignedJWT.parse(rsTokens.idToken()).getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.RS256);
+        final OidcFlow.Tokens esTokens = oidc(realm).authorizationCode("ecweb", ecClient.secret(),
+                ecClient.redirectUri(), user.username(), PASSWORD, "openid profile");
+        final SignedJWT idToken = SignedJWT.parse(esTokens.idToken());
         assertThat(idToken.getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.ES256);
         assertThat(idToken.getHeader().getKeyID()).isEqualTo(RealmKeyMaterial.kid(ec.getPublic()));
         // A standard verifier: Nimbus, ES256 only, keys from the published JWKS.
         final DefaultJWTProcessor<SecurityContext> nimbus = new DefaultJWTProcessor<>();
         nimbus.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.ES256, new ImmutableJWKSet<>(oidc.jwks())));
-        final JWTClaimsSet claims = nimbus.process(tokens.idToken(), null);
+        final JWTClaimsSet claims = nimbus.process(esTokens.idToken(), null);
         assertThat(claims.getSubject()).isEqualTo(user.userId());
         assertThat(claims.getIssuer()).isEqualTo(oidc.issuer());
-        assertThat(SignedJWT.parse(tokens.accessToken()).getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.ES256);
+        oidc.verify(rsTokens.idToken());
+
+        // Access tokens follow signing.defaultAlg: RS256 by default, ES256 once the realm chooses it.
+        assertThat(alg(oidc.clientCredentials(sa.clientId(), sa.secret(), "openid").accessToken())).isEqualTo("RS256");
+        assertThat(alg(esTokens.accessToken())).isEqualTo("RS256");
+        final E2eHttp.Response settings = admin.put("/admin/realms/" + realm + "/settings/signing",
+                Map.of("defaultAlg", "ES256", "samlAlg", "RS256"));
+        assertThat(settings.status()).as(settings.toString()).isEqualTo(200);
         final String machine = oidc.clientCredentials(sa.clientId(), sa.secret(), "openid").accessToken();
-        assertThat(SignedJWT.parse(machine).getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.ES256);
+        assertThat(alg(machine)).isEqualTo("ES256");
         oidc.verify(machine);
+        assertThat(alg(oidc(realm).authorizationCode("web", web.secret(), web.redirectUri(), user.username(),
+                PASSWORD, "openid profile").idToken())).as("ID tokens keep the client's alg").isEqualTo("RS256");
 
-        // SAML with the EC key: ECDSA-SHA256, verified with OpenSAML against the imported certificate; no
-        // encryption KeyDescriptor (EC has no RSA-OAEP key transport).
-        final String xml = metadata(realm);
-        assertThat(xml).doesNotContain("use=\"encryption\"");
+        // The EC key is in use by the settings: retiring it is refused; the ACTIVE RSA key is never retirable.
+        assertThat(admin.delete(keys(realm) + "/" + ecKeyId).status()).isEqualTo(409);
+        final String rsaId = idWithAlgAndStatus(admin.get(keys(realm)).json(), "RS256", "ACTIVE");
+        assertThat(admin.delete(keys(realm) + "/" + rsaId).status()).isEqualTo(409);
+
+        // SAML signs with the RSA key by default (with an encryption KeyDescriptor); with samlAlg=ES256 it signs
+        // ECDSA-SHA256 with the imported EC certificate, verified with OpenSAML, and drops the encryption descriptor.
+        assertThat(metadata(realm)).contains("use=\"encryption\"");
+        assertThat(assertSamlSignedWith(realm, null)).contains("rsa-sha256");
+        assertThat(admin.put("/admin/realms/" + realm + "/settings/signing", Map.of("defaultAlg", "ES256",
+                "samlAlg", "ES256")).status()).isEqualTo(200);
+        assertThat(metadata(realm)).doesNotContain("use=\"encryption\"");
         assertThat(metadataSigningCerts(realm).get(0)).isEqualTo(Base64.getEncoder().encodeToString(self.getEncoded()));
-        final String signedXml = assertSamlSignedWith(realm, TestPki.pem(self));
-        assertThat(signedXml).contains("http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256");
+        assertThat(assertSamlSignedWith(realm, TestPki.pem(self)))
+                .contains("http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256");
 
-        // Rotate back to a generated RSA key: tokens are RS256 again.
-        final E2eHttp.Response rotated = admin.post(keys(realm) + "/rotate", Map.of("algorithm", "RS256"));
-        assertThat(rotated.status()).as(rotated.toString()).isEqualTo(200);
-        assertThat(SignedJWT.parse(oidc.clientCredentials(sa.clientId(), sa.secret(), "openid").accessToken())
-                .getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.RS256);
-        oidc.verify(machine); // the ES256 token still verifies (ROTATED)
+        // Back to RS256: then the EC key may be retired, and discovery drops ES256 (RS256 is always there).
+        assertThat(admin.put("/admin/realms/" + realm + "/settings/signing", Map.of("defaultAlg", "RS256",
+                "samlAlg", "RS256")).status()).isEqualTo(200);
+        assertThat(admin.delete(keys(realm) + "/" + ecKeyId).status()).isEqualTo(204);
+        assertThat(discoveryAlgs(oidc)).containsExactly("RS256", "PS256");
+        assertThat(alg(oidc(realm).authorizationCode("ecweb", ecClient.secret(), ecClient.redirectUri(),
+                user.username(), PASSWORD, "openid profile").idToken()))
+                .as("no ES256 key any more: RS256 with a WARN").isEqualTo("RS256");
+        // Its key retired, the ES256 access token no longer verifies — retiring is how a key is withdrawn.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> oidc.verify(machine)).isInstanceOf(AssertionError.class);
+    }
+
+    @Test
+    void anEcKeyCannotBeTheOnlyActiveKey_andActivationWaitsForTheStagingTime() {
+        final String realm = E2eSeed.unique("stage");
+        seed().realm(realm);
+        oidc(realm).jwks();
+        final E2eAdminSession admin = adminSession();
+        final JsonNode csr = admin.post(keys(realm) + "/csr", Map.of("algorithm", "RS256", "subject", "CN=stage"))
+                .json();
+        final String keyId = csr.path("key").path("keyId").asText();
+        assertThat(csr.path("key").path("activatableAt").asLong()).isGreaterThan(System.currentTimeMillis());
+
+        final E2eHttp.Response early = admin.post(keys(realm) + "/" + keyId + "/activate", Map.of());
+        assertThat(early.status()).as(early.toString()).isEqualTo(409);
+        assertThat(early.json().path("error").asText()).isEqualTo("staging");
+        try (LogCapture audit = LogCapture.named("helix.audit")) {
+            assertThat(admin.post(keys(realm) + "/" + keyId + "/activate?force=true", Map.of()).status()).isEqualTo(200);
+            assertThat(audit.text()).contains("REALM_KEY_ACTIVATE").contains("\"forced\":\"true\"");
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------ races
+
+    @Test
+    void concurrentActivations_leaveExactlyOneActiveKeyPerFamily() throws Exception {
+        final String realm = E2eSeed.unique("race");
+        seed().realm(realm);
+        oidc(realm).jwks();
+        final RealmKeyService service = context.getBean(RealmKeyService.class);
+        for (int round = 0; round < 5; round++) {
+            final String a = service.createCsr(realm, "RS256", "CN=a" + round, List.of()).key().getKeyId();
+            final String b = service.createCsr(realm, "RS256", "CN=b" + round, List.of()).key().getKeyId();
+            race(() -> service.activate(realm, a, true), () -> service.activate(realm, b, true));
+            assertThat(activeRsa(service, realm)).as("round " + round).hasSize(1);
+        }
+        for (int round = 0; round < 5; round++) {
+            final String p = service.createCsr(realm, "RS256", "CN=p" + round, List.of()).key().getKeyId();
+            race(() -> service.activate(realm, p, true), () -> service.retire(realm, p));
+            final List<io.helixiam.authorization.domain.realm.RealmKey> active = activeRsa(service, realm);
+            assertThat(active).as("round " + round).hasSize(1);
+            final String status = service.find(realm, p).orElseThrow().getStatus();
+            // Either the activation won (the retire was refused) or the retire won (the activation was refused).
+            assertThat(status).isIn("ACTIVE", "RETIRED");
+            assertThat(active.get(0).getKeyId().equals(p)).isEqualTo("ACTIVE".equals(status));
+        }
+        final E2eSeed.SeededClient sa = seed().serviceAccountClient(realm, E2eSeed.unique("svc"), List.of("openid"));
+        final OidcFlow oidc = oidc(realm);
+        oidc.verify(oidc.clientCredentials(sa.clientId(), sa.secret(), "openid").accessToken());
+    }
+
+    private static List<io.helixiam.authorization.domain.realm.RealmKey> activeRsa(final RealmKeyService service,
+                                                                                  final String realm) {
+        return service.publishedKeys(realm).stream().filter(k -> "ACTIVE".equals(k.getStatus())
+                && "RS256".equals(k.getJwsAlgorithm())).toList();
+    }
+
+    private static void race(final Runnable one, final Runnable two) throws Exception {
+        final java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(2);
+        final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            final List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (final Runnable r : List.of(one, two)) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    try {
+                        r.run();
+                    } catch (final RealmKeyService.KeyStateException | java.util.NoSuchElementException expected) {
+                        // the loser of the race is refused — that is the point
+                    }
+                    return null;
+                }));
+            }
+            for (final java.util.concurrent.Future<?> f : futures) {
+                f.get(60, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private static List<String> discoveryAlgs(final OidcFlow oidc) {
+        final List<String> algs = new ArrayList<>();
+        oidc.discovery().path("id_token_signing_alg_values_supported").forEach(a -> algs.add(a.asText()));
+        return algs;
+    }
+
+    private static String alg(final String jwt) throws Exception {
+        return SignedJWT.parse(jwt).getHeader().getAlgorithm().getName();
+    }
+
+    private static E2eHttp.Response setIdTokenAlg(final E2eAdminSession admin, final String realm,
+                                                  final E2eSeed.SeededClient client, final String alg) {
+        final String path = "/admin/realms/" + realm + "/clients/" + client.id();
+        final tools.jackson.databind.node.ObjectNode body = (tools.jackson.databind.node.ObjectNode) admin.get(path).json();
+        body.remove(List.of("realmId", "id", "secret"));
+        body.put("idTokenSignatureAlg", alg);
+        return admin.put(path, body);
+    }
+
+    private static String idWithAlgAndStatus(final JsonNode list, final String alg, final String status) {
+        for (final JsonNode k : list) {
+            if (alg.equals(k.path("algorithm").asText()) && status.equals(k.path("status").asText())) {
+                return k.path("keyId").asText();
+            }
+        }
+        throw new AssertionError("No " + alg + " " + status + " key in " + list);
     }
 
     // ------------------------------------------------------------------------------------------------ refusals
@@ -314,7 +455,7 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
 
         // Cross-realm key ids are 404 on every key-id route.
         final String bKey = bCsr.path("key").path("keyId").asText();
-        assertThat(admin.post(keys(realm) + "/" + bKey + "/activate", Map.of()).status()).isEqualTo(404);
+        assertThat(admin.post(keys(realm) + "/" + bKey + "/activate?force=true", Map.of()).status()).isEqualTo(404);
         assertThat(admin.put(keys(realm) + "/" + bKey + "/certificate",
                 Map.of("certificateChainPem", TestPki.pem(bCert))).status()).isEqualTo(404);
         assertThat(admin.get(keys(realm) + "/" + bKey + "/csr").status()).isEqualTo(404);
@@ -322,8 +463,8 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
         assertThat(admin.get(keys(other)).json().toString()).contains(bKey); // untouched
 
         // State: activating an ACTIVE key, retiring it, attaching to a retired key.
-        assertThat(admin.post(keys(realm) + "/" + aKey + "/activate", Map.of()).status()).isEqualTo(200);
-        assertThat(admin.post(keys(realm) + "/" + aKey + "/activate", Map.of()).status()).isEqualTo(409);
+        assertThat(admin.post(keys(realm) + "/" + aKey + "/activate?force=true", Map.of()).status()).isEqualTo(200);
+        assertThat(admin.post(keys(realm) + "/" + aKey + "/activate?force=true", Map.of()).status()).isEqualTo(409);
         assertThat(admin.delete(keys(realm) + "/" + aKey).status()).isEqualTo(409);
         final String rotated = idWithStatus(admin.get(keys(realm)).json(), "ROTATED");
         assertThat(admin.delete(keys(realm) + "/" + rotated).status()).isEqualTo(204);
@@ -402,7 +543,8 @@ class RealmKeyRolloverE2eTest extends AbstractE2eTest {
                 "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport", "_req-" + realm,
                 SamlSpOptions.defaults());
         final SamlProviderConfig sp = new SamlProviderConfig("helix-idp", "Helix", idp.idpEntityId() + "/sso",
-                idp.idpEntityId(), "https://sp.example/" + realm, "https://sp.example/acs", certPem, "mail",
+                idp.idpEntityId(), "https://sp.example/" + realm, "https://sp.example/acs",
+                certPem == null ? idp.signingCertificate() : certPem, "mail",
                 "givenName", "sn");
         final SamlAssertionValidator.ValidatedAssertion validated =
                 new OpenSamlAssertionValidator(new InMemorySamlAssertionReplayCache()).validate(sp, response, "relay");
