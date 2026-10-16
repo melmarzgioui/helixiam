@@ -19,12 +19,28 @@ service-account role needs its client; workload-identity and agent bindings to a
 permissions; redirecting the built-in sign-in clients (`helix-console`, `helix-cli`) needs `realm-admin`. See
 `helix-iam-server/SECURITY-REVIEW.md` (H5).
 
+**Round 6 (systematic sweep).** Every admin write, import slice and SCIM/DCR write was inventoried (design doc,
+Revision 3). Changing or deleting an identity provider that administrators are linked to, or a trusted list their
+wallet providers use, needs those administrators' permissions; an administrator signs in through a federated link only
+when they made it themselves (new `federated_link.created_via`: JIT, SELF, WALLET; e-mail-matched AUTO links are
+refused). Realm-admin is now needed for: the Applications of the sign-in clients; creating `helix-console`/`helix-cli`;
+their mappers and allowed resources (also on import); the browser flow and the sign-in clients' flows; messaging
+providers and templates; the MFA policy; magic links; the subject claim; and the realm's sign-in policy settings.
+`helix-cli` is seeded with every realm and its redirect and grant settings are reset on start. Push devices for a user
+need the user's permissions. Deleting a role or group, or moving a group, needs the permissions it grants. manage-X
+satisfies view-X routes.
+
 > **Upgrade note (H5).** A realm whose default role carries admin permissions is reported at start-up (WARN and a
 > `DEFAULT_ROLE_HAS_ADMIN_PERMISSIONS` audit event); new users no longer get that role. Pick another default role or
 > remove its admin grants. V86 also removes duplicate `realm_key` rows an rc.11 first-use race could leave (keeping the
 > ACTIVE, else the newest, per realm); if the same key is stored in two realms the migration stops and names them.
 > Admins with only `view-clients` can no longer read client secrets; an administrator whose verified e-mail matches
 > an external IdP login is no longer linked automatically.
+> Round 6: existing federated links are backfilled as JIT (made within two minutes of their user), WALLET (wallet
+> providers) or AUTO; an administrator with an AUTO link signs in with local credentials or a wallet instead. A
+> `manage-realm` admin can no longer change messaging, MFA, magic-link, subject-claim or sign-in policy settings, and a
+> pre-existing `helix-cli` whose redirect URIs, grant types, public flag or secret differ from the built-in values is
+> reset on start (logged and audited as `SIGN_IN_CLIENT_RECONCILED`).
 
 ### Security: admin permissions resolved on the decoded path (H4, predates this release)
 

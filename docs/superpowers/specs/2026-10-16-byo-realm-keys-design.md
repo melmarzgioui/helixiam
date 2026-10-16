@@ -148,3 +148,214 @@ The first reviews changed these decisions. Where a decision above conflicts with
 | `WalletLoginCompleter` | A wallet JIT login that lost a race removes the account it created a moment before. |
 
 Self-service runs as `SELF` (account profile update and account deletion, the UPDATE_PASSWORD required action), SCIM and DCR as `UNPRIVILEGED`.
+
+## Revision 3 — sign-in surface inventory (security review round 6, 2026-10-16)
+
+Instead of fixing escalations one at a time, every admin write endpoint, every realm-import slice and every SCIM and
+DCR write was listed and classified by what it can reach:
+
+- **a** — the credentials, identity, links or status of a privileged principal;
+- **b** — how a privileged principal signs in, or which tokens it gets: the sign-in clients and their Applications,
+  the flows bound to them, the realm's browser flow, identity providers that administrators are linked to, mappers and
+  resources of the sign-in clients, the realm's MFA and sign-in policy, and the channels that deliver codes and links;
+- **c** — what trusts a privileged principal: workload identity, agents, signing keys, identity-provider issuers and
+  JWKS, trusted lists;
+- **d** — the roles or permissions that tokens carry.
+
+**Default rule:** anything in a, b, c or d needs the subset rule (`requireMayGrant` / `requireMayActOnUser` /
+`requireMayActOnClient`) or realm-admin. The check sits in the **service** layer, so the REST API and realm import go
+through the same code. A row without a guard gives its reason.
+
+| # | Decision |
+|---|---|
+| R19 | **Identity providers that administrators sign in through.** Changing (issuer, endpoints, JWKS, client id and secret, mappers, trust settings, enabled, and alias, since a new alias with old links counts) or deleting an identity provider needs the admin permissions of every user of the realm linked to it. `PrivilegedPrincipalGuard.requireMayChangeIdentityProvider` runs in `IdentityProviderConfigService.saveOrUpdate/delete`. Changing a trusted list needs the same for every provider that uses it (`TrustedListService.update`). Deleting a list is already refused while a provider uses it. |
+| R20 | **Link provenance.** `federated_link.created_via` (V86 + `schema.sql`) records how a link was made: `JIT` (the sign-in created the account), `AUTO` (matched by a verified e-mail address), `SELF` (account console) or `WALLET` (the account console's wallet linking). The broker signs an administrator in through an existing link only when it is `JIT`, `SELF` or `WALLET`. An `AUTO` link, or one of unknown origin, is refused with a WARN, so an identity linked by e-mail before its owner became an administrator cannot sign in as that administrator. No admin API creates links. **Backfill:** links of a wallet provider are `WALLET`; a link made within 120 seconds of its user is `JIT`; everything else is `AUTO`. An administrator who used an `AUTO` link signs in with local credentials (or a wallet) instead. |
+| R21 | **Applications of sign-in clients.** Changing the subject claim, flow or enabled flag of an Application that holds `helix-console` or `helix-cli` needs realm-admin. Its display name and description do not. Deleting such an Application needs realm-admin, and deleting any Application needs `requireMayActOnClient` for each child client it soft-deletes (`ApplicationConfigService`). |
+| R22 | **Built-in sign-in client ids.** Creating a client named `helix-console` or `helix-cli` needs realm-admin, or the system bootstrap (`ClientAdminService.create`). `helix-cli` is now seeded with every new realm, next to the console, so it cannot be squatted. On every start, `CliClientBootstrapService` resets the settings that decide where the CLI's codes and tokens go: public client, no secret, the built-in grant types and the loopback redirect URIs. If any of them differed, it logs a WARN and audits `SIGN_IN_CLIENT_RECONCILED` with the field names. The client's other settings are kept. **Chosen over refusing the client for sign-in:** refusing would lock out a legitimate CLI, while resetting the fields keeps the CLI working and removes the takeover. The console's redirect URIs were already reconciled this way. |
+| R23 | **Sub-resources of sign-in clients in the services.** `ClientMapperAdminService` (create, update and delete) and `ResourceIndicatorService.updateAllowedResources` call `requireMayChangeSignInClient`. This also covers import, which did not pass through the interceptor. |
+| R24 | **Protected flows.** Saving, creating, renaming (old or new name) or deleting the realm's `browser` flow, or the flow of a sign-in client or of its Application, needs realm-admin (`FlowAdminService`, via `PrivilegedPrincipalGuard.protectedFlows`). Binding a flow to a sign-in client was already a non-cosmetic change. |
+| R25 | **manage-X includes view-X on routes.** `AdminAuthorizationManager` applies the same inclusion as the grant guard: manage-users, manage-clients, manage-identity-providers and manage-events satisfy their view-X routes. |
+| R26 | **Credential delivery and sign-in policy** (found by the inventory). The following need realm-admin: messaging providers and templates (`MessagingAdminService`, since they carry codes, reset and magic links to administrators), the MFA policy (`MfaPolicyService.update`), switching magic links on or off (`MagicLinkService.setEnabled`), changing the realm's subject claim (`ClaimScopeAdminService.setSubjectClaim`), and changing any realm setting outside display name, legacy branding and self-registration (`RealmAdminService.save`: issuer, token and session lifetimes, MFA, lockout, password policy, CAPTCHA, session limits, risk policy, enabled). Registering a push device for a user needs that user's permissions (`DevicePushTokenService.register`), because the device receives their sign-in approvals. |
+| R27 | **Taking permissions away.** Deleting a group needs the grants of the whole group tree; moving a group to another parent needs the grants of the group and of the new parent (`GroupAdminService`). Deleting a role needs its grants (`RoleAdminService.delete`). |
+
+**Inventory size:** 141 write endpoints. 77 are guarded and 64 need no guard (reasons below). There are 25 import slices: 15 are guarded through their services and 10 need none. Each newly guarded row has an E2E test in
+`SignInSurfaceE2eTest` (lower admin 403, realm admin of the realm 2xx, import leaves the protected value unchanged).
+Rows guarded in earlier rounds keep their tests in `AdminGrantEscalationE2eTest`, `PrivilegedPrincipalE2eTest`,
+`TrustBindingE2eTest` and `RealmKeyPermissionsE2eTest`. The trusted-list row reuses the identity-provider check and is
+covered at that level.
+
+### Admin write endpoints
+
+| # | Method | Path | Class | Guard / reason |
+|---|---|---|---|---|
+| 1 | PUT | `…/admin-roles/{roleId}` | d | **Guarded:** route `realm-admin` |
+| 2 | POST | `…/agents` | c,d | **Guarded:** `requireMayActOnAgent` / `requireMayGrant` of the agent roles and bound client (AgentIdentityAdminService) |
+| 3 | DELETE | `…/agents/{id}` | c,d | **Guarded:** `requireMayActOnAgent` / `requireMayGrant` of the agent roles and bound client (AgentIdentityAdminService) |
+| 4 | PUT | `…/agents/{id}` | c,d | **Guarded:** `requireMayActOnAgent` / `requireMayGrant` of the agent roles and bound client (AgentIdentityAdminService) |
+| 5 | POST | `…/agents/{id}/activate` | c,d | **Guarded:** `requireMayActOnAgent` / `requireMayGrant` of the agent roles and bound client (AgentIdentityAdminService) |
+| 6 | POST | `…/agents/{id}/revoke` | c,d | **Guarded:** `requireMayActOnAgent` / `requireMayGrant` of the agent roles and bound client (AgentIdentityAdminService) |
+| 7 | POST | `…/agents/{id}/suspend` | c,d | **Guarded:** `requireMayActOnAgent` / `requireMayGrant` of the agent roles and bound client (AgentIdentityAdminService) |
+| 8 | POST | `…/applications` | b | **Guarded:** `requireMayChangeApplication` (realm-admin for the parent of a sign-in client, displayName/description excepted); delete also `requireMayActOnClient` per child (ApplicationConfigService) |
+| 9 | DELETE | `…/applications/{name}` | b | **Guarded:** `requireMayChangeApplication` (realm-admin for the parent of a sign-in client, displayName/description excepted); delete also `requireMayActOnClient` per child (ApplicationConfigService) |
+| 10 | PUT | `…/applications/{name}` | b | **Guarded:** `requireMayChangeApplication` (realm-admin for the parent of a sign-in client, displayName/description excepted); delete also `requireMayActOnClient` per child (ApplicationConfigService) |
+| 11 | POST | `…/claims` | - | None needed: reserved identity/authority claims (`ReservedClaims`: sub, iss, aud, roles, realm_access, act, ...) can never be written by a claim, scope or mapper; custom claims confer no admin permission |
+| 12 | DELETE | `…/claims/{claimId}` | - | None needed: reserved identity/authority claims (`ReservedClaims`: sub, iss, aud, roles, realm_access, act, ...) can never be written by a claim, scope or mapper; custom claims confer no admin permission |
+| 13 | PUT | `…/claims/{claimId}` | - | None needed: reserved identity/authority claims (`ReservedClaims`: sub, iss, aud, roles, realm_access, act, ...) can never be written by a claim, scope or mapper; custom claims confer no admin permission |
+| 14 | POST | `…/client-scopes` | - | None needed: reserved identity/authority claims (`ReservedClaims`: sub, iss, aud, roles, realm_access, act, ...) can never be written by a claim, scope or mapper; custom claims confer no admin permission |
+| 15 | DELETE | `…/client-scopes/{scopeId}` | - | None needed: reserved identity/authority claims (`ReservedClaims`: sub, iss, aud, roles, realm_access, act, ...) can never be written by a claim, scope or mapper; custom claims confer no admin permission |
+| 16 | DELETE | `…/client-scopes/{scopeId}/claims/{claimId}` | - | None needed: reserved identity/authority claims (`ReservedClaims`: sub, iss, aud, roles, realm_access, act, ...) can never be written by a claim, scope or mapper; custom claims confer no admin permission |
+| 17 | PUT | `…/client-scopes/{scopeId}/claims/{claimId}` | - | None needed: reserved identity/authority claims (`ReservedClaims`: sub, iss, aud, roles, realm_access, act, ...) can never be written by a claim, scope or mapper; custom claims confer no admin permission |
+| 18 | POST | `…/clients` | b | **Guarded:** `SIGN_IN_CLIENTS` ids need realm-admin (ClientAdminService.create); the bootstrap seeds and reconciles them |
+| 19 | PUT | `…/clients/{clientId}/allowed-resources` | b | **Guarded:** `requireMayChangeSignInClient` (ResourceIndicatorService) + interceptor |
+| 20 | POST | `…/clients/{clientId}/authz/evaluate` | - | None needed: read-only evaluation |
+| 21 | POST | `…/clients/{clientId}/authz/permissions` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 22 | DELETE | `…/clients/{clientId}/authz/permissions/{name}` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 23 | POST | `…/clients/{clientId}/authz/policies` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 24 | DELETE | `…/clients/{clientId}/authz/policies/{name}` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 25 | POST | `…/clients/{clientId}/authz/resources` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 26 | DELETE | `…/clients/{clientId}/authz/resources/{name}` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 27 | POST | `…/clients/{clientId}/authz/scopes` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 28 | DELETE | `…/clients/{clientId}/authz/scopes/{name}` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 29 | PUT | `…/clients/{clientId}/authz/settings` | - | None needed: resource-server policies of the client's own API, not admin permissions; sign-in and privileged clients still need realm-admin / their permissions (PrivilegedPrincipalInterceptor) |
+| 30 | POST | `…/clients/{clientId}/mappers` | b | **Guarded:** `requireMayChangeSignInClient` (ClientMapperAdminService) + interceptor; reserved claims refused |
+| 31 | DELETE | `…/clients/{clientId}/mappers/{mapperId}` | b | **Guarded:** `requireMayChangeSignInClient` (ClientMapperAdminService) + interceptor; reserved claims refused |
+| 32 | PUT | `…/clients/{clientId}/mappers/{mapperId}` | b | **Guarded:** `requireMayChangeSignInClient` (ClientMapperAdminService) + interceptor; reserved claims refused |
+| 33 | POST | `…/clients/{clientId}/roles` | d | **Guarded:** interceptor (`requireMayActOnClient`; sign-in client needs realm-admin); client roles never confer admin permissions |
+| 34 | DELETE | `…/clients/{clientId}/roles/{name}` | d | **Guarded:** interceptor (`requireMayActOnClient`; sign-in client needs realm-admin); client roles never confer admin permissions |
+| 35 | DELETE | `…/clients/{clientId}/service-account/roles` | d | **Guarded:** `requireMayGrant` of the role (ClientRoleAdminService) |
+| 36 | POST | `…/clients/{clientId}/service-account/roles` | d | **Guarded:** `requireMayGrant` of the role (ClientRoleAdminService) |
+| 37 | PUT | `…/clients/{clientId}/token-exchange` | b | **Guarded:** interceptor: sign-in clients need realm-admin, privileged clients their permissions |
+| 38 | DELETE | `…/clients/{id}` | a,b | **Guarded:** `requireMayActOnClient` + sign-in client non-cosmetic changes need realm-admin (ClientAdminService) |
+| 39 | PUT | `…/clients/{id}` | a,b | **Guarded:** `requireMayActOnClient` + sign-in client non-cosmetic changes need realm-admin (ClientAdminService) |
+| 40 | POST | `…/clients/{id}/secret` | a,b | **Guarded:** `requireMayActOnClient` + sign-in client non-cosmetic changes need realm-admin (ClientAdminService) |
+| 41 | PUT | `…/flow` | b | **Guarded:** `requireMayChangeFlow`: browser flow and flows of the sign-in clients / their Applications need realm-admin (old and new name on rename) |
+| 42 | POST | `…/flows` | b | **Guarded:** `requireMayChangeFlow` on the new alias (FlowAdminService.create) |
+| 43 | DELETE | `…/flows/{alias}` | b | **Guarded:** `requireMayChangeFlow`: browser flow and flows of the sign-in clients / their Applications need realm-admin (old and new name on rename) |
+| 44 | PATCH | `…/flows/{alias}` | b | **Guarded:** `requireMayChangeFlow`: browser flow and flows of the sign-in clients / their Applications need realm-admin (old and new name on rename) |
+| 45 | PUT | `…/flows/{alias}` | b | **Guarded:** `requireMayChangeFlow`: browser flow and flows of the sign-in clients / their Applications need realm-admin (old and new name on rename) |
+| 46 | POST | `…/groups` | - | None needed: a new group has no roles |
+| 47 | DELETE | `…/groups/{groupId}` | a,d | **Guarded:** `requireMayGrant` of the grants of the group tree (GroupAdminService.delete) |
+| 48 | PUT | `…/groups/{groupId}` | d | **Guarded:** moving a group: `requireMayGrant` of its and the new parent's grants |
+| 49 | DELETE | `…/groups/{groupId}/members/{userId}` | d | **Guarded:** `requireMayGrant` of the group's grants (GroupAdminService) |
+| 50 | PUT | `…/groups/{groupId}/members/{userId}` | d | **Guarded:** `requireMayGrant` of the group's grants (GroupAdminService) |
+| 51 | DELETE | `…/groups/{groupId}/roles/{roleId}` | d | **Guarded:** `requireMayGrant` of the role's grants |
+| 52 | PUT | `…/groups/{groupId}/roles/{roleId}` | d | **Guarded:** `requireMayGrant` of the role's grants |
+| 53 | POST | `…/identity-providers` | b,c | **Guarded:** `requireMayChangeIdentityProvider`: permissions of every linked administrator (IdentityProviderConfigService save/delete) |
+| 54 | DELETE | `…/identity-providers/{alias}` | b,c | **Guarded:** `requireMayChangeIdentityProvider`: permissions of every linked administrator (IdentityProviderConfigService save/delete) |
+| 55 | PUT | `…/identity-providers/{alias}` | b,c | **Guarded:** `requireMayChangeIdentityProvider`: permissions of every linked administrator (IdentityProviderConfigService save/delete) |
+| 56 | POST | `…/import` | a-d | **Guarded:** each slice runs through the guarded services (see the import table) |
+| 57 | POST | `…/import/keycloak` | a-d | **Guarded:** each slice runs through the guarded services (see the import table) |
+| 58 | POST | `…/keys/csr` | c | **Guarded:** route `realm-admin` |
+| 59 | POST | `…/keys/import` | c | **Guarded:** route `realm-admin` |
+| 60 | POST | `…/keys/rotate` | c | **Guarded:** route `realm-admin` |
+| 61 | DELETE | `…/keys/{keyId}` | c | **Guarded:** route `realm-admin` |
+| 62 | POST | `…/keys/{keyId}/activate` | c | **Guarded:** route `realm-admin` |
+| 63 | PUT | `…/keys/{keyId}/certificate` | c | **Guarded:** route `realm-admin` |
+| 64 | PUT | `…/messaging/providers` | a | **Guarded:** realm-admin (MessagingAdminService): providers deliver codes, reset and magic links to administrators |
+| 65 | POST | `…/messaging/providers/{channel}/test` | - | None needed: sends one test message through the stored provider; changes nothing |
+| 66 | DELETE | `…/messaging/providers/{channel}/{driver}` | a | **Guarded:** realm-admin (MessagingAdminService): providers deliver codes, reset and magic links to administrators |
+| 67 | POST | `…/messaging/push-tokens` | a | **Guarded:** `requireMayActOnUser` (DevicePushTokenService): a push device receives the user's sign-in approvals |
+| 68 | PUT | `…/messaging/templates` | a | **Guarded:** realm-admin (MessagingAdminService.saveTemplate): a template could carry codes or links elsewhere |
+| 69 | POST | `…/messaging/templates/preview` | - | None needed: renders a preview; stores nothing |
+| 70 | POST | `…/organizations` | - | None needed: organization membership and settings confer no admin permission and are not an admin authority in tokens |
+| 71 | DELETE | `…/organizations/{orgId}` | - | None needed: organization membership and settings confer no admin permission and are not an admin authority in tokens |
+| 72 | PUT | `…/organizations/{orgId}` | - | None needed: organization membership and settings confer no admin permission and are not an admin authority in tokens |
+| 73 | PUT | `…/organizations/{orgId}/branding` | - | None needed: cosmetic; custom CSS is validated (no external url(), @import, expression) |
+| 74 | DELETE | `…/organizations/{orgId}/members/{userId}` | - | None needed: organization membership and settings confer no admin permission and are not an admin authority in tokens |
+| 75 | PUT | `…/organizations/{orgId}/members/{userId}` | - | None needed: organization membership and settings confer no admin permission and are not an admin authority in tokens |
+| 76 | PUT | `…/organizations/{orgId}/theme` | - | None needed: cosmetic; custom CSS is validated (no external url(), @import, expression) |
+| 77 | PUT | `…/provisioning` | - | None needed: DCR settings/tokens: DCR acts UNPRIVILEGED (no admin roles, no sign-in client ids) |
+| 78 | POST | `…/provisioning/initial-access-tokens` | - | None needed: DCR settings/tokens: DCR acts UNPRIVILEGED (no admin roles, no sign-in client ids) |
+| 79 | POST | `…/roles` | - | None needed: a new role has no grants |
+| 80 | DELETE | `…/roles/{roleId}` | a,d | **Guarded:** `requireMayGrant` of the role's grants (RoleAdminService.delete) |
+| 81 | PUT | `…/roles/{roleId}/default` | d | **Guarded:** `requireNotAdminDefault` |
+| 82 | POST | `…/saml-clients` | - | None needed: SAML relying parties: administrators never sign in to Helix through one; assertions carry no Helix admin authority |
+| 83 | POST | `…/saml-clients/import` | - | None needed: SAML relying parties: administrators never sign in to Helix through one; assertions carry no Helix admin authority |
+| 84 | POST | `…/saml-clients/import-url` | - | None needed: SAML relying parties: administrators never sign in to Helix through one; assertions carry no Helix admin authority |
+| 85 | DELETE | `…/saml-clients/{entityId}` | - | None needed: SAML relying parties: administrators never sign in to Helix through one; assertions carry no Helix admin authority |
+| 86 | PUT | `…/saml-clients/{entityId}` | - | None needed: SAML relying parties: administrators never sign in to Helix through one; assertions carry no Helix admin authority |
+| 87 | POST | `…/scim-targets` | - | None needed: outbound only (push to a target); no inbound trust, no credentials of administrators |
+| 88 | DELETE | `…/scim-targets/{id}` | - | None needed: outbound only (push to a target); no inbound trust, no credentials of administrators |
+| 89 | PUT | `…/scim-targets/{id}` | - | None needed: outbound only (push to a target); no inbound trust, no credentials of administrators |
+| 90 | DELETE | `…/sessions/{id}` | - | None needed: ends sessions only; cannot grant access |
+| 91 | PUT | `…/settings` | b | **Guarded:** sign-in policy fields need realm-admin; display name, legacy branding, registration stay manage-realm (RealmAdminService.save) |
+| 92 | PUT | `…/settings/account-console` | - | None needed: end-user self-service settings; attributes cannot reach reserved claims, admin permissions never come from attributes, the default role is guarded |
+| 93 | PUT | `…/settings/magic-link` | b | **Guarded:** realm-admin on a change (MagicLinkService.setEnabled) |
+| 94 | PUT | `…/settings/mfa` | b | **Guarded:** realm-admin (MfaPolicyService.update) |
+| 95 | PUT | `…/settings/registration` | - | None needed: end-user self-service settings; attributes cannot reach reserved claims, admin permissions never come from attributes, the default role is guarded |
+| 96 | PUT | `…/settings/self-editable-attributes` | - | None needed: end-user self-service settings; attributes cannot reach reserved claims, admin permissions never come from attributes, the default role is guarded |
+| 97 | PUT | `…/settings/signing` | c | **Guarded:** route `realm-admin` |
+| 98 | PUT | `…/settings/verify-email` | - | None needed: end-user self-service settings; attributes cannot reach reserved claims, admin permissions never come from attributes, the default role is guarded |
+| 99 | PUT | `…/subject-claim` | d | **Guarded:** realm-admin on a change (ClaimScopeAdminService.setSubjectClaim): decides who every token names |
+| 100 | PUT | `…/theme` | - | None needed: cosmetic; custom CSS validated (no external url(), @import, expression) |
+| 101 | POST | `…/theme/assets` | - | None needed: cosmetic; custom CSS validated (no external url(), @import, expression) |
+| 102 | DELETE | `…/theme/assets/{assetId}` | - | None needed: cosmetic; custom CSS validated (no external url(), @import, expression) |
+| 103 | PUT | `…/theme/base` | - | None needed: cosmetic; custom CSS validated (no external url(), @import, expression) |
+| 104 | POST | `…/theme/preview` | - | None needed: renders a preview; stores nothing |
+| 105 | POST | `…/trusted-lists` | - | None needed: a new list is used by no provider |
+| 106 | DELETE | `…/trusted-lists/{id}` | - | None needed: refused while any provider uses the list |
+| 107 | PUT | `…/trusted-lists/{id}` | c | **Guarded:** `requireMayChangeIdentityProvider` for every provider using the list (TrustedListService.update) |
+| 108 | POST | `…/trusted-lists/{id}/refresh` | - | None needed: re-fetches the configured source; the source and signer pinning are unchanged |
+| 109 | POST | `…/user-federation/{alias}/sync` | - | None needed: runs the configured provider; its configuration is guarded as an identity provider |
+| 110 | POST | `…/users` | - | None needed: a new user has no roles (the default role cannot confer admin permissions) |
+| 111 | POST | `…/users/import` | - | None needed: a new user has no roles (the default role cannot confer admin permissions) |
+| 112 | DELETE | `…/users/{userId}` | a | **Guarded:** `requireMayActOnUser` (UserAdminService / PrivilegedPrincipalInterceptor) |
+| 113 | PUT | `…/users/{userId}` | a | **Guarded:** `requireMayActOnUser` (UserAdminService / PrivilegedPrincipalInterceptor) |
+| 114 | DELETE | `…/users/{userId}/credentials/{type}/{id}` | a | **Guarded:** `requireMayActOnUser` (UserAdminService / PrivilegedPrincipalInterceptor) |
+| 115 | DELETE | `…/users/{userId}/gdpr` | a | **Guarded:** `requireMayActOnUser` (UserAdminService / PrivilegedPrincipalInterceptor) |
+| 116 | POST | `…/users/{userId}/impersonate` | a | **Guarded:** `requireMayActOnUser` (ImpersonationService) |
+| 117 | PUT | `…/users/{userId}/password` | a | **Guarded:** `requireMayActOnUser` (UserAdminService / PrivilegedPrincipalInterceptor) |
+| 118 | PUT | `…/users/{userId}/required-actions` | a | **Guarded:** `requireMayActOnUser` (UserAdminService / PrivilegedPrincipalInterceptor) |
+| 119 | POST | `…/users/{userId}/roles` | d | **Guarded:** `requireMayGrant` of the role (RoleAdminService assign/unassign) |
+| 120 | DELETE | `…/users/{userId}/roles/{roleId}` | d | **Guarded:** `requireMayGrant` of the role (RoleAdminService assign/unassign) |
+| 121 | POST | `…/users/{userId}/send-verification-email` | - | None needed: mails the address on file; changes nothing |
+| 122 | DELETE | `…/users/{userId}/sessions` | - | None needed: ends sessions only; cannot grant access |
+| 123 | POST | `…/verifier-keys` | - | None needed: outbound verifier access keys / a certificate preview; no inbound trust |
+| 124 | POST | `…/wallet/certificates/preview` | - | None needed: renders a preview; stores nothing |
+| 125 | POST | `…/webhooks` | - | None needed: outbound only (push to a target); no inbound trust, no credentials of administrators |
+| 126 | DELETE | `…/webhooks/{id}` | - | None needed: outbound only (push to a target); no inbound trust, no credentials of administrators |
+| 127 | PUT | `…/webhooks/{id}` | - | None needed: outbound only (push to a target); no inbound trust, no credentials of administrators |
+| 128 | POST | `…/workload-identity` | c | **Guarded:** `requireMayActOnClient` of the bound client (WorkloadIdentityCredentialAdminService) |
+| 129 | DELETE | `…/workload-identity/{id}` | c | **Guarded:** `requireMayActOnClient` of the bound client (WorkloadIdentityCredentialAdminService) |
+| 130 | PUT | `…/workload-identity/{id}` | c | **Guarded:** `requireMayActOnClient` of the bound client (WorkloadIdentityCredentialAdminService) |
+| 131 | POST | `/connect/register` | - | None needed: acts UNPRIVILEGED, only on clients it registered; client ids are generated (`dcr-<uuid>`), so never a sign-in client id; cannot assign admin roles |
+| 132 | DELETE | `/connect/register/{clientInternalId}` | - | None needed: acts UNPRIVILEGED, only on clients it registered; client ids are generated (`dcr-<uuid>`), so never a sign-in client id; cannot assign admin roles |
+| 133 | PUT | `/connect/register/{clientInternalId}` | - | None needed: acts UNPRIVILEGED, only on clients it registered; client ids are generated (`dcr-<uuid>`), so never a sign-in client id; cannot assign admin roles |
+| 134 | POST | `/scim/v2/Groups` | d | **Guarded:** UNPRIVILEGED actor: groups granting admin permissions refused (`requireMayGrant`) |
+| 135 | DELETE | `/scim/v2/Groups/{id}` | d | **Guarded:** UNPRIVILEGED actor: groups granting admin permissions refused (`requireMayGrant`) |
+| 136 | PATCH | `/scim/v2/Groups/{id}` | d | **Guarded:** UNPRIVILEGED actor: groups granting admin permissions refused (`requireMayGrant`) |
+| 137 | PUT | `/scim/v2/Groups/{id}` | d | **Guarded:** UNPRIVILEGED actor: groups granting admin permissions refused (`requireMayGrant`) |
+| 138 | POST | `/scim/v2/Users` | a,d | **Guarded:** UNPRIVILEGED actor: privileged users refused (`requireMayActOnUser`) |
+| 139 | DELETE | `/scim/v2/Users/{id}` | a,d | **Guarded:** UNPRIVILEGED actor: privileged users refused (`requireMayActOnUser`) |
+| 140 | PATCH | `/scim/v2/Users/{id}` | a,d | **Guarded:** UNPRIVILEGED actor: privileged users refused (`requireMayActOnUser`) |
+| 141 | PUT | `/scim/v2/Users/{id}` | a,d | **Guarded:** UNPRIVILEGED actor: privileged users refused (`requireMayActOnUser`) |
+
+### Realm-import slices
+
+| Slice | Class | Guard / reason |
+|---|---|---|
+| importRealm | b | **Guarded:** `RealmAdminService.save` — sign-in policy fields need realm-admin |
+| importAccountConsole | - | None needed: end-user self-service settings |
+| importTheme | - | None needed: cosmetic; custom CSS validated |
+| importOrganizationThemes | - | None needed: cosmetic; custom CSS validated |
+| importRoles | - | None needed: creates roles without grants (grants come only through importAdminRoles) |
+| importScopes | - | None needed: reserved claims cannot be written; `setSubjectClaim` is guarded where the slice sets it |
+| importClients | a,b | **Guarded:** `ClientAdminService.create/update` — sign-in client ids and non-cosmetic sign-in changes need realm-admin, privileged clients their permissions |
+| importSaml | - | None needed: SAML relying parties are no sign-in surface of administrators |
+| importIdps | b,c | **Guarded:** `IdentityProviderConfigService.saveOrUpdate` — linked administrators' permissions |
+| importFlows | b | **Guarded:** `FlowAdminService.create/save` — protected flows need realm-admin |
+| importOrgs | - | None needed: organizations confer no admin permission |
+| importApplications | b | **Guarded:** `ApplicationConfigService.saveOrUpdate` — parent of a sign-in client needs realm-admin |
+| importAgents | c,d | **Guarded:** `AgentIdentityAdminService.save` — agent roles and bound client |
+| importWebhooks | - | None needed: outbound only |
+| importScim | - | None needed: outbound SCIM targets |
+| importWorkload | c | **Guarded:** `WorkloadIdentityCredentialAdminService.save` — bound client's permissions |
+| importMessaging | a | **Guarded:** `MessagingAdminService.saveProvider` — realm-admin |
+| importTemplates | a | **Guarded:** `MessagingAdminService.saveTemplate` — realm-admin |
+| importAdminRoles | d | **Guarded:** pre-check `requireMayGrant` + `AdminRbacService` (realm-admin route for the import itself is not needed: the grants are checked) |
+| importGroups | d | **Guarded:** `GroupAdminService` — role assignment, move and membership need the grants |
+| importUsers | a,d | **Guarded:** existing users through `UserAdminService.update` (`requireMayActOnUser`); their roles through `RoleAdminService.assign` (`requireMayGrant`) |
+| importClientProtocolMappers | b | **Guarded:** `ClientMapperAdminService` — `requireMayChangeSignInClient` |
+| importClientRoles | d | **Guarded:** `ClientRoleAdminService` — CLIENT roles need `roleClientId`, service-account roles `requireMayGrant` |
+| importResourceIndicators | b | **Guarded:** `ResourceIndicatorService.updateAllowedResources` — `requireMayChangeSignInClient` |
+| importAuthorizationServices | - | None needed: resource-server policies of the client's own API; no admin permissions |

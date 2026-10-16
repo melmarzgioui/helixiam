@@ -395,6 +395,39 @@ start-up report) and `PrivilegedPrincipalE2eTest` (client secret reveal/set/rota
 impersonation, password, profile and status, required actions, credentials, GDPR erasure, deletion, SCIM; ordinary
 users and clients stay manageable; a realm admin may act on any of them), `IdentityBrokerTest`.
 
+**Systematic sweep (round 6).** Instead of more case-by-case fixes, every admin write endpoint (141), every
+realm-import slice (25) and every SCIM and DCR write was inventoried and classified by what it reaches: (a) a
+privileged principal's credentials, identity, links or status; (b) how it signs in or which tokens it gets; (c) what
+trusts it; (d) the roles and permissions in tokens. Anything in a to d needs the subset rule or realm-admin in the
+service layer, so REST and import share the check. The table, with a guard or a reason for every row (77 endpoints and
+15 slices guarded), is in `docs/superpowers/specs/2026-10-16-byo-realm-keys-design.md` (Revision 3). Closed by the sweep:
+
+- **IdP re-pointing took over a linked admin (HIGH).** A `manage-identity-providers` admin could point an identity
+  provider that a realm admin was linked to at their own issuer and sign in as that admin. Changing or deleting such a
+  provider now needs the linked administrators' permissions; the same applies to trusted lists used by wallet
+  providers. Links record their provenance (`federated_link.created_via`: JIT, AUTO, SELF, WALLET); an administrator
+  signs in only through a link they made themselves (JIT, SELF, WALLET), never through an e-mail-matched (AUTO) or
+  unknown one. No admin API creates links.
+- **Applications of the sign-in clients (MEDIUM).** Their flow, subject claim and enabled flag, and deleting them
+  (which soft-deleted the console client), need realm-admin; deleting any Application needs the permissions of every
+  child client it removes.
+- **Squatting `helix-cli` (MEDIUM).** A `manage-clients` admin could create `helix-cli` with its own redirect URI in a
+  realm that lacked it. Creating either sign-in client id needs realm-admin; `helix-cli` is seeded with every realm,
+  and its redirect URIs, grant types, public flag and secret are reset to the built-in values on every start (WARN +
+  `SIGN_IN_CLIENT_RECONCILED` audit).
+- **Import bypassed the sign-in client sub-resource check (LOW).** Mapper and allowed-resource writes call
+  `requireMayChangeSignInClient` in the services.
+- **Flows.** The browser flow and the flows of the sign-in clients and their Applications need realm-admin to change,
+  rename, create (under that name) or delete.
+- **Found by the inventory:** messaging providers and templates, the MFA policy, magic links, the subject claim and
+  the realm's sign-in policy settings need realm-admin; registering a push device for a user needs that user's
+  permissions; deleting a group or role, or moving a group, needs the permissions it grants.
+- **Route level:** manage-X satisfies view-X routes (users, clients, identity providers, events).
+
+Tests: `SignInSurfaceE2eTest` (one scenario per guarded row: the lower admin gets 403, a realm admin of the realm
+gets 2xx, import leaves the protected value unchanged; the IdP takeover is replayed against a stub IdP, AUTO refused and
+JIT accepted), `IdentityBrokerTest`, `LinkProvenanceTest`, `FlywayRealmKeyCertificatesTest` (provenance backfill).
+
 ---
 
 ## Section-by-section
