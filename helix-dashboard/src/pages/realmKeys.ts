@@ -185,3 +185,13 @@ export function validateSigningSettings(form: SigningSettingsForm, activeAlgorit
   else if (!activeAlgorithms.includes(form.samlAlg)) errors.samlAlg = "realmKeys.v.noActiveKey";
   return errors;
 }
+
+/** A duration in minutes as an i18n key + count: minutes under an hour, hours under two days, then days. */
+export function durationParts(minutes: number): { key: string; count: number } {
+  const m = Math.max(0, Math.floor(minutes));
+  if (m < 60) return { key: m === 1 ? "realmKeys.dur.minute" : "realmKeys.dur.minutes", count: m };
+  const h = Math.floor(m / 60);
+  if (h < 48) return { key: h === 1 ? "realmKeys.dur.hour" : "realmKeys.dur.hours", count: h };
+  const d = Math.floor(h / 24);
+  return { key: d === 1 ? "realmKeys.dur.day" : "realmKeys.dur.days", count: d };
+}

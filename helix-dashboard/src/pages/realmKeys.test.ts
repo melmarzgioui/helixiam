@@ -11,6 +11,7 @@ import {
   commonName,
   csrFileName,
   daysUntil,
+  durationParts,
   expiryTone,
   fieldErrorsFromServer,
   hasPemBlock,
@@ -197,5 +198,17 @@ describe("validateSigningSettings", () => {
       .toBe("realmKeys.v.samlAlg");
     expect(validateSigningSettings({ defaultAlg: "HS256", samlAlg: "RS256" }, ["RS256"]).defaultAlg)
       .toBe("realmKeys.v.defaultAlg");
+  });
+});
+
+describe("durationParts", () => {
+  it("uses minutes, hours or days, never thousands of minutes", () => {
+    expect(durationParts(0)).toEqual({ key: "realmKeys.dur.minutes", count: 0 });
+    expect(durationParts(1)).toEqual({ key: "realmKeys.dur.minute", count: 1 });
+    expect(durationParts(59)).toEqual({ key: "realmKeys.dur.minutes", count: 59 });
+    expect(durationParts(60)).toEqual({ key: "realmKeys.dur.hour", count: 1 });
+    expect(durationParts(47 * 60)).toEqual({ key: "realmKeys.dur.hours", count: 47 });
+    expect(durationParts(2880)).toEqual({ key: "realmKeys.dur.days", count: 2 });
+    expect(durationParts(24 * 60 * 2 - 1)).toEqual({ key: "realmKeys.dur.hours", count: 47 });
   });
 });

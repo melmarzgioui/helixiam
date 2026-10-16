@@ -47,7 +47,13 @@
 .hx-input:focus, .hx-input:focus-visible { border-color: var(--primary); box-shadow: var(--ring); }
 .hx-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: .75rem; cursor: pointer; text-align: left; }
 .hx-select-trigger[aria-expanded="true"] { border-color: var(--primary); box-shadow: var(--ring); }
-.hx-select-trigger:disabled { opacity: .6; cursor: not-allowed; }
+/* Disabled fields read as disabled in both themes: the kit's disabled tokens, no hover change, muted text. */
+.hx-select-trigger:disabled, .hx-input:disabled {
+  background: var(--btn-disabled-bg); color: var(--btn-disabled-fg); border-color: var(--border);
+  cursor: not-allowed; box-shadow: none;
+}
+.hx-select-trigger:disabled:hover, .hx-input:disabled:hover { border-color: var(--border); }
+.hx-select-trigger:disabled .hx-select-chevron { color: var(--btn-disabled-fg); }
 .hx-select-chevron { flex-shrink: 0; color: var(--fg-muted); transition: transform .15s var(--ease); }
 .hx-select-trigger[aria-expanded="true"] .hx-select-chevron { transform: rotate(180deg); }
 

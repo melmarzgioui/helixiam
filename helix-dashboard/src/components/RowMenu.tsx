@@ -83,7 +83,13 @@ export function RowMenu({ items, ariaLabel = "Row actions" }: { items: RowMenuIt
         <div ref={menuRef} role="menu" className="hx-portalmenu"
           style={{ "--mx-top": `${pos.top}px`, "--mx-right": `${pos.right}px` } as React.CSSProperties}>
           {items.map((it) => (
-            <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onSelect(); }}
+            <button key={it.label} role="menuitem" onClick={() => {
+                setOpen(false);
+                // Focus the trigger first: a dialog opened by onSelect captures it as the opener and returns focus
+                // there on close (the menu item itself is about to unmount).
+                btnRef.current?.focus();
+                it.onSelect();
+              }}
               className={`hx-portalmenu-item${it.danger ? " hx-portalmenu-item--danger" : ""}`}
             >{it.label}</button>
           ))}

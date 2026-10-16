@@ -26,6 +26,7 @@ import {
   canRetire,
   csrFileName,
   daysUntil,
+  durationParts,
   expiryTone,
   fieldErrorsFromServer,
   keyLabel,
@@ -419,6 +420,7 @@ function ActivateDialog({ keyName, realmKey, onClose, onActivate }: { keyName: s
   const [force, setForce] = React.useState(false);
   const expired = realmKey.certificate?.expiry === "EXPIRED";
   const blocked = !staging.ready && !force;
+  const duration = (minutes: number) => { const d = durationParts(minutes); return t(d.key, { count: d.count }); };
   return (
     <Modal open title={t("realmKeys.confirm.activate.title")} onClose={onClose} width={600}
       footer={<div className="hx-formactions hx-formactions--end">
@@ -426,13 +428,13 @@ function ActivateDialog({ keyName, realmKey, onClose, onActivate }: { keyName: s
         <Button variant="primary" disabled={blocked} onClick={() => onActivate(!staging.ready)}>{t("realmKeys.confirm.activate.label")}</Button>
       </div>}>
       <div className="hx-stackgap">
-        <p>{t("realmKeys.confirm.activate.now", { name: keyName, minutes: staging.publishedMinutes })}</p>
+        <p>{t("realmKeys.confirm.activate.now", { name: keyName, age: duration(staging.publishedMinutes) })}</p>
         <p>{t(realmKey.algorithm === "ES256" ? "realmKeys.confirm.activate.messageEc" : "realmKeys.confirm.activate.message", { name: keyName })}</p>
         {expired && <Alert tone="danger" title={t("realmKeys.confirm.activate.expiredTitle")}>{t("realmKeys.confirm.activate.expired")}</Alert>}
         {!staging.ready && (
           <Alert tone="warning" title={t("realmKeys.confirm.activate.stagingTitle")}>
             <div className="hx-stackgap">
-              <span>{t("realmKeys.confirm.activate.staging", { minutes: staging.waitMinutes })}</span>
+              <span>{t("realmKeys.confirm.activate.staging", { wait: duration(staging.waitMinutes) })}</span>
               <Checkbox label={t("realmKeys.confirm.activate.force")} checked={force} onChange={setForce} />
             </div>
           </Alert>
