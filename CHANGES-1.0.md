@@ -15,7 +15,9 @@ act on an admin more privileged than you**: impersonating, resetting the passwor
 disabling or deleting a user, and revealing, setting or rotating the secret of, changing or deleting a client (through
 its service account), need the target's admin permissions to be your own; revealing a client secret needs
 `manage-clients`; SCIM cannot change admins; IdP logins never auto-link by e-mail to an administrator; a `CLIENT`
-service-account role needs its client. See `helix-iam-server/SECURITY-REVIEW.md` (H5).
+service-account role needs its client; workload-identity and agent bindings to an admin service account need its
+permissions; redirecting the built-in sign-in clients (`helix-console`, `helix-cli`) needs `realm-admin`. See
+`helix-iam-server/SECURITY-REVIEW.md` (H5).
 
 > **Upgrade note (H5).** A realm whose default role carries admin permissions is reported at start-up (WARN and a
 > `DEFAULT_ROLE_HAS_ADMIN_PERMISSIONS` audit event); new users no longer get that role. Pick another default role or

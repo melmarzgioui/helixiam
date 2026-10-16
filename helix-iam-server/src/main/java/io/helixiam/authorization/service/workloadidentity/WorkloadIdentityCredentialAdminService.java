@@ -43,6 +43,20 @@ public class WorkloadIdentityCredentialAdminService {
                 .orElse(null);
     }
 
+    /** Security review H5: binding external trust to an admin service account is acting on that client. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     @Transactional
     public WorkloadIdentityCredentialDto save(final WorkloadIdentityCredentialDto dto) {
         // Review rc.3 #1: an id that belongs to another realm is never updated (nor moved into this one).
@@ -53,6 +67,13 @@ public class WorkloadIdentityCredentialAdminService {
         final WorkloadIdentityCredential entity = (dto.id() == null || dto.id().isBlank())
                 ? new WorkloadIdentityCredential()
                 : repository.findById(dto.id()).orElseGet(WorkloadIdentityCredential::new);
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(dto.realmId(), dto.clientId(), "Binding a workload identity to this client");
+            if (entity.getClientId() != null && !entity.getClientId().equals(dto.clientId())) {
+                principalGuard.requireMayActOnClient(dto.realmId(), entity.getClientId(),
+                        "Changing the workload identity of this client");
+            }
+        }
         if (entity.getId() == null) {
             entity.setId(UUID.randomUUID().toString());
         }
@@ -72,6 +93,10 @@ public class WorkloadIdentityCredentialAdminService {
     public boolean delete(final String realmId, final String id) {
         final Optional<WorkloadIdentityCredential> found = repository.findById(id)
                 .filter(c -> realmId.equals(c.getRealmId()));
+        if (principalGuard != null && found.isPresent()) {
+            principalGuard.requireMayActOnClient(realmId, found.get().getClientId(),
+                    "Removing the workload identity of this client");
+        }
         found.ifPresent(repository::delete);
         return found.isPresent();
     }

@@ -116,10 +116,21 @@ public class AdminGrantGuard {
         if (held == null || held.contains(AdminPermission.REALM_ADMIN.key())) {
             return; // the system, dev-open, or a realm admin
         }
-        if (conferred.contains(AdminPermission.REALM_ADMIN.key()) || !held.containsAll(conferred)) {
+        if (conferred.contains(AdminPermission.REALM_ADMIN.key()) || !withIncluded(held).containsAll(conferred)) {
             throw new AdminGrantDeniedException(what + " confers admin permissions you do not hold ("
                     + String.join(", ", conferred) + "); ask a realm admin.");
         }
+    }
+
+    /** {@code manage-X} includes {@code view-X} (users, clients, identity providers, events). */
+    static Set<String> withIncluded(final Set<String> held) {
+        final Set<String> out = new LinkedHashSet<>(held);
+        for (final String area : List.of("users", "clients", "identity-providers", "events")) {
+            if (held.contains("manage-" + area)) {
+                out.add("view-" + area);
+            }
+        }
+        return out;
     }
 
     /** Refuses unless the caller holds realm-admin. */

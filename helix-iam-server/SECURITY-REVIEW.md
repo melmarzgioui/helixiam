@@ -368,6 +368,17 @@ identity by e-mail to a user holding any admin permission: that user links it fr
 eID and LDAP go through it; wallets never link by attribute). A `CLIENT` service-account role needs its client
 (`400`). The unused `TenantService.save(TenantUser)` was removed.
 
+**Trust bindings and sign-in clients** (final round, also present in rc.11): `manage-realm` could bind its own
+workload-identity issuer to an admin service account (and the realm import's workload-identity slice could too), and
+bind an agent to an admin service account or give it admin roles; `manage-clients` could add a redirect URI to the
+built-in `helix-console` client and receive the master admin's authorization code. Workload-identity and agent
+create/update/delete now act on the bound client (`requireMayActOnClient`, controller and service, so the import is
+covered) and agent realm roles go through `AdminGrantGuard`; on the built-in sign-in clients (`helix-console`,
+`helix-cli`) changing redirect or post-logout URIs, grant types, public/confidential status or the token-endpoint auth
+method needs `realm-admin`. Verified covered already: `private_key_jwt`/`jwks_uri`, mTLS subject and token-exchange
+policies (client updates and `/clients/{id}/**` writes); DCR binds no existing client. `manage-X` now includes `view-X`
+when permissions are compared.
+
 **Who is acting is declared, never inferred** (review follow-up): an earlier fix decided "admin action" from the raw
 URI and skipped enforcement otherwise (fail-open, the H4 pattern). The acting principal is now an explicit
 `AdminActor`, declared by `AdminAuthorizationManager` where it authorises an admin route, by SCIM and DCR (no admin

@@ -62,6 +62,20 @@ public class WorkloadIdentityAdminController {
             Boolean enabled) {
     }
 
+    /** Security review H5: binding external trust to an admin service account needs that account's permissions. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
+    private void guard(final String realmId, final String clientId) {
+        if (principalGuard != null && clientId != null) {
+            principalGuard.requireMayActOnClient(realmId, clientId, "Binding a workload identity to this client");
+        }
+    }
+
     @GetMapping
     public List<WorkloadIdentityCredentialDto> list(@PathVariable final String realmId) {
         return publisher.list(realmId);
@@ -77,6 +91,7 @@ public class WorkloadIdentityAdminController {
     @PostMapping
     public ResponseEntity<?> create(@PathVariable final String realmId,
                                     @Valid @RequestBody final WorkloadIdentityRequest body) {
+        guard(realmId, body.clientId());
         final String error = validateActsAs(realmId, body.clientId());
         if (error != null) {
             return ResponseEntity.badRequest().body(Map.of("message", error));
@@ -88,6 +103,7 @@ public class WorkloadIdentityAdminController {
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable final String realmId, @PathVariable final String id,
                                     @Valid @RequestBody final WorkloadIdentityRequest body) {
+        guard(realmId, body.clientId());
         final String error = validateActsAs(realmId, body.clientId());
         if (error != null) {
             return ResponseEntity.badRequest().body(Map.of("message", error));
@@ -133,6 +149,10 @@ public class WorkloadIdentityAdminController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable final String realmId, @PathVariable final String id) {
+        final WorkloadIdentityCredentialDto existing = publisher.get(new WorkloadIdentityCredentialRef(realmId, id));
+        if (existing != null) {
+            guard(realmId, existing.clientId());
+        }
         final boolean removed = Boolean.TRUE.equals(publisher.delete(new WorkloadIdentityCredentialRef(realmId, id)));
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }

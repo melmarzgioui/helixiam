@@ -101,6 +101,7 @@ public class ClientAdminService {
             requireSettableSecret(write.clientSecret(), Boolean.TRUE.equals(write.publicClient()));
         }
         return inRealm(write.realmId(), write.id()).map(client -> {
+            requireRealmAdminForSignInChanges(write, client);
             applyWrite(client, write);
             if (write.clientSecret() != null) {
                 client.setClientSecret(write.clientSecret());
@@ -180,6 +181,47 @@ public class ClientAdminService {
             client.setClientSecret(secret);
             return toDto(repository.save(client), secret);
         });
+    }
+
+    /** The built-in clients admins sign in through (console, CLI): their sign-in settings need realm-admin. */
+    public static final java.util.Set<String> SIGN_IN_CLIENTS = java.util.Set.of(
+            ConsoleClientBootstrapService.CONSOLE_CLIENT_ID, CliClientBootstrapService.CLI_CLIENT_ID);
+
+    /** Security review H5: realm-admin decides how admins sign in. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
+    /**
+     * On a built-in sign-in client, changing where codes and logouts go (redirect and post-logout URIs), how it
+     * authenticates (grant types, public/confidential, token endpoint auth method) needs realm-admin: otherwise a
+     * client manager could send the master admin's authorization code to their own site.
+     */
+    private void requireRealmAdminForSignInChanges(final ClientWriteDto write, final ServiceProviderOAuthClient client) {
+        if (adminGrantGuard == null || !SIGN_IN_CLIENTS.contains(client.getClientId())) {
+            return;
+        }
+        final ClientDto current = toDto(client, null);
+        final boolean changed = changedList(write.redirectUris(), current.redirectUris())
+                || changedList(write.postLogoutRedirectUris(), current.postLogoutRedirectUris())
+                || changedList(write.grantTypes(), current.grantTypes())
+                || (write.publicClient() != null && !write.publicClient().equals(current.publicClient()))
+                || (write.tokenEndpointAuthMethod() != null && !write.tokenEndpointAuthMethod().isBlank()
+                        && !write.tokenEndpointAuthMethod().equals(current.tokenEndpointAuthMethod()));
+        if (changed) {
+            adminGrantGuard.requireRealmAdmin(write.realmId(), "Changing how admins sign in through "
+                    + client.getClientId());
+        }
+    }
+
+    private static boolean changedList(final List<String> requested, final List<String> current) {
+        if (requested == null) {
+            return false;
+        }
+        return !new java.util.HashSet<>(requested).equals(new java.util.HashSet<>(current == null ? List.of() : current));
     }
 
     /** Soft-deletes a client (the OAuth server stops resolving it); {@code false} if absent. */

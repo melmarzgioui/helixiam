@@ -65,6 +65,20 @@ public class AgentIdentityAdminService {
      * Create or update an agent. On create a UUID is assigned and the defaults are applied; the realm-unique
      * name is enforced (a different agent already owning the name in the realm ⇒ {@link IllegalArgumentException}).
      */
+    /** Security review H5: binding external trust to an admin service account is acting on that client. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     @Transactional
     public AgentIdentityDto save(final AgentIdentityDto dto) {
         // Review rc.3 #1: an id that belongs to another realm is never updated (nor moved into this one).
@@ -75,6 +89,24 @@ public class AgentIdentityAdminService {
         final AgentIdentity entity = (dto.id() == null || dto.id().isBlank())
                 ? new AgentIdentity()
                 : repository.findById(dto.id()).orElseGet(AgentIdentity::new);
+        if (principalGuard != null) {
+            if (dto.clientId() != null && !dto.clientId().isBlank()) {
+                principalGuard.requireMayActOnClient(dto.realmId(), dto.clientId(), "Binding an agent to this client");
+            }
+            if (entity.getClientId() != null && !entity.getClientId().equals(dto.clientId())) {
+                principalGuard.requireMayActOnClient(dto.realmId(), entity.getClientId(), "Changing this client's agent");
+            }
+        }
+        if (adminGrantGuard != null) {
+            // An agent's realm roles ride in its tokens: they must not confer admin permissions the caller lacks.
+            final java.util.Set<String> conferred = new java.util.LinkedHashSet<>();
+            for (final String role : io.helixiam.authorization.security.agent.AgentTokenEnricher.rawRolesFrom(dto.roles())) {
+                if (role.indexOf('/') < 0 || role.startsWith("realm/")) {
+                    conferred.addAll(adminGrantGuard.grantsOfName(dto.realmId(), role.substring(role.indexOf('/') + 1)));
+                }
+            }
+            adminGrantGuard.requireMayGrant(dto.realmId(), conferred, "This agent's roles");
+        }
         if (entity.getId() == null) {
             entity.setId(UUID.randomUUID().toString());
         }
@@ -109,6 +141,9 @@ public class AgentIdentityAdminService {
     public boolean delete(final String realmId, final String id) {
         final Optional<AgentIdentity> found = repository.findById(id)
                 .filter(a -> realmId.equals(a.getRealmId()));
+        if (principalGuard != null && found.isPresent() && found.get().getClientId() != null) {
+            principalGuard.requireMayActOnClient(realmId, found.get().getClientId(), "Removing this client's agent");
+        }
         found.ifPresent(repository::delete);
         return found.isPresent();
     }
