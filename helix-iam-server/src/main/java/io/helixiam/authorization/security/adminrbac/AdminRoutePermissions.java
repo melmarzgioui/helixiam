@@ -69,6 +69,10 @@ public final class AdminRoutePermissions {
 
         // Realm-scoped resource groups: /admin/realms/{realmId}/<group>...
         final String group = seg[3];
+        // The signing settings decide which key and algorithm sign tokens and SAML: realm-admin, like key writes.
+        if ("settings".equals(group) && seg.length >= 5 && "signing".equals(seg[4]) && !read) {
+            return Optional.of(REALM_ADMIN);
+        }
         return Optional.of(switch (group) {
             case "users" -> read ? VIEW_USERS : MANAGE_USERS;
             case "clients", "applications", "saml-clients", "client-scopes" -> read ? VIEW_CLIENTS : MANAGE_CLIENTS;

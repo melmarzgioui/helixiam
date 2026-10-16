@@ -143,6 +143,13 @@ class AdminRoutePermissionsTest {
     }
 
     @Test
+    void signingSettingsWrites_needRealmAdmin() {
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/settings/signing", "PUT")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/settings/signing", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/settings", "PUT")).contains("manage-realm");
+    }
+
+    @Test
     void realmKeyWrites_needRealmAdmin_readsKeepManageRealm() {
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/keys", "GET")).contains("manage-realm");
         assertThat(AdminRoutePermissions.required("/admin/realms/gov/keys/k1/csr", "GET")).contains("manage-realm");

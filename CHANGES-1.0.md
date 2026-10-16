@@ -5,6 +5,14 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.11`)
 
+### Security: admin permissions resolved on the decoded path (H4, predates this release)
+
+The admin permission resolver read the raw request URI while Spring MVC routes on the decoded path, so an encoded
+route name (`k%65ys`, `u%73ers`) resolved to the `manage-realm` default and let a low-permission admin reach writes
+guarded by another permission. Percent-encoding in the realm id or route name of an `/admin` path is now refused with
+`400`, the resolver reads the decoded path, and unknown admin routes fail closed to `realm-admin`. See
+`helix-iam-server/SECURITY-REVIEW.md` (H4).
+
 ### Bring your own realm signing keys and certificates
 
 Customers can change the keys and certificates their realm signs OIDC/JWS and SAML with. Design and every decision:
@@ -18,15 +26,20 @@ Customers can change the keys and certificates their realm signs OIDC/JWS and SA
   private key and returns a PKCS#10 CSR; `PUT /keys/{keyId}/certificate` attaches the CA-signed chain (PENDING or
   ACTIVE keys).
 - **Staged rollover**: new keys start PENDING — published in the JWKS and SAML metadata, not signing —
-  until `POST /keys/{keyId}/activate`; the previous ACTIVE key becomes ROTATED and stays published. `POST /keys/rotate`
-  still generates and activates at once and takes an optional `{"algorithm"}`. Retiring the ACTIVE key is now refused
-  (`409`; it used to succeed). Key ids are realm-scoped on every route (`404` across realms).
+  until `POST /keys/{keyId}/activate` (after `helix.keys.min-staging`, 5 min, unless `?force=true`); the previous
+  ACTIVE key of the same algorithm becomes ROTATED and stays published. `POST /keys/rotate` still generates and
+  activates at once (no staging) and takes an optional `{"algorithm"}`. Retiring the ACTIVE RS256 key is now refused
+  (`409`; it used to succeed). Key ids are realm-scoped on every route (`404` across realms); transitions are
+  serialised per realm.
+- **Permissions**: every key write needs `realm-admin` (it used to be `manage-realm`); reads keep `manage-realm`.
 - **Publishing**: every JWK has `kid`, `alg`, `use: sig`; keys with a chain add `x5c` and `x5t#S256`. SAML metadata
   and signatures use the ACTIVE key's leaf certificate when it has one (else the deterministic self-signed one, as
   before); PENDING and ROTATED certificates are extra signing KeyDescriptors.
-- **ES256**: the ACTIVE key's algorithm decides the `alg` of every token the realm signs (ID, access, logout,
-  delegation, workload-identity tokens, JARM); discovery's `id_token_signing_alg_values_supported` lists the
-  published keys' algorithms, the active one first. SAML with an EC key signs ECDSA-SHA256. The MCP demo verifier now
+- **ES256 alongside RS256**: every realm keeps an ACTIVE RS256 key; an ES256 key can be active beside it. ID tokens
+  use the client's `id_token_signed_response_alg` (validated against the ACTIVE keys); access, logout, delegation,
+  workload-identity tokens and JARM use the new realm setting `signing.defaultAlg`
+  (`/admin/realms/{realm}/settings/signing`, RS256 by default); SAML signs RSA unless `signing.samlAlg` is ES256.
+  Discovery lists exactly the ACTIVE keys' algorithms. The MCP demo verifier now
   accepts RS256/PS256/ES256 by kid; the sandbox RP takes the ID-token algorithm from discovery and trusts every SAML
   signing certificate in the metadata.
 - **Expiry**: import/attach refuse expired certificates; ACTIVE/PENDING certificates within 30 days of expiry (or
@@ -38,12 +51,14 @@ Customers can change the keys and certificates their realm signs OIDC/JWS and SA
   Rotate (generate) and Retire.
 
 > **Upgrade note.** Flyway **V86** (and `schema.sql`) adds `certificate_chain_pem`, `csr_pem`, `source`,
-> `activated_date` and `expiry_warned_on` to `realm_key` and rewrites `algorithm` from `RSA` to `RS256` (existing keys
-> keep their kid and keep signing). Rolling upgrade: rc.11 replicas ignore PENDING keys and keep signing with RSA
+> `activated_date` and `expiry_warned_on` to `realm_key`, a unique index on `realm_key.public_key`, and the table
+> `realm_signing_settings`, and rewrites `algorithm` from `RSA` to `RS256` (existing keys keep their kid and keep
+> signing). Admins who rotated keys with only `manage-realm` now need `realm-admin`; admin routes not named in the
+> permission catalogue now need `realm-admin` too. Clients whose ID-token algorithm has no ACTIVE key (for example
+> RS384) must be changed before their next save. Rolling upgrade: rc.11 replicas ignore PENDING keys and keep signing with RSA
 > keys, so you can import and stage keys mid-roll — but activate an **ES256** key only once every replica runs this
-> release (an rc.11 replica cannot load an EC key). After activating an ES256 key, every token the realm signs is
-> ES256, including for clients registered with the default RS256 `id_token_signed_response_alg`; check your relying
-> parties first. Realm exports still contain no keys or certificates.
+> release (an rc.11 replica cannot load an EC key). Changing the signing settings needs `realm-admin`.
+> Realm exports still contain no keys, certificates or signing settings.
 
 ## v1.0.0-rc.11 (2026-10-15)
 

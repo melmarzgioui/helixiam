@@ -25,8 +25,11 @@ export function SigningSettingsSection({ api, realmId }: { api: RealmKeyApi; rea
   const [active, setActive] = React.useState<string[]>([]);
   const [errors, setErrors] = React.useState<Errors>({});
   const [busy, setBusy] = React.useState(false);
+  // Which key and algorithm sign is realm-admin territory (the server enforces it): read-only without it.
+  const [canManage, setCanManage] = React.useState(false);
 
   React.useEffect(() => {
+    api.access(realmId).then((a) => setCanManage(!!a.canManage)).catch(() => setCanManage(false));
     api.signingSettings(realmId)
       .then((s) => { setForm({ defaultAlg: s.defaultAlg, samlAlg: s.samlAlg }); setActive(s.activeAlgorithms); })
       .catch(() => setForm(null));
@@ -52,13 +55,14 @@ export function SigningSettingsSection({ api, realmId }: { api: RealmKeyApi; rea
 
   return (
     <Section title={t("signing.title")} description={t("signing.description")}
-      actions={<Button variant="primary" onClick={save} disabled={busy}>{t("signing.save")}</Button>}>
+      actions={canManage ? <Button variant="primary" onClick={save} disabled={busy}>{t("signing.save")}</Button> : undefined}>
+      {!canManage && <Alert tone="info">{t("signing.readOnly")}</Alert>}
       <FormField label={t("signing.defaultAlg")} hint={t("signing.defaultAlg.hint")} error={err("defaultAlg")}>
-        <Select aria-label={t("signing.defaultAlg")} value={form.defaultAlg} onChange={(v) => setForm({ ...form, defaultAlg: v })}
+        <Select aria-label={t("signing.defaultAlg")} disabled={!canManage} value={form.defaultAlg} onChange={(v) => setForm({ ...form, defaultAlg: v })}
           options={DEFAULT_ALGS.map(option)} />
       </FormField>
       <FormField label={t("signing.samlAlg")} hint={t("signing.samlAlg.hint")} error={err("samlAlg")}>
-        <Select aria-label={t("signing.samlAlg")} value={form.samlAlg} onChange={(v) => setForm({ ...form, samlAlg: v })}
+        <Select aria-label={t("signing.samlAlg")} disabled={!canManage} value={form.samlAlg} onChange={(v) => setForm({ ...form, samlAlg: v })}
           options={SAML_ALGS.map(option)} />
       </FormField>
       {(form.defaultAlg === "ES256" || form.samlAlg === "ES256") && (

@@ -150,6 +150,7 @@ export const realmKeyEn: Dict = {
   "signing.samlAlg.hint": "Which active key signs SAML assertions and logout messages. Many service providers accept RSA only.",
   "signing.noKey": "{alg} (no active key)",
   "signing.save": "Save signing",
+  "signing.readOnly": "Changing the signing settings needs the realm-admin permission.",
   "signing.saved": "Signing settings saved",
   "signing.saveFailed": "Couldn't save the signing settings",
 };
@@ -296,6 +297,7 @@ export const realmKeyNl: Dict = {
   "signing.samlAlg.hint": "Welke actieve sleutel SAML-assertions en logoutberichten ondertekent. Veel serviceproviders accepteren alleen RSA.",
   "signing.noKey": "{alg} (geen actieve sleutel)",
   "signing.save": "Ondertekening opslaan",
+  "signing.readOnly": "Het wijzigen van de ondertekeningsinstellingen vereist de permissie realm-admin.",
   "signing.saved": "Ondertekeningsinstellingen opgeslagen",
   "signing.saveFailed": "De ondertekeningsinstellingen konden niet worden opgeslagen",
 };

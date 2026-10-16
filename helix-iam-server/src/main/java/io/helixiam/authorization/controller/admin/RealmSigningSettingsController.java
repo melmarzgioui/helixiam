@@ -30,11 +30,14 @@ public class RealmSigningSettingsController {
 
     private final RealmSigningSettingsService service;
     private final io.helixiam.authorization.service.key.KeyMaterialService keys;
+    private final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager rbac;
 
     public RealmSigningSettingsController(final RealmSigningSettingsService service,
-                                          final io.helixiam.authorization.service.key.KeyMaterialService keys) {
+                                          final io.helixiam.authorization.service.key.KeyMaterialService keys,
+                                          final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager rbac) {
         this.service = service;
         this.keys = keys;
+        this.rbac = rbac;
     }
 
     /** The settings plus the algorithms the realm's ACTIVE keys can sign (for the console's choices). */
@@ -51,8 +54,15 @@ public class RealmSigningSettingsController {
     }
 
     @PutMapping
-    public SigningSettingsView put(@PathVariable final String realmId, @RequestBody final SigningSettingsWrite body,
-                                   final HttpServletRequest http) {
+    public org.springframework.http.ResponseEntity<?> put(@PathVariable final String realmId,
+                                                          @RequestBody final SigningSettingsWrite body,
+                                                          final HttpServletRequest http) {
+        // Defence in depth: which key and algorithm sign is realm-admin territory, like key writes.
+        if (!rbac.permits(org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication(),
+                realmId, io.helixiam.authorization.security.adminrbac.AdminRoutePermissions.REALM_ADMIN)) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "forbidden", "message", "Changing the signing settings needs realm-admin."));
+        }
         final Map<String, String> errors = service.put(realmId, body == null ? null : body.defaultAlg(),
                 body == null ? null : body.samlAlg());
         if (!errors.isEmpty()) {
@@ -60,6 +70,7 @@ public class RealmSigningSettingsController {
         }
         final RealmSigningSettingsService.Settings s = service.get(realmId);
         AuditContext.attachDetail(http, Map.of("signing.defaultAlg", s.defaultAlg(), "signing.samlAlg", s.samlAlg()));
-        return new SigningSettingsView(s.defaultAlg(), s.samlAlg(), keys.activeAlgorithms(realmId));
+        return org.springframework.http.ResponseEntity.ok(
+                new SigningSettingsView(s.defaultAlg(), s.samlAlg(), keys.activeAlgorithms(realmId)));
     }
 }

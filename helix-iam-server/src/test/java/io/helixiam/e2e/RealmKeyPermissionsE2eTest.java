@@ -42,6 +42,13 @@ class RealmKeyPermissionsE2eTest extends AbstractE2eTest {
         assertThat(realmOnly.delete(keys(realm) + "/" + keyId).status()).isEqualTo(403);
         // Nothing changed.
         assertThat(admin.get(keys(realm)).json().size()).isEqualTo(1);
+
+        // The signing settings decide which key signs: realm-admin to change, manage-realm to read.
+        final String signing = "/admin/realms/" + realm + "/settings/signing";
+        assertThat(realmOnly.get(signing).status()).isEqualTo(200);
+        assertThat(realmOnly.put(signing, Map.of("defaultAlg", "PS256", "samlAlg", "RS256")).status()).isEqualTo(403);
+        assertThat(admin.get(signing).json().path("defaultAlg").asText()).isEqualTo("RS256");
+        assertThat(admin.put(signing, Map.of("defaultAlg", "PS256", "samlAlg", "RS256")).status()).isEqualTo(200);
     }
 
     @Test
