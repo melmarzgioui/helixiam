@@ -93,6 +93,20 @@ public class RealmSamlCredentialSource {
         if (existing != null && now - existing.fetchedAtMs() <= ttlMs) {
             return existing.config();
         }
+        final java.util.List<io.helixiam.authorization.service.key.PublishedKey> published =
+                serviceProviderPublisher.retrievePublishedKeys(realm);
+        if (published != null && !published.isEmpty()) {
+            final String fingerprint = published.stream().map(k -> k.keyId() + ":" + k.status() + ":"
+                    + (k.leaf() == null ? "-" : io.helixiam.authorization.service.key.RealmKeyMaterial.fingerprint(k.leaf())))
+                    .collect(java.util.stream.Collectors.joining(","));
+            if (existing != null && existing.kid().equals(fingerprint)) {
+                byRealm.put(realm, new Cached(fingerprint, existing.config(), now));
+                return existing.config();
+            }
+            final SamlIdpConfig config = build(realm, published);
+            byRealm.put(realm, new Cached(fingerprint, config, now));
+            return config;
+        }
         final KeyPair keyPair = serviceProviderPublisher.retrieveKeyPair(realm);
         if (keyPair == null) {
             if (existing != null) {
@@ -111,6 +125,51 @@ public class RealmSamlCredentialSource {
         return config;
     }
 
+    /** A realm's keys changed on this replica: drop its cached SAML credential. */
+    @org.springframework.context.event.EventListener
+    public void onKeysChanged(final io.helixiam.authorization.service.key.RealmKeysChangedEvent event) {
+        if (event.realmId() != null) {
+            byRealm.remove(event.realmId());
+        }
+    }
+
+    /**
+     * BYO keys (D23–D25): the ACTIVE key signs; its leaf certificate is published when it has one, else the
+     * deterministic self-signed certificate. PENDING then ROTATED keys follow as extra signing certificates.
+     */
+    private SamlIdpConfig build(final String realm,
+                                final java.util.List<io.helixiam.authorization.service.key.PublishedKey> published) {
+        io.helixiam.authorization.service.key.PublishedKey active = null;
+        final java.util.List<String> additional = new java.util.ArrayList<>();
+        for (final io.helixiam.authorization.service.key.PublishedKey k : published) {
+            if (k.active() && active == null) {
+                active = k;
+            } else {
+                additional.add(pem("CERTIFICATE", encoded(certificateFor(realm, k))));
+            }
+        }
+        if (active == null) {
+            throw new IllegalStateException("No active signing key for realm '" + realm + "' — cannot sign SAML");
+        }
+        return new SamlIdpConfig(properties.getEntityId(), pem("CERTIFICATE", encoded(certificateFor(realm, active))),
+                pem("PRIVATE KEY", active.privateKey().getEncoded()), additional);
+    }
+
+    private static X509Certificate certificateFor(final String realm,
+                                                  final io.helixiam.authorization.service.key.PublishedKey key) {
+        return key.leaf() != null ? key.leaf()
+                : io.helixiam.authorization.service.key.RealmKeyMaterial.selfSigned(realm,
+                        new KeyPair(key.publicKey(), key.privateKey()));
+    }
+
+    private static byte[] encoded(final X509Certificate cert) {
+        try {
+            return cert.getEncoded();
+        } catch (final java.security.cert.CertificateEncodingException e) {
+            throw new IllegalStateException("Unencodable certificate", e);
+        }
+    }
+
     private SamlIdpConfig build(final String realm, final KeyPair keyPair) {
         try {
             final X509Certificate cert = selfSigned(realm, keyPair);
@@ -123,17 +182,8 @@ public class RealmSamlCredentialSource {
     }
 
     /** A deterministic self-signed X.509 cert wrapping the realm's public key, signed by its private key. */
-    private static X509Certificate selfSigned(final String realm, final KeyPair keyPair) throws Exception {
-        final PublicKey publicKey = keyPair.getPublic();
-        final PrivateKey privateKey = keyPair.getPrivate();
-        final X500Principal dn = new X500Principal("CN=helix-idp-" + realm);
-        // Deterministic positive serial from the public key so the cert bytes are stable for a stable key.
-        final byte[] modulusHash = MessageDigest.getInstance("SHA-256").digest(publicKey.getEncoded());
-        final BigInteger serial = new BigInteger(1, modulusHash);
-        final JcaX509v3CertificateBuilder builder =
-                new JcaX509v3CertificateBuilder(dn, serial, NOT_BEFORE, NOT_AFTER, dn, publicKey);
-        final ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(privateKey);
-        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+    private static X509Certificate selfSigned(final String realm, final KeyPair keyPair) {
+        return io.helixiam.authorization.service.key.RealmKeyMaterial.selfSigned(realm, keyPair);
     }
 
     private static String kid(final PublicKey publicKey) {

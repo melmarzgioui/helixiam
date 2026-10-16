@@ -12,12 +12,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
 
-import java.security.KeyFactory;
 import java.security.KeyPair;
-import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -73,36 +69,56 @@ public class KeyMaterialService {
             // self-generates and persists its own key on first use — exactly like every other realm.
             active = realmKeyService.getOrCreateActive(realmId);
         }
-        return new KeyPair(toPublicKey(active.getPublicKey()), toPrivateKey(active.getPrivateKey()));
+        return RealmKeyMaterial.decode(active.getJwsAlgorithm(), active.getPublicKey(), active.getPrivateKey());
     }
 
-    /** Public keys of {@code realm}'s ROTATED keys — published in its JWKS so pre-rotation tokens still verify. */
+    /** Public keys of {@code realm}'s ROTATED RSA keys (legacy seam; {@link #publishedKeys} covers every key). */
     public List<RSAPublicKey> rotatedPublicKeys(final String realm) {
         final String realmId = (realm == null || realm.isBlank()) ? SIGNING_REALM_ID : realm;
         final List<RSAPublicKey> keys = new ArrayList<>();
         for (final RealmKey key : realmKeyService.verificationKeys(realmId)) {
-            if (RealmKey.Status.ROTATED.name().equals(key.getStatus())) {
-                keys.add(toPublicKey(key.getPublicKey()));
+            if (RealmKey.Status.ROTATED.name().equals(key.getStatus())
+                    && RealmKeyMaterial.RS256.equals(key.getJwsAlgorithm())) {
+                keys.add((RSAPublicKey) RealmKeyMaterial.decodePublic(key.getJwsAlgorithm(), key.getPublicKey()));
             }
         }
         return keys;
     }
 
-    private RSAPublicKey toPublicKey(final String base64Spki) {
-        try {
-            return (RSAPublicKey) KeyFactory.getInstance("RSA")
-                    .generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(base64Spki)));
-        } catch (final Exception e) {
-            throw new IllegalStateException("Invalid stored public key", e);
+    /**
+     * Every key {@code realm} publishes — ACTIVE first, then PENDING, then ROTATED (newest first within a status) — with
+     * its certificate chain. Ensures the realm has an ACTIVE key first (seeding the signing realm from {@code /jks}).
+     * A row that can no longer be read is skipped with a warning (key id only).
+     */
+    public List<PublishedKey> publishedKeys(final String realm) {
+        final String realmId = (realm == null || realm.isBlank()) ? SIGNING_REALM_ID : realm;
+        activeKeyPair(realmId);
+        final List<RealmKey> rows = new ArrayList<>(realmKeyService.publishedKeys(realmId));
+        rows.sort(java.util.Comparator.comparingInt((RealmKey k) -> statusOrder(k.getStatus()))
+                .thenComparing(k -> k.getCreationDate() == null ? new java.util.Date(0) : k.getCreationDate(),
+                        java.util.Comparator.reverseOrder()));
+        final List<PublishedKey> out = new ArrayList<>();
+        for (final RealmKey row : rows) {
+            try {
+                final KeyPair kp = RealmKeyMaterial.decode(row.getJwsAlgorithm(), row.getPublicKey(), row.getPrivateKey());
+                final List<java.security.cert.X509Certificate> chain = row.getCertificateChainPem() == null
+                        || row.getCertificateChainPem().isBlank() ? List.of()
+                        : RealmKeyMaterial.parseChain(row.getCertificateChainPem());
+                out.add(new PublishedKey(row.getKeyId(), row.getStatus(), row.getJwsAlgorithm(), kp.getPublic(),
+                        kp.getPrivate(), chain));
+            } catch (final RuntimeException e) {
+                LOG.warn("Skipping unreadable signing key realm={} keyId={}", io.helixiam.common.log.LogSafe.sanitize(realmId),
+                        io.helixiam.common.log.LogSafe.sanitize(row.getKeyId()));
+            }
         }
+        return out;
     }
 
-    private RSAPrivateKey toPrivateKey(final String base64Pkcs8) {
-        try {
-            return (RSAPrivateKey) KeyFactory.getInstance("RSA")
-                    .generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(base64Pkcs8)));
-        } catch (final Exception e) {
-            throw new IllegalStateException("Invalid stored private key", e);
-        }
+    private static int statusOrder(final String status) {
+        return switch (status) {
+            case "ACTIVE" -> 0;
+            case "PENDING" -> 1;
+            default -> 2;
+        };
     }
 }

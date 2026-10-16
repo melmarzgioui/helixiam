@@ -484,20 +484,26 @@ public class SamlIdpController {
         final String sloUrl = idpBaseUrl + "/realms/" + realm + "/saml/idp/slo";
         // Per-realm: publish THIS realm's signing certificate (derived from its active signing key), so an
         // SP that trusts this realm's metadata verifies assertions this realm actually signs.
-        final String rawCert = credentialSource.forRealm(realm).signingCertificate();
-        final String cert = rawCert == null ? "" : rawCert
-                .replace("-----BEGIN CERTIFICATE-----", "").replace("-----END CERTIFICATE-----", "").replaceAll("\\s", "");
+        final SamlIdpConfig idp = credentialSource.forRealm(realm);
+        // BYO keys (D25): the ACTIVE certificate first, then PENDING and ROTATED ones (SPs that re-read metadata
+        // roll over); encryption only with an RSA active key (SPs encrypt to the IdP with RSA-OAEP).
+        final String cert = certBody(idp.signingCertificate());
+        final StringBuilder signing = new StringBuilder(keyDescriptor("signing", cert));
+        final java.util.Set<String> seen = new java.util.HashSet<>(java.util.List.of(cert));
+        for (final String extra : idp.additionalSigningCertificates()) {
+            final String body = certBody(extra);
+            if (seen.add(body)) {
+                signing.append(keyDescriptor("signing", body));
+            }
+        }
+        final boolean rsa = isRsaCertificate(idp.signingCertificate());
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<md:EntityDescriptor xmlns:md=\"urn:oasis:names:tc:SAML:2.0:metadata\" entityID=\""
                 + properties.getEntityId() + "\">"
                 + "<md:IDPSSODescriptor WantAuthnRequestsSigned=\"true\" protocolSupportEnumeration=\""
                 + "urn:oasis:names:tc:SAML:2.0:protocol\">"
-                + "<md:KeyDescriptor use=\"signing\"><ds:KeyInfo xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\">"
-                + "<ds:X509Data><ds:X509Certificate>" + cert + "</ds:X509Certificate></ds:X509Data></ds:KeyInfo>"
-                + "</md:KeyDescriptor>"
-                + "<md:KeyDescriptor use=\"encryption\"><ds:KeyInfo xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\">"
-                + "<ds:X509Data><ds:X509Certificate>" + cert + "</ds:X509Certificate></ds:X509Data></ds:KeyInfo>"
-                + "</md:KeyDescriptor>"
+                + signing
+                + (rsa ? keyDescriptor("encryption", cert) : "")
                 + "<md:SingleLogoutService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" Location=\""
                 + sloUrl + "\"/>"
                 + "<md:SingleLogoutService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect\" Location=\""
@@ -513,5 +519,24 @@ public class SamlIdpController {
                 + "<md:SingleSignOnService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect\" Location=\""
                 + ssoUrl + "\"/>"
                 + "</md:IDPSSODescriptor></md:EntityDescriptor>";
+    }
+
+    private static String certBody(final String pem) {
+        return pem == null ? "" : pem.replace("-----BEGIN CERTIFICATE-----", "")
+                .replace("-----END CERTIFICATE-----", "").replaceAll("\\s", "");
+    }
+
+    private static String keyDescriptor(final String use, final String certBody) {
+        return "<md:KeyDescriptor use=\"" + use + "\"><ds:KeyInfo xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\">"
+                + "<ds:X509Data><ds:X509Certificate>" + certBody + "</ds:X509Certificate></ds:X509Data></ds:KeyInfo>"
+                + "</md:KeyDescriptor>";
+    }
+
+    private static boolean isRsaCertificate(final String pem) {
+        try {
+            return "RSA".equals(SamlSigningSupport.parseCertificate(pem).getPublicKey().getAlgorithm());
+        } catch (final Exception e) {
+            return true;
+        }
     }
 }

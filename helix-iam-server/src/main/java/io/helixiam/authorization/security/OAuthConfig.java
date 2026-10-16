@@ -63,7 +63,11 @@ public class OAuthConfig {
     /** SSO P6: a JwtEncoder over the realm JWKS so we can sign logout_tokens with the realm's active key. */
     @Bean
     public org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder(final JWKSource<SecurityContext> jwkSource) {
-        return new org.springframework.security.oauth2.jwt.NimbusJwtEncoder(jwkSource);
+        final org.springframework.security.oauth2.jwt.JwtEncoder nimbus =
+                new org.springframework.security.oauth2.jwt.NimbusJwtEncoder(jwkSource);
+        // BYO keys (D27): the realm's ACTIVE key decides the alg (RS256 or ES256) of everything this encoder signs.
+        return jwkSource instanceof RealmJwkSource realm
+                ? new RealmAlgorithmJwtEncoder(nimbus, realm::activeAlgorithm) : nimbus;
     }
 
     /**

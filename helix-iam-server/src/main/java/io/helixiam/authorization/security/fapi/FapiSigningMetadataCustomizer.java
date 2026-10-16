@@ -27,8 +27,28 @@ public final class FapiSigningMetadataCustomizer implements Consumer<OidcProvide
 
     private static final String CLAIM = "id_token_signing_alg_values_supported";
 
+    private final java.util.function.Supplier<java.util.List<String>> realmAlgorithms;
+
+    /** RS256 + PS256 (an RSA realm). */
+    public FapiSigningMetadataCustomizer() {
+        this(null);
+    }
+
+    /**
+     * BYO keys (D30): the algorithms of the realm's published keys (ACTIVE first), e.g. {@code RealmJwkSource::
+     * publishedAlgorithms}; they replace the RSA defaults.
+     */
+    public FapiSigningMetadataCustomizer(final java.util.function.Supplier<java.util.List<String>> realmAlgorithms) {
+        this.realmAlgorithms = realmAlgorithms;
+    }
+
     @Override
     public void accept(final OidcProviderConfiguration.Builder builder) {
+        final java.util.List<String> published = realmAlgorithms == null ? null : realmAlgorithms.get();
+        if (published != null && !published.isEmpty()) {
+            builder.claims(claims -> claims.put(CLAIM, new java.util.ArrayList<>(published)));
+            return;
+        }
         builder.claims(claims -> {
             final Set<String> algs = new LinkedHashSet<>();
             final Object existing = claims.get(CLAIM);

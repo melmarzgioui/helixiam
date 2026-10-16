@@ -76,6 +76,21 @@ class AuditEventMapperTest {
     }
 
     @Test
+    void mapsRealmKeyLifecycle() {
+        assertEquals("REALM_KEY_IMPORT", map("POST", "/admin/realms/gov/keys/import", 201).type());
+        assertEquals("REALM_KEY_CSR", map("POST", "/admin/realms/gov/keys/csr", 201).type());
+        assertEquals("REALM_KEY_ROTATE", map("POST", "/admin/realms/gov/keys/rotate", 200).type());
+        assertEquals("REALM_KEY_CERTIFICATE_ATTACH", map("PUT", "/admin/realms/gov/keys/k1/certificate", 200).type());
+        assertEquals("REALM_KEY_ACTIVATE", map("POST", "/admin/realms/gov/keys/k1/activate", 200).type());
+        final AuditEventMapper.AdminAudit retire = map("DELETE", "/admin/realms/gov/keys/k1", 204);
+        assertEquals("REALM_KEY_RETIRE", retire.type());
+        assertEquals("realm-key", retire.resourceType());
+        assertEquals("k1", retire.resourceId());
+        org.junit.jupiter.api.Assertions.assertNull(map("POST", "/admin/realms/gov/keys/import", 201).resourceId());
+        assertEquals("DENIED", map("POST", "/admin/realms/gov/keys/k1/activate", 409).outcome());
+    }
+
+    @Test
     void mapsGroupLifecycleMembersAndRoles() {
         assertEquals("GROUP_CREATE", map("POST", "/admin/realms/gov/groups", 201).type());
         assertEquals("GROUP_UPDATE", map("PUT", "/admin/realms/gov/groups/g-1", 200).type());

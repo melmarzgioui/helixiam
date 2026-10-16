@@ -50,12 +50,18 @@ ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS mfa_skip_grace_days integer NO
 CREATE TABLE IF NOT EXISTS realm_key (
     key_id        character varying(255) NOT NULL PRIMARY KEY,
     realm_id      character varying(255) NOT NULL,
-    algorithm     character varying(20)  DEFAULT 'RSA' NOT NULL,
+    algorithm     character varying(20)  DEFAULT 'RS256' NOT NULL,
     public_key    text                   NOT NULL,
     private_key   text                   NOT NULL,
     status        character varying(20)  DEFAULT 'ACTIVE' NOT NULL,
     creation_date timestamp DEFAULT CURRENT_TIMESTAMP,
-    rotated_date  timestamp DEFAULT NULL
+    rotated_date  timestamp DEFAULT NULL,
+    -- V86: bring-your-own keys and certificates (PENDING status, chain, CSR, expiry warnings).
+    certificate_chain_pem text DEFAULT NULL,
+    csr_pem               text DEFAULT NULL,
+    source                character varying(20) DEFAULT 'GENERATED' NOT NULL,
+    activated_date        timestamp DEFAULT NULL,
+    expiry_warned_on      date DEFAULT NULL
     );
 CREATE INDEX IF NOT EXISTS realm_key_realm_status_idx ON realm_key (realm_id, status);
 

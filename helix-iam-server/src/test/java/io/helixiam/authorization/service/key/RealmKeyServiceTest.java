@@ -73,8 +73,7 @@ class RealmKeyServiceTest {
     @Test
     void rotate_demotesCurrentActive_andGeneratesNewActive() {
         final RealmKey current = activeKey("old", "acme");
-        when(repository.findFirstByRealmIdAndStatusOrderByCreationDateDesc("acme", "ACTIVE"))
-                .thenReturn(Optional.of(current));
+        when(repository.findAllByRealmIdAndStatusIn("acme", List.of("ACTIVE"))).thenReturn(List.of(current));
         when(keyProvider.generate())
                 .thenReturn(new SigningKeyProvider.GeneratedKey("new", "RSA", "pub", "priv"));
 
@@ -82,9 +81,51 @@ class RealmKeyServiceTest {
 
         assertEquals("new", rotated.getKeyId());
         assertTrue(rotated.isActive());
+        assertEquals("RS256", rotated.getAlgorithm());
+        assertNotNull(rotated.getActivatedDate());
         assertEquals("ROTATED", current.getStatus());
         assertNotNull(current.getRotatedDate());
         verify(repository, times(2)).save(any(RealmKey.class)); // demote old + save new
+    }
+
+    @Test
+    void rotate_es256_usesTheProvidersEcKey_andRefusesUnknownAlgorithms() {
+        when(repository.findAllByRealmIdAndStatusIn("acme", List.of("ACTIVE"))).thenReturn(List.of());
+        when(keyProvider.generate("ES256"))
+                .thenReturn(new SigningKeyProvider.GeneratedKey("ec", "ES256", "pub", "priv"));
+        assertEquals("ES256", service.rotate("acme", "ES256").getAlgorithm());
+        org.junit.jupiter.api.Assertions.assertThrows(KeyImportException.class, () -> service.rotate("acme", "HS256"));
+    }
+
+    @Test
+    void activate_onlyPending_demotesTheActiveKey() {
+        final RealmKey current = activeKey("old", "acme");
+        final RealmKey pending = activeKey("p", "acme");
+        pending.setStatus(RealmKey.Status.PENDING);
+        when(repository.findByKeyIdAndRealmId("p", "acme")).thenReturn(Optional.of(pending));
+        when(repository.findByKeyIdAndRealmId("old", "acme")).thenReturn(Optional.of(current));
+        when(repository.findAllByRealmIdAndStatusIn("acme", List.of("ACTIVE"))).thenReturn(List.of(current));
+
+        final RealmKey activated = service.activate("acme", "p");
+
+        assertEquals("ACTIVE", activated.getStatus());
+        assertNotNull(activated.getActivatedDate());
+        assertEquals("ROTATED", current.getStatus());
+        org.junit.jupiter.api.Assertions.assertThrows(RealmKeyService.KeyStateException.class,
+                () -> service.activate("acme", "old"));
+        org.junit.jupiter.api.Assertions.assertThrows(java.util.NoSuchElementException.class,
+                () -> service.activate("acme", "missing"));
+    }
+
+    @Test
+    void importAndCsr_areRefusedWithoutDbEncryption_outsideDev() {
+        final RealmKeyService unencrypted = new RealmKeyService(repository, keyProvider, false,
+                io.helixiam.common.startup.DeploymentProfile.production(), null);
+        final KeyImportException e = org.junit.jupiter.api.Assertions.assertThrows(KeyImportException.class,
+                () -> unencrypted.importKey("acme", "x", "y"));
+        assertTrue(e.getMessage().contains("DB_ENCRYPTION"));
+        org.junit.jupiter.api.Assertions.assertThrows(KeyImportException.class,
+                () -> unencrypted.createCsr("acme", "RS256", "CN=x", List.of()));
     }
 
     @Test
@@ -96,23 +137,27 @@ class RealmKeyServiceTest {
     }
 
     @Test
-    void retire_marksKeyRetired_andReportsTrue() {
+    void retire_marksKeyRetired_butRefusesTheActiveKey() {
         final RealmKey key = activeKey("k", "acme");
-        when(repository.findById("k")).thenReturn(Optional.of(key));
+        key.setStatus(RealmKey.Status.ROTATED);
+        when(repository.findByKeyIdAndRealmId("k", "acme")).thenReturn(Optional.of(key));
+        final RealmKey active = activeKey("a", "acme");
+        when(repository.findByKeyIdAndRealmId("a", "acme")).thenReturn(Optional.of(active));
 
-        final boolean retired = service.retire("k");
-
-        assertTrue(retired);
+        assertEquals(RealmKeyService.RetireOutcome.RETIRED, service.retire("acme", "k"));
         assertEquals("RETIRED", key.getStatus());
         verify(repository).save(key);
+        assertEquals(RealmKeyService.RetireOutcome.ACTIVE_REFUSED, service.retire("acme", "a"));
+        assertEquals("ACTIVE", active.getStatus());
     }
 
     @Test
-    void retire_reportsFalse_whenKeyMissing() {
-        when(repository.findById("nope")).thenReturn(Optional.empty());
+    void retire_reportsNotFound_forAMissingKeyOrAnotherRealmsKey() {
+        when(repository.findByKeyIdAndRealmId(any(), any())).thenReturn(Optional.empty());
 
-        assertFalse(service.retire("nope"));
+        assertEquals(RealmKeyService.RetireOutcome.NOT_FOUND, service.retire("acme", "nope"));
         verify(repository, never()).save(any(RealmKey.class));
+        assertFalse(service.find("acme", "").isPresent());
     }
 
     @Test
@@ -128,7 +173,7 @@ class RealmKeyServiceTest {
         assertEquals(2, views.size());
         assertEquals("a", views.get(0).keyId());
         assertEquals("ACTIVE", views.get(0).status());
-        assertEquals("RSA", views.get(0).algorithm());
+        assertEquals("RS256", views.get(0).algorithm()); // rc.11 "RSA" reads as RS256
         assertEquals("pub-a", views.get(0).publicKey()); // public material only
         assertEquals("ROTATED", views.get(1).status());
     }
