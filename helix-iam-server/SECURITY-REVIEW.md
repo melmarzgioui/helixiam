@@ -348,9 +348,31 @@ identity-provider mappers map claims to attributes only (no role mapping); DCR a
 carry no admin permissions. Code outside any request (start-up bootstrap) is not restricted; a request without an
 authenticated admin (SCIM) holds no admin permission.
 
+**Second part — acting on a more privileged principal (also present in rc.11, found by live probes).** Without
+handing out a role, a lower admin could still take over an administrator: `view-clients` could read an admin service
+account's client secret (`GET /clients/{id}/secret`) and `manage-clients` could set or rotate it, then sign in as
+that service account; `manage-users` could impersonate a realm admin or reset their password, change their e-mail
+(then reset the password by mail), disable or delete them; SCIM could do the same to admins; an external IdP login
+whose verified e-mail matched an administrator was linked to that administrator automatically; and a service-account
+role of type `CLIENT` without a client was accepted.
+
+**Fix.** `PrivilegedPrincipalGuard`: an admin action that targets a principal whose effective admin permissions (user:
+direct and group roles; client: its service account's realm roles) are not a subset of the caller's own is `403` —
+impersonation, password, credentials (TOTP, WebAuthn, recovery codes, devices), required actions, profile, e-mail,
+username, enable/disable, GDPR erasure and deletion of users; revealing, setting or rotating the secret of, updating
+(authentication method, keys, JWKS, redirect URIs, grant types) and deleting clients. Checked by
+`PrivilegedPrincipalInterceptor` on `/admin/realms/{realm}/users/{id}/**` and `/clients/{id}/**` and again in the
+services (`UserAdminService`, `ClientAdminService`, `ImpersonationService`), and for SCIM. Revoking sessions stays
+allowed. Revealing a client secret needs `manage-clients` (it needed `view-clients`). `IdentityBroker` never links an
+identity by e-mail to a user holding any admin permission: that user links it from the account console (OIDC, SAML,
+eID and LDAP go through it; wallets never link by attribute). A `CLIENT` service-account role needs its client
+(`400`). The unused `TenantService.save(TenantUser)` was removed.
+
 **Tests.** `AdminGrantEscalationE2eTest` (the live scenario: `manage-users` self-assigns `admin` → 403;
 `manage-roles` sets `admin` as default → 400; groups, service accounts, the grant editor, realm import, SCIM, the
-start-up report).
+start-up report) and `PrivilegedPrincipalE2eTest` (client secret reveal/set/rotate, client update and delete,
+impersonation, password, profile and status, required actions, credentials, GDPR erasure, deletion, SCIM; ordinary
+users and clients stay manageable; a realm admin may act on any of them), `IdentityBrokerTest`.
 
 ---
 

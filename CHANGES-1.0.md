@@ -10,13 +10,19 @@ question. Newest first within each phase.
 A `manage-users` admin could assign itself the `admin` role, and a `manage-roles` admin could make `admin` the default
 role. Assigning or removing a role through any path (user roles, group roles and membership, service-account roles,
 realm import, SCIM) now needs the role's admin permissions to be the caller's own (`realm-admin` for the admin role);
-changing admin grants needs `realm-admin`; a role with admin permissions cannot be the default role. See
-`helix-iam-server/SECURITY-REVIEW.md` (H5).
+changing admin grants needs `realm-admin`; a role with admin permissions cannot be the default role. And **you cannot
+act on an admin more privileged than you**: impersonating, resetting the password or credentials of, changing,
+disabling or deleting a user, and revealing, setting or rotating the secret of, changing or deleting a client (through
+its service account), need the target's admin permissions to be your own; revealing a client secret needs
+`manage-clients`; SCIM cannot change admins; IdP logins never auto-link by e-mail to an administrator; a `CLIENT`
+service-account role needs its client. See `helix-iam-server/SECURITY-REVIEW.md` (H5).
 
 > **Upgrade note (H5).** A realm whose default role carries admin permissions is reported at start-up (WARN and a
 > `DEFAULT_ROLE_HAS_ADMIN_PERMISSIONS` audit event); new users no longer get that role. Pick another default role or
 > remove its admin grants. V86 also removes duplicate `realm_key` rows an rc.11 first-use race could leave (keeping the
-> ACTIVE, else the newest).
+> ACTIVE, else the newest, per realm); if the same key is stored in two realms the migration stops and names them.
+> Admins with only `view-clients` can no longer read client secrets; an administrator whose verified e-mail matches
+> an external IdP login is no longer linked automatically.
 
 ### Security: admin permissions resolved on the decoded path (H4, predates this release)
 
