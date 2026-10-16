@@ -20,13 +20,7 @@ import org.opensaml.xmlsec.signature.support.Signer;
 import org.springframework.stereotype.Component;
 
 import javax.xml.namespace.QName;
-import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
-import java.security.PrivateKey;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
-import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;

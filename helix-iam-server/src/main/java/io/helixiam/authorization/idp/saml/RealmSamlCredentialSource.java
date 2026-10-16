@@ -7,22 +7,13 @@ package io.helixiam.authorization.idp.saml;
 
 import io.helixiam.authorization.amqp.ServiceProviderPublisher;
 import io.helixiam.authorization.security.realm.RealmContextHolder;
-import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
-import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.operator.ContentSigner;
-import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.springframework.stereotype.Component;
 
-import javax.security.auth.x500.X500Principal;
-import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.MessageDigest;
-import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
-import java.time.Instant;
 import java.util.Base64;
-import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -53,9 +44,6 @@ public class RealmSamlCredentialSource {
     private static final String DEFAULT_REALM = "master";
     private static final long REFRESH_TTL_MS = 30_000L;
 
-    // Fixed validity window → deterministic certificate bytes for a stable key.
-    private static final Date NOT_BEFORE = Date.from(Instant.parse("2000-01-01T00:00:00Z"));
-    private static final Date NOT_AFTER = Date.from(Instant.parse("2099-12-31T23:59:59Z"));
 
     private final ServiceProviderPublisher serviceProviderPublisher;
     private final SamlIdpProperties properties;
