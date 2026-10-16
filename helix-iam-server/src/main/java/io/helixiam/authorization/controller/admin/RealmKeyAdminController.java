@@ -112,6 +112,15 @@ public class RealmKeyAdminController {
         return publisher.list(realmId);
     }
 
+    /**
+     * What the signed-in admin may do here: {@code canManage} (realm-admin) gates the console's write actions; the
+     * server enforces it regardless. Also the minimum staging time, for the console's activation prompt.
+     */
+    @GetMapping("/access")
+    public Map<String, Object> access(@PathVariable final String realmId) {
+        return Map.of("canManage", forbiddenUnlessRealmAdmin(realmId) == null);
+    }
+
     @PostMapping("/import")
     public ResponseEntity<?> importKey(@PathVariable final String realmId,
                                        @Valid @RequestBody final ImportRequest request, final HttpServletRequest http) {

@@ -29,6 +29,8 @@ class RealmKeyPermissionsE2eTest extends AbstractE2eTest {
         final E2eAdminSession realmOnly = scopedAdmin(admin, realm, "manage-realm");
 
         assertThat(realmOnly.get(keys(realm)).status()).isEqualTo(200);
+        assertThat(realmOnly.get(keys(realm) + "/access").json().path("canManage").asBoolean()).isFalse();
+        assertThat(admin.get(keys(realm) + "/access").json().path("canManage").asBoolean()).isTrue();
         assertThat(realmOnly.post(keys(realm) + "/import", Map.of("privateKeyPem", "x", "certificateChainPem", "y"))
                 .status()).isEqualTo(403);
         assertThat(realmOnly.post(keys(realm) + "/csr", Map.of("algorithm", "RS256", "subject", "CN=x")).status())
