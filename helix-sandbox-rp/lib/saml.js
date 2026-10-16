@@ -15,7 +15,12 @@ const PEM_CERT = (body) =>
 /** Pull the bits an SP needs out of the IdP's SAML metadata XML. */
 export function parseIdpMetadata(xml) {
   const entityId = (xml.match(/entityID="([^"]+)"/) || [])[1];
-  const cert = (xml.match(/<ds:X509Certificate>([\s\S]*?)<\/ds:X509Certificate>/) || [])[1];
+  // Every signing certificate: the active one first, then staged (pending) and retained ones, so a key rollover
+  // at the IdP keeps verifying. node-saml's xml-crypto verifies RSA signatures only (an EC realm is not supported).
+  const certs = Array.from(xml.matchAll(
+    /<md:KeyDescriptor use="signing">[\s\S]*?<ds:X509Certificate>([\s\S]*?)<\/ds:X509Certificate>/g,
+  ), (m) => m[1].trim());
+  const cert = certs[0] || (xml.match(/<ds:X509Certificate>([\s\S]*?)<\/ds:X509Certificate>/) || [])[1];
   // Prefer the HTTP-Redirect binding for SSO (we send the AuthnRequest as a redirect).
   const ssoRedirect = (xml.match(
     /<md:SingleSignOnService[^>]*HTTP-Redirect[^>]*Location="([^"]+)"/,
@@ -26,7 +31,7 @@ export function parseIdpMetadata(xml) {
   if (!entityId || !cert || !ssoRedirect) {
     throw new Error('IdP metadata missing entityID / certificate / SSO endpoint');
   }
-  return { entityId, cert: cert.trim(), ssoUrl: ssoRedirect, sloUrl: sloRedirect };
+  return { entityId, cert: cert.trim(), certs: certs.length ? certs : [cert.trim()], ssoUrl: ssoRedirect, sloUrl: sloRedirect };
 }
 
 /**
@@ -47,7 +52,7 @@ export async function buildSamlSp(cfg, fetchImpl = fetch) {
     // IdP endpoints + trust
     entryPoint: idp.ssoUrl,
     logoutUrl: idp.sloUrl || idp.ssoUrl,
-    idpCert: PEM_CERT(idp.cert),
+    idpCert: idp.certs.map(PEM_CERT),
     // The IdP issues a persistent NameID and signs the assertion (not the response).
     identifierFormat: null,
     wantAssertionsSigned: true,

@@ -26,3 +26,10 @@ test('parseIdpMetadata extracts entityID, cert and the Redirect-binding SSO/SLO 
 test('parseIdpMetadata throws when the certificate is absent', () => {
   assert.throws(() => parseIdpMetadata('<md:EntityDescriptor entityID="x"></md:EntityDescriptor>'));
 });
+
+test('parseIdpMetadata keeps every signing certificate, active first (key rollover)', () => {
+  const two = META.replace('</md:KeyDescriptor>', '</md:KeyDescriptor><md:KeyDescriptor use="signing"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>MIIDnext==</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor><md:KeyDescriptor use="encryption"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>MIIDenc==</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>');
+  const idp = parseIdpMetadata(two);
+  assert.equal(idp.cert, 'MIIDcert==');
+  assert.deepEqual(idp.certs, ['MIIDcert==', 'MIIDnext==']);
+});
