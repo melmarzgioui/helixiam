@@ -24,6 +24,7 @@ status.
 |---|---|---|---|
 | OAuth2 / OIDC provider (authorize, token, userinfo, JWKS, discovery, logout) | Stable | `authorization/idp`, `authorization/security/OAuthConfig` | OIDC/discovery/JWKS suites |
 | RS256 + PS256 signing, per-realm keys & rotation | Stable | `authorization/security/RealmJwkSource`, realm-keys | realm-signing tests |
+| Bring-your-own realm keys & certificates (import, CSR, staged activation, `x5c`, SAML CA certificates, expiry warnings) and ES256 realms | Beta | `service/key/RealmKeyService`, `RealmKeyMaterial`, realm-keys | `RealmKeyRolloverE2eTest`, `RealmKeyMaterialTest` |
 | Passkeys / WebAuthn (FIDO2) | Stable | `authentication/webauthn` | Passkey (5), WebAuthn (4) |
 | TOTP / OTP factors (enrolment confirmed by a first code, ±30 s, replay-protected, recovery codes, per-realm `requireMfa` + skip grace) | Stable | `service/mfa`, `security/mfa` | `MfaE2eTest`, `TotpServiceTest` |
 | Magic-link / passwordless (opt-in per realm; hashed single-use links, 15-min expiry, rate limited per email + IP; emailed via the realm's provider; TOTP still enforced) | Stable | `service/magiclink`, `controller/MagicLinkController` | `MagicLinkE2eTest`, `MagicLinkServiceTest` |

@@ -3,6 +3,48 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.11`)
+
+### Bring your own realm signing keys and certificates
+
+Customers can change the keys and certificates their realm signs OIDC/JWS and SAML with. Design and every decision:
+`docs/superpowers/specs/2026-10-16-byo-realm-keys-design.md`. Docs: `operations/realm-keys.md` on the docs site.
+
+- **Import** (`POST /admin/realms/{realm}/keys/import`): a PEM private key (PKCS#8, PKCS#1, SEC1; RSA ≥ 2048 or EC
+  P-256) and its certificate chain, leaf first. The leaf must match the key, be valid now and have digitalSignature
+  if it has a keyUsage; every certificate must be valid and issued by the next. A self-signed single certificate is
+  allowed; a key already stored in any realm is refused. Refusals are `400 {message, fieldErrors}`.
+- **CSR** (`POST /keys/csr`, `GET /keys/{keyId}/csr`): the server generates the key (RS256 or ES256), keeps the
+  private key and returns a PKCS#10 CSR; `PUT /keys/{keyId}/certificate` attaches the CA-signed chain (PENDING or
+  ACTIVE keys).
+- **Staged rollover**: new keys start PENDING — published in the JWKS and SAML metadata, not signing —
+  until `POST /keys/{keyId}/activate`; the previous ACTIVE key becomes ROTATED and stays published. `POST /keys/rotate`
+  still generates and activates at once and takes an optional `{"algorithm"}`. Retiring the ACTIVE key is now refused
+  (`409`; it used to succeed). Key ids are realm-scoped on every route (`404` across realms).
+- **Publishing**: every JWK has `kid`, `alg`, `use: sig`; keys with a chain add `x5c` and `x5t#S256`. SAML metadata
+  and signatures use the ACTIVE key's leaf certificate when it has one (else the deterministic self-signed one, as
+  before); PENDING and ROTATED certificates are extra signing KeyDescriptors.
+- **ES256**: the ACTIVE key's algorithm decides the `alg` of every token the realm signs (ID, access, logout,
+  delegation, workload-identity tokens, JARM); discovery's `id_token_signing_alg_values_supported` lists the
+  published keys' algorithms, the active one first. SAML with an EC key signs ECDSA-SHA256. The MCP demo verifier now
+  accepts RS256/PS256/ES256 by kid; the sandbox RP takes the ID-token algorithm from discovery and trusts every SAML
+  signing certificate in the metadata.
+- **Expiry**: import/attach refuse expired certificates; ACTIVE/PENDING certificates within 30 days of expiry (or
+  expired) raise `REALM_KEY_CERTIFICATE_EXPIRING|EXPIRED` audit events and a WARN once a day per key; the always-UP
+  `realmSigningKeys` health indicator joins the readiness group. An expired ACTIVE certificate keeps signing.
+- **Audit**: `REALM_KEY_IMPORT|CSR|CERTIFICATE_ATTACH|ACTIVATE|ROTATE|RETIRE`, with key id, algorithm and fingerprint.
+- **Console**: the Realm keys page shows status (Pending / Active / Retained), algorithm, certificate subject/issuer,
+  expiry chips and fingerprint, with Import, Create CSR, Upload signed certificate, Activate (with confirmation),
+  Rotate (generate) and Retire.
+
+> **Upgrade note.** Flyway **V86** (and `schema.sql`) adds `certificate_chain_pem`, `csr_pem`, `source`,
+> `activated_date` and `expiry_warned_on` to `realm_key` and rewrites `algorithm` from `RSA` to `RS256` (existing keys
+> keep their kid and keep signing). Rolling upgrade: rc.11 replicas ignore PENDING keys and keep signing with RSA
+> keys, so you can import and stage keys mid-roll — but activate an **ES256** key only once every replica runs this
+> release (an rc.11 replica cannot load an EC key). After activating an ES256 key, every token the realm signs is
+> ES256, including for clients registered with the default RS256 `id_token_signed_response_alg`; check your relying
+> parties first. Realm exports still contain no keys or certificates.
+
 ## v1.0.0-rc.11 (2026-10-15)
 
 rc.11 closes out the EUDI Wallet program: the EU reference-wallet interop (SD-JWT VC and mdoc, same-device and
