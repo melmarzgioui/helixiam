@@ -368,6 +368,14 @@ identity by e-mail to a user holding any admin permission: that user links it fr
 eID and LDAP go through it; wallets never link by attribute). A `CLIENT` service-account role needs its client
 (`400`). The unused `TenantService.save(TenantUser)` was removed.
 
+**Who is acting is declared, never inferred** (review follow-up): an earlier fix decided "admin action" from the raw
+URI and skipped enforcement otherwise (fail-open, the H4 pattern). The acting principal is now an explicit
+`AdminActor`, declared by `AdminAuthorizationManager` where it authorises an admin route, by SCIM and DCR (no admin
+permission) and by self-service (the user's own account only); internal work runs in `AdminActor.asSystem(...)`
+(three reviewed callers, listed in the design doc). Without an actor, actions touching admin permissions are refused.
+A target's privilege is evaluated like the authoriser's: `admin_master` (a master admin administers every realm) and
+`admin_<realm>` reach the realm, so a master admin who is a member of a realm is protected there too.
+
 **Tests.** `AdminGrantEscalationE2eTest` (the live scenario: `manage-users` self-assigns `admin` → 403;
 `manage-roles` sets `admin` as default → 400; groups, service accounts, the grant editor, realm import, SCIM, the
 start-up report) and `PrivilegedPrincipalE2eTest` (client secret reveal/set/rotate, client update and delete,
