@@ -428,6 +428,11 @@ service layer, so REST and import share the check. The table, with a guard or a 
   New administrator links come from the account console's link flow (fresh sign-in, link intent bound to the session
   and the broker `state`, `SELF`) or a realm admin's confirmation (`ADMIN_CONFIRMED`). Refusals are audited
   (`PRIVILEGED_LINK_REFUSED`). The `helix-cli` reconcile corrects only what widens the built-in client.
+- **Realm-scoped links (review).** Links were keyed by (alias, subject) across realms, so a realm-A admin could mark
+  trusted a link of a user who is an admin in realm B or master, and the account-console link treated an owner in
+  another realm as stale and took the link over. Links now carry `realm_id` (key realm + alias + subject); every
+  operation names the realm; trust changes also need the user's admin permissions in every realm they belong to; an
+  owner is stale only when the user no longer exists.
 
 Tests: `SignInSurfaceE2eTest` (one scenario per guarded row: the lower admin gets 403, a realm admin of the realm
 gets 2xx, import leaves the protected value unchanged; the IdP takeover is replayed against a stub IdP, AUTO refused and

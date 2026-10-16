@@ -21,12 +21,20 @@ permissions; redirecting the built-in sign-in clients (`helix-console`, `helix-c
 
 **Round 6 (systematic sweep).** Every admin write, import slice and SCIM/DCR write was inventoried (design doc,
 Revision 3). Changing or deleting an identity provider that administrators are linked to, or a trusted list their
-wallet providers use, needs those administrators' permissions; an administrator signs in through a federated link only
-when they made it themselves (new `federated_link.created_via`: JIT, SELF, WALLET; e-mail-matched AUTO links are
-refused). Realm-admin is now needed for: the Applications of the sign-in clients; creating `helix-console`/`helix-cli`;
+wallet providers use, needs those administrators' permissions. Federated links record how they were made (new
+`federated_link.created_via`). Links that exist at the upgrade are grandfathered (`LEGACY`, still trusted; wallet
+links `WALLET`) and every administrator with one is reported at start-up (`PRIVILEGED_LEGACY_LINK`). A link made
+afterwards by matching an e-mail address (`AUTO`) never signs in an administrator; an administrator links a provider
+from the account console (Connected accounts → Link: a fresh sign-in, then the provider in link mode bound to the
+session; `SELF`), or a realm admin confirms the link (`POST .../users/{id}/federated-identities/{alias}/confirm`,
+`ADMIN_CONFIRMED`) and can revoke trust in a suspect one (`.../revoke-trust`; both also need the user's admin
+permissions in every realm they belong to); refusals are audited (`PRIVILEGED_LINK_REFUSED`). Federated links are now
+realm-scoped (`federated_link.realm_id`, key realm + alias + subject): a link signs its user in only in its realm. Realm-admin is now needed for: the Applications of the sign-in clients; creating `helix-console`/`helix-cli`;
 their mappers and allowed resources (also on import); the browser flow and the sign-in clients' flows; messaging
 providers and templates; the MFA policy; magic links; the subject claim; and the realm's sign-in policy settings.
-`helix-cli` is seeded with every realm and its redirect and grant settings are reset on start. Push devices for a user
+`helix-cli` is seeded with every realm; on start, a `helix-cli` that allows more than the built-in one (a
+non-loopback redirect URI, an extra grant type, a secret, a confidential client) is corrected, while narrower choices
+are kept. Push devices for a user
 need the user's permissions. Deleting a role or group, or moving a group, needs the permissions it grants. manage-X
 satisfies view-X routes.
 
@@ -36,11 +44,14 @@ satisfies view-X routes.
 > ACTIVE, else the newest, per realm); if the same key is stored in two realms the migration stops and names them.
 > Admins with only `view-clients` can no longer read client secrets; an administrator whose verified e-mail matches
 > an external IdP login is no longer linked automatically.
-> Round 6: existing federated links are backfilled as JIT (made within two minutes of their user), WALLET (wallet
-> providers) or AUTO; an administrator with an AUTO link signs in with local credentials or a wallet instead. A
-> `manage-realm` admin can no longer change messaging, MFA, magic-link, subject-claim or sign-in policy settings, and a
-> pre-existing `helix-cli` whose redirect URIs, grant types, public flag or secret differ from the built-in values is
-> reset on start (logged and audited as `SIGN_IN_CLIENT_RECONCILED`).
+> Round 6: V86 places each existing federated link in a realm (the realm that owns the alias, else the user's home
+> realm; it warns about aliases used in several realms and about links it could not place, which then sign no one in).
+> Existing federated links keep working (`LEGACY`); review the start-up report (WARN and
+> `PRIVILEGED_LEGACY_LINK` audit events: realm, username, provider) and revoke trust in any that is suspect. New links
+> to administrators need the account console's link flow or a realm admin's confirmation. A `manage-realm` admin can
+> no longer change messaging, MFA, magic-link, subject-claim or sign-in policy settings. A `helix-cli` that allows more
+> than the built-in client is corrected on start (logged and audited as `SIGN_IN_CLIENT_RECONCILED`). Step by step:
+> `operations/upgrade-rc11-rc12.md` on the docs site.
 
 ### Security: admin permissions resolved on the decoded path (H4, predates this release)
 
