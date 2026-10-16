@@ -122,4 +122,15 @@ class AdminRoutePermissionsTest {
                     .contains("manage-organizations");
         }
     }
+
+    @Test
+    void realmKeyWrites_needRealmAdmin_readsKeepManageRealm() {
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/keys", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/keys/k1/csr", "GET")).contains("manage-realm");
+        for (final String[] w : new String[][] {{"POST", "/keys/import"}, {"POST", "/keys/csr"},
+                {"PUT", "/keys/k1/certificate"}, {"POST", "/keys/k1/activate"}, {"POST", "/keys/rotate"},
+                {"DELETE", "/keys/k1"}}) {
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov" + w[1], w[0])).as(w[1]).contains("realm-admin");
+        }
+    }
 }

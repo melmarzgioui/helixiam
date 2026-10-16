@@ -79,6 +79,9 @@ public final class AdminRoutePermissions {
             case "settings", "theme", "messaging", "provisioning", "endpoints", "health", "subject-claim" -> MANAGE_REALM;
             // roles + per-user role mappings (RoleAdminController is mapped at /admin/realms/{realmId})
             case "roles" -> MANAGE_ROLES;
+            // BYO realm keys (security review): whoever imports or activates a signing key can mint any token of the
+            // realm, admin service-account tokens included — so every key write needs a full realm admin.
+            case "keys" -> read ? MANAGE_REALM : REALM_ADMIN;
             // /admin/realms/{realmId}/users/{userId}/roles is covered by the "users" case above.
             default -> MANAGE_REALM;
         });
