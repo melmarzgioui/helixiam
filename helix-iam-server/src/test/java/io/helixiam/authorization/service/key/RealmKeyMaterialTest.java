@@ -277,4 +277,63 @@ class RealmKeyMaterialTest {
         final String pem = RealmKeyMaterial.chainToPem(List.of(leaf, CA.certificate()));
         assertThat(RealmKeyMaterial.parseChain(pem)).containsExactly(leaf, CA.certificate());
     }
+
+    // ------------------------------------------------------------------ review round 1
+
+    @Test
+    void refusesACaLeaf_andNonCaIssuers() {
+        final KeyPair kp = TestPki.rsa(2048);
+        final X509Certificate caLeaf = TestPki.issueCaLeaf(CA, "CN=ca-leaf", kp.getPublic());
+        assertThatThrownBy(() -> RealmKeyMaterial.validateChain(List.of(caLeaf, CA.certificate()), kp.getPublic(),
+                Instant.now())).isInstanceOf(KeyImportException.class).hasMessageContaining("CA");
+
+        final TestPki.Ca notCa = TestPki.nonCaIssuer(CA, "Not A CA", KeyUsage.digitalSignature | KeyUsage.keyCertSign);
+        final X509Certificate leaf = TestPki.issue(notCa, "CN=leaf", kp.getPublic(), 30);
+        assertThatThrownBy(() -> RealmKeyMaterial.validateChain(List.of(leaf, notCa.certificate()), kp.getPublic(),
+                Instant.now())).isInstanceOf(KeyImportException.class).hasMessageContaining("certificate 2");
+
+        final TestPki.Ca noSign = TestPki.caWithoutKeyCertSign("No KeyCertSign");
+        final X509Certificate leaf2 = TestPki.issue(noSign, "CN=leaf2", kp.getPublic(), 30);
+        assertThatThrownBy(() -> RealmKeyMaterial.validateChain(List.of(leaf2, noSign.certificate()), kp.getPublic(),
+                Instant.now())).isInstanceOf(KeyImportException.class).hasMessageContaining("keyCertSign");
+    }
+
+    @Test
+    void refusesKeyPemWithASecondObjectOrTrailingData() {
+        final KeyPair kp = TestPki.rsa(2048);
+        final String pem = TestPki.pkcs8(kp.getPrivate());
+        assertThatThrownBy(() -> RealmKeyMaterial.parsePrivateKey(pem + TestPki.pkcs8(TestPki.rsa(2048).getPrivate())))
+                .isInstanceOf(KeyImportException.class).hasMessageContaining("exactly one");
+        assertThatThrownBy(() -> RealmKeyMaterial.parsePrivateKey(pem + TestPki.pem(TestPki.selfSigned(kp, "CN=x", 3))))
+                .isInstanceOf(KeyImportException.class).hasMessageContaining("exactly one");
+        assertThatThrownBy(() -> RealmKeyMaterial.parsePrivateKey(pem + "trailing junk"))
+                .isInstanceOf(KeyImportException.class).hasMessageContaining("exactly one");
+        assertThatThrownBy(() -> RealmKeyMaterial.parsePrivateKey("junk before\n" + pem))
+                .isInstanceOf(KeyImportException.class).hasMessageContaining("exactly one");
+        assertThat(RealmKeyMaterial.parsePrivateKey("\n  " + pem + "\n\n").algorithm()).isEqualTo("RS256");
+    }
+
+    @Test
+    void rsa_requiresExponent65537OrMore_andAtMost4096Bits() {
+        final KeyPair e3 = TestPki.rsa(2048, java.math.BigInteger.valueOf(3));
+        assertThatThrownBy(() -> RealmKeyMaterial.parsePrivateKey(TestPki.pkcs8(e3.getPrivate())))
+                .isInstanceOf(KeyImportException.class).hasMessageContaining("65537");
+        final KeyPair big = TestPki.rsa(4096 + 1024);
+        assertThatThrownBy(() -> RealmKeyMaterial.parsePrivateKey(TestPki.pkcs8(big.getPrivate())))
+                .isInstanceOf(KeyImportException.class).hasMessageContaining("4096");
+        assertThat(RealmKeyMaterial.parsePrivateKey(TestPki.pkcs8(TestPki.rsa(4096).getPrivate())).algorithm())
+                .isEqualTo("RS256");
+    }
+
+    @Test
+    void subject_allowsKnownKeywordsOnly_noOidsOrHexValues() {
+        RealmKeyMaterial.parseSubject("CN=idp.example.com, O=Example, OU=IAM, C=NL, L=Arnhem, ST=Gelderland, "
+                + "emailAddress=ops@example.com, SERIALNUMBER=123, DC=example, UID=svc");
+        RealmKeyMaterial.parseSubject("CN=a\\, b, O=Example");
+        for (final String bad : List.of("2.5.4.3=idp", "CN=#04024869", "XYZ=1", "CN=a+2.5.4.10=b", "CN=ok, OID.2.5.4.3=x")) {
+            assertThatThrownBy(() -> RealmKeyMaterial.parseSubject(bad)).as(bad)
+                    .isInstanceOf(KeyImportException.class)
+                    .satisfies(e -> assertThat(((KeyImportException) e).field()).isEqualTo("subject"));
+        }
+    }
 }

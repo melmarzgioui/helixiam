@@ -89,6 +89,23 @@ public final class RealmKeyMaterial {
     public static final String DNS_NAMES = "dnsNames";
 
     private static final int MIN_RSA_BITS = 2048;
+    /** The largest RSA key accepted (signing cost grows with the cube of the size; 4096 is the common ceiling). */
+    public static final int MAX_RSA_BITS = 4096;
+    private static final BigInteger MIN_RSA_EXPONENT = BigInteger.valueOf(65_537);
+    /** One PEM block (any type), optionally surrounded by whitespace, and nothing else. */
+    private static final Pattern SINGLE_PEM = Pattern.compile(
+            "\\s*-----BEGIN ([A-Z0-9 ]+)-----[A-Za-z0-9+/=\\s:,-]*?-----END \\1-----\\s*");
+    private static final java.util.Map<String, org.bouncycastle.asn1.ASN1ObjectIdentifier> SUBJECT_KEYWORDS =
+            java.util.Map.of("CN", org.bouncycastle.asn1.x500.style.BCStyle.CN,
+                    "O", org.bouncycastle.asn1.x500.style.BCStyle.O,
+                    "OU", org.bouncycastle.asn1.x500.style.BCStyle.OU,
+                    "C", org.bouncycastle.asn1.x500.style.BCStyle.C,
+                    "L", org.bouncycastle.asn1.x500.style.BCStyle.L,
+                    "ST", org.bouncycastle.asn1.x500.style.BCStyle.ST,
+                    "EMAILADDRESS", org.bouncycastle.asn1.x500.style.BCStyle.EmailAddress,
+                    "SERIALNUMBER", org.bouncycastle.asn1.x500.style.BCStyle.SERIALNUMBER,
+                    "DC", org.bouncycastle.asn1.x500.style.BCStyle.DC,
+                    "UID", org.bouncycastle.asn1.x500.style.BCStyle.UID);
     private static final int GENERATED_RSA_BITS = 2048;
     private static final int MAX_DNS_NAMES = 20;
     private static final Pattern DNS_NAME = Pattern.compile(
@@ -193,9 +210,17 @@ public final class RealmKeyMaterial {
         if (pem == null || pem.isBlank()) {
             throw keyError("A PEM private key is required");
         }
+        if (!SINGLE_PEM.matcher(pem).matches()) {
+            throw keyError("Paste exactly one PEM private key, with nothing before or after it");
+        }
         final Object o;
-        try (PEMParser parser = new PEMParser(new StringReader(pem))) {
+        try (PEMParser parser = new PEMParser(new StringReader(pem.strip()))) {
             o = parser.readObject();
+            if (parser.readObject() != null) {
+                throw keyError("Paste exactly one PEM private key, with nothing before or after it");
+            }
+        } catch (final KeyImportException e) {
+            throw e;
         } catch (final IOException | RuntimeException e) {
             throw keyError(NOT_PARSED);
         }
@@ -221,6 +246,13 @@ public final class RealmKeyMaterial {
                 if (crt.getModulus().bitLength() < MIN_RSA_BITS) {
                     throw keyError("RSA keys must be at least 2048 bits (this one has "
                             + crt.getModulus().bitLength() + ")");
+                }
+                if (crt.getModulus().bitLength() > MAX_RSA_BITS) {
+                    throw keyError("RSA keys can be at most " + MAX_RSA_BITS + " bits (this one has "
+                            + crt.getModulus().bitLength() + ")");
+                }
+                if (crt.getPublicExponent().compareTo(MIN_RSA_EXPONENT) < 0 || !crt.getPublicExponent().testBit(0)) {
+                    throw keyError("The RSA public exponent must be an odd number of at least 65537");
                 }
                 final PublicKey pub = KeyFactory.getInstance("RSA")
                         .generatePublic(new RSAPublicKeySpec(crt.getModulus(), crt.getPublicExponent()));
@@ -320,6 +352,9 @@ public final class RealmKeyMaterial {
         if (usage != null && (usage.length == 0 || !usage[0])) {
             throw chainError("The leaf certificate's keyUsage must include digitalSignature");
         }
+        if (leaf.getBasicConstraints() >= 0) {
+            throw chainError("The leaf certificate must not be a CA certificate (basicConstraints CA:true)");
+        }
         final Date at = Date.from(now);
         for (int i = 0; i < chain.size(); i++) {
             final X509Certificate c = chain.get(i);
@@ -329,6 +364,18 @@ public final class RealmKeyMaterial {
             }
             if (at.before(c.getNotBefore())) {
                 throw chainError(which + " is not yet valid (notBefore " + c.getNotBefore().toInstant() + ")");
+            }
+        }
+        for (int i = 1; i < chain.size(); i++) {
+            final X509Certificate issuer = chain.get(i);
+            if (issuer.getBasicConstraints() < 0) {
+                throw chainError("The chain is not valid: certificate " + (i + 1)
+                        + " issues certificates but is not a CA certificate (basicConstraints CA:true)");
+            }
+            final boolean[] ku = issuer.getKeyUsage();
+            if (ku != null && (ku.length <= 5 || !ku[5])) {
+                throw chainError("The chain is not valid: certificate " + (i + 1)
+                        + " issues certificates but its keyUsage lacks keyCertSign");
             }
         }
         for (int i = 0; i + 1 < chain.size(); i++) {
@@ -424,26 +471,86 @@ public final class RealmKeyMaterial {
         }
     }
 
-    /** An RFC 4514 subject DN with at least one attribute. */
+    /**
+     * An RFC 4514 subject DN with at least one attribute, using only the keywords CN, O, OU, C, L, ST, emailAddress,
+     * SERIALNUMBER, DC and UID (no raw OIDs, no {@code #hex} values).
+     */
     public static X500Name parseSubject(final String subject) {
         if (subject == null || subject.isBlank()) {
             throw new KeyImportException(SUBJECT, "A subject DN is required (for example CN=idp.example.com, O=Example)");
         }
-        if (subject.length() > 1024 || !subject.contains("=")) {
-            throw new KeyImportException(SUBJECT, "The subject must be a distinguished name such as "
-                    + "CN=idp.example.com, O=Example, C=NL");
+        final String bad = "The subject must be a distinguished name such as CN=idp.example.com, O=Example, C=NL, "
+                + "using CN, O, OU, C, L, ST, emailAddress, SERIALNUMBER, DC or UID";
+        if (subject.length() > 1024) {
+            throw new KeyImportException(SUBJECT, bad);
         }
-        try {
-            final X500Principal p = new X500Principal(subject.trim());
-            final X500Name n = X500Name.getInstance(p.getEncoded());
-            if (n.getRDNs().length == 0) {
-                throw new IllegalArgumentException("empty");
+        final org.bouncycastle.asn1.x500.X500NameBuilder builder =
+                new org.bouncycastle.asn1.x500.X500NameBuilder(org.bouncycastle.asn1.x500.style.BCStyle.INSTANCE);
+        for (final String rdn : splitUnescaped(subject.trim(), ',')) {
+            final List<String> avas = splitUnescaped(rdn, '+');
+            if (avas.size() != 1) {
+                throw new KeyImportException(SUBJECT, bad + " (no multi-valued RDNs)");
             }
-            return n;
-        } catch (final IllegalArgumentException e) {
-            throw new KeyImportException(SUBJECT, "The subject must be a distinguished name such as "
-                    + "CN=idp.example.com, O=Example, C=NL");
+            final String ava = avas.get(0);
+            final int eq = ava.indexOf('=');
+            if (eq <= 0) {
+                throw new KeyImportException(SUBJECT, bad);
+            }
+            final org.bouncycastle.asn1.ASN1ObjectIdentifier type =
+                    SUBJECT_KEYWORDS.get(ava.substring(0, eq).trim().toUpperCase(Locale.ROOT));
+            final String value = unescape(ava.substring(eq + 1).trim());
+            if (type == null || value.isEmpty() || ava.substring(eq + 1).trim().startsWith("#")) {
+                throw new KeyImportException(SUBJECT, bad);
+            }
+            builder.addRDN(type, value);
         }
+        final X500Name name = builder.build();
+        if (name.getRDNs().length == 0) {
+            throw new KeyImportException(SUBJECT, bad);
+        }
+        return name;
+    }
+
+    /** Splits on {@code sep} outside backslash escapes and double quotes. */
+    private static List<String> splitUnescaped(final String text, final char sep) {
+        final List<String> out = new ArrayList<>();
+        final StringBuilder cur = new StringBuilder();
+        boolean quoted = false;
+        for (int i = 0; i < text.length(); i++) {
+            final char c = text.charAt(i);
+            if (c == '\\' && i + 1 < text.length()) {
+                cur.append(c).append(text.charAt(++i));
+            } else if (c == '"') {
+                quoted = !quoted;
+                cur.append(c);
+            } else if (c == sep && !quoted) {
+                out.add(cur.toString());
+                cur.setLength(0);
+            } else if (c == ';' && !quoted && sep == ',') {
+                throw new KeyImportException(SUBJECT, "Separate the subject's attributes with commas");
+            } else {
+                cur.append(c);
+            }
+        }
+        out.add(cur.toString());
+        return out;
+    }
+
+    private static String unescape(final String value) {
+        String v = value;
+        if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
+            v = v.substring(1, v.length() - 1);
+        }
+        final StringBuilder out = new StringBuilder();
+        for (int i = 0; i < v.length(); i++) {
+            final char c = v.charAt(i);
+            if (c == '\\' && i + 1 < v.length()) {
+                out.append(v.charAt(++i));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     private static List<String> validateDnsNames(final List<String> dnsNames) {

@@ -91,6 +91,43 @@ public final class TestPki {
                 KeyUsage.digitalSignature);
     }
 
+    /** A leaf that (wrongly) says CA:true. */
+    public static X509Certificate issueCaLeaf(final Ca ca, final String subjectDn, final PublicKey subjectKey) {
+        return build(new X500Name(subjectDn), subjectKey,
+                new X500Name(ca.certificate().getSubjectX500Principal().getName()), ca.keyPair().getPrivate(),
+                Instant.now().minus(Duration.ofDays(1)), Instant.now().plus(Duration.ofDays(30)), true,
+                KeyUsage.digitalSignature | KeyUsage.keyCertSign);
+    }
+
+    /** An "issuer" certificate that is not a CA (no basicConstraints CA:true), with the given key usage. */
+    public static Ca nonCaIssuer(final Ca root, final String cn, final int keyUsage) {
+        final KeyPair kp = rsa(2048);
+        final X509Certificate cert = build(new X500Name("CN=" + cn), kp.getPublic(),
+                new X500Name(root.certificate().getSubjectX500Principal().getName()), root.keyPair().getPrivate(),
+                Instant.now().minus(Duration.ofDays(1)), Instant.now().plus(Duration.ofDays(100)), false, keyUsage);
+        return new Ca(kp, cert);
+    }
+
+    /** An RSA key pair with an explicit public exponent. */
+    public static KeyPair rsa(final int bits, final java.math.BigInteger exponent) {
+        try {
+            final KeyPairGenerator g = KeyPairGenerator.getInstance("RSA");
+            g.initialize(new java.security.spec.RSAKeyGenParameterSpec(bits, exponent));
+            return g.generateKeyPair();
+        } catch (final Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** A CA with keyCertSign missing from its keyUsage. */
+    public static Ca caWithoutKeyCertSign(final String cn) {
+        final KeyPair kp = rsa(2048);
+        final X509Certificate cert = build(new X500Name("CN=" + cn), kp.getPublic(), new X500Name("CN=" + cn),
+                kp.getPrivate(), Instant.now().minus(Duration.ofDays(1)), Instant.now().plus(Duration.ofDays(100)),
+                true, KeyUsage.digitalSignature);
+        return new Ca(kp, cert);
+    }
+
     /** A certificate with an explicit window and key usage ({@code keyUsage < 0}: no keyUsage extension). */
     public static X509Certificate issue(final X509Certificate issuer, final PrivateKey issuerKey, final String subjectDn,
                                         final PublicKey subjectKey, final Instant notBefore, final Instant notAfter,
