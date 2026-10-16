@@ -30,9 +30,18 @@ public interface FederatedLinkRepository extends JpaRepository<FederatedLinkEnti
      */
     @Modifying
     @Query(value = "INSERT INTO federated_link (id, idp_alias, external_subject, user_id, created_via) "
-            + "VALUES (:id, :alias, :subject, :userId, 'WALLET') ON CONFLICT (id) DO NOTHING", nativeQuery = true)
+            + "VALUES (:id, :alias, :subject, :userId, :via) ON CONFLICT (id) DO NOTHING", nativeQuery = true)
     int insertIfAbsent(@Param("id") String id, @Param("alias") String alias, @Param("subject") String subject,
-                       @Param("userId") String userId);
+                       @Param("userId") String userId, @Param("via") String via);
+
+    /** Round 6: every link of one provenance (the start-up report of grandfathered links). */
+    List<FederatedLinkEntity> findAllByCreatedVia(String createdVia);
+
+    /** Round 6: set the provenance of {@code userId}'s links of {@code alias}; returns how many changed. */
+    @Modifying
+    @Query(value = "UPDATE federated_link SET created_via = :via WHERE user_id = :userId AND idp_alias = :alias",
+            nativeQuery = true)
+    int updateProvenance(@Param("userId") String userId, @Param("alias") String alias, @Param("via") String via);
 
     /** Task 21a: delete a link only while {@code userId} still owns it (the stale-link replacement). */
     @Modifying

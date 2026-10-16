@@ -188,7 +188,7 @@ class IdentityBrokerTest {
         via.put("google|sub-boss", "AUTO");
         assertThat(broker.broker(identity("sub-boss", null, false), AccountLinkingPolicy.defaults()).resolved())
                 .as("made by matching an e-mail address").isFalse();
-        for (final String self : java.util.List.of("JIT", "SELF", "WALLET")) {
+        for (final String self : java.util.List.of("JIT", "SELF", "WALLET", "LEGACY", "ADMIN_CONFIRMED")) {
             via.put("google|sub-boss", self);
             assertThat(broker.broker(identity("sub-boss", null, false), AccountLinkingPolicy.defaults()).userId())
                     .as(self).isEqualTo("u-admin");
@@ -211,5 +211,27 @@ class IdentityBrokerTest {
         broker.broker(identity("sub-2", "new@x.io", true), AccountLinkingPolicy.defaults());
 
         assertThat(made).containsEntry("google|sub-1", "AUTO").containsEntry("google|sub-2", "JIT");
+    }
+
+    @Test
+    void auditsEveryRefusedAdministratorSignIn() {
+        final FakeStore store = new FakeStore();
+        store.link("google", "sub-boss", "u-admin");
+        store.usersByEmail.put("boss@x.io", "u-admin");
+        final IdentityBroker broker = new IdentityBroker(store, mapper);
+        broker.setAdminCheck((realm, userId) -> "u-admin".equals(userId));
+        broker.setProvenance((alias, subject) -> Optional.of("AUTO"));
+        final java.util.List<io.helixiam.authorization.security.audit.AuditEvent> events = new java.util.ArrayList<>();
+        broker.setAudit(events::add);
+
+        broker.broker(identity("sub-boss", null, false), AccountLinkingPolicy.defaults());
+        broker.broker(identity("sub-other", "boss@x.io", true), AccountLinkingPolicy.defaults());
+
+        assertThat(events).hasSize(2).allSatisfy(e -> {
+            assertThat(e.type()).isEqualTo("PRIVILEGED_LINK_REFUSED");
+            assertThat(e.detail()).containsEntry("userId", "u-admin").containsEntry("idpAlias", "google");
+        });
+        assertThat(events.get(0).detail()).containsEntry("reason", "untrusted-link");
+        assertThat(events.get(1).detail()).containsEntry("reason", "email-match");
     }
 }

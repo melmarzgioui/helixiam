@@ -49,6 +49,51 @@ public class AccountIdentityController {
         this.registry = registry;
     }
 
+    /** Round 6: linking providers (absent in slim unit-test wiring). */
+    private io.helixiam.authorization.controller.account.console.AccountIdentityLinkFlow linkFlow;
+    private io.helixiam.authorization.service.account.AccountStepUp stepUp;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLinking(final io.helixiam.authorization.controller.account.console.AccountIdentityLinkFlow linkFlow,
+                           final io.helixiam.authorization.service.account.AccountStepUp stepUp) {
+        this.linkFlow = linkFlow;
+        this.stepUp = stepUp;
+    }
+
+    /** Round 6: the providers of this realm the caller can link, each with whether it is linked. */
+    @GetMapping("/providers")
+    public ResponseEntity<?> providers(@AuthenticationPrincipal final UserCredentials principal) {
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return ResponseEntity.ok(linkFlow == null ? List.of() : linkFlow.rows(RealmContextHolder.get(), principal.getUserId()));
+    }
+
+    /**
+     * Round 6: start linking {@code alias} (CSRF header like every write here). Answers where the browser goes next:
+     * the step-up sign-in when this session did not sign in recently (it then continues the link), else the broker
+     * in link mode.
+     */
+    @org.springframework.web.bind.annotation.PostMapping("/{alias}/link")
+    public ResponseEntity<?> link(@AuthenticationPrincipal final UserCredentials principal,
+                                  @PathVariable final String alias, final jakarta.servlet.http.HttpServletRequest request) {
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        final String realm = RealmContextHolder.get();
+        if (linkFlow == null || stepUp == null || !linkFlow.linkable(realm, alias)) {
+            return ResponseEntity.notFound().build();
+        }
+        final jakarta.servlet.http.HttpSession session = request.getSession(true);
+        final String prefix = "/realms/" + realm;
+        if (!stepUp.fresh(request)) {
+            linkFlow.remember(session, alias);
+            return ResponseEntity.ok(Map.of("location", prefix + "/account/reauth?next=identity-link", "stepUp", true));
+        }
+        return ResponseEntity.ok(Map.of("location", prefix + linkFlow.brokerPath(session, realm, principal.getUserId(),
+                alias), "stepUp", false));
+    }
+
     /** The caller's connected federated identities. 401 when unauthenticated. */
     @GetMapping
     public ResponseEntity<List<FederatedLinkDto>> list(@AuthenticationPrincipal final UserCredentials principal) {

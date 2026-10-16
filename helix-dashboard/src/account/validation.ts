@@ -49,3 +49,17 @@ export function validateEmail(email: string): string | undefined {
 export function isValid(errors: Record<string, string | undefined>): boolean {
   return Object.values(errors).every((v) => !v);
 }
+
+/**
+ * Round 6: the "Link a provider" choice. Only a provider the realm offers can be linked; anything else is refused
+ * before a request is sent.
+ */
+export function validateLinkChoice(alias: string | null | undefined, offered: string[]): string | undefined {
+  if (!alias || !alias.trim()) return "account.identities.error.choose";
+  return offered.includes(alias) ? undefined : "account.identities.error.unknown";
+}
+
+/** Round 6: only a same-site path may be followed after starting a link (never an absolute URL from a response). */
+export function isSameSitePath(location: string | null | undefined): boolean {
+  return !!location && location.startsWith("/") && !location.startsWith("//") && !location.includes("\\");
+}

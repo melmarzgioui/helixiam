@@ -10,7 +10,8 @@ import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { ConfirmDialog } from "../components/Modal";
-import { AccountApi, AccountIdentity } from "./api";
+import { AccountApi, AccountIdentity, LinkableProvider } from "./api";
+import { isSameSitePath, validateLinkChoice } from "./validation";
 import type { Note } from "./AccountApp";
 import { useT } from "../i18n/LocaleContext";
 
@@ -49,6 +50,8 @@ export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: No
   }
 
   return (
+    <>
+    <LinkProviders api={api} onNote={onNote} />
     <Card title={t("account.identities.card.title")} subtitle={t("account.identities.card.subtitle")}>
       {identities.length === 0 ? (
         <EmptyState title={t("account.identities.empty")} message={t("account.identities.empty.msg")} />
@@ -83,6 +86,62 @@ export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: No
         onConfirm={() => confirm && unlink(confirm)}
         onCancel={() => setConfirm(null)}
       />
+    </Card>
+    </>
+  );
+}
+
+/**
+ * Round 6: link a provider of the realm. The server answers where to go: the step-up sign-in when this sign-in is not
+ * recent (it then continues the link), else the provider's sign-in, which links the identity and returns to the
+ * account console.
+ */
+function LinkProviders({ api, onNote }: { api: AccountApi; onNote: (n: Note) => void }) {
+  const { t } = useT();
+  const [providers, setProviders] = React.useState<LinkableProvider[] | null>(null);
+  const [busy, setBusy] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!api.listLinkableProviders) { setProviders([]); return; }
+    api.listLinkableProviders().then(setProviders).catch(() => setProviders([]));
+  }, [api]);
+
+  const link = (alias: string) => {
+    const offered = (providers ?? []).map((p) => p.alias);
+    const error = validateLinkChoice(alias, offered);
+    if (error || !api.startLink) {
+      onNote({ tone: "error", title: t(error ?? "account.identities.link.error") });
+      return;
+    }
+    setBusy(alias);
+    api.startLink(alias)
+      .then((r) => {
+        if (!isSameSitePath(r.location)) throw new Error(t("account.identities.link.error"));
+        window.location.assign(r.location);
+      })
+      .catch((e) => { setBusy(null); onNote({ tone: "error", title: t("account.identities.link.error"), message: String(e.message ?? e) }); });
+  };
+
+  if (providers === null || providers.length === 0) return null;
+  return (
+    <Card title={t("account.identities.available.title")} subtitle={t("account.identities.available.subtitle")}>
+      <div className="hx-acctlist">
+        {providers.map((p) => (
+          <div key={p.alias} className="hx-card hx-acctrow">
+            <div className="hx-acctrow__body hx-acctrow__body--center">
+              <div className="hx-acctrow__main">
+                <div className="hx-acctrow__title hx-acctrow__title--row">
+                  {p.displayName}{p.linked && <Badge tone="accent">{t("account.identities.connectedBadge")}</Badge>}
+                </div>
+              </div>
+              <Button variant="ghost" disabled={busy !== null} onClick={() => link(p.alias)} className="hx-acctrow__action"
+                      aria-label={t("account.identities.linkNamed", { provider: p.displayName })}>
+                {busy === p.alias ? <Spinner size={14} /> : t(p.linked ? "account.identities.relink" : "account.identities.link")}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }

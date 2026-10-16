@@ -159,4 +159,12 @@ class AdminRoutePermissionsTest {
             assertThat(AdminRoutePermissions.required("/admin/realms/gov" + w[1], w[0])).as(w[1]).contains("realm-admin");
         }
     }
+
+    @Test
+    void trustInAFederatedLinkIsARealmAdminsDecision() {
+        final String base = "/admin/realms/gov/users/u1/federated-identities";
+        assertThat(AdminRoutePermissions.required(base, "GET")).contains("view-users");
+        assertThat(AdminRoutePermissions.required(base + "/corp/confirm", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required(base + "/corp/revoke-trust", "POST")).contains("realm-admin");
+    }
 }

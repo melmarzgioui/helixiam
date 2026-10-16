@@ -61,12 +61,19 @@ public class FederatedIdentityService {
     /** Task 21a: claim (alias, subject) for {@code userId} of {@code realmId}; see {@link FederatedLinkService#claim}. */
     public io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult claimLink(final String realmId,
             final String idpAlias, final String externalSubject, final String userId) {
+        return claimLink(realmId, idpAlias, externalSubject, userId,
+                io.helixiam.authorization.domain.federation.LinkProvenance.WALLET);
+    }
+
+    /** {@link #claimLink} recording how the link was made. */
+    public io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult claimLink(final String realmId,
+            final String idpAlias, final String externalSubject, final String userId, final String createdVia) {
         if (!inRealm(realmId, userId)) {
             return new io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult(
                     io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.USER_NOT_IN_REALM, null);
         }
         final FederatedLinkService.LinkIfAbsent outcome =
-                links.claim(idpAlias, externalSubject, userId, owner -> inRealm(realmId, owner));
+                links.claim(idpAlias, externalSubject, userId, owner -> inRealm(realmId, owner), createdVia);
         final io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status status =
                 !userId.equals(outcome.ownerUserId())
                         ? io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.LINKED_TO_ANOTHER_USER

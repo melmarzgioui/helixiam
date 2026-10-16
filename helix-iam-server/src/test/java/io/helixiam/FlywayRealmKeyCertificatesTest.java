@@ -139,7 +139,7 @@ class FlywayRealmKeyCertificatesTest {
     }
 
     @Test
-    void v86_recordsHowExistingFederatedLinksWereMade() throws Exception {
+    void v86_grandfathersExistingFederatedLinks() throws Exception {
         final PostgreSQLContainer<?> db = POSTGRES;
         final DriverManagerDataSource ds = new DriverManagerDataSource(db.getJdbcUrl(), db.getUsername(), db.getPassword());
         final JdbcTemplate jdbc = new JdbcTemplate(ds);
@@ -163,7 +163,8 @@ class FlywayRealmKeyCertificatesTest {
                 + "(SELECT created_via FROM federated_link WHERE id = 'corp|a') AS jit, "
                 + "(SELECT created_via FROM federated_link WHERE id = 'corp|b') AS auto, "
                 + "(SELECT created_via FROM federated_link WHERE id = 'wallet|c') AS wallet"))
-                .containsEntry("jit", "JIT").containsEntry("auto", "AUTO").containsEntry("wallet", "WALLET");
+                // Grandfathered: every pre-upgrade link keeps signing its user in (LEGACY), wallet links are WALLET.
+                .containsEntry("jit", "LEGACY").containsEntry("auto", "LEGACY").containsEntry("wallet", "WALLET");
     }
 
     @Test

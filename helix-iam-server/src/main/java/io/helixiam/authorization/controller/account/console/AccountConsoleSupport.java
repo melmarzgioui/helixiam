@@ -35,7 +35,9 @@ public class AccountConsoleSupport {
         DATA("/account#data"),
         DELETE("/account/delete"),
         /** Task 21b: linking or unlinking an EU Digital Identity Wallet; back to the console's wallet section. */
-        WALLETS("/account#wallets");
+        WALLETS("/account#wallets"),
+        /** Round 6: linking an identity provider; continues the link the user asked for before signing in again. */
+        IDENTITY_LINK("/account/identities/link/continue");
 
         final String path;
 

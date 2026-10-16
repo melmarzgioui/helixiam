@@ -65,15 +65,43 @@ public class FederatedLinkService {
     @Transactional
     public LinkIfAbsent claim(final String idpAlias, final String externalSubject, final String userId,
                               final java.util.function.Predicate<String> isLive) {
+        return claim(idpAlias, externalSubject, userId, isLive,
+                io.helixiam.authorization.domain.federation.LinkProvenance.WALLET);
+    }
+
+    /** {@link #claim} recording {@code createdVia} on the row it inserts. */
+    @Transactional
+    public LinkIfAbsent claim(final String idpAlias, final String externalSubject, final String userId,
+                              final java.util.function.Predicate<String> isLive, final String createdVia) {
+        final String via = io.helixiam.authorization.domain.federation.LinkProvenance.normalize(createdVia);
         final String id = FederatedLinkEntity.key(idpAlias, externalSubject);
-        boolean created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId) == 1;
+        boolean created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId, via) == 1;
         String owner = owner(id);
         if (!owner.equals(userId) && !isLive.test(owner)) {
             repository.deleteIfOwnedBy(id, owner);
-            created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId) == 1;
+            created = repository.insertIfAbsent(id, idpAlias, externalSubject, userId, via) == 1;
             owner = owner(id);
         }
         return new LinkIfAbsent(owner, created && owner.equals(userId));
+    }
+
+    /** Round 6: set how {@code userId}'s links of {@code alias} count (confirm or revoke trust); how many changed. */
+    @Transactional
+    public int setProvenance(final String userId, final String idpAlias, final String createdVia) {
+        return repository.updateProvenance(userId, idpAlias,
+                io.helixiam.authorization.domain.federation.LinkProvenance.normalize(createdVia));
+    }
+
+    /** Round 6: every link of {@code userId} (alias, subject, provenance). */
+    @Transactional(readOnly = true)
+    public java.util.List<FederatedLinkEntity> linksOf(final String userId) {
+        return repository.findAllByUserId(userId);
+    }
+
+    /** Round 6: the links created before the upgrade (the start-up report). */
+    @Transactional(readOnly = true)
+    public java.util.List<FederatedLinkEntity> legacyLinks() {
+        return repository.findAllByCreatedVia(io.helixiam.authorization.domain.federation.LinkProvenance.LEGACY);
     }
 
     private String owner(final String id) {

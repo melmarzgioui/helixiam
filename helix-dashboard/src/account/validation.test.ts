@@ -49,3 +49,19 @@ describe("isValid", () => {
     expect(isValid({ a: undefined, b: "boom" })).toBe(false);
   });
 });
+
+describe("link a provider", () => {
+  it("needs a provider the realm offers", async () => {
+    const { validateLinkChoice } = await import("./validation");
+    expect(validateLinkChoice("", ["corp"])).toBe("account.identities.error.choose");
+    expect(validateLinkChoice("evil", ["corp"])).toBe("account.identities.error.unknown");
+    expect(validateLinkChoice("corp", ["corp"])).toBeUndefined();
+  });
+  it("follows only same-site paths", async () => {
+    const { isSameSitePath } = await import("./validation");
+    expect(isSameSitePath("/realms/acme/broker/corp?link=x")).toBe(true);
+    expect(isSameSitePath("https://evil.example/")).toBe(false);
+    expect(isSameSitePath("//evil.example/")).toBe(false);
+    expect(isSameSitePath(null)).toBe(false);
+  });
+});

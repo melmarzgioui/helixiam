@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS federated_link (
     external_subject  character varying(512) NOT NULL,
     user_id           character varying(255) NOT NULL,
     creation_date     timestamp DEFAULT CURRENT_TIMESTAMP,
-    -- Round 6 (V86): JIT, AUTO, SELF or WALLET; an administrator signs in only through JIT, SELF or WALLET links.
+    -- Round 6 (V86): JIT, AUTO, SELF, WALLET, ADMIN_CONFIRMED or LEGACY; AUTO links never sign in an administrator.
     created_via       character varying(16)
     );
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);

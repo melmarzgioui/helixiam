@@ -109,4 +109,32 @@ class CliClientBootstrapServiceTest {
         assertFalse(squatted.getRedirectUris().contains("https://evil.example/cb"));
         assertFalse(squatted.getAuthorizationGrantTypes().stream().anyMatch(g -> "client_credentials".equals(g.getValue())));
     }
+
+    @Test
+    void ensureCliClient_keepsANarrowerChoice() {
+        final ServiceProviderOAuthClient narrowed = builtIn();
+        narrowed.setAuthorizationGrantTypes("authorization_code,refresh_token");
+        narrowed.setRedirectUris("http://127.0.0.1:53682/cli/done,http://[::1]/callback");
+        when(repository.findByClientIdAndRealmIdAndDeleted("helix-cli", "master", false))
+                .thenReturn(Optional.of(narrowed));
+
+        service.ensureCliClient("master");
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void ensureCliClient_dropsOnlyWhatWidens() {
+        final ServiceProviderOAuthClient widened = builtIn();
+        widened.setAuthorizationGrantTypes("authorization_code,client_credentials");
+        widened.setRedirectUris("http://127.0.0.1:53682/cli/done,https://evil.example/cb,http://localhost.evil.example/x");
+        when(repository.findByClientIdAndRealmIdAndDeleted("helix-cli", "master", false))
+                .thenReturn(Optional.of(widened));
+
+        service.ensureCliClient("master");
+
+        verify(repository).save(widened);
+        assertTrue(widened.getRedirectUris().equals(java.util.Set.of("http://127.0.0.1:53682/cli/done")));
+        assertTrue(widened.getAuthorizationGrantTypes().stream().allMatch(g -> "authorization_code".equals(g.getValue())));
+    }
 }

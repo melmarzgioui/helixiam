@@ -73,6 +73,10 @@ public final class AdminRoutePermissions {
         if ("clients".equals(group) && seg.length >= 6 && "secret".equals(seg[5])) {
             return Optional.of(MANAGE_CLIENTS);
         }
+        // Round 6: whether a federated link may sign in an administrator is a realm admin's decision.
+        if ("users".equals(group) && seg.length >= 8 && "federated-identities".equals(seg[5]) && !read) {
+            return Optional.of(REALM_ADMIN);
+        }
         // The signing settings decide which key and algorithm sign tokens and SAML: realm-admin, like key writes.
         if ("settings".equals(group) && seg.length >= 5 && "signing".equals(seg[4]) && !read) {
             return Optional.of(REALM_ADMIN);

@@ -20,6 +20,8 @@ import { emailBounce } from "./userBounce";
 import { Alert } from "../components/Alert";
 import { UserCredentials } from "./userCredentials";
 import { useT } from "../i18n/LocaleContext";
+import { FederatedIdentityApi, createFederatedIdentityHttpClient } from "../api/federatedIdentities";
+import { UserLinkedIdentities } from "./userLinkedIdentities";
 
 export interface UserDetailPageProps {
   api: UserApi;
@@ -29,6 +31,8 @@ export interface UserDetailPageProps {
   realmId: string;
   userId: string;
   onBack: () => void;
+  /** Round 6: the user's linked identities; defaults to the HTTP client. */
+  identityApi?: FederatedIdentityApi;
 }
 
 /**
@@ -36,14 +40,16 @@ export interface UserDetailPageProps {
  * mappings, their authentication factors (Device & passkeys) and active SSO sessions. Reached by opening
  * a row on the Users screen; the per-user credential/session views live here rather than as standalone pages.
  */
-export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmId, userId, onBack }: UserDetailPageProps) {
+export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmId, userId, onBack, identityApi }: UserDetailPageProps) {
   const { t, locale } = useT();
+  const identities = React.useMemo(() => identityApi ?? createFederatedIdentityHttpClient(), [identityApi]);
 
   const TABS = [
     { id: "details", label: t("userDetail.tab.details") },
     { id: "roles", label: t("userDetail.tab.roles") },
     { id: "credentials", label: t("userDetail.tab.credentials") },
     { id: "sessions", label: t("userDetail.tab.sessions") },
+    { id: "identities", label: t("userDetail.tab.identities") },
   ];
 
   const [user, setUser] = React.useState<UserSummary | null>(null);
@@ -172,6 +178,10 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
 
         {tab === "credentials" && (
           <UserCredentials api={credentialApi} realmId={realmId} userId={user.userId} username={user.username} onNote={toast.show} />
+        )}
+
+        {tab === "identities" && (
+          <UserLinkedIdentities api={identities} realmId={realmId} userId={user.userId} onNote={toast.show} />
         )}
 
         {tab === "sessions" && (

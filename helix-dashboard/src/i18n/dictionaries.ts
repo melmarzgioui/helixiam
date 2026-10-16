@@ -12,6 +12,7 @@
 import { walletEn, walletNl } from "./walletStrings";
 import { trustedListEn, trustedListNl } from "./trustedListStrings";
 import { realmKeyEn, realmKeyNl } from "./realmKeyStrings";
+import { linkEn, linkNl } from "./linkStrings";
 
 /** The supported UI locales. `en` is the source-of-truth / fallback. */
 export type Locale = "en" | "nl";
@@ -28,6 +29,7 @@ export const en: Dict = {
   ...walletEn,
   ...trustedListEn,
   ...realmKeyEn,
+  ...linkEn,
   // Top bar / shell chrome
   "shell.realm": "Realm",
   "shell.menu.open": "Open menu",
@@ -2498,6 +2500,7 @@ export const nl: Dict = {
   ...walletNl,
   ...trustedListNl,
   ...realmKeyNl,
+  ...linkNl,
   // Topbalk / shell-chrome
   "shell.realm": "Realm",
   "shell.menu.open": "Menu openen",

@@ -21,5 +21,7 @@ class LinkProvenanceTest {
         assertThat(LinkProvenance.mayAuthenticateAdmin("SELF")).isTrue();
         assertThat(LinkProvenance.mayAuthenticateAdmin("WALLET")).isTrue();
         assertThat(LinkProvenance.mayAuthenticateAdmin("JIT")).isTrue();
+        assertThat(LinkProvenance.mayAuthenticateAdmin("LEGACY")).isTrue();
+        assertThat(LinkProvenance.mayAuthenticateAdmin("ADMIN_CONFIRMED")).isTrue();
     }
 }
