@@ -839,3 +839,7 @@ td.hx-col-sticky { background: var(--bg); }
   .hx-colorswatch { height: 44px; }
   .hx-select-trigger, .hx-combo__input, .hx-multicombo__control { min-height: 44px; }
 }
+
+/* Realm keys: SHA-256 fingerprints and the muted technical id line wrap anywhere instead of widening the table. */
+.hx-fingerprint { display: inline-block; max-width: 22ch; font-size: .78rem; overflow-wrap: anywhere; word-break: break-all; }
+.hx-keyid { font-size: .74rem; }
