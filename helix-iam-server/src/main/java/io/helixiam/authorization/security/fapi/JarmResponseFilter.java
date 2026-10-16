@@ -150,7 +150,7 @@ public class JarmResponseFilter extends OncePerRequestFilter {
                 }
             });
             return jwtEncoder.encode(JwtEncoderParameters.from(
-                    JwsHeader.with(io.helixiam.authorization.security.RealmAlgorithmJwtEncoder.REALM_DEFAULT).build(), set.build())).getTokenValue();
+                    io.helixiam.authorization.security.RealmAlgorithmJwtEncoder.realmDefault().build(), set.build())).getTokenValue();
         }
 
         private void parseInto(final String raw, final Map<String, String> out) {

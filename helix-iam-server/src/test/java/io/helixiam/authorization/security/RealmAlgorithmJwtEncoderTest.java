@@ -95,14 +95,15 @@ class RealmAlgorithmJwtEncoderTest {
     @Test
     void realmDefault_followsTheRealmSetting_keepingOtherHeaders() throws Exception {
         realmDefault.set("ES256");
-        final SignedJWT t = encode(set(true), JwsHeader.with(RealmAlgorithmJwtEncoder.REALM_DEFAULT).type("logout+jwt").build());
+        final SignedJWT t = encode(set(true), RealmAlgorithmJwtEncoder.realmDefault().type("logout+jwt").build());
         assertThat(t.getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.ES256);
         assertThat(t.getHeader().getType().toString()).isEqualTo("logout+jwt");
+        assertThat(t.getHeader().getCustomParams()).doesNotContainKey(RealmAlgorithmJwtEncoder.REALM_DEFAULT_PARAM);
         realmDefault.set(null);
-        assertThat(encode(set(true), JwsHeader.with(RealmAlgorithmJwtEncoder.REALM_DEFAULT).build()).getHeader()
+        assertThat(encode(set(true), RealmAlgorithmJwtEncoder.realmDefault().build()).getHeader()
                 .getAlgorithm()).isEqualTo(JWSAlgorithm.RS256);
         realmDefault.set("ES256");
-        assertThat(encode(set(false), JwsHeader.with(RealmAlgorithmJwtEncoder.REALM_DEFAULT).build()).getHeader()
+        assertThat(encode(set(false), RealmAlgorithmJwtEncoder.realmDefault().build()).getHeader()
                 .getAlgorithm()).isEqualTo(JWSAlgorithm.RS256);
         assertThat(encode(set(true), null).getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.RS256);
     }

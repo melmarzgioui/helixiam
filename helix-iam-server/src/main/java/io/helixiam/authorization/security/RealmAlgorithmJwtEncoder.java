@@ -8,7 +8,6 @@ package io.helixiam.authorization.security;
 import com.nimbusds.jose.jwk.JWKSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.security.oauth2.jose.jws.JwsAlgorithm;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -27,7 +26,7 @@ import java.util.function.Supplier;
  * <ul>
  *   <li>An explicit algorithm (an ID token's {@code id_token_signed_response_alg}, default RS256) is used when the
  *       realm has an ACTIVE key for it; otherwise RS256, with a WARN.</li>
- *   <li>{@link #REALM_DEFAULT} (access tokens, logout tokens, delegation and workload-identity tokens, JARM) is the
+ *   <li>{@link #realmDefault()} (access tokens, logout tokens, delegation and workload-identity tokens, JARM) is the
  *       realm's {@code signing.defaultAlg} (default RS256), with the same fallback.</li>
  * </ul>
  * The realm's key set is fetched <b>once per encode</b> and the token is signed against that snapshot, so a cache
@@ -37,8 +36,17 @@ public final class RealmAlgorithmJwtEncoder implements JwtEncoder {
 
     private static final Logger LOG = LogManager.getLogger(RealmAlgorithmJwtEncoder.class);
 
-    /** "Use the realm's default signing algorithm" — set by callers that have no algorithm of their own. */
-    public static final JwsAlgorithm REALM_DEFAULT = () -> "helix-realm-default";
+    /**
+     * Header parameter meaning "use the realm's default signing algorithm", set by callers that have no algorithm of
+     * their own (with RS256 as the algorithm, so an encoder without this decorator still signs). Removed before
+     * signing.
+     */
+    public static final String REALM_DEFAULT_PARAM = "helix_realm_default_alg";
+
+    /** A header asking for the realm's default signing algorithm. */
+    public static JwsHeader.Builder realmDefault() {
+        return JwsHeader.with(SignatureAlgorithm.RS256).header(REALM_DEFAULT_PARAM, Boolean.TRUE);
+    }
 
     private final Supplier<JWKSet> snapshot;
     private final Supplier<String> realmDefault;
@@ -61,7 +69,8 @@ public final class RealmAlgorithmJwtEncoder implements JwtEncoder {
         final JWKSet set = snapshot.get();
         final JwsHeader header = parameters.getJwsHeader();
         String requested = header == null || header.getAlgorithm() == null ? "RS256" : header.getAlgorithm().getName();
-        if (REALM_DEFAULT.getName().equals(requested)) {
+        final boolean useDefault = header != null && header.getHeaders().containsKey(REALM_DEFAULT_PARAM);
+        if (useDefault) {
             final String d = realmDefault.get();
             requested = d == null || d.isBlank() ? "RS256" : d;
         }
@@ -72,7 +81,8 @@ public final class RealmAlgorithmJwtEncoder implements JwtEncoder {
             chosen = "RS256";
         }
         final SignatureAlgorithm alg = SignatureAlgorithm.from(chosen);
-        final JwsHeader adjusted = header == null ? JwsHeader.with(alg).build() : JwsHeader.from(header).algorithm(alg).build();
+        final JwsHeader adjusted = header == null ? JwsHeader.with(alg).build()
+                : JwsHeader.from(header).algorithm(alg).headers(h -> h.remove(REALM_DEFAULT_PARAM)).build();
         final JwtEncoder encoder = set == null ? fallback : new NimbusJwtEncoder(RealmJwkSource.fixed(set));
         return encoder.encode(JwtEncoderParameters.from(adjusted, parameters.getClaims()));
     }

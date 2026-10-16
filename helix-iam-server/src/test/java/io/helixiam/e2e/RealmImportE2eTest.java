@@ -63,9 +63,13 @@ class RealmImportE2eTest extends AbstractE2eTest {
         final E2eHttp.Response r = adminSession().post("/admin/realms/" + "r".repeat(300) + "/import",
                 json.createObjectNode().put("version", 1));
         assertThat(r.status()).as(r.toString()).isEqualTo(400);
-        final E2eHttp.Response settings = adminSession().put("/admin/realms/Bad%20Realm%21/settings", Map.of(
+        // Security review H4: a percent-encoded realm id is refused before authorization (and before CSRF).
+        final E2eAdminSession admin = adminSession();
+        admin.get("/admin/realms/master/settings");
+        final String token = admin.http().cookieFor("XSRF-TOKEN", "/admin/realms/master/settings").orElseThrow();
+        final E2eHttp.Response settings = admin.http().sendJson("PUT", "/admin/realms/Bad%20Realm%21/settings", Map.of(
                 "displayName", "x", "accessTokenTtlSeconds", 300, "refreshTokenTtlSeconds", 86400, "enabled", true,
-                "passwordMinLength", 12));
+                "passwordMinLength", 12), "X-XSRF-TOKEN", token, "Accept", "application/json");
         assertThat(settings.status()).as(settings.toString()).isEqualTo(400);
     }
 }

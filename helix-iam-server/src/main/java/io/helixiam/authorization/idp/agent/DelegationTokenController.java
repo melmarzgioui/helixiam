@@ -231,7 +231,7 @@ public class DelegationTokenController {
             claims.claim("scope", String.join(" ", effective));
         }
         final String accessToken = jwtEncoder.encode(JwtEncoderParameters.from(
-                JwsHeader.with(io.helixiam.authorization.security.RealmAlgorithmJwtEncoder.REALM_DEFAULT).build(), claims.build())).getTokenValue();
+                io.helixiam.authorization.security.RealmAlgorithmJwtEncoder.realmDefault().build(), claims.build())).getTokenValue();
 
         final Map<String, Object> body = new LinkedHashMap<>();
         body.put("access_token", accessToken);

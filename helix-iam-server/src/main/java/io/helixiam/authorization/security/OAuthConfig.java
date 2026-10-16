@@ -137,7 +137,7 @@ public class OAuthConfig {
             // BYO keys: access tokens use the realm's signing.defaultAlg (RS256 unless the realm chose PS256/ES256);
             // ID tokens keep the client's id_token_signed_response_alg that Spring Authorization Server set.
             if (org.springframework.security.oauth2.server.authorization.OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
-                context.getJwsHeader().algorithm(RealmAlgorithmJwtEncoder.REALM_DEFAULT);
+                context.getJwsHeader().header(RealmAlgorithmJwtEncoder.REALM_DEFAULT_PARAM, Boolean.TRUE);
             }
             // C3: no user tokens while the user still has to verify their email address (realm setting or the
             // VERIFY_EMAIL required action) — whatever the sign-in method or grant. Deliberately NOT swallowed.
