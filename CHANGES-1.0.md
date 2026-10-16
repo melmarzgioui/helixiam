@@ -5,6 +5,19 @@ question. Newest first within each phase.
 
 ## Next release (after `v1.0.0-rc.11`)
 
+### Security: admins could grant admin permissions they do not hold (H5, present in rc.11)
+
+A `manage-users` admin could assign itself the `admin` role, and a `manage-roles` admin could make `admin` the default
+role. Assigning or removing a role through any path (user roles, group roles and membership, service-account roles,
+realm import, SCIM) now needs the role's admin permissions to be the caller's own (`realm-admin` for the admin role);
+changing admin grants needs `realm-admin`; a role with admin permissions cannot be the default role. See
+`helix-iam-server/SECURITY-REVIEW.md` (H5).
+
+> **Upgrade note (H5).** A realm whose default role carries admin permissions is reported at start-up (WARN and a
+> `DEFAULT_ROLE_HAS_ADMIN_PERMISSIONS` audit event); new users no longer get that role. Pick another default role or
+> remove its admin grants. V86 also removes duplicate `realm_key` rows an rc.11 first-use race could leave (keeping the
+> ACTIVE, else the newest).
+
 ### Security: admin permissions resolved on the decoded path (H4, predates this release)
 
 The admin permission resolver read the raw request URI while Spring MVC routes on the decoded path, so an encoded
@@ -29,7 +42,8 @@ Customers can change the keys and certificates their realm signs OIDC/JWS and SA
   until `POST /keys/{keyId}/activate` (after `helix.keys.min-staging`, 5 min, unless `?force=true`); the previous
   ACTIVE key of the same algorithm becomes ROTATED and stays published. `POST /keys/rotate` still generates and
   activates at once (no staging) and takes an optional `{"algorithm"}`. Retiring the ACTIVE RS256 key is now refused
-  (`409`; it used to succeed). Key ids are realm-scoped on every route (`404` across realms); transitions are
+  (`409`; it used to succeed); retiring the ACTIVE ES256 key is refused while clients ask for ES256 ID tokens (names
+  listed) unless `?force=true`. Key ids are realm-scoped on every route (`404` across realms); transitions are
   serialised per realm.
 - **Permissions**: every key write needs `realm-admin` (it used to be `manage-realm`); reads keep `manage-realm`.
 - **Publishing**: every JWK has `kid`, `alg`, `use: sig`; keys with a chain add `x5c` and `x5t#S256`. SAML metadata

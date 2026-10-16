@@ -166,6 +166,7 @@
 | L5 | LOW | Legacy crypto | `AttributeEncryption.java:113‑127` | Legacy AES/ECB (no-IV, no-integrity) decrypt fallback |
 | L6 | LOW | Credential handling | `RealmAdminBootstrapService.java:91` | Bootstrap admin password written to application logs |
 | H4 | **HIGH** — **FIXED 2026-10-16** | Authz | `AdminRoutePermissions.java`, `AdminAuthorizationManager.java` | Admin permission resolved on the **raw** request URI while Spring MVC routes on the decoded path — see [H4](#h4-high-fixed--admin-permission-resolved-on-the-raw-uri) |
+| H5 | **HIGH** — **FIXED 2026-10-16** (present in rc.11) | Authz / privilege escalation | `RoleAdminService`, `GroupAdminService`, `ClientRoleAdminService`, `AdminRbacService`, SCIM, realm import | An admin could hand out admin permissions they do not hold — see [H5](#h5-high-fixed--admins-could-grant-admin-permissions-they-do-not-hold) |
 | I1 | INFO | Positive | `PasswordEncoderService.java:32` | Argon2id (OWASP params) with constant-time legacy verify + transparent upgrade |
 | I2 | INFO | Positive | 25 admin controllers use `@Valid` + `AdminValidationAdvice` | Bean Validation present on admin write APIs |
 | I3 | INFO | Positive | `BreachedPasswordChecker.java`, `PasswordPolicyEnforcer.java`, `LoginFailureService.java` | HIBP k-anonymity, password policy+history, lockout wired |
@@ -324,6 +325,32 @@ An admin holding one low permission could reach writes guarded by another.
 `RealmKeyPermissionsE2eTest.encodedCasedAndMatrixPathTricks_neverReachAWriteWithALowerPermission` (through the real
 filter chain: `k%65ys`, `%6Beys`, `KEYS`, `keys;x=1`, `keys/`, `//keys`, `./keys`, `%2565`, and the same tricks
 against `users` and `clients`).
+
+---
+
+## H5 (HIGH, FIXED) — admins could grant admin permissions they do not hold
+
+**Found 2026-10-16, confirmed live against rc.11.** A `manage-users` admin called
+`POST /admin/realms/r/users/{self}/roles` with the `admin` role and became realm admin; a `manage-roles` admin could
+make `admin` the realm's default role, so every new user became an administrator. The same held for group roles and
+group membership, service-account roles (whose realm roles feed admin bearer tokens), the realm import's `adminRoles`
+slice (needs only `manage-realm`) and SCIM group membership.
+
+**Fix.** `AdminGrantGuard`: a role confers its admin-RBAC grants, and the role named `admin` confers `realm-admin` by
+its name (`admin_<realm>` authority). Assigning or removing such a role — user roles, group roles, group membership,
+service-account realm roles, SCIM membership, realm import — needs the role's permissions to be a subset of the
+caller's own, and `realm-admin` for a role conferring `realm-admin`; enforced in the services and in the controllers.
+Changing admin grants needs `realm-admin` (the `admin-roles` route already did; the service now checks too, which
+covers realm import). A role with admin permissions cannot be the default role (`400`), and the default role cannot be
+given admin permissions. Existing default roles with admin permissions are reported at start-up (WARN +
+`DEFAULT_ROLE_HAS_ADMIN_PERMISSIONS` audit event), not changed, and no longer handed to new users. Not applicable:
+identity-provider mappers map claims to attributes only (no role mapping); DCR assigns no roles; organization roles
+carry no admin permissions. Code outside any request (start-up bootstrap) is not restricted; a request without an
+authenticated admin (SCIM) holds no admin permission.
+
+**Tests.** `AdminGrantEscalationE2eTest` (the live scenario: `manage-users` self-assigns `admin` → 403;
+`manage-roles` sets `admin` as default → 400; groups, service accounts, the grant editor, realm import, SCIM, the
+start-up report).
 
 ---
 
