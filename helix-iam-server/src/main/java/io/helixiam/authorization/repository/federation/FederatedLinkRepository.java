@@ -27,6 +27,9 @@ public interface FederatedLinkRepository extends JpaRepository<FederatedLinkEnti
     /** Round 6: every link of a realm's identity provider. */
     List<FederatedLinkEntity> findAllByRealmIdAndIdpAlias(String realmId, String idpAlias);
 
+    /** Round 6: links the upgrade placed in a realm by a fallback, still unconfirmed. */
+    List<FederatedLinkEntity> findAllByRealmAmbiguousTrueAndCreatedVia(String createdVia);
+
     /** Round 6: links whose realm the upgrade could not tell (never used for sign-in). */
     List<FederatedLinkEntity> findAllByRealmIdIsNull();
 

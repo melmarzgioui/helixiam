@@ -433,6 +433,10 @@ service layer, so REST and import share the check. The table, with a guard or a 
   another realm as stale and took the link over. Links now carry `realm_id` (key realm + alias + subject); every
   operation names the realm; trust changes also need the user's admin permissions in every realm they belong to; an
   owner is stale only when the user no longer exists.
+- **One source for a target's privilege (review).** Several checks read a target user's admin permissions in one
+  realm only, so an administrator of another realm or of master was not protected there (changing a provider they sign
+  in through, the start-up report, acting on them). `effectivePrivilegesEverywhere(userId)` is now the only source, used
+  by every check on a target user. Links the upgrade could only guess the realm of are AUTO until confirmed.
 
 Tests: `SignInSurfaceE2eTest` (one scenario per guarded row: the lower admin gets 403, a realm admin of the realm
 gets 2xx, import leaves the protected value unchanged; the IdP takeover is replayed against a stub IdP, AUTO refused and

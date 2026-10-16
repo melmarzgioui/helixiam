@@ -43,6 +43,14 @@ public class FederatedLinkEntity {
     @Column(name = "creation_date", updatable = false)
     private Date creationDate;
 
+    /** Round 6: the upgrade could not tell this link's realm for sure (it is AUTO until a realm admin confirms it). */
+    @Column(name = "realm_ambiguous")
+    private boolean realmAmbiguous;
+
+    public boolean isRealmAmbiguous() {
+        return realmAmbiguous;
+    }
+
     /** Round 6: how the link was made ({@link LinkProvenance}); null on rows of unknown origin. */
     @Column(name = "created_via")
     private String createdVia;

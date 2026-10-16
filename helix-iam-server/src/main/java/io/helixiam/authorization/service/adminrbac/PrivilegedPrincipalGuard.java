@@ -76,9 +76,50 @@ public class PrivilegedPrincipalGuard {
         return out;
     }
 
-    /** Whether a user holds any admin permission in {@code realmId} (never auto-linked by attribute). */
+    /**
+     * Round 6: <b>the single source</b> of a target user's privilege. Realm → the admin permissions the user holds there,
+     * for every realm that can reach them: their realm memberships, the realms of their roles and of their groups'
+     * roles, and master. Only realms where they hold something are listed. Every check on a target user (acting on
+     * them, trusting their links, changing a provider they sign in through, the start-up report, the broker) goes
+     * through this, never through one realm's view.
+     */
+    public java.util.Map<String, Set<String>> effectivePrivilegesEverywhere(final String userId) {
+        final java.util.Map<String, Set<String>> out = new java.util.LinkedHashMap<>();
+        if (userId == null) {
+            return out;
+        }
+        final Set<String> realms = new LinkedHashSet<>();
+        realms.add("master");
+        if (memberships != null) {
+            realms.addAll(memberships.findTenantIdsByUserId(userId));
+        }
+        userRoles.findAllByUserId(userId).forEach(r -> roles.findById(r.getRoleId())
+                .ifPresent(role -> realms.add(role.getTenantId())));
+        groupMembers.findAllByUserId(userId).forEach(m -> groupRoles.findAllByGroupId(m.getGroupId())
+                .forEach(gr -> roles.findById(gr.getRoleId()).ifPresent(role -> realms.add(role.getTenantId()))));
+        for (final String realm : realms) {
+            if (realm == null) {
+                continue;
+            }
+            final Set<String> held = userPermissions(realm, userId);
+            if (!held.isEmpty()) {
+                out.put(realm, held);
+            }
+        }
+        return out;
+    }
+
+    /** Whether a user holds any admin permission in any realm. */
+    public boolean isAdminAnywhere(final String userId) {
+        return !effectivePrivilegesEverywhere(userId).isEmpty();
+    }
+
+    /**
+     * Whether a user is an administrator anywhere ({@link #effectivePrivilegesEverywhere}). The realm is kept for the
+     * callers' signature only: an administrator of another realm or of master counts in every realm.
+     */
     public boolean isAdmin(final String realmId, final String userId) {
-        return !userPermissions(realmId, userId).isEmpty();
+        return isAdminAnywhere(userId);
     }
 
     /**
@@ -109,7 +150,11 @@ public class PrivilegedPrincipalGuard {
         return out;
     }
 
-    /** 403 unless the caller holds every admin permission of the user. */
+    /**
+     * 403 unless the caller holds, in every realm where the user holds admin permissions
+     * ({@link #effectivePrivilegesEverywhere}), those permissions. {@code realmId} is the realm the action is in; an
+     * administrator of another realm or of master is protected there too.
+     */
     public void requireMayActOnUser(final String realmId, final String userId, final String what) {
         final java.util.Optional<AdminActor> actor = AdminActor.current();
         if (actor.isPresent() && actor.get().kind() == AdminActor.Kind.SELF) {
@@ -117,30 +162,20 @@ public class PrivilegedPrincipalGuard {
                 return; // a user acting on their own account
             }
         }
-        try {
-            grants.requireMayGrant(realmId, userPermissions(realmId, userId), what);
-        } catch (final AdminGrantGuard.AdminGrantDeniedException e) {
-            throw new AdminGrantGuard.AdminGrantDeniedException(what + ": this user holds admin permissions you do "
-                    + "not hold (or no acting administrator was declared). Ask a realm admin.");
+        for (final java.util.Map.Entry<String, Set<String>> e : effectivePrivilegesEverywhere(userId).entrySet()) {
+            try {
+                grants.requireMayGrant(e.getKey(), e.getValue(), what);
+            } catch (final AdminGrantGuard.AdminGrantDeniedException denied) {
+                throw new AdminGrantGuard.AdminGrantDeniedException(what + ": this user holds admin permissions you do "
+                        + "not hold" + (e.getKey().equals(realmId) ? "" : " (in realm " + e.getKey() + ")")
+                        + " (or no acting administrator was declared). Ask a realm admin.");
+            }
         }
     }
 
-    /**
-     * Round 6: 403 unless the caller holds, in every realm the user belongs to, every admin permission the user has
-     * there. For decisions that reach the user beyond one realm (trusting a link that may sign them in as an admin of
-     * another realm or of master).
-     */
+    /** {@link #requireMayActOnUser} for decisions that are not tied to one realm. */
     public void requireMayActOnUserEverywhere(final String userId, final String what) {
-        final java.util.Set<String> realms = new java.util.LinkedHashSet<>();
-        if (memberships != null) {
-            realms.addAll(memberships.findTenantIdsByUserId(userId));
-        }
-        realms.add("master");
-        for (final String realm : realms) {
-            if (realm != null) {
-                requireMayActOnUser(realm, userId, what);
-            }
-        }
+        requireMayActOnUser(null, userId, what);
     }
 
     /** 403 unless the caller holds every admin permission of the client's service account. */
@@ -170,30 +205,21 @@ public class PrivilegedPrincipalGuard {
     // ------------------------------------------------------------------------------------------------ sign-in surfaces
 
     /**
-     * The admin permissions of the realm's users linked to the identity provider {@code alias}: whoever controls that
-     * provider can sign in as them.
+     * Changing or deleting an identity provider needs, for every user of the realm linked to it, that user's admin
+     * permissions everywhere ({@link #requireMayActOnUser}): whoever controls the provider can sign in as them.
      */
-    public Set<String> linkedPermissions(final String realmId, final String alias) {
-        final Set<String> out = new LinkedHashSet<>();
+    public void requireMayChangeIdentityProvider(final String realmId, final String alias, final String what) {
         if (links == null || alias == null) {
-            return out;
+            return;
         }
-        // Round 6: links are realm-scoped; a user linked in this realm may still be an admin elsewhere (master), so their
-        // permissions in every realm they belong to count.
         for (final io.helixiam.authorization.domain.federation.FederatedLinkEntity l
                 : links.findAllByRealmIdAndIdpAlias(realmId, alias)) {
-            out.addAll(userPermissions(realmId, l.getUserId()));
-        }
-        return out;
-    }
-
-    /** Changing or deleting an identity provider that administrators are linked to needs their permissions. */
-    public void requireMayChangeIdentityProvider(final String realmId, final String alias, final String what) {
-        try {
-            grants.requireMayGrant(realmId, linkedPermissions(realmId, alias), what);
-        } catch (final AdminGrantGuard.AdminGrantDeniedException e) {
-            throw new AdminGrantGuard.AdminGrantDeniedException(what + ": administrators sign in through this identity "
-                    + "provider and hold admin permissions you do not hold. Ask a realm admin.");
+            try {
+                requireMayActOnUser(realmId, l.getUserId(), what);
+            } catch (final AdminGrantGuard.AdminGrantDeniedException e) {
+                throw new AdminGrantGuard.AdminGrantDeniedException(what + ": administrators sign in through this "
+                        + "identity provider and hold admin permissions you do not hold. Ask a realm admin.");
+            }
         }
     }
 

@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Round 6: federated links that existed before the upgrade to rc.12 are grandfathered ({@code LEGACY}): they keep
@@ -36,8 +37,22 @@ public class PrivilegedLegacyLinkReport implements ApplicationRunner {
 
     private static final Logger LOG = LogManager.getLogger(PrivilegedLegacyLinkReport.class);
 
-    /** One reported link. */
-    public record Finding(String realm, String username, String userId, String idpAlias) {
+    /** Why a link is reported. */
+    public enum Kind {
+        /** Made before rc.12; still signs its administrator in. */
+        LEGACY,
+        /** Placed in a realm by the upgrade's fallback; signs no administrator in until a realm admin confirms it. */
+        AMBIGUOUS
+    }
+
+    /**
+     * One reported link.
+     *
+     * @param realm       the realm the link belongs to (signs in there)
+     * @param adminRealms the realms where the user holds admin permissions
+     */
+    public record Finding(Kind kind, String realm, String username, String userId, String idpAlias,
+                          java.util.Set<String> adminRealms) {
     }
 
     private final FederatedLinkService links;
@@ -66,22 +81,38 @@ public class PrivilegedLegacyLinkReport implements ApplicationRunner {
         }
     }
 
-    /** Reports (and returns) the administrators with a grandfathered link. */
-    public List<Finding> check() {
-        final List<Finding> found = new ArrayList<>();
-        for (final FederatedLinkEntity link : links.legacyLinks()) {
+    private void report(final List<FederatedLinkEntity> rows, final Kind kind, final List<Finding> found) {
+        for (final FederatedLinkEntity link : rows) {
             final String realm = link.getRealmId();
-            if (realm == null || !guard.isAdmin(realm, link.getUserId())) {
+            if (realm == null) {
+                continue;
+            }
+            // An administrator of any realm (or of master) counts, not only of the link's realm.
+            final java.util.Set<String> adminRealms = guard.effectivePrivilegesEverywhere(link.getUserId()).keySet();
+            if (adminRealms.isEmpty()) {
                 continue;
             }
             final String username = users.findById(link.getUserId()).map(u -> u.getUsername()).orElse("?");
-            found.add(new Finding(realm, username, link.getUserId(), link.getIdpAlias()));
-            LOG.warn("Realm {}: administrator '{}' signs in through identity provider '{}' with a link made before "
-                            + "rc.12 (grandfathered). Review it; revoke trust if it is not theirs.",
-                    LogSafe.sanitize(realm), LogSafe.sanitize(username), LogSafe.sanitize(link.getIdpAlias()));
-            audit.emit(AuditEvent.admin(AuditContext.nowIso(), "PRIVILEGED_LEGACY_LINK", realm, "system", null,
-                    "user", username, "SUCCESS", Map.of("username", username, "idpAlias", link.getIdpAlias())));
+            found.add(new Finding(kind, realm, username, link.getUserId(), link.getIdpAlias(), Set.copyOf(adminRealms)));
+            LOG.warn(kind == Kind.LEGACY
+                            ? "Realm {}: administrator '{}' (admin in {}) signs in through identity provider '{}' with a "
+                            + "link made before rc.12 (grandfathered). Review it; revoke trust if it is not theirs."
+                            : "Realm {}: administrator '{}' (admin in {}) has a link of identity provider '{}' whose realm "
+                            + "the upgrade could not tell; it signs them in only after a realm admin confirms it.",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(username), String.join(",", adminRealms),
+                    LogSafe.sanitize(link.getIdpAlias()));
+            audit.emit(AuditEvent.admin(AuditContext.nowIso(), kind == Kind.LEGACY ? "PRIVILEGED_LEGACY_LINK"
+                            : "PRIVILEGED_AMBIGUOUS_LINK", realm, "system", null, "user", username, "SUCCESS",
+                    Map.of("username", username, "idpAlias", link.getIdpAlias(), "kind", kind.name(),
+                            "adminRealms", String.join(",", adminRealms))));
         }
+    }
+
+    /** Reports (and returns) the administrators with a grandfathered or ambiguous link. */
+    public List<Finding> check() {
+        final List<Finding> found = new ArrayList<>();
+        report(links.legacyLinks(), Kind.LEGACY, found);
+        report(links.ambiguousLinks(), Kind.AMBIGUOUS, found);
         for (final FederatedLinkEntity link : links.linksWithoutRealm()) {
             LOG.warn("A federated link of provider '{}' could not be placed in a realm by the upgrade and signs no one "
                     + "in. Link the provider again from the account console.", LogSafe.sanitize(link.getIdpAlias()));

@@ -138,6 +138,12 @@ public class FederatedLinkService {
         return repository.findAllByCreatedVia(LinkProvenance.LEGACY);
     }
 
+    /** Round 6: links the upgrade placed in a realm by a fallback and nobody confirmed yet (AUTO). */
+    @Transactional(readOnly = true)
+    public List<FederatedLinkEntity> ambiguousLinks() {
+        return repository.findAllByRealmAmbiguousTrueAndCreatedVia(LinkProvenance.AUTO);
+    }
+
     /** Round 6: links the upgrade could not place in a realm; they never sign anyone in. */
     @Transactional(readOnly = true)
     public List<FederatedLinkEntity> linksWithoutRealm() {

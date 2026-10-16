@@ -275,6 +275,67 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         assertThat(links.findLinkedUser(realm, "corp", "ext-sub")).contains(stranger.userId());
     }
 
+    @Test
+    void anIdentityProviderAMasterAdminSignsInThroughNeedsAMasterAdmin() {
+        final E2eSeed.SeededUser boss = seed().user("master", E2eSeed.unique("mboss"), PASSWORD);
+        adminElsewhere(boss, "master");
+        links.link(realm, "corp", "boss-sub", boss.userId(), LinkProvenance.LEGACY);
+        final Map<String, Object> repoint = new LinkedHashMap<>();
+        repoint.put("alias", "corp");
+        repoint.put("protocol", "oidc");
+        repoint.put("displayName", "Corp sign-in");
+        repoint.put("enabled", true);
+        repoint.put("config", Map.of("clientId", "helix", "issuer", "https://evil.example",
+                "authorizationEndpoint", "https://evil.example/a", "tokenEndpoint", "https://evil.example/t",
+                "jwksUri", "https://evil.example/j"));
+        // Even a realm admin of this realm may not re-point a provider a master admin signs in through.
+        assertThat(realmAdmin().put(base() + "/identity-providers/corp", repoint).status()).isEqualTo(403);
+        assertThat(admin.get(base() + "/identity-providers/corp").json().path("config").path("issuer").asText())
+                .isEqualTo(issuer);
+    }
+
+    @Test
+    void aRealmAdminCannotTakeOverAnAdminOfAnotherRealm() {
+        final String other = E2eSeed.unique("plinkb");
+        seed().realm(other);
+        final E2eSeed.SeededUser bAdmin = seed().user(other, E2eSeed.unique("badmin"), PASSWORD);
+        adminElsewhere(bAdmin, other);
+        assertThat(realmAdmin().put(base() + "/users/" + bAdmin.userId() + "/password",
+                Map.of("newPassword", "Taken-Over-Passw0rd!x")).status()).isEqualTo(403);
+    }
+
+    @Test
+    void theReportListsAdminsOfAnyRealm_andAmbiguousLinks() {
+        final String other = E2eSeed.unique("plinkb");
+        seed().realm(other);
+        final E2eSeed.SeededUser bAdmin = seed().user(other, E2eSeed.unique("badmin"), PASSWORD);
+        adminElsewhere(bAdmin, other);
+        // Linked (grandfathered) in this realm, an administrator of the other one.
+        links.link(realm, "corp", "legacy-sub", bAdmin.userId(), LinkProvenance.LEGACY);
+        // A link the upgrade could only guess the realm of.
+        final E2eSeed.SeededUser boss = realmAdminUser();
+        links.link(realm, "corp", "ambiguous-sub", boss.userId(), LinkProvenance.AUTO);
+        new org.springframework.transaction.support.TransactionTemplate(
+                context.getBean(org.springframework.transaction.PlatformTransactionManager.class))
+                .executeWithoutResult(t -> context.getBean(org.springframework.jdbc.core.JdbcTemplate.class).update(
+                        "UPDATE federated_link SET realm_ambiguous = true WHERE realm_id = ? AND external_subject = ?",
+                        realm, "ambiguous-sub"));
+
+        final var findings = context.getBean(PrivilegedLegacyLinkReport.class).check();
+        assertThat(findings).anyMatch(f -> f.kind() == PrivilegedLegacyLinkReport.Kind.LEGACY
+                && realm.equals(f.realm()) && bAdmin.username().equals(f.username()) && f.adminRealms().contains(other));
+        assertThat(findings).anyMatch(f -> f.kind() == PrivilegedLegacyLinkReport.Kind.AMBIGUOUS
+                && realm.equals(f.realm()) && boss.username().equals(f.username()));
+        // An ambiguous (AUTO) link signs no administrator in until a realm admin confirms it.
+        subject.set("ambiguous-sub");
+        assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
+        assertThat(realmAdmin().post(base() + "/users/" + boss.userId() + "/federated-identities/corp/confirm",
+                Map.of()).status()).isEqualTo(204);
+        assertThat(adminRolesStatus(brokerLogin())).isEqualTo(200);
+        assertThat(context.getBean(PrivilegedLegacyLinkReport.class).check())
+                .noneMatch(f -> f.kind() == PrivilegedLegacyLinkReport.Kind.AMBIGUOUS && boss.username().equals(f.username()));
+    }
+
     // ------------------------------------------------------------------------------------- helix-cli
 
     @Test

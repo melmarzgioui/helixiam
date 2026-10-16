@@ -62,17 +62,22 @@ CREATE TABLE IF NOT EXISTS realm_signing_settings (
 -- account console can make (WALLET). Idempotent: only rows without a value are filled.
 -- Round 6: links are realm-scoped (key: realm_id, idp_alias, external_subject); a link signs its user in only in its
 -- realm. Backfill: the realm whose identity_provider owns the alias when exactly one does; otherwise (an alias in
--- several realms, or a provider from configuration files) the user's home realm, else their only realm membership.
--- Rows still without a realm sign no one in and are reported at start-up. Idempotent.
+-- several realms, or a provider from configuration files) the user's home realm, else their only realm membership,
+-- and such a link is AUTO (see below). Rows still without a realm sign no one in and are reported at start-up.
+-- Idempotent.
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
 UPDATE federated_link f SET realm_id = p.realm_id
   FROM (SELECT alias, min(realm_id) AS realm_id FROM identity_provider GROUP BY alias
         HAVING count(DISTINCT realm_id) = 1) p
  WHERE f.realm_id IS NULL AND p.alias = f.idp_alias;
-UPDATE federated_link f SET realm_id = u.realm_id
+-- A link placed by the fallbacks below may sit in the wrong realm: it is marked realm_ambiguous and (further down)
+-- created_via AUTO, so it never signs in an administrator until a realm admin confirms it; the start-up report lists
+-- it as AMBIGUOUS.
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_ambiguous boolean DEFAULT false NOT NULL;
+UPDATE federated_link f SET realm_id = u.realm_id, realm_ambiguous = true
   FROM user_credentials u
  WHERE f.realm_id IS NULL AND u.user_id = f.user_id AND u.realm_id IS NOT NULL;
-UPDATE federated_link f SET realm_id = t.tenant_id
+UPDATE federated_link f SET realm_id = t.tenant_id, realm_ambiguous = true
   FROM (SELECT user_id, min(tenant_id) AS tenant_id FROM tenant_user GROUP BY user_id HAVING count(*) = 1) t
  WHERE f.realm_id IS NULL AND t.user_id = f.user_id;
 UPDATE federated_link SET id = realm_id || '|' || idp_alias || '|' || external_subject
@@ -85,18 +90,19 @@ DECLARE
     ambiguous integer;
     unplaced integer;
 BEGIN
-    SELECT count(*) INTO ambiguous FROM federated_link f
-     WHERE (SELECT count(DISTINCT p.realm_id) FROM identity_provider p WHERE p.alias = f.idp_alias) > 1;
+    SELECT count(*) INTO ambiguous FROM federated_link WHERE realm_ambiguous;
     SELECT count(*) INTO unplaced FROM federated_link WHERE realm_id IS NULL;
     IF ambiguous > 0 THEN
-        RAISE WARNING 'V86: % federated link(s) name an identity-provider alias used in several realms; they were '
-            'placed in their user''s home realm. Review them.', ambiguous;
+        RAISE WARNING 'V86: % federated link(s) name an identity-provider alias that is not in exactly one realm; '
+            'they were placed in their user''s home realm and no longer sign in an administrator until a realm admin '
+            'confirms them (listed as AMBIGUOUS at start-up).', ambiguous;
     END IF;
     IF unplaced > 0 THEN
         RAISE WARNING 'V86: % federated link(s) could not be placed in a realm and sign no one in.', unplaced;
     END IF;
 END $$;
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);
+UPDATE federated_link SET created_via = 'AUTO' WHERE created_via IS NULL AND realm_ambiguous;
 UPDATE federated_link f SET created_via = 'WALLET'
  WHERE f.created_via IS NULL
    AND EXISTS (SELECT 1 FROM identity_provider p

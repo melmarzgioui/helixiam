@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS federated_link (
     );
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_ambiguous boolean DEFAULT false NOT NULL;
 CREATE INDEX IF NOT EXISTS federated_link_user_idx ON federated_link (user_id);
 CREATE INDEX IF NOT EXISTS federated_link_alias_idx ON federated_link (idp_alias);
 
@@ -1268,17 +1269,22 @@ CREATE TRIGGER realm_config_delete_wallet_secrets
 -- Round 6 (V86), at the end because it reads identity_provider, user_credentials.realm_id and tenant_user.
 -- Round 6: links are realm-scoped (key: realm_id, idp_alias, external_subject); a link signs its user in only in its
 -- realm. Backfill: the realm whose identity_provider owns the alias when exactly one does; otherwise (an alias in
--- several realms, or a provider from configuration files) the user's home realm, else their only realm membership.
--- Rows still without a realm sign no one in and are reported at start-up. Idempotent.
+-- several realms, or a provider from configuration files) the user's home realm, else their only realm membership,
+-- and such a link is AUTO (see below). Rows still without a realm sign no one in and are reported at start-up.
+-- Idempotent.
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
 UPDATE federated_link f SET realm_id = p.realm_id
   FROM (SELECT alias, min(realm_id) AS realm_id FROM identity_provider GROUP BY alias
         HAVING count(DISTINCT realm_id) = 1) p
  WHERE f.realm_id IS NULL AND p.alias = f.idp_alias;
-UPDATE federated_link f SET realm_id = u.realm_id
+-- A link placed by the fallbacks below may sit in the wrong realm: it is marked realm_ambiguous and (further down)
+-- created_via AUTO, so it never signs in an administrator until a realm admin confirms it; the start-up report lists
+-- it as AMBIGUOUS.
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_ambiguous boolean DEFAULT false NOT NULL;
+UPDATE federated_link f SET realm_id = u.realm_id, realm_ambiguous = true
   FROM user_credentials u
  WHERE f.realm_id IS NULL AND u.user_id = f.user_id AND u.realm_id IS NOT NULL;
-UPDATE federated_link f SET realm_id = t.tenant_id
+UPDATE federated_link f SET realm_id = t.tenant_id, realm_ambiguous = true
   FROM (SELECT user_id, min(tenant_id) AS tenant_id FROM tenant_user GROUP BY user_id HAVING count(*) = 1) t
  WHERE f.realm_id IS NULL AND t.user_id = f.user_id;
 UPDATE federated_link SET id = realm_id || '|' || idp_alias || '|' || external_subject
@@ -1287,6 +1293,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS federated_link_realm_subject_uidx
     ON federated_link (realm_id, idp_alias, external_subject);
 CREATE INDEX IF NOT EXISTS federated_link_realm_user_idx ON federated_link (realm_id, user_id);
 -- Round 6 (V86): pre-upgrade links are grandfathered (wallet links WALLET, every other LEGACY). Idempotent.
+UPDATE federated_link SET created_via = 'AUTO' WHERE created_via IS NULL AND realm_ambiguous;
 UPDATE federated_link f SET created_via = 'WALLET'
  WHERE f.created_via IS NULL
    AND EXISTS (SELECT 1 FROM identity_provider p
