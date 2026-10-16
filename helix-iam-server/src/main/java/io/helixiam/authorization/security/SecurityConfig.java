@@ -597,6 +597,20 @@ public class SecurityConfig {
      * 1.0 item 4: bearer-token authentication for {@code /admin/**}. Not a servlet-registered filter (only the
      * security chain runs it) — see {@link #adminBearerTokenFilterRegistration}.
      */
+    /**
+     * Security review (authorization bypass): refuse percent-encoding in the realm/route part of admin paths, before
+     * the security chain (and its authorization) runs.
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.security.adminrbac.AdminPathEncodingFilter> adminPathEncodingFilter() {
+        final org.springframework.boot.web.servlet.FilterRegistrationBean<io.helixiam.authorization.security.adminrbac.AdminPathEncodingFilter> registration =
+                new org.springframework.boot.web.servlet.FilterRegistrationBean<>(
+                        new io.helixiam.authorization.security.adminrbac.AdminPathEncodingFilter());
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+        registration.addUrlPatterns("/*");
+        return registration;
+    }
+
     @Bean
     public io.helixiam.authorization.security.adminrbac.AdminBearerTokenFilter adminBearerTokenFilter(
             final org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService authorizationService,

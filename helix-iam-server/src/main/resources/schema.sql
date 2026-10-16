@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS realm_key (
     expiry_warned_on      date DEFAULT NULL
     );
 CREATE INDEX IF NOT EXISTS realm_key_realm_status_idx ON realm_key (realm_id, status);
+-- V86: the same public key can never be stored twice.
+CREATE UNIQUE INDEX IF NOT EXISTS realm_key_public_key_uidx ON realm_key (public_key);
+-- V86: per-realm signing algorithm choices (optional rows; RS256 when absent).
+CREATE TABLE IF NOT EXISTS realm_signing_settings (
+    realm_id    character varying(255) NOT NULL PRIMARY KEY,
+    default_alg character varying(10)  DEFAULT 'RS256' NOT NULL,
+    saml_alg    character varying(10)  DEFAULT 'RS256' NOT NULL,
+    updated_at  timestamp DEFAULT CURRENT_TIMESTAMP
+    );
 
 -- HELIX IAM E2.5: per-realm authentication flows (data-driven, editable from the admin console).
 -- A flow is an ordered tree of executions; nesting is by parent_id, ordering by priority.

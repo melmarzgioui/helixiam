@@ -56,9 +56,27 @@ public class RealmKeyAdminController {
     private static final int MAX_PEM = 65_536;
 
     private final RealmKeyConfigPublisher publisher;
+    private final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager rbac;
 
-    public RealmKeyAdminController(final RealmKeyConfigPublisher publisher) {
+    public RealmKeyAdminController(final RealmKeyConfigPublisher publisher,
+                                   final io.helixiam.authorization.security.adminrbac.AdminAuthorizationManager rbac) {
         this.publisher = publisher;
+        this.rbac = rbac;
+    }
+
+    /**
+     * Defence in depth (security review): every key write needs realm-admin, checked here as well, independent of
+     * how the route was matched to a permission.
+     */
+    private ResponseEntity<?> forbiddenUnlessRealmAdmin(final String realmId) {
+        final org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (rbac.permits(auth, realmId,
+                io.helixiam.authorization.security.adminrbac.AdminRoutePermissions.REALM_ADMIN)) {
+            return null;
+        }
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "forbidden", "message", "Changing realm signing keys needs realm-admin."));
     }
 
     /** {@code POST /keys/import}. Write-only private key: never echoed, logged or audited. */
@@ -95,6 +113,10 @@ public class RealmKeyAdminController {
     @PostMapping("/import")
     public ResponseEntity<?> importKey(@PathVariable final String realmId,
                                        @Valid @RequestBody final ImportRequest request, final HttpServletRequest http) {
+        final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
+        if (denied != null) {
+            return denied;
+        }
         return write(http, HttpStatus.CREATED,
                 () -> publisher.importKey(realmId, request.privateKeyPem(), request.certificateChainPem()));
     }
@@ -102,6 +124,10 @@ public class RealmKeyAdminController {
     @PostMapping("/csr")
     public ResponseEntity<?> csr(@PathVariable final String realmId, @Valid @RequestBody final CsrRequest request,
                                  final HttpServletRequest http) {
+        final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
+        if (denied != null) {
+            return denied;
+        }
         try {
             final RealmKeyConfigPublisher.CsrView result = publisher.createCsr(realmId, request.algorithm(),
                     request.subject(), request.dnsNames());
@@ -123,6 +149,10 @@ public class RealmKeyAdminController {
     public ResponseEntity<?> attachCertificate(@PathVariable final String realmId, @PathVariable final String keyId,
                                                @Valid @RequestBody final CertificateRequest request,
                                                final HttpServletRequest http) {
+        final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
+        if (denied != null) {
+            return denied;
+        }
         return write(http, HttpStatus.OK,
                 () -> publisher.attachCertificate(realmId, keyId, request.certificateChainPem()));
     }
@@ -130,6 +160,10 @@ public class RealmKeyAdminController {
     @PostMapping("/{keyId}/activate")
     public ResponseEntity<?> activate(@PathVariable final String realmId, @PathVariable final String keyId,
                                       final HttpServletRequest http) {
+        final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
+        if (denied != null) {
+            return denied;
+        }
         return write(http, HttpStatus.OK, () -> publisher.activate(realmId, keyId));
     }
 
@@ -138,6 +172,10 @@ public class RealmKeyAdminController {
     public ResponseEntity<?> rotate(@PathVariable final String realmId,
                                     @RequestBody(required = false) final RotateRequest request,
                                     final HttpServletRequest http) {
+        final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
+        if (denied != null) {
+            return denied;
+        }
         return write(http, HttpStatus.OK,
                 () -> publisher.rotate(realmId, request == null ? null : request.algorithm()));
     }
@@ -146,6 +184,10 @@ public class RealmKeyAdminController {
     @DeleteMapping("/{keyId}")
     public ResponseEntity<?> retire(@PathVariable final String realmId, @PathVariable final String keyId,
                                     final HttpServletRequest http) {
+        final ResponseEntity<?> denied = forbiddenUnlessRealmAdmin(realmId);
+        if (denied != null) {
+            return denied;
+        }
         final RealmKeyView before = publisher.list(realmId).stream().filter(k -> keyId.equals(k.keyId()))
                 .findFirst().orElse(null);
         return switch (publisher.retire(realmId, keyId)) {

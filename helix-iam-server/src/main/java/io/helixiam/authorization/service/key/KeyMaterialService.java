@@ -114,6 +114,25 @@ public class KeyMaterialService {
         return out;
     }
 
+    /**
+     * The JWS algorithms the realm's ACTIVE keys can sign: an RSA key gives RS256 and PS256, an EC P-256 key ES256.
+     * RS256 is always present (every realm has an ACTIVE RSA key; OIDC requires RS256).
+     */
+    public java.util.Set<String> activeAlgorithms(final String realm) {
+        final java.util.Set<String> algs = new java.util.LinkedHashSet<>();
+        for (final PublishedKey k : publishedKeys(realm)) {
+            if (k.active()) {
+                if (RealmKeyMaterial.ES256.equals(k.algorithm())) {
+                    algs.add(RealmKeyMaterial.ES256);
+                } else {
+                    algs.add(RealmKeyMaterial.RS256);
+                    algs.add("PS256");
+                }
+            }
+        }
+        return algs;
+    }
+
     private static int statusOrder(final String status) {
         return switch (status) {
             case "ACTIVE" -> 0;

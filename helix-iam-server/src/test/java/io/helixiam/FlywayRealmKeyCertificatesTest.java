@@ -90,9 +90,18 @@ class FlywayRealmKeyCertificatesTest {
                 + "source) VALUES ('k-new', 'acme', 'p', 'q', 'PENDING', 'PEM', 'IMPORTED')");
         assertThat(jdbc.queryForObject("SELECT algorithm FROM realm_key WHERE key_id = 'k-new'", String.class))
                 .isEqualTo("RS256");
-        jdbc.update("INSERT INTO realm_key (key_id, realm_id, public_key, private_key) VALUES ('k-d', 'acme', 'p', 'q')");
+        jdbc.update("INSERT INTO realm_key (key_id, realm_id, public_key, private_key) VALUES ('k-d', 'acme', 'p2', 'q')");
         assertThat(jdbc.queryForObject("SELECT source FROM realm_key WHERE key_id = 'k-d'", String.class))
                 .isEqualTo("GENERATED");
+
+        // The same public key cannot be stored twice (any realm).
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbc.update("INSERT INTO realm_key (key_id, realm_id, "
+                + "public_key, private_key) VALUES ('k-dup', 'other', 'p', 'q')"))
+                .isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
+        // Signing settings: optional per realm, RS256 by default.
+        jdbc.update("INSERT INTO realm_signing_settings (realm_id) VALUES ('acme')");
+        assertThat(jdbc.queryForMap("SELECT default_alg, saml_alg FROM realm_signing_settings WHERE realm_id = 'acme'"))
+                .containsEntry("default_alg", "RS256").containsEntry("saml_alg", "RS256");
     }
 
     private static String b64(final byte[] b) {

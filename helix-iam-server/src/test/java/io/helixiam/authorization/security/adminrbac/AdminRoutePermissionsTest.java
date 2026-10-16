@@ -108,8 +108,27 @@ class AdminRoutePermissionsTest {
     }
 
     @Test
-    void unknownRealmScopedGroup_fallsBackToManageRealm() {
-        assertThat(AdminRoutePermissions.required("/admin/realms/gov/something-new", "POST")).contains("manage-realm");
+    void unknownRealmScopedGroup_failsClosedToRealmAdmin() {
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/something-new", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/something-new", "GET")).contains("realm-admin");
+        // Case matters (Spring MVC matching is case-sensitive): KEYS is not keys — and fails closed.
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/KEYS/import", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/Users", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/other", "GET")).contains("realm-admin");
+    }
+
+    @Test
+    void groupsThatUsedTheDefault_areListedExplicitly() {
+        for (final String g : new String[] {"agents", "events", "scim-targets", "webhooks", "workload-identity",
+                "user-federation", "flow", "flow-engine", "export", "import"}) {
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov/" + g, "POST")).as(g).contains("manage-realm");
+        }
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/metrics", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/admin-roles/r1", "PUT")).contains("realm-admin");
+        // Only the group segment decides: an "admin-roles" deeper in the path is not the admin-RBAC API.
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/users/admin-roles", "GET")).contains("view-users");
     }
 
     @Test

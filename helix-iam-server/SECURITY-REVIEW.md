@@ -165,6 +165,7 @@
 | L4 | LOW | Build hygiene | `pom.xml:177‑181` | `spring-boot-devtools` on the compile/runtime graph (optional, but avoid in release artifacts) |
 | L5 | LOW | Legacy crypto | `AttributeEncryption.java:113‑127` | Legacy AES/ECB (no-IV, no-integrity) decrypt fallback |
 | L6 | LOW | Credential handling | `RealmAdminBootstrapService.java:91` | Bootstrap admin password written to application logs |
+| H4 | **HIGH** — **FIXED 2026-10-16** | Authz | `AdminRoutePermissions.java`, `AdminAuthorizationManager.java` | Admin permission resolved on the **raw** request URI while Spring MVC routes on the decoded path — see [H4](#h4-high-fixed--admin-permission-resolved-on-the-raw-uri) |
 | I1 | INFO | Positive | `PasswordEncoderService.java:32` | Argon2id (OWASP params) with constant-time legacy verify + transparent upgrade |
 | I2 | INFO | Positive | 25 admin controllers use `@Valid` + `AdminValidationAdvice` | Bean Validation present on admin write APIs |
 | I3 | INFO | Positive | `BreachedPasswordChecker.java`, `PasswordPolicyEnforcer.java`, `LoginFailureService.java` | HIBP k-anonymity, password policy+history, lockout wired |
@@ -291,6 +292,38 @@ column declared encrypted. Alarm on the error.
 all profiles, aiding user/realm enumeration and internal-detail disclosure. (`include-stacktrace` /
 `include-exception` are correctly left at defaults → no stacktrace leak.) **Recommendation:** `never` (or
 `on-param`) in production.
+
+---
+
+## H4 (HIGH, FIXED) — admin permission resolved on the raw URI
+
+**Found 2026-10-16** (automated review of the bring-your-own realm keys branch); the defect predates that branch.
+
+`AdminAuthorizationManager` passed `request.getRequestURI()` — still percent-encoded and with `;matrix` content — to
+`AdminRoutePermissions`, which split it into segments and fell back to `manage-realm` for an unknown route group.
+Spring MVC routes on the **decoded** path. So `POST /admin/realms/r/k%65ys/import` was authorised as `manage-realm`
+but handled by the realm-key controller (which needs `realm-admin`), and the same differential applied to every route
+group (`u%73ers` resolved to `manage-realm` instead of `manage-users`, `cl%69ents` instead of `manage-clients`, …).
+An admin holding one low permission could reach writes guarded by another.
+
+**Fix (three layers).**
+1. `AdminPathEncodingFilter` (first servlet filter) answers `400` to a percent-encoded character in the realm or
+   route part of an admin path (`/admin/realms/{realmId}/{group}`, or the first two segments of other `/admin` paths)
+   and to a double-encoded `%25` anywhere under `/admin`. Realm ids are `[A-Za-z0-9._-]` and route names are fixed,
+   so nothing legitimate is encoded there; deeper id segments (a SAML entity id such as `urn%3Aexample%3Asp`) still
+   work, and they never decide the permission.
+2. The permission is resolved on the decoded path within the application, without `;` content (`UrlPathHelper`), the
+   path Spring MVC routes on; segments match exactly and case-sensitively; an unknown route group (or unknown
+   realm-independent admin path) now fails closed to `realm-admin`. The groups that relied on the old default are
+   listed explicitly (agents, events, scim-targets, webhooks, workload-identity, user-federation, flow, flow-engine,
+   export, import). `admin-roles` is matched as the route group, not as a substring of the path.
+3. The realm-key write endpoints check `realm-admin` themselves (`AdminAuthorizationManager.permits`).
+
+**Tests.** `AdminAuthorizationManagerTest.resolvesThePermissionOnTheDecodedPath_asSpringMvcRoutesIt`,
+`AdminRoutePermissionsTest` (fail-closed and explicit groups), `AdminPathEncodingFilterTest`, and
+`RealmKeyPermissionsE2eTest.encodedCasedAndMatrixPathTricks_neverReachAWriteWithALowerPermission` (through the real
+filter chain: `k%65ys`, `%6Beys`, `KEYS`, `keys;x=1`, `keys/`, `//keys`, `./keys`, `%2565`, and the same tricks
+against `users` and `clients`).
 
 ---
 

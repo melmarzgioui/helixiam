@@ -42,6 +42,48 @@ class RealmKeyPermissionsE2eTest extends AbstractE2eTest {
         assertThat(admin.get(keys(realm)).json().size()).isEqualTo(1);
     }
 
+    @Test
+    void encodedCasedAndMatrixPathTricks_neverReachAWriteWithALowerPermission() {
+        final String realm = E2eSeed.unique("keytrick");
+        seed().realm(realm);
+        oidc(realm).jwks();
+        final E2eAdminSession admin = adminSession();
+        final E2eAdminSession limited = scopedAdmin(admin, realm, "manage-realm");
+        final String base = "/admin/realms/" + realm;
+        // A valid import: a bypass would answer 201.
+        final java.security.KeyPair kp = io.helixiam.testsupport.TestPki.rsa(2048);
+        final Map<String, String> body = Map.of(
+                "privateKeyPem", io.helixiam.testsupport.TestPki.pkcs8(kp.getPrivate()),
+                "certificateChainPem", io.helixiam.testsupport.TestPki.pem(
+                        io.helixiam.testsupport.TestPki.selfSigned(kp, "CN=trick", 30)));
+        final String token = xsrf(limited, base + "/keys");
+
+        for (final String trick : List.of("/k%65ys/import", "/%6Beys/import", "/KEYS/import", "/keys;x=1/import",
+                "/keys/import/", "//keys/import", "/./keys/import", "/keys/./import", "/k%2565ys/import")) {
+            final E2eHttp.Response r = limited.http().sendJson("POST", baseUrl() + base + trick, body,
+                    "X-XSRF-TOKEN", token, "Accept", "application/json");
+            assertThat(r.status()).as(trick + " → " + r).isIn(400, 403, 404, 405);
+            assertThat(r.body()).as(trick).doesNotContain("\"keyId\"");
+        }
+        // users / clients: the same tricks resolve to (at least) the right permission, never manage-realm's.
+        for (final String trick : List.of("/u%73ers", "/USERS", "/users;x=1", "/cl%69ents", "/Clients", "//clients")) {
+            final E2eHttp.Response r = limited.http().sendJson("POST", baseUrl() + base + trick,
+                    Map.of("username", E2eSeed.unique("x"), "clientId", E2eSeed.unique("c")),
+                    "X-XSRF-TOKEN", token, "Accept", "application/json");
+            assertThat(r.status()).as(trick + " → " + r).isIn(400, 403, 404, 405);
+        }
+        // The plain routes still answer as their permission says.
+        assertThat(limited.post(base + "/users", Map.of("username", E2eSeed.unique("x"))).status()).isEqualTo(403);
+        assertThat(admin.get(keys(realm)).json().size()).isEqualTo(1);
+        // A legitimately encoded id deeper in the path is not refused by the encoding filter.
+        assertThat(admin.get(base + "/saml-clients/urn%3Aexample%3Asp").status()).isNotEqualTo(400);
+    }
+
+    private static String xsrf(final E2eAdminSession session, final String path) {
+        session.get(path);
+        return session.http().cookieFor("XSRF-TOKEN", path).orElseThrow();
+    }
+
     private static String keys(final String realm) {
         return "/admin/realms/" + realm + "/keys";
     }
