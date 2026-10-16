@@ -254,6 +254,9 @@ public final class RealmKeyMaterial {
                 if (crt.getPublicExponent().compareTo(MIN_RSA_EXPONENT) < 0 || !crt.getPublicExponent().testBit(0)) {
                     throw keyError("The RSA public exponent must be an odd number of at least 65537");
                 }
+                if (crt.getPublicExponent().bitLength() > 32) {
+                    throw keyError("The RSA public exponent must fit in 32 bits (65537 is the usual value)");
+                }
                 final PublicKey pub = KeyFactory.getInstance("RSA")
                         .generatePublic(new RSAPublicKeySpec(crt.getModulus(), crt.getPublicExponent()));
                 return new Parsed(new KeyPair(pub, key), RS256);
@@ -498,17 +501,51 @@ public final class RealmKeyMaterial {
             }
             final org.bouncycastle.asn1.ASN1ObjectIdentifier type =
                     SUBJECT_KEYWORDS.get(ava.substring(0, eq).trim().toUpperCase(Locale.ROOT));
-            final String value = unescape(ava.substring(eq + 1).trim());
-            if (type == null || value.isEmpty() || ava.substring(eq + 1).trim().startsWith("#")) {
+            final String raw = ava.substring(eq + 1).trim();
+            final String value = unescape(raw);
+            if (type == null || value.isEmpty() || raw.startsWith("#")) {
                 throw new KeyImportException(SUBJECT, bad);
             }
-            builder.addRDN(type, value);
+            // Explicit ASN.1 string types: BouncyCastle's addRDN(oid, String) would parse a value starting with '#'
+            // (even one decoded from an escape) as raw hex DER.
+            builder.addRDN(type, attributeValue(type, value, bad));
         }
-        final X500Name name = builder.build();
-        if (name.getRDNs().length == 0) {
+        try {
+            final X500Name name = builder.build();
+            if (name.getRDNs().length == 0) {
+                throw new KeyImportException(SUBJECT, bad);
+            }
+            name.getEncoded();
+            return name;
+        } catch (final KeyImportException e) {
+            throw e;
+        } catch (final IOException | RuntimeException e) {
             throw new KeyImportException(SUBJECT, bad);
         }
-        return name;
+    }
+
+    private static org.bouncycastle.asn1.ASN1Encodable attributeValue(final org.bouncycastle.asn1.ASN1ObjectIdentifier type,
+                                                                       final String value, final String bad) {
+        if (org.bouncycastle.asn1.x500.style.BCStyle.C.equals(type)) {
+            if (!value.matches("[A-Za-z]{2}")) {
+                throw new KeyImportException(SUBJECT, "The country (C) must be a two-letter code such as NL");
+            }
+            return new org.bouncycastle.asn1.DERPrintableString(value.toUpperCase(Locale.ROOT));
+        }
+        if (org.bouncycastle.asn1.x500.style.BCStyle.SERIALNUMBER.equals(type)) {
+            if (!org.bouncycastle.asn1.DERPrintableString.isPrintableString(value)) {
+                throw new KeyImportException(SUBJECT, bad);
+            }
+            return new org.bouncycastle.asn1.DERPrintableString(value);
+        }
+        if (org.bouncycastle.asn1.x500.style.BCStyle.EmailAddress.equals(type)
+                || org.bouncycastle.asn1.x500.style.BCStyle.DC.equals(type)) {
+            if (!org.bouncycastle.asn1.DERIA5String.isIA5String(value)) {
+                throw new KeyImportException(SUBJECT, bad);
+            }
+            return new org.bouncycastle.asn1.DERIA5String(value);
+        }
+        return new org.bouncycastle.asn1.DERUTF8String(value);
     }
 
     /** Splits on {@code sep} outside backslash escapes and double quotes. */
@@ -536,21 +573,29 @@ public final class RealmKeyMaterial {
         return out;
     }
 
+    /** RFC 4514 unescaping: {@code \\c} is c, {@code \\XX} a UTF-8 byte in hex. */
     private static String unescape(final String value) {
         String v = value;
         if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
             v = v.substring(1, v.length() - 1);
         }
-        final StringBuilder out = new StringBuilder();
+        final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         for (int i = 0; i < v.length(); i++) {
             final char c = v.charAt(i);
-            if (c == '\\' && i + 1 < v.length()) {
-                out.append(v.charAt(++i));
+            if (c == '\\' && isHex(v, i + 1) && isHex(v, i + 2)) {
+                out.write(Integer.parseInt(v.substring(i + 1, i + 3), 16));
+                i += 2;
+            } else if (c == '\\' && i + 1 < v.length()) {
+                out.writeBytes(String.valueOf(v.charAt(++i)).getBytes(StandardCharsets.UTF_8));
             } else {
-                out.append(c);
+                out.writeBytes(String.valueOf(c).getBytes(StandardCharsets.UTF_8));
             }
         }
-        return out.toString();
+        return out.toString(StandardCharsets.UTF_8);
+    }
+
+    private static boolean isHex(final String s, final int i) {
+        return i < s.length() && Character.digit(s.charAt(i), 16) >= 0;
     }
 
     private static List<String> validateDnsNames(final List<String> dnsNames) {

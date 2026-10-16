@@ -336,4 +336,33 @@ class RealmKeyMaterialTest {
                     .satisfies(e -> assertThat(((KeyImportException) e).field()).isEqualTo("subject"));
         }
     }
+
+    @Test
+    void rsa_refusesHugeExponents() {
+        // An odd exponent > 32 bits (2^33 + 1): valid RSA, but expensive to verify.
+        final KeyPair huge = TestPki.rsa(2048, java.math.BigInteger.ONE.shiftLeft(33).add(java.math.BigInteger.ONE));
+        assertThatThrownBy(() -> RealmKeyMaterial.parsePrivateKey(TestPki.pkcs8(huge.getPrivate())))
+                .isInstanceOf(KeyImportException.class).hasMessageContaining("32 bits");
+    }
+
+    @Test
+    void subject_escapedHashIsALiteralString_neverRawDer() throws Exception {
+        final org.bouncycastle.asn1.x500.X500Name n = RealmKeyMaterial.parseSubject("CN=\\23040568656c6c6f, O=Example");
+        final org.bouncycastle.asn1.ASN1Encodable cn = n.getRDNs(org.bouncycastle.asn1.x500.style.BCStyle.CN)[0]
+                .getFirst().getValue();
+        assertThat(cn).isInstanceOf(org.bouncycastle.asn1.DERUTF8String.class);
+        assertThat(cn.toString()).isEqualTo("#040568656c6c6f");
+        assertThat(n.getRDNs(org.bouncycastle.asn1.x500.style.BCStyle.O)[0].getFirst().getValue())
+                .isInstanceOf(org.bouncycastle.asn1.DERUTF8String.class);
+        final org.bouncycastle.asn1.x500.X500Name c = RealmKeyMaterial.parseSubject("CN=x, C=NL, emailAddress=a@b.c, DC=example");
+        assertThat(c.getRDNs(org.bouncycastle.asn1.x500.style.BCStyle.C)[0].getFirst().getValue())
+                .isInstanceOf(org.bouncycastle.asn1.DERPrintableString.class);
+        assertThat(c.getRDNs(org.bouncycastle.asn1.x500.style.BCStyle.EmailAddress)[0].getFirst().getValue())
+                .isInstanceOf(org.bouncycastle.asn1.DERIA5String.class);
+        // Malformed (a country that is not PrintableString / two letters, non-ASCII email) → 400 on subject, not a 500.
+        for (final String bad : List.of("CN=x, C=N\u00e9", "CN=x, emailAddress=\u00e9@x", "CN=x, C=NLD")) {
+            assertThatThrownBy(() -> RealmKeyMaterial.parseSubject(bad)).as(bad).isInstanceOf(KeyImportException.class)
+                    .satisfies(e -> assertThat(((KeyImportException) e).field()).isEqualTo("subject"));
+        }
+    }
 }
