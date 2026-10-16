@@ -94,12 +94,24 @@ public class ClientRoleAdminService {
         return saRoles.findAllByRealmIdAndClientIdOrderByRoleName(realmId, clientId).stream().map(this::toDto).toList();
     }
 
+    /** Security review (rc.11): no admin may grant admin permissions they do not hold. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     /** Grants a role to a client's service account; idempotent on (role name, type). */
     @Transactional
     public ServiceAccountRoleDto assignServiceAccountRole(final ServiceAccountRoleDto write) {
         final String type = write.roleType() == null || write.roleType().isBlank() ? "REALM" : write.roleType();
         if (io.helixiam.authorization.security.SignInAuthorities.isFactorName(write.roleName())) {
             throw new IllegalArgumentException("Role names starting with 'FACTOR_' are reserved.");
+        }
+        if (adminGrantGuard != null && "REALM".equalsIgnoreCase(type)) {
+            adminGrantGuard.requireMayGrant(write.realmId(), adminGrantGuard.grantsOfName(write.realmId(), write.roleName()),
+                    "This role");
         }
         if (saRoles.findByRealmIdAndClientIdAndRoleNameAndRoleType(write.realmId(), write.clientId(), write.roleName(), type).isPresent()) {
             return write;
@@ -118,6 +130,9 @@ public class ClientRoleAdminService {
     @Transactional
     public boolean unassignServiceAccountRole(final String realmId, final String clientId, final String roleName, final String roleType) {
         final String type = roleType == null || roleType.isBlank() ? "REALM" : roleType;
+        if (adminGrantGuard != null && "REALM".equalsIgnoreCase(type)) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOfName(realmId, roleName), "This role");
+        }
         return saRoles.findByRealmIdAndClientIdAndRoleNameAndRoleType(realmId, clientId, roleName, type).map(e -> {
             saRoles.delete(e);
             LOG.debug("Revoked {} role {} from service account of {} in {}",

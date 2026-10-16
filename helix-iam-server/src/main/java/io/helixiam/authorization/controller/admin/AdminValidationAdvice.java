@@ -70,6 +70,20 @@ public class AdminValidationAdvice {
         return body(ex.getMessage(), ex.fieldErrors());
     }
 
+    /** Security review (rc.11): granting admin permissions the caller does not hold. */
+    @ExceptionHandler(io.helixiam.authorization.service.adminrbac.AdminGrantGuard.AdminGrantDeniedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, Object> onAdminGrantDenied(final RuntimeException ex) {
+        return Map.of("error", "forbidden", "message", ex.getMessage());
+    }
+
+    /** Security review (rc.11): a role with admin permissions as the default role. */
+    @ExceptionHandler(io.helixiam.authorization.service.adminrbac.AdminGrantGuard.AdminDefaultRoleException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, Object> onAdminDefaultRole(final RuntimeException ex) {
+        return body(ex.getMessage(), Map.of("roleId", ex.getMessage()));
+    }
+
     /** Malformed / unparseable JSON body. */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)

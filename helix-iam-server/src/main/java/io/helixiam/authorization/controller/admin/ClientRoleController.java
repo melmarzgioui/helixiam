@@ -60,6 +60,14 @@ public class ClientRoleController {
         return removed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
+    /** Security review (rc.11): the role's admin permissions must be the caller's own (also checked in the service). */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     // --- Service-account roles ---
 
     @GetMapping("/service-account/roles")
@@ -70,6 +78,9 @@ public class ClientRoleController {
     @PostMapping("/service-account/roles")
     public ResponseEntity<ServiceAccountRoleDto> assignSaRole(@PathVariable final String realmId, @PathVariable final String clientId,
                                                               @Valid @RequestBody final SaRoleRequest request) {
+        if (adminGrantGuard != null && (request.roleType() == null || "REALM".equalsIgnoreCase(request.roleType()))) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOfName(realmId, request.roleName()), "This role");
+        }
         final ServiceAccountRoleDto saved = publisher.assignServiceAccountRole(new ServiceAccountRoleDto(
                 null, realmId, clientId, request.roleName(), request.roleType(), request.roleClientId()));
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);

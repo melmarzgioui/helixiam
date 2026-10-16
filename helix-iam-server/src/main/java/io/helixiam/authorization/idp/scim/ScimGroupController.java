@@ -175,6 +175,14 @@ public class ScimGroupController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Security review (rc.11): SCIM holds no admin permission, so it cannot manage admin-granting groups. */
+    @org.springframework.web.bind.annotation.ExceptionHandler(
+            io.helixiam.authorization.service.adminrbac.AdminGrantGuard.AdminGrantDeniedException.class)
+    public ResponseEntity<?> onAdminGrantDenied(final RuntimeException e) {
+        return scim(HttpStatus.FORBIDDEN, ScimError.of(403, "This group grants admin permissions; SCIM cannot change "
+                + "its members. Manage it in the admin console."));
+    }
+
     private GroupDto find(final String realm, final String id) {
         return groups.list(realm).stream().filter(g -> id.equals(g.groupId())).findFirst().orElse(null);
     }
