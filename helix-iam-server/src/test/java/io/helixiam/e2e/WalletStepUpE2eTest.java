@@ -271,8 +271,10 @@ class WalletStepUpE2eTest extends AbstractE2eTest {
      * wallet login always steps up.
      */
     private void requireOtpAfterTheFirstFactor() {
-        context.getBean(FlowAdminPublisher.class).save(new FlowSaveDto(realm, "browser",
-                List.of(new FlowExecutionDto("stepup-otp", null, "otp", "REQUIRED", false, 10))));
+        // Test set-up writes the browser flow directly, outside an admin request (round 6: it needs an actor).
+        io.helixiam.authorization.service.adminrbac.AdminActor.asSystem("test set-up: browser flow", () ->
+                context.getBean(FlowAdminPublisher.class).save(new FlowSaveDto(realm, "browser",
+                        List.of(new FlowExecutionDto("stepup-otp", null, "otp", "REQUIRED", false, 10)))));
     }
 
     private static String totp(final String secret) {
