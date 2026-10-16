@@ -106,9 +106,17 @@ public class ClientRoleAdminService {
     @Transactional
     public ServiceAccountRoleDto assignServiceAccountRole(final ServiceAccountRoleDto write) {
         final String type = write.roleType() == null || write.roleType().isBlank() ? "REALM" : write.roleType();
+        // H5: a CLIENT role names its client; without one it must never fall back to the realm scope.
+        if ("CLIENT".equalsIgnoreCase(type) && (write.roleClientId() == null || write.roleClientId().isBlank())) {
+            throw new IllegalArgumentException("A CLIENT role needs the client it belongs to (roleClientId).");
+        }
+        if (!"CLIENT".equalsIgnoreCase(type) && !"REALM".equalsIgnoreCase(type)) {
+            throw new IllegalArgumentException("The role type must be REALM or CLIENT.");
+        }
         if (io.helixiam.authorization.security.SignInAuthorities.isFactorName(write.roleName())) {
             throw new IllegalArgumentException("Role names starting with 'FACTOR_' are reserved.");
         }
+        // Guard on the effective scope: a REALM role confers its admin permissions.
         if (adminGrantGuard != null && "REALM".equalsIgnoreCase(type)) {
             adminGrantGuard.requireMayGrant(write.realmId(), adminGrantGuard.grantsOfName(write.realmId(), write.roleName()),
                     "This role");

@@ -159,4 +159,18 @@ class IdentityBrokerTest {
         assertThat(result.resolved()).isFalse();
         assertThat(result.userId()).isNull();
     }
+
+    @Test
+    void neverAutoLinksByEmailToAnAdministrator() {
+        final FakeStore store = new FakeStore();
+        store.usersByEmail.put("boss@x.io", "u-admin");
+        final IdentityBroker broker = new IdentityBroker(store, mapper);
+        broker.setAdminCheck((realm, userId) -> "u-admin".equals(userId));
+
+        final BrokerResult result = broker.broker(identity("sub-boss", "boss@x.io", true), AccountLinkingPolicy.defaults());
+
+        assertThat(result.resolved()).isFalse();
+        assertThat(store.links).isEmpty();
+        assertThat(store.provisionSeq).isZero();
+    }
 }

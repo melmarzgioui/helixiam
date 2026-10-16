@@ -76,8 +76,20 @@ public class ClientRoleController {
     }
 
     @PostMapping("/service-account/roles")
-    public ResponseEntity<ServiceAccountRoleDto> assignSaRole(@PathVariable final String realmId, @PathVariable final String clientId,
-                                                              @Valid @RequestBody final SaRoleRequest request) {
+    public ResponseEntity<?> assignSaRole(@PathVariable final String realmId, @PathVariable final String clientId,
+                                          @Valid @RequestBody final SaRoleRequest request) {
+        // H5: a CLIENT role names its client — never a fallback to the realm scope.
+        if ("CLIENT".equalsIgnoreCase(request.roleType())
+                && (request.roleClientId() == null || request.roleClientId().isBlank())) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message",
+                    "A CLIENT role needs the client it belongs to (roleClientId).", "fieldErrors",
+                    java.util.Map.of("roleClientId", "A CLIENT role needs the client it belongs to.")));
+        }
+        if (request.roleType() != null && !request.roleType().isBlank()
+                && !"CLIENT".equalsIgnoreCase(request.roleType()) && !"REALM".equalsIgnoreCase(request.roleType())) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", "The role type must be REALM or CLIENT.",
+                    "fieldErrors", java.util.Map.of("roleType", "The role type must be REALM or CLIENT.")));
+        }
         if (adminGrantGuard != null && (request.roleType() == null || "REALM".equalsIgnoreCase(request.roleType()))) {
             adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOfName(realmId, request.roleName()), "This role");
         }

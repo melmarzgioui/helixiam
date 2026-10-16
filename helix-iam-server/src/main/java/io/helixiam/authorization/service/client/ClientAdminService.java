@@ -41,6 +41,14 @@ public class ClientAdminService {
         this.repository = repository;
     }
 
+    /** Security review H5: you cannot act on an admin more privileged than you. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
     /** All active clients registered in the realm (never exposes secrets). */
     public List<ClientDto> list(final String realmId) {
         return repository.findAllByTenantIdAndDeleted(realmId, false).stream().map(c -> toDto(c, null)).toList();
@@ -86,6 +94,9 @@ public class ClientAdminService {
      */
     @Transactional
     public Optional<ClientDto> update(final ClientWriteDto write) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(write.realmId(), write.id(), "Changing this client");
+        }
         if (write.clientSecret() != null) {
             requireSettableSecret(write.clientSecret(), Boolean.TRUE.equals(write.publicClient()));
         }
@@ -107,6 +118,9 @@ public class ClientAdminService {
      */
     @Transactional
     public SetSecretResult setSecret(final String realmId, final String id, final String secret) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Setting this client's secret");
+        }
         requireSettableSecret(secret, false);
         return inRealm(realmId, id).map(client -> {
             if (Boolean.TRUE.equals(client.getPublicClient())) {
@@ -149,12 +163,18 @@ public class ClientAdminService {
 
     /** Reveals a client's current secret (Credentials tab); the rest of the DTO is the client as-is. */
     public Optional<ClientDto> reveal(final String realmId, final String id) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Revealing this client's secret");
+        }
         return inRealm(realmId, id).map(c -> toDto(c, c.getRawSecret()));
     }
 
     /** Issues a fresh secret for a client; returns it once. */
     @Transactional
     public Optional<ClientDto> regenerateSecret(final String realmId, final String id) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Rotating this client's secret");
+        }
         return inRealm(realmId, id).map(client -> {
             final String secret = generateSecret();
             client.setClientSecret(secret);
@@ -165,6 +185,9 @@ public class ClientAdminService {
     /** Soft-deletes a client (the OAuth server stops resolving it); {@code false} if absent. */
     @Transactional
     public boolean delete(final String realmId, final String id) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Deleting this client");
+        }
         return inRealm(realmId, id).map(client -> {
             // Protect the built-in console/CLI clients: deleting them would lock admins out of the console /
             // break the CLI. They self-heal on restart anyway, but refuse the delete so the UI can't remove them.

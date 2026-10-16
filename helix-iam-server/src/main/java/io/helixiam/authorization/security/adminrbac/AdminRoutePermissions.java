@@ -69,6 +69,10 @@ public final class AdminRoutePermissions {
 
         // Realm-scoped resource groups: /admin/realms/{realmId}/<group>...
         final String group = seg[3];
+        // H5: revealing a client secret hands over the client (and its service account): manage, not view.
+        if ("clients".equals(group) && seg.length >= 6 && "secret".equals(seg[5])) {
+            return Optional.of(MANAGE_CLIENTS);
+        }
         // The signing settings decide which key and algorithm sign tokens and SAML: realm-admin, like key writes.
         if ("settings".equals(group) && seg.length >= 5 && "signing".equals(seg[4]) && !read) {
             return Optional.of(REALM_ADMIN);

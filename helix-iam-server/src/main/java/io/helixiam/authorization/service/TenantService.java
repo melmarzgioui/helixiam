@@ -112,20 +112,6 @@ public class TenantService {
         userRolesRepository.saveAll(roles);
     }
 
-    /**
-     * Save a tenant user and assign the realm's default role (the curated {@code user} role, falling back to
-     * the legacy {@code ROLE_USER}) if not already present.
-     */
-    public void save(final TenantUser tenantUser) {
-        if (tenantUserRepository.findByTenantIdAndUserId(tenantUser.getTenantId(), tenantUser.getUserId()).isEmpty()) {
-            final TenantUser storedTenantUser = tenantUserRepository.save(tenantUser);
-
-            userRolesRepository.findFirstByTenantIdAndDefaultRoleTrue(tenantUser.getTenantId())
-                    .or(() -> userRolesRepository.findByTenantIdAndName(tenantUser.getTenantId(), "ROLE_USER"))
-                    .ifPresent(role -> grant(role.getRoleId(), tenantUser.getUserId(), storedTenantUser.getTenantUserId()));
-        }
-    }
-
     /** Idempotently grants a role to a user via their tenant-user link. */
     private void grant(final String roleId, final String userId, final String tenantUserId) {
         if (userInRoleRepository.findByRoleIdAndUserIdAndTenantUserId(roleId, userId, tenantUserId).isEmpty()) {

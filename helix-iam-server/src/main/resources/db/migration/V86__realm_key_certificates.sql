@@ -19,11 +19,26 @@ ALTER TABLE realm_key ADD COLUMN IF NOT EXISTS activated_date timestamp DEFAULT 
 -- replica claims the day first.
 ALTER TABLE realm_key ADD COLUMN IF NOT EXISTS expiry_warned_on date DEFAULT NULL;
 
--- rc.11 could store the same key twice (two concurrent first-use requests of a realm): keep, per public key, an
--- ACTIVE row (the newest) or, without one, the newest row, so the unique index below can be built. Idempotent.
+-- The same key in two different realms cannot be repaired automatically (deleting either row could break a realm):
+-- stop with a message naming the realms, so an operator retires the key in one of them first.
+DO $$
+DECLARE
+    realms text;
+BEGIN
+    SELECT string_agg(DISTINCT realm_id, ', ' ORDER BY realm_id) INTO realms
+      FROM realm_key
+     WHERE public_key IN (SELECT public_key FROM realm_key GROUP BY public_key HAVING count(DISTINCT realm_id) > 1);
+    IF realms IS NOT NULL THEN
+        RAISE EXCEPTION 'V86: the same signing key is stored in more than one realm (%). Delete the duplicate '
+            'realm_key rows of all but one of these realms, then restart.', realms;
+    END IF;
+END $$;
+
+-- rc.11 could store the same key twice in one realm (two concurrent first-use requests): keep, per realm and public
+-- key, an ACTIVE row (the newest) or, without one, the newest row, so the unique index below can be built. Idempotent.
 DELETE FROM realm_key k
     USING (SELECT key_id,
-                  ROW_NUMBER() OVER (PARTITION BY public_key
+                  ROW_NUMBER() OVER (PARTITION BY realm_id, public_key
                                      ORDER BY (status = 'ACTIVE') DESC, creation_date DESC NULLS LAST, key_id DESC) AS rn
              FROM realm_key) d
     WHERE k.key_id = d.key_id AND d.rn > 1;

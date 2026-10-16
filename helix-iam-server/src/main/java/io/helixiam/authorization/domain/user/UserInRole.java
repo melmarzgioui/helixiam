@@ -41,6 +41,10 @@ public class UserInRole implements Serializable {
 
 
 
+    public String getRoleId() {
+        return roleId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

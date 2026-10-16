@@ -37,6 +37,19 @@ public class IdentityBroker {
         this.attributeMapper = attributeMapper;
     }
 
+    /** Security review H5: never auto-link an identity to a local administrator. */
+    private java.util.function.BiPredicate<String, String> isAdmin = (realm, userId) -> false;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard guard) {
+        this.isAdmin = guard::isAdmin;
+    }
+
+    /** Tests: who counts as an administrator (realm, userId). */
+    void setAdminCheck(final java.util.function.BiPredicate<String, String> isAdmin) {
+        this.isAdmin = isAdmin;
+    }
+
     public BrokerResult broker(final BrokeredIdentity identity, final AccountLinkingPolicy policy) {
         return broker(identity, policy, null);
     }
@@ -62,6 +75,15 @@ public class IdentityBroker {
         if (policy.linkByVerifiedEmail() && identity.emailVerified()
                 && identity.email() != null && !identity.email().isBlank()) {
             final var existing = store.findUserByEmail(identity.email());
+            final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get() == null
+                    ? "master" : io.helixiam.authorization.security.realm.RealmContextHolder.get();
+            if (existing.isPresent() && isAdmin.test(realm, existing.get())) {
+                // H5: an e-mail address controlled at an external IdP must never take over an administrator. The
+                // admin links the identity from the account console while signed in.
+                LOG.warn("Not linking federated identity {}:{} to an administrator by e-mail; the user must link it "
+                        + "from the account console", alias, subject);
+                return BrokerResult.unresolved();
+            }
             if (existing.isPresent()) {
                 store.link(alias, subject, existing.get());
                 LOG.info("Linked federated identity {}:{} to existing user {} by verified email",

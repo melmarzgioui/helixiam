@@ -64,11 +64,18 @@ CREATE TABLE IF NOT EXISTS realm_key (
     expiry_warned_on      date DEFAULT NULL
     );
 CREATE INDEX IF NOT EXISTS realm_key_realm_status_idx ON realm_key (realm_id, status);
--- V86: rc.11 could store the same key twice (two concurrent first-use requests of a realm): keep, per public key, an
--- ACTIVE row (the newest) or, without one, the newest row, so the unique index below can be built. Idempotent.
+-- V86: the same key in two realms cannot be repaired automatically: stop with a message naming the realms (an
+-- invalid cast carries the text, since this file is run by the plain SQL-script initializer, without $-quoting).
+SELECT CAST('V86: the same signing key is stored in more than one realm (' || string_agg(DISTINCT realm_id, ', ')
+            || '). Delete the duplicate realm_key rows of all but one of these realms, then restart.' AS integer)
+  FROM realm_key
+ WHERE public_key IN (SELECT public_key FROM realm_key GROUP BY public_key HAVING count(DISTINCT realm_id) > 1)
+HAVING count(*) > 0;
+-- V86: rc.11 could store the same key twice in one realm (two concurrent first-use requests): keep, per realm and
+-- public key, an ACTIVE row (the newest) or, without one, the newest row. Idempotent.
 DELETE FROM realm_key k
     USING (SELECT key_id,
-                  ROW_NUMBER() OVER (PARTITION BY public_key
+                  ROW_NUMBER() OVER (PARTITION BY realm_id, public_key
                                      ORDER BY (status = 'ACTIVE') DESC, creation_date DESC NULLS LAST, key_id DESC) AS rn
              FROM realm_key) d
     WHERE k.key_id = d.key_id AND d.rn > 1;

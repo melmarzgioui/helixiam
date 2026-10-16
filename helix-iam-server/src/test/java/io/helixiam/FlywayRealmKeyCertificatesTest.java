@@ -138,6 +138,27 @@ class FlywayRealmKeyCertificatesTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM realm_key", Integer.class)).isEqualTo(2);
     }
 
+    @Test
+    void v86_refusesTheSameKeyInTwoRealms_namingThem() throws Exception {
+        final DriverManagerDataSource ds = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+        final JdbcTemplate jdbc = new JdbcTemplate(ds);
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("85").load().migrate();
+        final KeyPairGenerator g = KeyPairGenerator.getInstance("RSA");
+        g.initialize(2048);
+        final String pub = b64(g.generateKeyPair().getPublic().getEncoded());
+        jdbc.update("INSERT INTO realm_key (key_id, realm_id, public_key, private_key, status) VALUES "
+                + "('x1', 'alpha', ?, 'x', 'ACTIVE'), ('x2', 'beta', ?, 'x', 'ACTIVE')", pub, pub);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate())
+                .hasStackTraceContaining("more than one realm (alpha, beta)");
+        // Nothing was deleted.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM realm_key", Integer.class)).isEqualTo(2);
+    }
+
     private static String b64(final byte[] b) {
         return Base64.getEncoder().encodeToString(b);
     }
