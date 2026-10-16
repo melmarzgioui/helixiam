@@ -16,7 +16,10 @@ import {
   hasPemBlock,
   keyLabel,
   splitDnsNames,
+  shortFingerprint,
+  stagingState,
   statusLabelKey,
+  validateSigningSettings,
   statusTone,
   validateCertificate,
   validateCsr,
@@ -128,6 +131,7 @@ describe("labels and states", () => {
     expect(canActivate(key({ status: "PENDING" }))).toBe(true);
     expect(canActivate(key())).toBe(false);
     expect(canRetire(key())).toBe(false);
+    expect(canRetire(key({ algorithm: "ES256" }))).toBe(true); // the EC key may go; the RSA key never
     expect(canRetire(key({ status: "ROTATED" }))).toBe(true);
     expect(canRetire(key({ status: "PENDING" }))).toBe(true);
     expect(canRetire(key({ status: "RETIRED" }))).toBe(false);
@@ -161,3 +165,37 @@ function cert(over: Partial<NonNullable<RealmKey["certificate"]>> = {}): NonNull
     ...over,
   };
 }
+
+describe("staging", () => {
+  const now = Date.UTC(2026, 9, 16, 12, 0);
+  it("says how long a pending key has been published and whether it may be activated", () => {
+    const k = key({ status: "PENDING", createdAt: now - 3 * 60_000, activatableAt: now + 2 * 60_000 });
+    expect(stagingState(k, now)).toEqual({ publishedMinutes: 3, ready: false, waitMinutes: 2 });
+    expect(stagingState({ ...k, activatableAt: now - 1 }, now)).toEqual({ publishedMinutes: 3, ready: true, waitMinutes: 0 });
+    expect(stagingState(key({ status: "PENDING", createdAt: now - 30_000, activatableAt: now + 270_001 }), now))
+      .toEqual({ publishedMinutes: 0, ready: false, waitMinutes: 5 });
+    expect(stagingState(key({ status: "PENDING", createdAt: null, activatableAt: null }), now).ready).toBe(true);
+  });
+});
+
+describe("shortFingerprint", () => {
+  it("shows the first 16 hex characters and an ellipsis", () => {
+    expect(shortFingerprint("66:A8:B6:40:94:2F:60:33:2E:AD:F1:E6")).toBe("66A8B640942F6033…");
+    expect(shortFingerprint("66:A8")).toBe("66A8");
+    expect(shortFingerprint(null)).toBe("");
+  });
+});
+
+describe("validateSigningSettings", () => {
+  it("only offers algorithms with an active key", () => {
+    expect(validateSigningSettings({ defaultAlg: "RS256", samlAlg: "RS256" }, ["RS256", "PS256"])).toEqual({});
+    expect(validateSigningSettings({ defaultAlg: "ES256", samlAlg: "ES256" }, ["RS256", "PS256"])).toEqual({
+      defaultAlg: "realmKeys.v.noActiveKey",
+      samlAlg: "realmKeys.v.noActiveKey",
+    });
+    expect(validateSigningSettings({ defaultAlg: "PS256", samlAlg: "PS256" }, ["RS256", "PS256"]).samlAlg)
+      .toBe("realmKeys.v.samlAlg");
+    expect(validateSigningSettings({ defaultAlg: "HS256", samlAlg: "RS256" }, ["RS256"]).defaultAlg)
+      .toBe("realmKeys.v.defaultAlg");
+  });
+});

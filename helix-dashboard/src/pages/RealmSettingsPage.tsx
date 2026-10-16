@@ -13,6 +13,8 @@ import { FormField, Input, Textarea, Select } from "../components/FormField";
 import { Switch } from "../components/Switch";
 import { CopyRow } from "../components/CopyRow";
 import { Tabs } from "../components/Tabs";
+import type { RealmKeyApi } from "../api/keys";
+import { SigningSettingsSection } from "./SigningSettingsSection";
 import { RealmApi, RealmSettings, RealmSettingsWrite, validateRealmSettings } from "../api/realm";
 import { fetchOidcEndpoints, OidcEndpoints } from "../api/endpoints";
 import { useT } from "../i18n/LocaleContext";
@@ -20,6 +22,8 @@ import { useT } from "../i18n/LocaleContext";
 export interface RealmSettingsPageProps {
   api: RealmApi;
   realmId: string;
+  /** Realm signing keys API: shows the Signing section on the Tokens tab. */
+  keysApi?: RealmKeyApi;
 }
 
 /** Render a TTL in seconds as a friendly "1h 30m" / "14d" hint. */
@@ -43,7 +47,7 @@ function hexOr(value: string | null, fallback: string): string {
  * realm-wide MFA requirement, password policy and the enabled switch, backed by the realm settings
  * admin API. Reads fall back to platform defaults; saving upserts the realm row.
  */
-export function RealmSettingsPage({ api, realmId }: RealmSettingsPageProps) {
+export function RealmSettingsPage({ api, realmId, keysApi }: RealmSettingsPageProps) {
   const { t } = useT();
   const [loaded, setLoaded] = React.useState<RealmSettings | null>(null);
   const [form, setForm] = React.useState<RealmSettings | null>(null);
@@ -281,6 +285,7 @@ export function RealmSettingsPage({ api, realmId }: RealmSettingsPageProps) {
             />
           </Section>
           )}
+          {tab === "tokens" && keysApi && <SigningSettingsSection api={keysApi} realmId={realmId} />}
           {tab === "tokens" && (
           <Section title={t("realmSettings.sso.title")} description={t("realmSettings.sso.description")}>
             <FormField label={t("realmSettings.sso.idleTimeout")} required error={err("ssoSessionIdleTimeoutSeconds")} hint={t("realmSettings.sso.idleTimeout.hint", { duration: humanize(form.ssoSessionIdleTimeoutSeconds) })}>

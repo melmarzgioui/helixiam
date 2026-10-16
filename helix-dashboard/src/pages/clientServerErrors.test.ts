@@ -33,6 +33,12 @@ describe("client API errors", () => {
 });
 
 describe("splitClientServerErrors", () => {
+  it("puts an ID-token algorithm refusal on the credentials tab", () => {
+    const split = splitClientServerErrors({ idTokenSignatureAlg: "The realm has no active key for ES256" });
+    expect(split.tab).toBe("credentials");
+    expect(split.allMapped).toBe(true);
+  });
+
   it("puts form fields on their tab and the rest in the banner", () => {
     const split = splitClientServerErrors({
       jwksUrl: "must be https",

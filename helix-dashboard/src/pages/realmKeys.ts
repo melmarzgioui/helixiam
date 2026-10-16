@@ -147,11 +147,41 @@ export function expiryTone(cert: RealmKeyCertificate | null | undefined): BadgeT
 }
 
 export const canActivate = (k: RealmKey) => k.status === "PENDING";
-export const canRetire = (k: RealmKey) => k.status === "PENDING" || k.status === "ROTATED";
+/** PENDING and retained keys, and the ACTIVE EC key (the ACTIVE RSA key never: OpenID Connect requires RS256). */
+export const canRetire = (k: RealmKey) => k.status === "PENDING" || k.status === "ROTATED"
+  || (k.status === "ACTIVE" && k.algorithm === "ES256");
 export const canAttachCertificate = (k: RealmKey) => k.status === "PENDING" || k.status === "ACTIVE";
 
 export function csrFileName(subject: string): string {
   const cn = commonName(subject);
   const safe = cn ? cn.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") : "";
   return `${safe || "realm-signing-key"}.csr`;
+}
+
+/** How long a PENDING key has been published, and whether the minimum staging time has passed. */
+export function stagingState(k: RealmKey, now: number = Date.now()): { publishedMinutes: number; ready: boolean; waitMinutes: number } {
+  const publishedMinutes = k.createdAt ? Math.max(0, Math.floor((now - k.createdAt) / 60_000)) : 0;
+  const at = k.activatableAt ?? null;
+  const ready = at === null || at <= now;
+  return { publishedMinutes, ready, waitMinutes: ready ? 0 : Math.ceil((at - now) / 60_000) };
+}
+
+/** The first 16 hex characters of a colon-separated SHA-256 fingerprint, with an ellipsis when cut. */
+export function shortFingerprint(fp: string | null | undefined): string {
+  const hex = (fp ?? "").replace(/:/g, "");
+  return hex.length > 16 ? `${hex.slice(0, 16)}…` : hex;
+}
+
+export const DEFAULT_ALGS = ["RS256", "PS256", "ES256"] as const;
+export const SAML_ALGS = ["RS256", "ES256"] as const;
+export interface SigningSettingsForm { defaultAlg: string; samlAlg: string }
+
+/** The realm signing settings: known algorithms only, and only ones the realm has an ACTIVE key for. */
+export function validateSigningSettings(form: SigningSettingsForm, activeAlgorithms: string[]): Errors {
+  const errors: Errors = {};
+  if (!(DEFAULT_ALGS as readonly string[]).includes(form.defaultAlg)) errors.defaultAlg = "realmKeys.v.defaultAlg";
+  else if (!activeAlgorithms.includes(form.defaultAlg)) errors.defaultAlg = "realmKeys.v.noActiveKey";
+  if (!(SAML_ALGS as readonly string[]).includes(form.samlAlg)) errors.samlAlg = "realmKeys.v.samlAlg";
+  else if (!activeAlgorithms.includes(form.samlAlg)) errors.samlAlg = "realmKeys.v.noActiveKey";
+  return errors;
 }

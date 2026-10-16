@@ -8,7 +8,8 @@
  * fields the form shows go on those fields, and the tab to open is the first one with such an error; the rest are
  * shown in the banner.
  */
-const FIELD_TABS: Record<string, "keys" | "login"> = {
+const FIELD_TABS: Record<string, "keys" | "login" | "credentials"> = {
+  idTokenSignatureAlg: "credentials",
   jwksUrl: "keys",
   tokenEndpointAuthMethod: "keys",
   redirectUris: "login",
@@ -53,13 +54,13 @@ function translateServerError(field: string, message: string, code?: string): st
 export function splitClientServerErrors(fieldErrors: Record<string, string>, fieldErrorCodes: Record<string, string> = {}): {
   fields: Record<string, string>;
   other: string[];
-  tab: "keys" | "login" | null;
+  tab: "keys" | "login" | "credentials" | null;
   /** Every error landed on a field the form shows (so the banner can point at the field instead of repeating it). */
   allMapped: boolean;
 } {
   const fields: Record<string, string> = {};
   const other: string[] = [];
-  let tab: "keys" | "login" | null = null;
+  let tab: "keys" | "login" | "credentials" | null = null;
   for (const [key, message] of Object.entries(fieldErrors)) {
     const fieldTab = FIELD_TABS[key];
     if (fieldTab) {

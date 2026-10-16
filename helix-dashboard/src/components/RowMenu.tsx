@@ -20,6 +20,21 @@ export interface RowMenuItem {
  * portalled to <body> with fixed positioning so it escapes card overflow / stacking contexts, and
  * closes on outside-click, Escape, scroll and resize.
  */
+/**
+ * Where the overflow menu goes: below the trigger, or above it when it would run past the bottom of the viewport
+ * (and there is more room above). Pure, for tests.
+ */
+export function placeMenu(trigger: { top: number; bottom: number; right: number }, menuHeight: number,
+  viewport: { width: number; height: number }, gap = 4, margin = 8): { top: number; right: number } {
+  const right = viewport.width - trigger.right;
+  const below = trigger.bottom + gap;
+  if (below + menuHeight <= viewport.height - margin) return { top: below, right };
+  const above = trigger.top - gap - menuHeight;
+  if (above >= margin) return { top: above, right };
+  // Neither fits: keep it on screen, on the side with more room.
+  return { top: Math.max(margin, Math.min(below, viewport.height - margin - menuHeight)), right };
+}
+
 export function RowMenu({ items, ariaLabel = "Row actions" }: { items: RowMenuItem[]; ariaLabel?: string }) {
   const [open, setOpen] = React.useState(false);
   const [pos, setPos] = React.useState<{ top: number; right: number } | null>(null);
@@ -31,6 +46,14 @@ export function RowMenu({ items, ariaLabel = "Row actions" }: { items: RowMenuIt
     if (r) setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
   };
   const toggle = () => { if (!open) place(); setOpen((v) => !v); };
+
+  // Once the menu is rendered its height is known: flip it above the trigger if it would overflow the viewport.
+  React.useLayoutEffect(() => {
+    if (!open || !menuRef.current || !btnRef.current) return;
+    const next = placeMenu(btnRef.current.getBoundingClientRect(), menuRef.current.offsetHeight,
+      { width: window.innerWidth, height: window.innerHeight });
+    setPos((cur) => (cur && cur.top === next.top && cur.right === next.right ? cur : next));
+  }, [open, pos !== null]);
 
   React.useEffect(() => {
     if (!open) return;

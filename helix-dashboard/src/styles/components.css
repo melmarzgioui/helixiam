@@ -300,6 +300,7 @@
 .hx-dialog { max-width: var(--modal-maxw, 520px); }
 .hx-modal__head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 1.3rem; border-bottom: 1px solid var(--border); }
 .hx-modal__title { margin: 0; font-size: 1.1rem; color: var(--fg); }
+.hx-modal__title:focus:not(:focus-visible) { outline: none; }
 .hx-modal__close { width: 32px; height: 32px; }
 .hx-modal__body { padding: 1.3rem; color: var(--fg-muted); overflow-y: auto; flex: 1; }
 .hx-modal__foot { display: flex; justify-content: flex-end; gap: .6rem; padding: 1rem 1.3rem; border-top: 1px solid var(--border); flex-shrink: 0; }
@@ -310,7 +311,13 @@
    ============================================================================ */
 .hx-page { display: flex; flex-direction: column; }
 .hx-pagehead__text { min-width: 0; }
-.hx-pagehead__actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; flex-wrap: wrap; }
+/* Header actions wrap (and may shrink) instead of widening the page on a narrow screen. */
+.hx-pagehead__actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 1; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.hx-pagehead__actions > * { max-width: 100%; }
+@media (max-width: 560px) {
+  .hx-pagehead__actions { width: 100%; }
+  .hx-pagehead__actions > .hx-btn { flex: 1 1 auto; white-space: normal; }
+}
 /* Vertical stack of sections/cards with the one canonical gap. */
 .hx-pagebody { display: flex; flex-direction: column; gap: var(--stack-gap); min-width: 0; }
 /* Toolbar strip above a table/list (search + filters + actions). */
@@ -841,5 +848,5 @@ td.hx-col-sticky { background: var(--bg); }
 }
 
 /* Realm keys: SHA-256 fingerprints and the muted technical id line wrap anywhere instead of widening the table. */
-.hx-fingerprint { display: inline-block; max-width: 22ch; font-size: .78rem; overflow-wrap: anywhere; word-break: break-all; }
+.hx-fingerprint { font-size: .78rem; white-space: nowrap; }
 .hx-keyid { font-size: .74rem; }

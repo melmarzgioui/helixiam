@@ -14,6 +14,7 @@ import { Modal, ConfirmDialog } from "../components/Modal";
 import { RowMenu, type RowMenuItem } from "../components/RowMenu";
 import { CopyButton } from "../components/CopyButton";
 import { FormField, Input, Select, Textarea } from "../components/FormField";
+import { Checkbox } from "../components/Choice";
 import { useToast } from "../components/ToastProvider";
 import { RealmKey, RealmKeyApi } from "../api/keys";
 import { useT } from "../i18n/LocaleContext";
@@ -28,7 +29,9 @@ import {
   expiryTone,
   fieldErrorsFromServer,
   keyLabel,
+  shortFingerprint,
   splitDnsNames,
+  stagingState,
   statusLabelKey,
   statusTone,
   validateCertificate,
@@ -64,9 +67,12 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
   const toast = useToast();
   const [keys, setKeys] = React.useState<RealmKey[] | null>(null);
   const [dialog, setDialog] = React.useState<Dialog>(null);
+  // Changing keys needs realm-admin (the server enforces it); without it the page is read-only.
+  const [canManage, setCanManage] = React.useState(false);
 
   const reload = React.useCallback(() => {
     setKeys(null);
+    api.access(realmId).then((a) => setCanManage(!!a.canManage)).catch(() => setCanManage(false));
     api.list(realmId)
       .then(setKeys)
       .catch((e) => { setKeys([]); toast.show({ tone: "error", title: t("realmKeys.toast.loadError"), message: String(e.message ?? e) }); });
@@ -91,9 +97,9 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
       .then(() => { toast.show({ tone: "success", title: t("realmKeys.toast.retired"), message: t("realmKeys.toast.retired.message") }); reload(); })
       .catch(fail(t("realmKeys.toast.retireFailed")));
   };
-  const doActivate = (key: RealmKey) => {
+  const doActivate = (key: RealmKey, force: boolean) => {
     close();
-    api.activate(realmId, key.keyId)
+    api.activate(realmId, key.keyId, force)
       .then(() => { toast.show({ tone: "success", title: t("realmKeys.toast.activated"), message: t("realmKeys.toast.activated.message", { name: label(key) }) }); reload(); })
       .catch(fail(t("realmKeys.toast.activateFailed")));
   };
@@ -105,6 +111,11 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
 
   const menu = (k: RealmKey): RowMenuItem[] => {
     const items: RowMenuItem[] = [];
+    if (!canManage) {
+      if (k.hasCsr) items.push({ label: t("realmKeys.action.downloadCsr"), onSelect: () => downloadCsr(k) });
+      if (k.publicKey) items.push({ label: t("realmKeys.action.view"), onSelect: () => setDialog({ kind: "publicKey", key: k }) });
+      return items;
+    }
     if (canActivate(k)) items.push({ label: t("realmKeys.action.activate"), onSelect: () => setDialog({ kind: "activate", key: k }) });
     if (canAttachCertificate(k)) items.push({ label: t("realmKeys.action.uploadCertificate"), onSelect: () => setDialog({ kind: "certificate", key: k }) });
     if (k.hasCsr) items.push({ label: t("realmKeys.action.downloadCsr"), onSelect: () => downloadCsr(k) });
@@ -136,6 +147,16 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
     </span>
   ) : <span className="hx-faint">{t("realmKeys.cert.none")}</span>;
   const fingerprint = (k: RealmKey) => k.certificate?.sha256Fingerprint ?? k.publicKeyFingerprint ?? "";
+  const fingerprintCell = (k: RealmKey) => {
+    const fp = fingerprint(k);
+    if (!fp) return <span className="hx-faint">—</span>;
+    return (
+      <span className="hx-badges hx-nowrap">
+        <span className="hx-mono hx-faint hx-fingerprint" title={fp}>{shortFingerprint(fp)}</span>
+        <CopyButton value={fp} label={t("realmKeys.fingerprint.copy")} size={26} />
+      </span>
+    );
+  };
   const technical = (k: RealmKey) => (
     <span className="hx-mono hx-faint hx-wrap-anywhere hx-keyid">{`kid ${k.kid ?? "—"} · ${t("realmKeys.keyId")} ${k.keyId}`}</span>
   );
@@ -147,13 +168,16 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
         description={t("realmKeys.description", { realmId })}
         actions={<>
           <Button variant="ghost" onClick={reload} disabled={keys === null}>{t("realmKeys.action.refresh")}</Button>
-          <Button variant="ghost" onClick={() => setDialog({ kind: "csr" })} disabled={keys === null}>{t("realmKeys.action.csr")}</Button>
-          <Button variant="ghost" onClick={() => setDialog({ kind: "import" })} disabled={keys === null}>{t("realmKeys.action.import")}</Button>
-          <Button variant="primary" onClick={() => setDialog({ kind: "rotate" })} disabled={keys === null}>{t("realmKeys.action.rotate")}</Button>
+          {canManage && <>
+            <Button variant="ghost" onClick={() => setDialog({ kind: "csr" })} disabled={keys === null}>{t("realmKeys.action.csr")}</Button>
+            <Button variant="ghost" onClick={() => setDialog({ kind: "import" })} disabled={keys === null}>{t("realmKeys.action.import")}</Button>
+            <Button variant="primary" onClick={() => setDialog({ kind: "rotate" })} disabled={keys === null}>{t("realmKeys.action.rotate")}</Button>
+          </>}
         </>}
       />
 
       <PageBody>
+        {keys !== null && !canManage && <Alert tone="info">{t("realmKeys.readOnly")}</Alert>}
         {expired.length > 0 && (
           <Alert tone="danger" title={t("realmKeys.alert.expired.title")}>{t("realmKeys.alert.expired.body", { names: expired.map(label).join(", ") })}</Alert>
         )}
@@ -190,7 +214,7 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
                         <td>{k.algorithm}</td>
                         <td>{certificateCell(k)}</td>
                         <td>{expiryCell(k)}</td>
-                        <td><span className="hx-mono hx-faint hx-fingerprint" title={fingerprint(k)}>{fingerprint(k)}</span></td>
+                        <td>{fingerprintCell(k)}</td>
                         <td className="hx-cell-right">{menu(k).length > 0 && <RowMenu items={menu(k)} ariaLabel={t("realmKeys.col.actions")} />}</td>
                       </tr>
                     ))}
@@ -215,7 +239,7 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
                     <div className="hx-rowcard__field"><span className="hx-rowcard__label">{t("realmKeys.col.algorithm")}</span><span className="hx-rowcard__value">{k.algorithm}</span></div>
                     <div className="hx-rowcard__field"><span className="hx-rowcard__label">{t("realmKeys.col.certificate")}</span><span className="hx-rowcard__value">{certificateCell(k)}</span></div>
                     <div className="hx-rowcard__field"><span className="hx-rowcard__label">{t("realmKeys.col.expires")}</span><span className="hx-rowcard__value">{expiryCell(k)}</span></div>
-                    <div className="hx-rowcard__field"><span className="hx-rowcard__label">{t("realmKeys.col.fingerprint")}</span><span className="hx-rowcard__value hx-mono hx-faint hx-fingerprint">{fingerprint(k)}</span></div>
+                    <div className="hx-rowcard__field"><span className="hx-rowcard__label">{t("realmKeys.col.fingerprint")}</span><span className="hx-rowcard__value">{fingerprintCell(k)}</span></div>
                   </div>
                 </div>
               ))}
@@ -245,7 +269,7 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
           </div>}>
           <div className="hx-stackgap">
             <p className="hx-help">{t("realmKeys.csr.result.body")}</p>
-            <div className="hx-badges"><CopyButton value={dialog.csrPem} label={t("realmKeys.csr.copy")} /><span className="hx-faint">{t("realmKeys.csr.copy")}</span></div>
+            <div className="hx-badges"><CopyButton value={dialog.csrPem} label={t("realmKeys.csr.copy")} /></div>
             <pre className="hx-codeblock">{dialog.csrPem}</pre>
           </div>
         </Modal>
@@ -259,18 +283,8 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
           })} />
       )}
       {dialog?.kind === "activate" && (
-        <Modal open title={t("realmKeys.confirm.activate.title")} onClose={close} width={600}
-          footer={<div className="hx-formactions hx-formactions--end">
-            <Button variant="ghost" onClick={close}>{t("realmKeys.cancel")}</Button>
-            <Button variant="primary" onClick={() => doActivate(dialog.key)}>{t("realmKeys.confirm.activate.label")}</Button>
-          </div>}>
-          <div className="hx-stackgap">
-            <p>{t("realmKeys.confirm.activate.message", { name: label(dialog.key) })}</p>
-            <Alert tone="warning" title={t("realmKeys.confirm.activate.samlTitle")}>{t("realmKeys.confirm.activate.saml")}</Alert>
-            {dialog.key.algorithm === "ES256" && <Alert tone="warning" title={t("realmKeys.ec.title")}>{t("realmKeys.ec.body")}</Alert>}
-            {!dialog.key.certificate && <Alert tone="info">{t("realmKeys.confirm.activate.noCert")}</Alert>}
-          </div>
-        </Modal>
+        <ActivateDialog keyName={label(dialog.key)} realmKey={dialog.key} onClose={close}
+          onActivate={(force) => doActivate(dialog.key, force)} />
       )}
       {dialog?.kind === "rotate" && <RotateDialog onClose={close} onSubmit={(algorithm) => api.rotate(realmId, algorithm).then(() => {
         close();
@@ -280,7 +294,9 @@ export function RealmKeysPage({ api, realmId }: RealmKeysPageProps) {
       <ConfirmDialog
         open={dialog?.kind === "retire"}
         title={t("realmKeys.confirm.retire.title")}
-        message={dialog?.kind === "retire" ? t("realmKeys.confirm.retire.message.named", { name: label(dialog.key) }) : ""}
+        message={dialog?.kind === "retire" ? t(dialog.key.status === "PENDING" ? "realmKeys.confirm.retire.pending"
+          : dialog.key.status === "ACTIVE" ? "realmKeys.confirm.retire.activeEc" : "realmKeys.confirm.retire.message.named",
+          { name: label(dialog.key) }) : ""}
         confirmLabel={t("realmKeys.confirm.retire.label")}
         cancelLabel={t("realmKeys.cancel")}
         onConfirm={() => dialog?.kind === "retire" && doRetire(dialog.key)}
@@ -392,6 +408,38 @@ function CertificateDialog({ keyName, active, onClose, onSubmit }: { keyName: st
         <FormField label={t("realmKeys.import.chain")} hint={t("realmKeys.import.chainHint")} required error={f.errors.certificateChainPem && t(f.errors.certificateChainPem)}>
           <Textarea rows={8} className="hx-mono" spellCheck={false} value={pem} onChange={(e) => setPem(e.target.value)} placeholder="-----BEGIN CERTIFICATE-----" />
         </FormField>
+      </div>
+    </Modal>
+  );
+}
+
+function ActivateDialog({ keyName, realmKey, onClose, onActivate }: { keyName: string; realmKey: RealmKey; onClose: () => void; onActivate: (force: boolean) => void }) {
+  const { t } = useT();
+  const staging = stagingState(realmKey);
+  const [force, setForce] = React.useState(false);
+  const expired = realmKey.certificate?.expiry === "EXPIRED";
+  const blocked = !staging.ready && !force;
+  return (
+    <Modal open title={t("realmKeys.confirm.activate.title")} onClose={onClose} width={600}
+      footer={<div className="hx-formactions hx-formactions--end">
+        <Button variant="ghost" onClick={onClose}>{t("realmKeys.cancel")}</Button>
+        <Button variant="primary" disabled={blocked} onClick={() => onActivate(!staging.ready)}>{t("realmKeys.confirm.activate.label")}</Button>
+      </div>}>
+      <div className="hx-stackgap">
+        <p>{t("realmKeys.confirm.activate.now", { name: keyName, minutes: staging.publishedMinutes })}</p>
+        <p>{t(realmKey.algorithm === "ES256" ? "realmKeys.confirm.activate.messageEc" : "realmKeys.confirm.activate.message", { name: keyName })}</p>
+        {expired && <Alert tone="danger" title={t("realmKeys.confirm.activate.expiredTitle")}>{t("realmKeys.confirm.activate.expired")}</Alert>}
+        {!staging.ready && (
+          <Alert tone="warning" title={t("realmKeys.confirm.activate.stagingTitle")}>
+            <div className="hx-stackgap">
+              <span>{t("realmKeys.confirm.activate.staging", { minutes: staging.waitMinutes })}</span>
+              <Checkbox label={t("realmKeys.confirm.activate.force")} checked={force} onChange={setForce} />
+            </div>
+          </Alert>
+        )}
+        <Alert tone="warning" title={t("realmKeys.confirm.activate.samlTitle")}>{t("realmKeys.confirm.activate.saml")}</Alert>
+        {realmKey.algorithm === "ES256" && <Alert tone="warning" title={t("realmKeys.ec.title")}>{t("realmKeys.ec.body")}</Alert>}
+        {!realmKey.certificate && <Alert tone="info">{t("realmKeys.confirm.activate.noCert")}</Alert>}
       </div>
     </Modal>
   );

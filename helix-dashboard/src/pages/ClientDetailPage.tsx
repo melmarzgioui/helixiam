@@ -431,9 +431,13 @@ export function ClientDetailPage({ api, claimApi, flowApi, scopeApi, mapperApi, 
                   <FormField label={t("clientDetail.refreshTokenLifespan")} hint={t("clientDetail.refreshTokenLifespanHint")}>
                     <Input type="number" min={0} inputMode="numeric" value={refreshLifespan} onChange={(e) => setRefreshLifespan(e.target.value)} placeholder={t("clientDetail.inheritDefault")} />
                   </FormField>
-                  <FormField label={t("clientDetail.idTokenAlg")} hint={t("clientDetail.idTokenAlgHint")}>
+                  <FormField label={t("clientDetail.idTokenAlg")} hint={t("clientDetail.idTokenAlgHint")} error={sErr("idTokenSignatureAlg")}>
                     <Select aria-label={t("clientDetail.idTokenAlg")} value={idTokenAlg} onChange={setIdTokenAlg}
-                      options={[{ value: "", label: t("clientDetail.rs256Default") }, ...["RS384", "RS512", "ES256", "ES384", "ES512"].map((a) => ({ value: a, label: a }))]} />
+                      options={[{ value: "", label: t("clientDetail.rs256Default") },
+                        // A legacy value (RS384 …) stays visible so it can be changed; the server only accepts
+                        // algorithms the realm has an ACTIVE key for.
+                        ...(idTokenAlg && !["PS256", "ES256"].includes(idTokenAlg) ? [idTokenAlg] : []).map((a) => ({ value: a, label: a })),
+                        ...["PS256", "ES256"].map((a) => ({ value: a, label: a }))]} />
                   </FormField>
                   <div className="hx-full"><Checkbox label={t("clientDetail.reuseRefresh")} checked={reuseRefresh} onChange={setReuseRefresh} /></div>
                 </Section>
