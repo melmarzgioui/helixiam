@@ -125,6 +125,24 @@ public class PrivilegedPrincipalGuard {
         }
     }
 
+    /**
+     * Round 6: 403 unless the caller holds, in every realm the user belongs to, every admin permission the user has
+     * there. For decisions that reach the user beyond one realm (trusting a link that may sign them in as an admin of
+     * another realm or of master).
+     */
+    public void requireMayActOnUserEverywhere(final String userId, final String what) {
+        final java.util.Set<String> realms = new java.util.LinkedHashSet<>();
+        if (memberships != null) {
+            realms.addAll(memberships.findTenantIdsByUserId(userId));
+        }
+        realms.add("master");
+        for (final String realm : realms) {
+            if (realm != null) {
+                requireMayActOnUser(realm, userId, what);
+            }
+        }
+    }
+
     /** 403 unless the caller holds every admin permission of the client's service account. */
     public void requireMayActOnClient(final String realmId, final String clientRef, final String what) {
         try {
@@ -160,10 +178,11 @@ public class PrivilegedPrincipalGuard {
         if (links == null || alias == null) {
             return out;
         }
-        for (final io.helixiam.authorization.domain.federation.FederatedLinkEntity l : links.findAllByIdpAlias(alias)) {
-            if (memberships == null || memberships.findByTenantIdAndUserId(realmId, l.getUserId()).isPresent()) {
-                out.addAll(userPermissions(realmId, l.getUserId()));
-            }
+        // Round 6: links are realm-scoped; a user linked in this realm may still be an admin elsewhere (master), so their
+        // permissions in every realm they belong to count.
+        for (final io.helixiam.authorization.domain.federation.FederatedLinkEntity l
+                : links.findAllByRealmIdAndIdpAlias(realmId, alias)) {
+            out.addAll(userPermissions(realmId, l.getUserId()));
         }
         return out;
     }

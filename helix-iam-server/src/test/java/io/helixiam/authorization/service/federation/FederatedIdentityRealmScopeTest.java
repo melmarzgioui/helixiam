@@ -74,7 +74,7 @@ class FederatedIdentityRealmScopeTest {
 
     @Test
     void existingLinksAreRealmScopedToo() {
-        when(links.findLinkedUser("corp-ad", "S-1")).thenReturn(Optional.of("master-admin"));
+        when(links.findLinkedUser(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("corp-ad"), org.mockito.ArgumentMatchers.eq("S-1"))).thenReturn(Optional.of("master-admin"));
         when(memberships.findAllByUserId("master-admin")).thenReturn(List.of(link("master")));
         assertThat(service.findLinkedUser("corp-ad", "S-1")).isEmpty();
     }

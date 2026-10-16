@@ -86,6 +86,11 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         });
         server.start();
         permissiveTokenClient();
+        createCorp(realm);
+        Thread.sleep(1500);
+    }
+
+    private void createCorp(final String inRealm) {
         final Map<String, Object> idp = new LinkedHashMap<>();
         idp.put("alias", "corp");
         idp.put("protocol", "oidc");
@@ -94,8 +99,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         idp.put("config", Map.of("clientId", "helix", "clientSecret", "corp-secret-0123456789", "issuer", issuer,
                 "authorizationEndpoint", issuer + "/authorize", "tokenEndpoint", issuer + "/token",
                 "jwksUri", issuer + "/jwks"));
-        assertThat(admin.post(base() + "/identity-providers", idp).status()).isEqualTo(201);
-        Thread.sleep(1500);
+        assertThat(admin.post("/admin/realms/" + inRealm + "/identity-providers", idp).status()).isEqualTo(201);
     }
 
     @AfterEach
@@ -111,7 +115,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
     void anAdministratorLinkedBeforeTheUpgradeStillSignsIn_andIsReported() {
         final E2eSeed.SeededUser boss = realmAdminUser();
         // What V86 makes of an rc.11 link (the backfill itself: FlywayRealmKeyCertificatesTest).
-        links.link("corp", "ext-sub", boss.userId(), LinkProvenance.LEGACY);
+        links.link(realm, "corp", "ext-sub", boss.userId(), LinkProvenance.LEGACY);
 
         assertThat(adminRolesStatus(brokerLogin())).isEqualTo(200);
         assertThat(context.getBean(PrivilegedLegacyLinkReport.class).check())
@@ -128,7 +132,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         subject.set("attacker-sub");
 
         assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
-        assertThat(links.findLinkedUser("corp", "attacker-sub")).isEmpty();
+        assertThat(links.findLinkedUser(realm, "corp", "attacker-sub")).isEmpty();
         assertThat(audited("PRIVILEGED_LINK_REFUSED")).isTrue();
     }
 
@@ -156,15 +160,15 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
                 + enc(q.get("state")));
         assertThat(back.header("Location").orElse("")).contains("/account");
 
-        assertThat(links.findLinkedUser("corp", "ext-sub")).contains(boss.userId());
-        assertThat(links.provenance("corp", "ext-sub")).contains(LinkProvenance.SELF);
+        assertThat(links.findLinkedUser(realm, "corp", "ext-sub")).contains(boss.userId());
+        assertThat(links.provenance(realm, "corp", "ext-sub")).contains(LinkProvenance.SELF);
         assertThat(adminRolesStatus(brokerLogin())).isEqualTo(200);
     }
 
     @Test
     void theAccountConsoleLinkRefusesAnIdentityOfSomeoneElse() {
         final E2eSeed.SeededUser other = seed().user(realm, E2eSeed.unique("other"), PASSWORD);
-        links.link("corp", "ext-sub", other.userId(), LinkProvenance.JIT);
+        links.link(realm, "corp", "ext-sub", other.userId(), LinkProvenance.JIT);
         final E2eSeed.SeededUser boss = realmAdminUser();
         final E2eHttp browser = E2eAdminSession.login(newBrowser(), realm, boss.username(), PASSWORD).http();
         final String account = "/realms/" + realm + "/account";
@@ -175,7 +179,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         nonce.set(q.get("nonce"));
         browser.get("/realms/" + realm + "/broker/corp/callback?code=x&state=" + enc(q.get("state")));
 
-        assertThat(links.findLinkedUser("corp", "ext-sub")).contains(other.userId());
+        assertThat(links.findLinkedUser(realm, "corp", "ext-sub")).contains(other.userId());
     }
 
     @Test
@@ -191,7 +195,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
     @Test
     void aRealmAdminConfirmsALink_andRevokingTrustBlocksTheSignIn() {
         final E2eSeed.SeededUser boss = realmAdminUser();
-        links.link("corp", "ext-sub", boss.userId(), LinkProvenance.AUTO);
+        links.link(realm, "corp", "ext-sub", boss.userId(), LinkProvenance.AUTO);
         assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
 
         final String path = base() + "/users/" + boss.userId() + "/federated-identities";
@@ -204,7 +208,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         assertThat(listed.path("canManageTrust").asBoolean()).isTrue();
         assertThat(listed.path("identities").get(0).path("createdVia").asText()).isEqualTo("AUTO");
         assertThat(ra.post(path + "/corp/confirm", Map.of()).status()).isEqualTo(204);
-        assertThat(links.provenance("corp", "ext-sub")).contains(LinkProvenance.ADMIN_CONFIRMED);
+        assertThat(links.provenance(realm, "corp", "ext-sub")).contains(LinkProvenance.ADMIN_CONFIRMED);
         assertThat(adminRolesStatus(brokerLogin())).isEqualTo(200);
 
         assertThat(mu.post(path + "/corp/revoke-trust", Map.of()).status()).isEqualTo(403);
@@ -212,6 +216,63 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
         assertThat(audited("FEDERATED_LINK_CONFIRMED")).isTrue();
         assertThat(audited("FEDERATED_LINK_TRUST_REVOKED")).isTrue();
+    }
+
+    // ------------------------------------------------------------------------------------- realm scope
+
+    @Test
+    void aRealmAdminCannotTrustALinkOfSomeoneWhoIsAnAdminElsewhere() {
+        final E2eAdminSession ra = realmAdmin();
+        // An administrator of master who is also a member of this realm.
+        final E2eSeed.SeededUser boss = seed().user("master", E2eSeed.unique("mboss"), PASSWORD);
+        adminElsewhere(boss, "master");
+        links.link(realm, "corp", "boss-sub", boss.userId(), LinkProvenance.AUTO);
+        final String bossPath = base() + "/users/" + boss.userId() + "/federated-identities/corp";
+        assertThat(ra.post(bossPath + "/confirm", Map.of()).status()).isEqualTo(403);
+        assertThat(links.provenance(realm, "corp", "boss-sub")).contains(LinkProvenance.AUTO);
+
+        // An administrator of another realm who is also a member of this one.
+        final String other = E2eSeed.unique("plinkb");
+        seed().realm(other);
+        final E2eSeed.SeededUser bAdmin = seed().user(other, E2eSeed.unique("badmin"), PASSWORD);
+        adminElsewhere(bAdmin, other);
+        links.link(realm, "corp", "b-sub", bAdmin.userId(), LinkProvenance.AUTO);
+        assertThat(ra.post(base() + "/users/" + bAdmin.userId() + "/federated-identities/corp/confirm", Map.of())
+                .status()).isEqualTo(403);
+        assertThat(ra.post(base() + "/users/" + bAdmin.userId() + "/federated-identities/corp/revoke-trust", Map.of())
+                .status()).isEqualTo(403);
+
+        // A master admin may.
+        assertThat(admin.post(bossPath + "/confirm", Map.of()).status()).isEqualTo(204);
+    }
+
+    @Test
+    void aLinkOfOneRealmDoesNotSignAnyoneInToAnother() throws Exception {
+        final String other = E2eSeed.unique("plinkb");
+        seed().realm(other);
+        createCorp(other);
+        Thread.sleep(1500);
+        final E2eSeed.SeededUser bAdmin = seed().user(other, E2eSeed.unique("badmin"), PASSWORD);
+        adminElsewhere(bAdmin, other);
+        // Linked (trusted) in this realm only.
+        links.link(realm, "corp", "ext-sub", bAdmin.userId(), LinkProvenance.LEGACY);
+
+        assertThat(adminRolesStatus(brokerLogin(other), other)).isNotEqualTo(200);
+        assertThat(links.findLinkedUser(other, "corp", "ext-sub")).isNotEqualTo(java.util.Optional.of(bAdmin.userId()));
+        assertThat(links.findLinkedUser(realm, "corp", "ext-sub")).contains(bAdmin.userId());
+    }
+
+    @Test
+    void aLinkOfALiveUserOfAnotherRealmIsNeverTakenOver() {
+        final String other = E2eSeed.unique("plinkb");
+        seed().realm(other);
+        final E2eSeed.SeededUser stranger = seed().user(other, E2eSeed.unique("stranger"), PASSWORD);
+        links.link(realm, "corp", "ext-sub", stranger.userId(), LinkProvenance.JIT);
+        final E2eSeed.SeededUser boss = realmAdminUser();
+        final var outcome = context.getBean(io.helixiam.authorization.service.federation.FederatedIdentityService.class)
+                .claimLink(realm, "corp", "ext-sub", boss.userId(), LinkProvenance.SELF);
+        assertThat(outcome.ownerUserId()).isEqualTo(stranger.userId());
+        assertThat(links.findLinkedUser(realm, "corp", "ext-sub")).contains(stranger.userId());
     }
 
     // ------------------------------------------------------------------------------------- helix-cli
@@ -244,17 +305,50 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
     // ------------------------------------------------------------------------------------- helpers
 
     private E2eHttp brokerLogin() {
+        return brokerLogin(realm);
+    }
+
+    private E2eHttp brokerLogin(final String inRealm) {
         final E2eHttp browser = newBrowser();
-        final E2eHttp.Response start = browser.get("/realms/" + realm + "/broker/corp");
+        final E2eHttp.Response start = browser.get("/realms/" + inRealm + "/broker/corp");
         final Map<String, String> q = OidcFlow.query(java.net.URI.create(start.header("Location").orElse("")));
         nonce.set(q.get("nonce"));
-        browser.followRedirects(browser.get("/realms/" + realm + "/broker/corp/callback?code=x&state="
+        browser.followRedirects(browser.get("/realms/" + inRealm + "/broker/corp/callback?code=x&state="
                 + enc(q.get("state"))));
         return browser;
     }
 
     private int adminRolesStatus(final E2eHttp browser) {
-        return browser.get(base() + "/admin-roles", "Accept", "application/json").status();
+        return adminRolesStatus(browser, realm);
+    }
+
+    private int adminRolesStatus(final E2eHttp browser, final String inRealm) {
+        return browser.get("/admin/realms/" + inRealm + "/admin-roles", "Accept", "application/json").status();
+    }
+
+    /** Makes {@code user} an administrator of {@code inRealm} (role {@code admin}) and a member of this realm too. */
+    private void adminElsewhere(final E2eSeed.SeededUser user, final String inRealm) {
+        String role = null;
+        for (final JsonNode r : admin.get("/admin/realms/" + inRealm + "/roles").json()) {
+            if ("admin".equals(r.path("name").asText())) {
+                role = r.path("roleId").asText();
+            }
+        }
+        assertThat(admin.post("/admin/realms/" + inRealm + "/users/" + user.userId() + "/roles",
+                Map.of("roleId", role)).status()).isBetween(200, 204);
+        member(user.userId(), realm);
+    }
+
+    private void member(final String userId, final String inRealm) {
+        new org.springframework.transaction.support.TransactionTemplate(
+                context.getBean(org.springframework.transaction.PlatformTransactionManager.class))
+                .executeWithoutResult(t -> {
+                    final io.helixiam.authorization.domain.tenant.TenantUser link =
+                            new io.helixiam.authorization.domain.tenant.TenantUser();
+                    link.setUserId(userId);
+                    link.setTenantId(inRealm);
+                    context.getBean(io.helixiam.authorization.repository.tenant.TenantUserRepository.class).save(link);
+                });
     }
 
     /** Whether the realm's audit log holds an event of {@code type} (persisted asynchronously). */

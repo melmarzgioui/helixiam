@@ -26,6 +26,10 @@ public class FederatedLinkEntity {
     @Column(name = "id")
     private String id;
 
+    /** Round 6: the realm the link belongs to; a link signs its user in only there. */
+    @Column(name = "realm_id")
+    private String realmId;
+
     @Column(name = "idp_alias")
     private String idpAlias;
 
@@ -54,16 +58,27 @@ public class FederatedLinkEntity {
     public FederatedLinkEntity() {
     }
 
+    /** A link of unknown realm (tests and pre-rc.12 shapes only); production code names the realm. */
     public FederatedLinkEntity(final String idpAlias, final String externalSubject, final String userId) {
-        this.id = key(idpAlias, externalSubject);
+        this(null, idpAlias, externalSubject, userId);
+    }
+
+    public FederatedLinkEntity(final String realmId, final String idpAlias, final String externalSubject,
+                               final String userId) {
+        this.id = key(realmId, idpAlias, externalSubject);
+        this.realmId = realmId;
         this.idpAlias = idpAlias;
         this.externalSubject = externalSubject;
         this.userId = userId;
     }
 
-    /** The surrogate primary key for an (alias, subject) pair. */
-    public static String key(final String idpAlias, final String externalSubject) {
-        return idpAlias + "|" + externalSubject;
+    /** The surrogate primary key of a (realm, alias, subject) link. */
+    public static String key(final String realmId, final String idpAlias, final String externalSubject) {
+        return realmId == null ? idpAlias + "|" + externalSubject : realmId + "|" + idpAlias + "|" + externalSubject;
+    }
+
+    public String getRealmId() {
+        return realmId;
     }
 
     public String getId() {

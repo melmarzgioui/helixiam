@@ -89,7 +89,7 @@ class GdprAdminServiceTest {
         when(organizations.findById("org-1")).thenReturn(Optional.of(new Organization("gov", "Acme", "Acme Corp", null, true)));
         when(credentials.list("u-1")).thenReturn(List.of(
                 new CredentialSummary("totp", "totp", "Authenticator app (TOTP)", "Time-based", null, null, true)));
-        when(federatedLinks.findAllByUserId("u-1")).thenReturn(List.of(new FederatedLinkEntity("google", "ext-123", "u-1")));
+        when(federatedLinks.findAllByRealmIdAndUserId(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq("u-1"))).thenReturn(List.of(new FederatedLinkEntity("google", "ext-123", "u-1")));
         when(consents.list("gov", "u-1")).thenReturn(List.of(
                 new GdprConsentRecordDto("c-1", "gov", "u-1", "portal", List.of("openid"), 1L, null)));
 
@@ -210,7 +210,7 @@ class GdprAdminServiceTest {
         final UserCredentials user = user("u-1", "alice", "alice@example.com");
         when(tenantUsers.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(tenantUser("gov", "u-1")));
         when(users.findByUserId("u-1")).thenReturn(Optional.of(user));
-        when(federatedLinks.findAllByUserId("u-1")).thenReturn(List.of(new FederatedLinkEntity("corp", "ext-123", "u-1")));
+        when(federatedLinks.findAllByRealmIdAndUserId(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq("u-1"))).thenReturn(List.of(new FederatedLinkEntity("corp", "ext-123", "u-1")));
 
         final GdprExportDto export = service.export("gov", "u-1");
 
@@ -225,7 +225,7 @@ class GdprAdminServiceTest {
         when(tenantUsers.findByTenantIdAndUserId("gov", "u-1")).thenReturn(Optional.of(tenantUser("gov", "u-1")));
         when(users.findByUserId("u-1")).thenReturn(Optional.of(user));
         final FederatedLinkEntity corp = new FederatedLinkEntity("corp", "ext-123", "u-1");
-        when(federatedLinks.findAllByUserId("u-1")).thenReturn(List.of(corp));
+        when(federatedLinks.findAllByRealmIdAndUserId(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq("u-1"))).thenReturn(List.of(corp));
 
         service.erase(new GdprEraseDto("gov", "u-1", "anonymize"));
 
@@ -238,7 +238,7 @@ class GdprAdminServiceTest {
         final UserCredentials user = user("u-1", "alice", "alice@example.com");
         when(tenantUsers.findByTenantIdAndUserId("third", "u-1")).thenReturn(Optional.of(tenantUser("third", "u-1")));
         when(users.findByUserId("u-1")).thenReturn(Optional.of(user));
-        when(federatedLinks.findAllByUserId("u-1")).thenReturn(List.of(new FederatedLinkEntity("corp", "ext-123", "u-1")));
+        when(federatedLinks.findAllByRealmIdAndUserId(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq("u-1"))).thenReturn(List.of(new FederatedLinkEntity("corp", "ext-123", "u-1")));
 
         // Realm "third" has no "corp": any realm's wallet of that alias still keeps the subject out (fail safe).
         assertNull(service.export("third", "u-1").federatedLinks().get(0).externalSubject());

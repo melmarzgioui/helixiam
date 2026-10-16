@@ -18,4 +18,13 @@ public interface TenantUserRepository extends JpaRepository<TenantUser, String> 
     List<TenantUser> findAllByTenantId(final String tenantId);
 
     List<TenantUser> findAllByUserId(final String userId);
+
+    /**
+     * Round 6: the realms a user belongs to, without loading the entities (their profile collection is shared between
+     * a user's memberships, which Hibernate refuses to flush in a session that loaded two of them).
+     */
+    @org.springframework.data.jpa.repository.Query("select t.tenantId from TenantUser t where t.userId = :userId")
+    List<String> findTenantIdsByUserId(@org.springframework.data.repository.query.Param("userId") String userId);
+
+    boolean existsByTenantIdAndUserId(String tenantId, String userId);
 }

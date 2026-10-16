@@ -423,10 +423,18 @@ service layer, so REST and import share the check. The table, with a guard or a 
   the realm's sign-in policy settings need realm-admin; registering a push device for a user needs that user's
   permissions; deleting a group or role, or moving a group, needs the permissions it grants.
 - **Route level:** manage-X satisfies view-X routes (users, clients, identity providers, events).
+- **No lockout on upgrade (ruling).** Links that exist at the upgrade are grandfathered (`LEGACY`, trusted) and every
+  administrator with one is reported at start-up (`PRIVILEGED_LEGACY_LINK`); a realm admin can revoke trust in one.
+  New administrator links come from the account console's link flow (fresh sign-in, link intent bound to the session
+  and the broker `state`, `SELF`) or a realm admin's confirmation (`ADMIN_CONFIRMED`). Refusals are audited
+  (`PRIVILEGED_LINK_REFUSED`). The `helix-cli` reconcile corrects only what widens the built-in client.
 
 Tests: `SignInSurfaceE2eTest` (one scenario per guarded row: the lower admin gets 403, a realm admin of the realm
 gets 2xx, import leaves the protected value unchanged; the IdP takeover is replayed against a stub IdP, AUTO refused and
-JIT accepted), `IdentityBrokerTest`, `LinkProvenanceTest`, `FlywayRealmKeyCertificatesTest` (provenance backfill).
+JIT accepted), `PrivilegedLinkE2eTest` (grandfathered admin still signs in and is reported; a new e-mail link is
+refused and audited; the self-link flow needs a fresh sign-in, writes SELF and then signs in; an identity of someone
+else is refused; confirm and revoke trust; narrowed vs widened `helix-cli`), `IdentityBrokerTest`, `LinkProvenanceTest`,
+`FlywayRealmKeyCertificatesTest` (provenance backfill).
 
 ---
 

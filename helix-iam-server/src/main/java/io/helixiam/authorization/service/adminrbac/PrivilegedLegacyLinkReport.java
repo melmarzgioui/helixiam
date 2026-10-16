@@ -41,6 +41,7 @@ public class PrivilegedLegacyLinkReport implements ApplicationRunner {
     }
 
     private final FederatedLinkService links;
+    @SuppressWarnings("unused") // kept for the constructor signature (Spring wiring)
     private final TenantUserRepository memberships;
     private final UserCredentialsRepository users;
     private final PrivilegedPrincipalGuard guard;
@@ -69,20 +70,21 @@ public class PrivilegedLegacyLinkReport implements ApplicationRunner {
     public List<Finding> check() {
         final List<Finding> found = new ArrayList<>();
         for (final FederatedLinkEntity link : links.legacyLinks()) {
-            for (final TenantUser m : memberships.findAllByUserId(link.getUserId())) {
-                final String realm = m.getTenantId();
-                if (realm == null || !guard.isAdmin(realm, link.getUserId())) {
-                    continue;
-                }
-                final String username = users.findById(link.getUserId()).map(u -> u.getUsername()).orElse("?");
-                found.add(new Finding(realm, username, link.getUserId(), link.getIdpAlias()));
-                LOG.warn("Realm {}: administrator '{}' signs in through identity provider '{}' with a link made before "
-                                + "rc.12 (grandfathered). Review it; revoke trust if it is not theirs.",
-                        LogSafe.sanitize(realm), LogSafe.sanitize(username), LogSafe.sanitize(link.getIdpAlias()));
-                audit.emit(AuditEvent.admin(AuditContext.nowIso(), "PRIVILEGED_LEGACY_LINK", realm, "system", null,
-                        "user", username, "SUCCESS",
-                        Map.of("username", username, "idpAlias", link.getIdpAlias())));
+            final String realm = link.getRealmId();
+            if (realm == null || !guard.isAdmin(realm, link.getUserId())) {
+                continue;
             }
+            final String username = users.findById(link.getUserId()).map(u -> u.getUsername()).orElse("?");
+            found.add(new Finding(realm, username, link.getUserId(), link.getIdpAlias()));
+            LOG.warn("Realm {}: administrator '{}' signs in through identity provider '{}' with a link made before "
+                            + "rc.12 (grandfathered). Review it; revoke trust if it is not theirs.",
+                    LogSafe.sanitize(realm), LogSafe.sanitize(username), LogSafe.sanitize(link.getIdpAlias()));
+            audit.emit(AuditEvent.admin(AuditContext.nowIso(), "PRIVILEGED_LEGACY_LINK", realm, "system", null,
+                    "user", username, "SUCCESS", Map.of("username", username, "idpAlias", link.getIdpAlias())));
+        }
+        for (final FederatedLinkEntity link : links.linksWithoutRealm()) {
+            LOG.warn("A federated link of provider '{}' could not be placed in a realm by the upgrade and signs no one "
+                    + "in. Link the provider again from the account console.", LogSafe.sanitize(link.getIdpAlias()));
         }
         return found;
     }

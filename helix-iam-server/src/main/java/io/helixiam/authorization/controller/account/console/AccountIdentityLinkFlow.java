@@ -104,7 +104,7 @@ public class AccountIdentityLinkFlow {
 
     /** The realm's providers a user can link here (sign-in capable OIDC, SAML and social; wallets have their own). */
     public List<Row> rows(final String realm, final String userId) {
-        final Set<String> linked = userId == null ? Set.of() : links.linksOf(userId).stream()
+        final Set<String> linked = userId == null ? Set.of() : links.linksOf(realm, userId).stream()
                 .map(l -> l.getIdpAlias()).filter(Objects::nonNull).collect(Collectors.toSet());
         return registry.signInMetadatas(realm).stream().filter(m -> LINKABLE.contains(m.protocol()))
                 .map(m -> new Row(m.alias(), m.displayName() == null ? m.alias() : m.displayName(),
@@ -195,7 +195,8 @@ public class AccountIdentityLinkFlow {
                 case CREATED -> Outcome.LINKED;
                 case ALREADY_LINKED -> {
                     // The user proved control of an identity already linked to them: it now counts as self-made.
-                    links.link(intent.alias(), identity.externalSubject(), intent.userId(), LinkProvenance.SELF);
+                    links.link(intent.realm(), intent.alias(), identity.externalSubject(), intent.userId(),
+                            LinkProvenance.SELF);
                     yield Outcome.ALREADY_LINKED;
                 }
                 case LINKED_TO_ANOTHER_USER -> Outcome.TAKEN;

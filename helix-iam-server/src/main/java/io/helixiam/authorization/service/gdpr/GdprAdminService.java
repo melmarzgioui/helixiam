@@ -128,7 +128,8 @@ public class GdprAdminService {
                 .map(GdprAdminService::toMeta)
                 .toList();
 
-        final List<GdprFederatedLink> federated = federatedLinks.findAllByUserId(userId).stream()
+        // Round 6: links are realm-scoped; the export of a realm holds that realm's links.
+        final List<GdprFederatedLink> federated = federatedLinks.findAllByRealmIdAndUserId(realmId, userId).stream()
                 .map(row -> toFederatedLink(realmId, row))
                 .toList();
 
@@ -191,7 +192,7 @@ public class GdprAdminService {
         // the realm's pepper can still resolve back through WalletLinkService; leaving it in place after erasure
         // would keep a live route from "the wallet holder" to the now-anonymized account. Non-wallet links (OIDC,
         // SAML, eID) are untouched, matching anonymize's existing scope (roles/org memberships also survive).
-        federatedLinks.findAllByUserId(erase.userId()).stream()
+        federatedLinks.findAllByRealmIdAndUserId(erase.realmId(), erase.userId()).stream()
                 .filter(row -> isWalletAlias(erase.realmId(), row.getIdpAlias()))
                 .forEach(federatedLinks::delete);
 

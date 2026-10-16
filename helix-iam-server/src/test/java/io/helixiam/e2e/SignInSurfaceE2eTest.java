@@ -64,7 +64,7 @@ class SignInSurfaceE2eTest extends AbstractE2eTest {
         final E2eSeed.SeededUser victim = realmAdminUser();
         assertThat(admin.post(base() + "/identity-providers", idp("corp", corp("https://corp.example"))).status())
                 .isEqualTo(201);
-        context.getBean(FederatedLinkService.class).link("corp", "victim-sub", victim.userId(), LinkProvenance.JIT);
+        context.getBean(FederatedLinkService.class).link(realm, "corp", "victim-sub", victim.userId(), LinkProvenance.JIT);
         assertThat(admin.post(base() + "/identity-providers", idp("other", corp("https://other.example"))).status())
                 .isEqualTo(201);
 
@@ -117,12 +117,12 @@ class SignInSurfaceE2eTest extends AbstractE2eTest {
             final FederatedLinkService links = context.getBean(FederatedLinkService.class);
 
             // A link made by matching an e-mail address (or of unknown origin) never signs in an administrator.
-            links.link("corp", "victim-sub", victim.userId(), LinkProvenance.AUTO);
+            links.link(realm, "corp", "victim-sub", victim.userId(), LinkProvenance.AUTO);
             assertThat(brokerLogin(nonce).get(base() + "/admin-roles", "Accept", "application/json").status())
                     .isNotEqualTo(200);
 
             // A link the administrator made themselves (here: the sign-in that created the account) does.
-            links.link("corp", "victim-sub", victim.userId(), LinkProvenance.JIT);
+            links.link(realm, "corp", "victim-sub", victim.userId(), LinkProvenance.JIT);
             assertThat(brokerLogin(nonce).get(base() + "/admin-roles", "Accept", "application/json").status())
                     .isEqualTo(200);
         } finally {

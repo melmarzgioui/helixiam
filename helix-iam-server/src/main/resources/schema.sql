@@ -170,9 +170,12 @@ CREATE TABLE IF NOT EXISTS federated_link (
     user_id           character varying(255) NOT NULL,
     creation_date     timestamp DEFAULT CURRENT_TIMESTAMP,
     -- Round 6 (V86): JIT, AUTO, SELF, WALLET, ADMIN_CONFIRMED or LEGACY; AUTO links never sign in an administrator.
-    created_via       character varying(16)
+    created_via       character varying(16),
+    -- Round 6 (V86): the realm the link belongs to; the key is (realm_id, idp_alias, external_subject).
+    realm_id          character varying(255)
     );
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
 CREATE INDEX IF NOT EXISTS federated_link_user_idx ON federated_link (user_id);
 CREATE INDEX IF NOT EXISTS federated_link_alias_idx ON federated_link (idp_alias);
 
@@ -1261,3 +1264,31 @@ CREATE TRIGGER realm_config_delete_wallet_secrets
     AFTER DELETE ON realm_config
     FOR EACH ROW
     EXECUTE FUNCTION helix_delete_wallet_secrets_for_realm();
+
+-- Round 6 (V86), at the end because it reads identity_provider, user_credentials.realm_id and tenant_user.
+-- Round 6: links are realm-scoped (key: realm_id, idp_alias, external_subject); a link signs its user in only in its
+-- realm. Backfill: the realm whose identity_provider owns the alias when exactly one does; otherwise (an alias in
+-- several realms, or a provider from configuration files) the user's home realm, else their only realm membership.
+-- Rows still without a realm sign no one in and are reported at start-up. Idempotent.
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
+UPDATE federated_link f SET realm_id = p.realm_id
+  FROM (SELECT alias, min(realm_id) AS realm_id FROM identity_provider GROUP BY alias
+        HAVING count(DISTINCT realm_id) = 1) p
+ WHERE f.realm_id IS NULL AND p.alias = f.idp_alias;
+UPDATE federated_link f SET realm_id = u.realm_id
+  FROM user_credentials u
+ WHERE f.realm_id IS NULL AND u.user_id = f.user_id AND u.realm_id IS NOT NULL;
+UPDATE federated_link f SET realm_id = t.tenant_id
+  FROM (SELECT user_id, min(tenant_id) AS tenant_id FROM tenant_user GROUP BY user_id HAVING count(*) = 1) t
+ WHERE f.realm_id IS NULL AND t.user_id = f.user_id;
+UPDATE federated_link SET id = realm_id || '|' || idp_alias || '|' || external_subject
+ WHERE realm_id IS NOT NULL AND id = idp_alias || '|' || external_subject;
+CREATE UNIQUE INDEX IF NOT EXISTS federated_link_realm_subject_uidx
+    ON federated_link (realm_id, idp_alias, external_subject);
+CREATE INDEX IF NOT EXISTS federated_link_realm_user_idx ON federated_link (realm_id, user_id);
+-- Round 6 (V86): pre-upgrade links are grandfathered (wallet links WALLET, every other LEGACY). Idempotent.
+UPDATE federated_link f SET created_via = 'WALLET'
+ WHERE f.created_via IS NULL
+   AND EXISTS (SELECT 1 FROM identity_provider p
+                WHERE p.alias = f.idp_alias AND lower(p.protocol) IN ('eudi-wallet', 'openid4vp', 'wallet'));
+UPDATE federated_link SET created_via = 'LEGACY' WHERE created_via IS NULL;

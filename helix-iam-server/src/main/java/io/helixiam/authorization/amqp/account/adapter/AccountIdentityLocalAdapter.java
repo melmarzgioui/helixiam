@@ -32,11 +32,13 @@ public class AccountIdentityLocalAdapter implements AccountIdentityPublisher {
 
     @Override
     public List<FederatedLinkDto> list(final String userId) {
-        return bridge.to(links.linksForUser(userId), new TypeReference<List<FederatedLinkDto>>() { });
+        return bridge.to(links.linksForUser(io.helixiam.authorization.security.realm.RealmContextHolder.get(), userId),
+                new TypeReference<List<FederatedLinkDto>>() { });
     }
 
     @Override
     public Boolean unlink(final AccountUnlinkRef ref) {
-        return links.unlink(ref.userId(), ref.idpAlias());
+        return links.unlink(io.helixiam.authorization.security.realm.RealmContextHolder.get(), ref.userId(),
+                ref.idpAlias());
     }
 }

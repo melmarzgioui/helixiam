@@ -139,32 +139,48 @@ class FlywayRealmKeyCertificatesTest {
     }
 
     @Test
-    void v86_grandfathersExistingFederatedLinks() throws Exception {
+    void v86_grandfathersExistingFederatedLinks_andPlacesThemInARealm() throws Exception {
         final PostgreSQLContainer<?> db = POSTGRES;
         final DriverManagerDataSource ds = new DriverManagerDataSource(db.getJdbcUrl(), db.getUsername(), db.getPassword());
         final JdbcTemplate jdbc = new JdbcTemplate(ds);
         jdbc.execute("DROP SCHEMA public CASCADE");
         jdbc.execute("CREATE SCHEMA public");
         Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("85").load().migrate();
-        final String user = "INSERT INTO user_credentials (user_id, username, creation_date) VALUES (?, ?, ?)";
-        jdbc.update(user, "u-jit", "jit", java.sql.Timestamp.valueOf("2026-01-01 10:00:00"));
-        jdbc.update(user, "u-old", "old", java.sql.Timestamp.valueOf("2025-01-01 10:00:00"));
-        jdbc.update("INSERT INTO identity_provider (id, realm_id, alias, protocol, config_json) "
-                + "VALUES ('acme|wallet', 'acme', 'wallet', 'eudi-wallet', '{}')");
-        final String link = "INSERT INTO federated_link (id, idp_alias, external_subject, user_id, creation_date) "
-                + "VALUES (?, ?, ?, ?, ?)";
-        jdbc.update(link, "corp|a", "corp", "a", "u-jit", java.sql.Timestamp.valueOf("2026-01-01 10:00:30"));
-        jdbc.update(link, "corp|b", "corp", "b", "u-old", java.sql.Timestamp.valueOf("2026-01-01 10:00:00"));
-        jdbc.update(link, "wallet|c", "wallet", "c", "u-old", java.sql.Timestamp.valueOf("2026-01-01 10:00:00"));
+        final String user = "INSERT INTO user_credentials (user_id, username, realm_id, creation_date) VALUES (?, ?, ?, ?)";
+        jdbc.update(user, "u-a", "ada", "acme", java.sql.Timestamp.valueOf("2026-01-01 10:00:00"));
+        jdbc.update(user, "u-b", "bob", "beta", java.sql.Timestamp.valueOf("2025-01-01 10:00:00"));
+        final String idp = "INSERT INTO identity_provider (id, realm_id, alias, protocol, config_json) VALUES (?, ?, ?, ?, '{}')";
+        // "corp" exists in two realms; "wallet" and "okta" in one each.
+        jdbc.update(idp, "acme|corp", "acme", "corp", "oidc");
+        jdbc.update(idp, "beta|corp", "beta", "corp", "oidc");
+        jdbc.update(idp, "acme|wallet", "acme", "wallet", "eudi-wallet");
+        jdbc.update(idp, "beta|okta", "beta", "okta", "oidc");
+        final String link = "INSERT INTO federated_link (id, idp_alias, external_subject, user_id) VALUES (?, ?, ?, ?)";
+        jdbc.update(link, "corp|a", "corp", "a", "u-a");
+        jdbc.update(link, "corp|b", "corp", "b", "u-b");
+        jdbc.update(link, "wallet|c", "wallet", "c", "u-b");
+        jdbc.update(link, "okta|d", "okta", "d", "u-a");
 
         Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
 
-        assertThat(jdbc.queryForMap("SELECT "
-                + "(SELECT created_via FROM federated_link WHERE id = 'corp|a') AS jit, "
-                + "(SELECT created_via FROM federated_link WHERE id = 'corp|b') AS auto, "
-                + "(SELECT created_via FROM federated_link WHERE id = 'wallet|c') AS wallet"))
-                // Grandfathered: every pre-upgrade link keeps signing its user in (LEGACY), wallet links are WALLET.
-                .containsEntry("jit", "LEGACY").containsEntry("auto", "LEGACY").containsEntry("wallet", "WALLET");
+        final java.util.Map<String, String> realms = new java.util.HashMap<>();
+        final java.util.Map<String, String> via = new java.util.HashMap<>();
+        final java.util.Map<String, String> ids = new java.util.HashMap<>();
+        jdbc.query("SELECT id, realm_id, external_subject, created_via FROM federated_link", rs -> {
+            realms.put(rs.getString("external_subject"), rs.getString("realm_id"));
+            via.put(rs.getString("external_subject"), rs.getString("created_via"));
+            ids.put(rs.getString("external_subject"), rs.getString("id"));
+        });
+        // An alias in two realms falls back to the user's home realm; an alias of one realm is that realm.
+        assertThat(realms).containsEntry("a", "acme").containsEntry("b", "beta").containsEntry("c", "acme")
+                .containsEntry("d", "beta");
+        assertThat(ids).containsEntry("a", "acme|corp|a").containsEntry("d", "beta|okta|d");
+        // Grandfathered: every pre-upgrade link keeps signing its user in (LEGACY), wallet links are WALLET.
+        assertThat(via).containsEntry("a", "LEGACY").containsEntry("b", "LEGACY").containsEntry("c", "WALLET")
+                .containsEntry("d", "LEGACY");
+        // The same subject of the same provider may now be linked in two realms.
+        jdbc.update("INSERT INTO federated_link (id, realm_id, idp_alias, external_subject, user_id, created_via) "
+                + "VALUES ('beta|corp|a', 'beta', 'corp', 'a', 'u-b', 'JIT')");
     }
 
     @Test

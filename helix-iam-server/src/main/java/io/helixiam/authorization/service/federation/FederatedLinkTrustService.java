@@ -37,6 +37,13 @@ public class FederatedLinkTrustService {
     }
 
     private final FederatedLinkService links;
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
+    }
     private final TenantUserRepository memberships;
     private final AdminGrantGuard grants;
     private final AuditLog audit;
@@ -54,7 +61,7 @@ public class FederatedLinkTrustService {
         if (!member(realmId, userId)) {
             return null;
         }
-        return links.linksOf(userId).stream().map(FederatedLinkTrustService::view).toList();
+        return links.linksOf(realmId, userId).stream().map(FederatedLinkTrustService::view).toList();
     }
 
     /** Marks the user's links of {@code alias} confirmed by a realm admin; false when there are none. */
@@ -75,7 +82,12 @@ public class FederatedLinkTrustService {
         if (!member(realmId, userId)) {
             return false;
         }
-        final int changed = links.setProvenance(userId, alias, via);
+        // The link signs the user in to this realm only, but as whoever the user is: an administrator of another
+        // realm (or of master) is one here too. Trusting or distrusting it needs the user's permissions everywhere.
+        if (privileged != null) {
+            privileged.requireMayActOnUserEverywhere(userId, what);
+        }
+        final int changed = links.setProvenance(realmId, userId, alias, via);
         LOG.info("{} {} of user {} in realm {}: {} link(s)", what, LogSafe.sanitize(alias), LogSafe.sanitize(userId),
                 LogSafe.sanitize(realmId), changed);
         audit.emit(AuditEvent.admin(AuditContext.nowIso(), type, realmId, AuditContext.adminActor(), null, "user",
@@ -85,7 +97,7 @@ public class FederatedLinkTrustService {
     }
 
     private boolean member(final String realmId, final String userId) {
-        return memberships.findByTenantIdAndUserId(realmId, userId).isPresent();
+        return memberships.existsByTenantIdAndUserId(realmId, userId);
     }
 
     private static LinkView view(final FederatedLinkEntity l) {

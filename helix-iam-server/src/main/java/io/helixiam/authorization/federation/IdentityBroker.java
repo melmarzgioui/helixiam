@@ -51,7 +51,7 @@ public class IdentityBroker {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setLinkService(final io.helixiam.authorization.service.federation.FederatedLinkService links) {
-        this.provenance = links::provenance;
+        this.provenance = (alias, subject) -> links.provenance(currentRealm(), alias, subject);
     }
 
     /** Round 6: where refused administrator sign-ins are audited, and how a user id reads as a name. */
@@ -90,6 +90,11 @@ public class IdentityBroker {
         } catch (final RuntimeException e) {
             LOG.debug("Could not audit a refused federated sign-in: {}", e.getClass().getSimpleName());
         }
+    }
+
+    private static String currentRealm() {
+        final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+        return realm == null ? "master" : realm;
     }
 
     /** Tests: the provenance lookup. */
