@@ -71,6 +71,44 @@ public class AccountIdentityLinkController {
         return stepUp != null ? stepUp : start(member.get(), request);
     }
 
+    @GetMapping("/account/identities/unlink")
+    public String unlinkForm(@AuthenticationPrincipal final UserCredentials principal,
+                             @RequestParam(required = false) final String alias, final org.springframework.ui.Model model,
+                             final RedirectAttributes flash) {
+        final Optional<UserAdminDto> member = support.member(principal);
+        if (member.isEmpty()) {
+            return "redirect:/login";
+        }
+        final String realm = AccountConsoleSupport.realm();
+        if (alias == null || !flow.linkable(realm, alias)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        if (!flow.isLinked(realm, member.get().userId(), alias)) {
+            flash.addFlashAttribute("identityError", "not-linked");
+            return BACK;
+        }
+        model.addAttribute("identityAlias", alias);
+        model.addAttribute("identityName", flow.displayName(realm, alias));
+        return "account/identity-unlink";
+    }
+
+    @PostMapping("/account/identities/unlink")
+    public String unlink(@AuthenticationPrincipal final UserCredentials principal,
+                         @RequestParam(required = false) final String alias, final HttpServletRequest request,
+                         final RedirectAttributes flash) {
+        final Optional<UserAdminDto> member = support.member(principal);
+        if (member.isEmpty()) {
+            return "redirect:/login";
+        }
+        final String realm = AccountConsoleSupport.realm();
+        if (alias == null || !flow.linkable(realm, alias)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        final int removed = flow.unlink(realm, member.get().userId(), member.get().username(), alias, request);
+        flash.addFlashAttribute(removed > 0 ? "identityStatus" : "identityError", removed > 0 ? "unlinked" : "not-linked");
+        return BACK;
+    }
+
     private String start(final UserAdminDto user, final HttpServletRequest request) {
         final HttpSession session = request.getSession(true);
         final String realm = AccountConsoleSupport.realm();

@@ -31,9 +31,9 @@ import java.util.Map;
  * <ul>
  *   <li>the alias now belongs to exactly one stored realm (database and realm config folder): the link moves there and
  *       becomes {@code LEGACY} ({@code WALLET} for a wallet provider), audited as {@code LEGACY_LINK_RESOLVED};</li>
- *   <li>otherwise, if the login's provider registry (stored, config-folder and static {@code helix.federation.*}
- *       providers) serves the alias in the link's candidate realm (the user's home realm), the link stays there and
- *       becomes {@code LEGACY} the same way: that is where it signed its user in under rc.11;</li>
+ *   <li>when no stored provider uses the alias, the login's provider registry decides: if exactly one provider
+ *       definition (a static {@code helix.federation.*} one) has the alias and it serves the link's candidate realm,
+ *       the link stays there and becomes {@code LEGACY} the same way;</li>
  *   <li>otherwise it becomes {@code AUTO} (it signs no administrator in) and the start-up report lists it as
  *       {@code AMBIGUOUS} until a realm admin confirms it.</li>
  * </ul>
@@ -101,29 +101,44 @@ public class UnresolvedLinkReconciler {
     private record Target(String realm, String via) {
     }
 
+    /**
+     * Where a link resolves, or null (AUTO, reported AMBIGUOUS). Stored providers (database and realm config folder)
+     * decide when any uses the alias: exactly one realm, and no static provider of that alias, resolves there. Only when
+     * no stored provider uses the alias does the login's registry decide: it must serve the alias in the link's
+     * candidate realm, and every realm must be served by one and the same provider definition (one issuer).
+     */
     private Target target(final String candidate, final String alias) {
         final List<Map<String, Object>> owners = jdbc.queryForList(
                 "SELECT DISTINCT realm_id, lower(protocol) AS protocol FROM identity_provider WHERE alias = ?", alias);
-        final long realms = owners.stream().map(o -> o.get("realm_id")).distinct().count();
-        if (realms == 1) {
+        final boolean isStatic = registry != null && registry.isStatic(alias);
+        if (!owners.isEmpty()) {
+            final long realms = owners.stream().map(o -> o.get("realm_id")).distinct().count();
+            if (realms != 1 || isStatic) {
+                return null; // stored in several realms, or colliding with a static provider of the same alias
+            }
             final String protocol = String.valueOf(owners.get(0).get("protocol"));
             return new Target((String) owners.get(0).get("realm_id"),
                     List.of("eudi-wallet", "openid4vp", "wallet").contains(protocol) ? LinkProvenance.WALLET
                             : LinkProvenance.LEGACY);
         }
-        // Not exactly one stored realm: ask the registry the login uses (stored, config-folder and static providers).
-        // If one provider serves the alias in the link's candidate realm, the link signed its user in there in rc.11.
-        if (registry != null && candidate != null) {
-            try {
-                final var provider = registry.get(candidate, alias);
-                return new Target(candidate, registry.isWallet(candidate, alias) || provider.metadata().protocol()
-                        == io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.WALLET
-                        ? LinkProvenance.WALLET : LinkProvenance.LEGACY);
-            } catch (final IllegalArgumentException none) {
+        if (registry == null || candidate == null) {
+            return null;
+        }
+        final List<io.helixiam.authorization.federation.spi.IdentityProvider> definitions =
+                registry.named(alias).stream().distinct().toList();
+        if (definitions.size() != 1) {
+            return null; // different definitions of the alias in different realms
+        }
+        try {
+            if (registry.get(candidate, alias) != definitions.get(0)) {
                 return null;
             }
+        } catch (final IllegalArgumentException notServed) {
+            return null;
         }
-        return null;
+        return new Target(candidate, definitions.get(0).metadata().protocol()
+                == io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.WALLET
+                ? LinkProvenance.WALLET : LinkProvenance.LEGACY);
     }
 
     private Resolution resolve(final String id, final String candidate, final String alias, final String subject,

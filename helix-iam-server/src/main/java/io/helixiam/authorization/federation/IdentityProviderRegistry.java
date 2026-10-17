@@ -182,6 +182,11 @@ public class IdentityProviderRegistry {
     }
 
     /** The provider aliases {@code realmId} serves (for the login page / admin console). */
+    /** Round 6: whether {@code alias} is a static ({@code helix.federation.*}) provider, served in every realm. */
+    public boolean isStatic(final String alias) {
+        return alias != null && staticByAlias.containsKey(alias);
+    }
+
     public Set<String> aliases(final String realmId) {
         return serving(realmId).keySet();
     }

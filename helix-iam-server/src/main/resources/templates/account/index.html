@@ -135,7 +135,10 @@
                 <div class="hx-account-head">
                     <h2 id="identities-heading" th:text="#{account.identities.heading}">Connected accounts</h2>
                 </div>
-                <p class="hx-account-note" th:text="#{account.identities.note}">Link a provider to sign in with it. You sign in at the provider to confirm it's yours.</p>
+                <p class="hx-account-note">
+                    <span th:text="#{account.identities.note}">Link a provider to sign in with it. You sign in at the provider to confirm the account is yours.</span>
+                    <span th:text="#{account.identities.stepUp}">You'll be asked to sign in again first to confirm it's you.</span>
+                </p>
                 <p class="hx-alert hx-alert-success" role="status" id="identity-status" th:if="${identityStatus != null}"
                    th:text="#{'account.identities.status.' + ${identityStatus}}">The provider is linked.</p>
                 <p class="hx-alert hx-alert-error" role="alert" id="identity-error" th:if="${identityError != null}"
@@ -144,7 +147,7 @@
                     <li th:each="p : ${identities}" th:attr="data-alias=${p.alias()}" th:classappend="${p.linked()} ? 'is-linked'">
                         <div class="hx-wallet-what">
                             <strong th:text="${p.displayName()}">Corporate sign-in</strong>
-                            <span th:text="${p.linked()} ? #{account.identities.linkedNote} : #{account.identities.unlinkedNote}">Not linked yet.</span>
+                            <span th:text="${p.linked()} ? #{account.identities.relinkHint} : #{account.identities.unlinkedNote}">Link it to sign in with this provider.</span>
                         </div>
                         <span th:if="${p.linked()}" class="hx-badge hx-badge-ok" th:text="#{account.identities.linked}">Linked</span>
                         <span th:unless="${p.linked()}" class="hx-badge hx-badge-neutral" th:text="#{account.identities.notLinked}">Not linked</span>
@@ -152,8 +155,10 @@
                             <input type="hidden" name="alias" th:value="${p.alias()}">
                             <button type="submit" class="hx-btn hx-btn-secondary"
                                     th:text="${p.linked()} ? #{account.identities.relink} : #{account.identities.link}"
-                                    th:attr="aria-label=#{account.identities.linkNamed(${p.displayName()})}">Link</button>
+                                    th:attr="aria-label=${p.linked()} ? #{account.identities.relinkNamed(${p.displayName()})} : #{account.identities.linkNamed(${p.displayName()})}">Link</button>
                         </form>
+                        <a th:if="${p.linked()}" class="hx-btn hx-btn-danger hx-wallet-action" th:href="@{/account/identities/unlink(alias=${p.alias()})}"
+                           th:text="#{account.identities.unlink}" th:attr="aria-label=#{account.identities.unlinkNamed(${p.displayName()})}">Disconnect</a>
                     </li>
                 </ul>
             </article>

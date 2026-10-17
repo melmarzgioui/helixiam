@@ -269,6 +269,12 @@ public class FederationBrokerController {
         } catch (final RuntimeException e) {
             LOG.warn("Federation: callback validation failed for provider {}: {}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
+            // Round 6: a cancelled or failed account-console link returns to the console, not to the login page.
+            if (linkFlow != null && linkFlow.take(session, alias, expectedState).isPresent()) {
+                org.springframework.web.servlet.support.RequestContextUtils.getOutputFlashMap(request)
+                        .put("identityError", "cancelled");
+                return ACCOUNT_IDENTITIES;
+            }
             return LOGIN_ERROR;
         }
         BrowserBinding.clear(session, RealmContextHolder.get(), alias);

@@ -187,6 +187,30 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    void aCancelledLinkReturnsToTheAccountConsole_andTheUserCanDisconnect() {
+        final E2eSeed.SeededUser ada = seed().user(realm, E2eSeed.unique("ada"), PASSWORD);
+        final E2eHttp browser = E2eAdminSession.login(newBrowser(), realm, ada.username(), PASSWORD).http();
+        final String account = "/realms/" + realm + "/account";
+        final E2eHttp.Response atProvider = browser.followRedirectsUntil(browser.postForm(account + "/identities/link",
+                Map.of("_csrf", E2eHttp.csrf(browser.get(account).body()), "alias", "corp")),
+                r -> r.header("Location").orElse("").startsWith(issuer));
+        final Map<String, String> q = OidcFlow.query(java.net.URI.create(atProvider.header("Location").orElse("")));
+        final E2eHttp.Response cancelled = browser.get("/realms/" + realm + "/broker/corp/callback?error=access_denied"
+                + "&state=" + enc(q.get("state")));
+        assertThat(cancelled.header("Location").orElse("")).contains("/account").doesNotContain("/login");
+        assertThat(browser.get(account).body()).contains("Linking was cancelled");
+        assertThat(links.linksOf(realm, ada.userId())).isEmpty();
+
+        links.link(realm, "corp", "ada-sub", ada.userId(), LinkProvenance.JIT);
+        final E2eHttp.Response confirm = browser.get(account + "/identities/unlink?alias=corp");
+        assertThat(confirm.body()).contains("identity-unlink-form");
+        final E2eHttp.Response done = browser.postForm(account + "/identities/unlink",
+                Map.of("_csrf", E2eHttp.csrf(confirm.body()), "alias", "corp"));
+        assertThat(done.header("Location").orElse("")).contains("/account");
+        assertThat(links.linksOf(realm, ada.userId())).isEmpty();
+    }
+
+    @Test
     void aLinkStartedWithoutTheSessionsIntentIsRefused() {
         final E2eSeed.SeededUser boss = realmAdminUser();
         final E2eHttp browser = E2eAdminSession.login(newBrowser(), realm, boss.username(), PASSWORD).http();
@@ -255,40 +279,89 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         assertThat(audited("LEGACY_LINK_RESOLVED")).isTrue();
     }
 
-    @Test
-    @SuppressWarnings("unchecked")
-    void anAdminOfAStaticProviderLinkedBeforeTheUpgradeStillSignsIn() throws Exception {
-        // A static helix.federation.* provider: in no database table, served by the registry in every realm. Test
-        // seam: take a provider instance built for another realm and register it as a static one.
-        final String alias = E2eSeed.unique("static");
+    /** A provider instance built for a scratch realm (its database row is removed unless {@code keepRow}). */
+    private io.helixiam.authorization.federation.spi.IdentityProvider providerInstance(final String alias,
+                                                                                    final boolean keepRow)
+            throws Exception {
         final String scratch = E2eSeed.unique("plinks");
         seed().realm(scratch);
         createProvider(scratch, alias);
         Thread.sleep(1500);
-        final var registry = context.getBean(io.helixiam.authorization.federation.IdentityProviderRegistry.class);
-        final var provider = registry.get(scratch, alias);
-        assertThat(admin.delete("/admin/realms/" + scratch + "/identity-providers/" + alias).status()).isEqualTo(204);
+        final var provider = context.getBean(io.helixiam.authorization.federation.IdentityProviderRegistry.class)
+                .get(scratch, alias);
+        if (!keepRow) {
+            assertThat(admin.delete("/admin/realms/" + scratch + "/identity-providers/" + alias).status())
+                    .isEqualTo(204);
+        }
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> statics() throws Exception {
         final java.lang.reflect.Field field =
                 io.helixiam.authorization.federation.IdentityProviderRegistry.class.getDeclaredField("staticByAlias");
         field.setAccessible(true);
-        final Map<String, Object> statics = (Map<String, Object>) field.get(registry);
-        statics.put(alias, provider);
+        return (Map<String, Object>) field.get(context.getBean(
+                io.helixiam.authorization.federation.IdentityProviderRegistry.class));
+    }
+
+    /** An rc.11-era admin link V86 could not place, then the reconciler; returns what it decided for the alias. */
+    private String reconcileAdminLink(final String alias, final E2eSeed.SeededUser boss) {
+        new org.springframework.transaction.support.TransactionTemplate(
+                context.getBean(org.springframework.transaction.PlatformTransactionManager.class))
+                .executeWithoutResult(t -> context.getBean(org.springframework.jdbc.core.JdbcTemplate.class).update(
+                        "INSERT INTO federated_link (id, realm_id, idp_alias, external_subject, user_id, created_via, "
+                                + "realm_ambiguous) VALUES (?, ?, ?, ?, ?, 'UNRESOLVED', true)",
+                        realm + "|" + alias + "|ext-sub", realm, alias, "ext-sub", boss.userId()));
+        return context.getBean(io.helixiam.authorization.service.federation.UnresolvedLinkReconciler.class).reconcile()
+                .stream().filter(r -> alias.equals(r.idpAlias())).map(r -> r.createdVia()).findFirst().orElse("none");
+    }
+
+    @Test
+    void anAdminOfASingleStaticProviderLinkedBeforeTheUpgradeStillSignsIn() throws Exception {
+        // Test seam: a provider instance registered as a static helix.federation.* one (no database row, every realm).
+        final String alias = E2eSeed.unique("static");
+        statics().put(alias, providerInstance(alias, false));
         try {
             final E2eSeed.SeededUser boss = realmAdminUser();
-            new org.springframework.transaction.support.TransactionTemplate(
-                    context.getBean(org.springframework.transaction.PlatformTransactionManager.class))
-                    .executeWithoutResult(t -> context.getBean(org.springframework.jdbc.core.JdbcTemplate.class).update(
-                            "INSERT INTO federated_link (id, realm_id, idp_alias, external_subject, user_id, created_via, "
-                                    + "realm_ambiguous) VALUES (?, ?, ?, ?, ?, 'UNRESOLVED', true)",
-                            realm + "|" + alias + "|ext-sub", realm, alias, "ext-sub", boss.userId()));
-
-            final var resolved = context.getBean(io.helixiam.authorization.service.federation.UnresolvedLinkReconciler.class)
-                    .reconcile();
-            assertThat(resolved).anyMatch(r -> alias.equals(r.idpAlias()) && realm.equals(r.realm())
-                    && "LEGACY".equals(r.createdVia()));
+            assertThat(reconcileAdminLink(alias, boss)).isEqualTo("LEGACY");
+            assertThat(links.provenance(realm, alias, "ext-sub")).contains(LinkProvenance.LEGACY);
             assertThat(adminRolesStatus(brokerLogin(realm, alias))).isEqualTo(200);
         } finally {
-            statics.remove(alias);
+            statics().remove(alias);
+        }
+    }
+
+    @Test
+    void aStaticProviderAndAStoredOneWithTheSameAliasStayAmbiguous() throws Exception {
+        final String alias = E2eSeed.unique("clash");
+        statics().put(alias, providerInstance(alias, false));
+        try {
+            providerInstance(alias, true); // a stored provider of the same alias in another realm
+            final E2eSeed.SeededUser boss = realmAdminUser();
+            assertThat(reconcileAdminLink(alias, boss)).isEqualTo("AUTO");
+            assertThat(adminRolesStatus(brokerLogin(realm, alias))).isNotEqualTo(200);
+        } finally {
+            statics().remove(alias);
+        }
+    }
+
+    @Test
+    void twoDifferentDefinitionsOfOneAliasStayAmbiguous() throws Exception {
+        final String alias = E2eSeed.unique("twodefs");
+        final var first = providerInstance(alias, false);
+        final var second = providerInstance(alias, false);
+        final String elsewhere = E2eSeed.unique("plinkd");
+        seed().realm(elsewhere);
+        final var registry = context.getBean(io.helixiam.authorization.federation.IdentityProviderRegistry.class);
+        statics().put(alias, first);
+        registry.reload(elsewhere, List.of(second)); // another definition of the alias, served in another realm only
+        try {
+            final E2eSeed.SeededUser boss = realmAdminUser();
+            assertThat(reconcileAdminLink(alias, boss)).isEqualTo("AUTO");
+        } finally {
+            statics().remove(alias);
+            registry.reload(elsewhere, List.of());
         }
     }
 

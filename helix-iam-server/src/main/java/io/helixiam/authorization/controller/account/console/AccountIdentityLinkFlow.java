@@ -212,6 +212,27 @@ public class AccountIdentityLinkFlow {
         return outcome;
     }
 
+    /** Whether {@code userId} has a link of the realm's {@code alias}. */
+    public boolean isLinked(final String realm, final String userId, final String alias) {
+        return links.linksOf(realm, userId).stream().anyMatch(l -> alias.equals(l.getIdpAlias()));
+    }
+
+    /** The provider's name as on the login page (the alias when it has none). */
+    public String displayName(final String realm, final String alias) {
+        return rows(realm, null).stream().filter(r -> r.alias().equals(alias)).map(Row::displayName).findFirst()
+                .orElse(alias);
+    }
+
+    /** Disconnects every link the user has of the realm's {@code alias}; audited. Returns how many were removed. */
+    public int unlink(final String realm, final String userId, final String username, final String alias,
+                      final HttpServletRequest request) {
+        final int removed = links.unlinkAll(realm, userId, alias);
+        audit.emit(request, "ACCOUNT_IDENTITY_UNLINK", realm, username, userId,
+                removed > 0 ? AccountAudit.SUCCESS : AccountAudit.FAILURE,
+                Map.of("idpAlias", alias, "removed", String.valueOf(removed)));
+        return removed;
+    }
+
     private static Optional<String> currentUserId() {
         final Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return auth != null && auth.getPrincipal() instanceof UserCredentials u ? Optional.ofNullable(u.getUserId())
