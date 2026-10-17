@@ -400,6 +400,26 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         assertThat(ra.post(path + "/corp/confirm", Map.of("externalSubject", "nobody-sub")).status()).isEqualTo(404);
     }
 
+    @Test
+    void aLinkIsNamedByItsColumns_andAliasesCannotContainTheSeparator() {
+        final E2eSeed.SeededUser v = realmAdminUser();
+        // Shares its composite id with (alias "corp|x", subject "attacker2").
+        links.link(realm, "corp", "x|attacker2", v.userId(), LinkProvenance.AUTO);
+        final String path = base() + "/users/" + v.userId() + "/federated-identities";
+        assertThat(realmAdmin().post(path + "/corp%7Cx/confirm", Map.of("externalSubject", "attacker2")).status())
+                .isEqualTo(404);
+        assertThat(links.provenance(realm, "corp", "x|attacker2")).contains(LinkProvenance.AUTO);
+
+        final Map<String, Object> idp = new LinkedHashMap<>();
+        idp.put("alias", "corp|x");
+        idp.put("protocol", "oidc");
+        idp.put("displayName", "Separator");
+        idp.put("enabled", true);
+        idp.put("config", Map.of("clientId", "helix", "issuer", issuer, "authorizationEndpoint", issuer + "/authorize",
+                "tokenEndpoint", issuer + "/token", "jwksUri", issuer + "/jwks"));
+        assertThat(admin.post(base() + "/identity-providers", idp).status()).isEqualTo(400);
+    }
+
     // ------------------------------------------------------------------------------------- realm scope
 
     @Test

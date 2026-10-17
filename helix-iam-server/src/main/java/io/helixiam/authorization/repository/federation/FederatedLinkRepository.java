@@ -46,21 +46,31 @@ public interface FederatedLinkRepository extends JpaRepository<FederatedLinkEnti
     /** Round 6: every link of one provenance (the start-up report of grandfathered links). */
     List<FederatedLinkEntity> findAllByCreatedVia(String createdVia);
 
+    /** Round 6: one link, matched on its columns (never on the composite id, whose parts may contain "|"). */
+    Optional<FederatedLinkEntity> findByRealmIdAndIdpAliasAndExternalSubject(String realmId, String idpAlias,
+                                                                           String externalSubject);
+
     /**
-     * Round 6: set the provenance of <b>one</b> link (by id), only while it still belongs to {@code userId}; returns
-     * how many changed (0 or 1). Never by (user, alias): a user may have several links of one provider.
+     * Round 6: set the provenance of <b>one</b> link, matched on its columns, only while it still belongs to
+     * {@code userId}; returns how many changed (0 or 1). Never by (user, alias): a user may have several links of one
+     * provider.
      */
     @Modifying
-    @Query(value = "UPDATE federated_link SET created_via = :via WHERE id = :id AND user_id = :userId",
-            nativeQuery = true)
-    int updateProvenance(@Param("id") String id, @Param("userId") String userId, @Param("via") String via);
+    @Query(value = "UPDATE federated_link SET created_via = :via WHERE realm_id = :realm AND idp_alias = :alias "
+            + "AND external_subject = :subject AND user_id = :userId", nativeQuery = true)
+    int updateProvenance(@Param("realm") String realm, @Param("alias") String alias, @Param("subject") String subject,
+                         @Param("userId") String userId, @Param("via") String via);
 
     /** Task 21a: delete a link only while {@code userId} still owns it (the stale-link replacement). */
     @Modifying
-    @Query(value = "DELETE FROM federated_link WHERE id = :id AND user_id = :userId", nativeQuery = true)
-    int deleteIfOwnedBy(@Param("id") String id, @Param("userId") String userId);
+    @Query(value = "DELETE FROM federated_link WHERE realm_id = :realm AND idp_alias = :alias "
+            + "AND external_subject = :subject AND user_id = :userId", nativeQuery = true)
+    int deleteIfOwnedBy(@Param("realm") String realm, @Param("alias") String alias, @Param("subject") String subject,
+                        @Param("userId") String userId);
 
-    /** Task 21a: the owner of a link id, read from the database (not the persistence context). */
-    @Query(value = "SELECT user_id FROM federated_link WHERE id = :id", nativeQuery = true)
-    Optional<String> findUserIdById(@Param("id") String id);
+    /** Task 21a: the owner of a link, read from the database (not the persistence context), matched on its columns. */
+    @Query(value = "SELECT user_id FROM federated_link WHERE realm_id = :realm AND idp_alias = :alias "
+            + "AND external_subject = :subject", nativeQuery = true)
+    Optional<String> findOwner(@Param("realm") String realm, @Param("alias") String alias,
+                               @Param("subject") String subject);
 }

@@ -88,8 +88,17 @@ public class UnresolvedLinkReconciler {
                 LinkProvenance.UNRESOLVED);
         final List<Resolution> done = new java.util.ArrayList<>();
         for (final Map<String, Object> row : rows) {
-            final Resolution r = tx.execute(t -> resolve((String) row.get("id"), (String) row.get("realm_id"),
-                    (String) row.get("idp_alias"), (String) row.get("external_subject"), (String) row.get("user_id")));
+            final Resolution r;
+            try {
+                r = tx.execute(t -> resolve((String) row.get("id"), (String) row.get("realm_id"),
+                        (String) row.get("idp_alias"), (String) row.get("external_subject"), (String) row.get("user_id")));
+            } catch (final RuntimeException e) {
+                // E.g. a unique violation because another replica resolved this row (or its target) first: skip it,
+                // the other replica's result stands, and the remaining rows still get resolved.
+                LOG.debug("Skipped resolving a pre-upgrade link of provider {}: {}",
+                        LogSafe.sanitize(String.valueOf(row.get("idp_alias"))), e.getClass().getSimpleName());
+                continue;
+            }
             if (r != null) {
                 done.add(r);
             }

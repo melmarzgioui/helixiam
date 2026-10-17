@@ -37,7 +37,7 @@ class FederatedLinkServiceTest {
 
     @Test
     void findLinkedUser_returnsTheLinkedUser() {
-        when(repository.findById(FederatedLinkEntity.key("acme", "google", "sub-1")))
+        when(repository.findByRealmIdAndIdpAliasAndExternalSubject("acme", "google", "sub-1"))
                 .thenReturn(Optional.of(new FederatedLinkEntity("acme", "google", "sub-1", "user-7")));
 
         assertThat(service.findLinkedUser("acme", "google", "sub-1")).contains("user-7");
@@ -45,7 +45,7 @@ class FederatedLinkServiceTest {
 
     @Test
     void findLinkedUser_isEmptyWhenNoLink() {
-        when(repository.findById(any())).thenReturn(Optional.empty());
+        when(repository.findByRealmIdAndIdpAliasAndExternalSubject(any(), any(), any())).thenReturn(Optional.empty());
         assertThat(service.findLinkedUser("acme", "google", "ghost")).isEmpty();
     }
 
@@ -98,9 +98,10 @@ class FederatedLinkServiceTest {
 
     @Test
     void aLinkOfOneRealmIsNotFoundInAnother() {
-        when(repository.findById(FederatedLinkEntity.key("acme", "google", "sub-1")))
+        when(repository.findByRealmIdAndIdpAliasAndExternalSubject("acme", "google", "sub-1"))
                 .thenReturn(Optional.of(new FederatedLinkEntity("acme", "google", "sub-1", "user-7")));
-        when(repository.findById(FederatedLinkEntity.key("beta", "google", "sub-1"))).thenReturn(Optional.empty());
+        when(repository.findByRealmIdAndIdpAliasAndExternalSubject("beta", "google", "sub-1"))
+                .thenReturn(Optional.empty());
 
         assertThat(service.findLinkedUser("beta", "google", "sub-1")).isEmpty();
         assertThat(service.provenance("beta", "google", "sub-1")).isEmpty();
@@ -108,15 +109,23 @@ class FederatedLinkServiceTest {
 
     @Test
     void claimNeverTakesOverALiveOwner() {
-        final String id = FederatedLinkEntity.key("acme", "google", "sub-1");
         when(repository.insertIfAbsent(any(), any(), any(), any(), any(), any())).thenReturn(0);
-        when(repository.findUserIdById(id)).thenReturn(Optional.of("owner"));
+        when(repository.findOwner("acme", "google", "sub-1")).thenReturn(Optional.of("owner"));
 
         final FederatedLinkService.LinkIfAbsent outcome =
                 service.claim("acme", "google", "sub-1", "intruder", owner -> true, "SELF");
 
         assertThat(outcome.ownerUserId()).isEqualTo("owner");
         assertThat(outcome.created()).isFalse();
-        verify(repository, org.mockito.Mockito.never()).deleteIfOwnedBy(any(), any());
+        verify(repository, org.mockito.Mockito.never()).deleteIfOwnedBy(any(), any(), any(), any());
+    }
+
+    @Test
+    void aLinkIsMatchedOnItsColumnsNotOnTheCompositeId() {
+        // ("corp|x", "attacker2") and ("corp", "x|attacker2") share the composite id; only the columns tell them apart.
+        when(repository.findByRealmIdAndIdpAliasAndExternalSubject("acme", "corp|x", "attacker2"))
+                .thenReturn(Optional.empty());
+        assertThat(service.findLinkedUser("acme", "corp|x", "attacker2")).isEmpty();
+        verify(repository, org.mockito.Mockito.never()).findById(any());
     }
 }

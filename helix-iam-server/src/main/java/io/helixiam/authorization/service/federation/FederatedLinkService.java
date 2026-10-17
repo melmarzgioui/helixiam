@@ -65,17 +65,17 @@ public class FederatedLinkService {
         final String via = LinkProvenance.normalize(createdVia);
         final String id = FederatedLinkEntity.key(realmId, idpAlias, externalSubject);
         boolean created = repository.insertIfAbsent(id, realmId, idpAlias, externalSubject, userId, via) == 1;
-        String owner = owner(id);
+        String owner = owner(realmId, idpAlias, externalSubject);
         if (!owner.equals(userId) && !isLive.test(owner)) {
-            repository.deleteIfOwnedBy(id, owner);
+            repository.deleteIfOwnedBy(realmId, idpAlias, externalSubject, owner);
             created = repository.insertIfAbsent(id, realmId, idpAlias, externalSubject, userId, via) == 1;
-            owner = owner(id);
+            owner = owner(realmId, idpAlias, externalSubject);
         }
         return new LinkIfAbsent(owner, created && owner.equals(userId));
     }
 
-    private String owner(final String id) {
-        return repository.findUserIdById(id)
+    private String owner(final String realmId, final String idpAlias, final String externalSubject) {
+        return repository.findOwner(realmId, idpAlias, externalSubject)
                 .orElseThrow(() -> new IllegalStateException("The federated link could not be stored"));
     }
 
@@ -120,7 +120,7 @@ public class FederatedLinkService {
         if (idpAlias == null || externalSubject == null || externalSubject.isBlank()) {
             return false;
         }
-        return repository.updateProvenance(FederatedLinkEntity.key(realmId, idpAlias, externalSubject), userId,
+        return repository.updateProvenance(realmId, idpAlias, externalSubject, userId,
                 LinkProvenance.normalize(createdVia)) == 1;
     }
 
@@ -158,8 +158,8 @@ public class FederatedLinkService {
         if (realmId == null || idpAlias == null || subject == null) {
             return Optional.empty();
         }
-        return repository.findById(FederatedLinkEntity.key(realmId, idpAlias, subject))
-                .filter(l -> realmId.equals(l.getRealmId()));
+        // Matched on the columns: the composite id joins its parts with "|", which an alias or subject may contain.
+        return repository.findByRealmIdAndIdpAliasAndExternalSubject(realmId, idpAlias, subject);
     }
 
     private static void requireRealm(final String realmId) {

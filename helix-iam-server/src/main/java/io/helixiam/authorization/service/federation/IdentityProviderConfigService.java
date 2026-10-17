@@ -63,6 +63,10 @@ public class IdentityProviderConfigService {
     /** Creates or updates the config for {@code (realmId, alias)} (upsert by surrogate key). */
     @Transactional
     public IdentityProviderConfig saveOrUpdate(final IdentityProviderConfig config) {
+        if (config.alias() != null && config.alias().indexOf('|') >= 0) {
+            // Round 6: "|" separates the parts of a federated link's id; refused on every path (REST and import).
+            throw new IllegalArgumentException("A provider alias cannot contain \"|\".");
+        }
         if (privileged != null) {
             privileged.requireMayChangeIdentityProvider(config.realmId(), config.alias(),
                     "Changing identity provider " + config.alias());
