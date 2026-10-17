@@ -440,6 +440,10 @@ service layer, so REST and import share the check. The table, with a guard or a 
   at start-up after the realm config folder is loaded (`LEGACY` when the alias is in exactly one realm, else `AUTO`
   until confirmed). The `TenantUser` profile-attribute mapping, which made a multi-realm user's memberships share one
   collection, is removed.
+- **One link per trust change (round 7, HIGH).** Confirm updated every link of the user to the provider, so an
+  attacker's e-mail-matched link (another external subject) became trusted with the legitimate one. Confirm and
+  revoke-trust now name one link (`externalSubject`) and update it by id. The reconciler's registry fallback applies
+  only to a single static provider definition with no stored provider of the alias.
 
 Tests: `SignInSurfaceE2eTest` (one scenario per guarded row: the lower admin gets 403, a realm admin of the realm
 gets 2xx, import leaves the protected value unchanged; the IdP takeover is replayed against a stub IdP, AUTO refused and

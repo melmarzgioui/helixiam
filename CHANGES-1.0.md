@@ -27,8 +27,8 @@ links `WALLET`) and every administrator with one is reported at start-up (`PRIVI
 afterwards by matching an e-mail address (`AUTO`) never signs in an administrator; an administrator links a provider
 from the account console (Connected accounts → Link: a fresh sign-in, then the provider in link mode bound to the
 session; `SELF`), or a realm admin confirms the link (`POST .../users/{id}/federated-identities/{alias}/confirm`,
-`ADMIN_CONFIRMED`) and can revoke trust in a suspect one (`.../revoke-trust`; both also need the user's admin
-permissions in every realm they belong to); refusals are audited (`PRIVILEGED_LINK_REFUSED`). Federated links are now
+`ADMIN_CONFIRMED`) and can revoke trust in a suspect one (`.../revoke-trust`; both name one link with
+`{"externalSubject"}` and also need the user's admin permissions in every realm they belong to); refusals are audited (`PRIVILEGED_LINK_REFUSED`). Federated links are now
 realm-scoped (`federated_link.realm_id`, key realm + alias + subject): a link signs its user in only in its realm. Realm-admin is now needed for: the Applications of the sign-in clients; creating `helix-console`/`helix-cli`;
 their mappers and allowed resources (also on import); the browser flow and the sign-in clients' flows; messaging
 providers and templates; the MFA policy; magic links; the subject claim; and the realm's sign-in policy settings.
