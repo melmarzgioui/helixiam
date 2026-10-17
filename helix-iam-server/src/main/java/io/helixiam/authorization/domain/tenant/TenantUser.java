@@ -27,12 +27,11 @@ public class TenantUser {
     @Column(name = "user_id")
     private String userId;
 
-    @JsonProperty
-    @ElementCollection(fetch = FetchType.EAGER)
-    @MapKeyColumn(name="name", updatable = false, insertable = false)
-    @Column(name="value", updatable = false, insertable = false)
-    @CollectionTable(name="user_profile", joinColumns=@JoinColumn(name="user_id", referencedColumnName = "user_id", insertable = false, updatable = false))
-    private Map<String, String> userAttributes;
+    // Round 6: the user's profile attributes used to be mapped here as an element collection joined on user_id. A user
+    // has one tenant_user row per realm, so every membership of one user mapped the same collection (same key), and
+    // Hibernate refused to flush a session holding two of them ("Found shared references to a collection"). Nothing
+    // read it from here (profile attributes come from UserCredentials), so the mapping is gone.
+
 
 
     @JsonProperty
@@ -66,9 +65,5 @@ public class TenantUser {
 
     public List<UserRoles> getRoles() {
         return roles;
-    }
-
-    public Map<String, String> getUserAttributes() {
-        return userAttributes;
     }
 }

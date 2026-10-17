@@ -1270,7 +1270,7 @@ CREATE TRIGGER realm_config_delete_wallet_secrets
 -- Round 6: links are realm-scoped (key: realm_id, idp_alias, external_subject); a link signs its user in only in its
 -- realm. Backfill: the realm whose identity_provider owns the alias when exactly one does; otherwise (an alias in
 -- several realms, or a provider from configuration files) the user's home realm, else their only realm membership,
--- and such a link is AUTO (see below). Rows still without a realm sign no one in and are reported at start-up.
+-- and such a link is UNRESOLVED until start-up (see below). Rows still without a realm sign no one in and are reported at start-up.
 -- Idempotent.
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
 UPDATE federated_link f SET realm_id = p.realm_id
@@ -1278,8 +1278,9 @@ UPDATE federated_link f SET realm_id = p.realm_id
         HAVING count(DISTINCT realm_id) = 1) p
  WHERE f.realm_id IS NULL AND p.alias = f.idp_alias;
 -- A link placed by the fallbacks below may sit in the wrong realm: it is marked realm_ambiguous and (further down)
--- created_via AUTO, so it never signs in an administrator until a realm admin confirms it; the start-up report lists
--- it as AMBIGUOUS.
+-- created_via UNRESOLVED, which signs no administrator in. At start-up, once the realm config folder's providers are
+-- loaded, UnresolvedLinkReconciler places it in the one realm that has the alias (LEGACY) or makes it AUTO (listed as
+-- AMBIGUOUS until a realm admin confirms it).
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_ambiguous boolean DEFAULT false NOT NULL;
 UPDATE federated_link f SET realm_id = u.realm_id, realm_ambiguous = true
   FROM user_credentials u
@@ -1293,7 +1294,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS federated_link_realm_subject_uidx
     ON federated_link (realm_id, idp_alias, external_subject);
 CREATE INDEX IF NOT EXISTS federated_link_realm_user_idx ON federated_link (realm_id, user_id);
 -- Round 6 (V86): pre-upgrade links are grandfathered (wallet links WALLET, every other LEGACY). Idempotent.
-UPDATE federated_link SET created_via = 'AUTO' WHERE created_via IS NULL AND realm_ambiguous;
+UPDATE federated_link SET created_via = 'UNRESOLVED' WHERE created_via IS NULL AND realm_ambiguous;
 UPDATE federated_link f SET created_via = 'WALLET'
  WHERE f.created_via IS NULL
    AND EXISTS (SELECT 1 FROM identity_provider p

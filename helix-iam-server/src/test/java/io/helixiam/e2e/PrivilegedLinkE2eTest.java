@@ -91,8 +91,12 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
     }
 
     private void createCorp(final String inRealm) {
+        createProvider(inRealm, "corp");
+    }
+
+    private void createProvider(final String inRealm, final String alias) {
         final Map<String, Object> idp = new LinkedHashMap<>();
-        idp.put("alias", "corp");
+        idp.put("alias", alias);
         idp.put("protocol", "oidc");
         idp.put("displayName", "Corp sign-in");
         idp.put("enabled", true);
@@ -216,6 +220,47 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
         assertThat(audited("FEDERATED_LINK_CONFIRMED")).isTrue();
         assertThat(audited("FEDERATED_LINK_TRUST_REVOKED")).isTrue();
+    }
+
+    @Test
+    void anAdminOfAConfigFolderProviderLinkedBeforeTheUpgradeStillSignsIn() throws Exception {
+        // A provider V86 could not see (realm config folder): its rc.11 link was stored UNRESOLVED in the user's home realm.
+        final String alias = E2eSeed.unique("cfg");
+        createProvider(realm, alias);
+        Thread.sleep(1500);
+        final E2eSeed.SeededUser boss = realmAdminUser();
+        final String unknown = E2eSeed.unique("gone");
+        final var jdbc = context.getBean(org.springframework.jdbc.core.JdbcTemplate.class);
+        new org.springframework.transaction.support.TransactionTemplate(
+                context.getBean(org.springframework.transaction.PlatformTransactionManager.class))
+                .executeWithoutResult(t -> {
+                    final String insert = "INSERT INTO federated_link (id, realm_id, idp_alias, external_subject, user_id, "
+                            + "created_via, realm_ambiguous) VALUES (?, ?, ?, ?, ?, ?, true)";
+                    jdbc.update(insert, realm + "|" + alias + "|ext-sub", realm, alias, "ext-sub", boss.userId(),
+                            "UNRESOLVED");
+                    jdbc.update(insert, realm + "|" + unknown + "|x", realm, unknown, "x", boss.userId(), "UNRESOLVED");
+                });
+        assertThat(adminRolesStatus(brokerLogin(realm, alias))).as("inert before start-up resolves it")
+                .isNotEqualTo(200);
+
+        final var reconciler = context.getBean(io.helixiam.authorization.service.federation.UnresolvedLinkReconciler.class);
+        final var resolved = reconciler.reconcile();
+        assertThat(resolved).anyMatch(r -> alias.equals(r.idpAlias()) && realm.equals(r.realm())
+                && "LEGACY".equals(r.createdVia()));
+        assertThat(resolved).anyMatch(r -> unknown.equals(r.idpAlias()) && "AUTO".equals(r.createdVia()));
+        assertThat(links.provenance(realm, alias, "ext-sub")).contains(LinkProvenance.LEGACY);
+        assertThat(adminRolesStatus(brokerLogin(realm, alias))).isEqualTo(200);
+        // Idempotent: a second run (or another replica) changes nothing.
+        assertThat(reconciler.reconcile()).noneMatch(r -> alias.equals(r.idpAlias()) || unknown.equals(r.idpAlias()));
+        assertThat(audited("LEGACY_LINK_RESOLVED")).isTrue();
+    }
+
+    @Test
+    void runtimeAutoLinksAreNeverTouchedByTheReconciler() {
+        final E2eSeed.SeededUser boss = realmAdminUser();
+        links.link(realm, "corp", "runtime-sub", boss.userId(), LinkProvenance.AUTO);
+        context.getBean(io.helixiam.authorization.service.federation.UnresolvedLinkReconciler.class).reconcile();
+        assertThat(links.provenance(realm, "corp", "runtime-sub")).contains(LinkProvenance.AUTO);
     }
 
     // ------------------------------------------------------------------------------------- realm scope
@@ -370,11 +415,15 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
     }
 
     private E2eHttp brokerLogin(final String inRealm) {
+        return brokerLogin(inRealm, "corp");
+    }
+
+    private E2eHttp brokerLogin(final String inRealm, final String alias) {
         final E2eHttp browser = newBrowser();
-        final E2eHttp.Response start = browser.get("/realms/" + inRealm + "/broker/corp");
+        final E2eHttp.Response start = browser.get("/realms/" + inRealm + "/broker/" + alias);
         final Map<String, String> q = OidcFlow.query(java.net.URI.create(start.header("Location").orElse("")));
         nonce.set(q.get("nonce"));
-        browser.followRedirects(browser.get("/realms/" + inRealm + "/broker/corp/callback?code=x&state="
+        browser.followRedirects(browser.get("/realms/" + inRealm + "/broker/" + alias + "/callback?code=x&state="
                 + enc(q.get("state"))));
         return browser;
     }

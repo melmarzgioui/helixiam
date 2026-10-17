@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS realm_signing_settings (
 -- Round 6: links are realm-scoped (key: realm_id, idp_alias, external_subject); a link signs its user in only in its
 -- realm. Backfill: the realm whose identity_provider owns the alias when exactly one does; otherwise (an alias in
 -- several realms, or a provider from configuration files) the user's home realm, else their only realm membership,
--- and such a link is AUTO (see below). Rows still without a realm sign no one in and are reported at start-up.
+-- and such a link is UNRESOLVED until start-up (see below). Rows still without a realm sign no one in and are reported at start-up.
 -- Idempotent.
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
 UPDATE federated_link f SET realm_id = p.realm_id
@@ -71,8 +71,9 @@ UPDATE federated_link f SET realm_id = p.realm_id
         HAVING count(DISTINCT realm_id) = 1) p
  WHERE f.realm_id IS NULL AND p.alias = f.idp_alias;
 -- A link placed by the fallbacks below may sit in the wrong realm: it is marked realm_ambiguous and (further down)
--- created_via AUTO, so it never signs in an administrator until a realm admin confirms it; the start-up report lists
--- it as AMBIGUOUS.
+-- created_via UNRESOLVED, which signs no administrator in. At start-up, once the realm config folder's providers are
+-- loaded, UnresolvedLinkReconciler places it in the one realm that has the alias (LEGACY) or makes it AUTO (listed as
+-- AMBIGUOUS until a realm admin confirms it).
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_ambiguous boolean DEFAULT false NOT NULL;
 UPDATE federated_link f SET realm_id = u.realm_id, realm_ambiguous = true
   FROM user_credentials u
@@ -94,15 +95,15 @@ BEGIN
     SELECT count(*) INTO unplaced FROM federated_link WHERE realm_id IS NULL;
     IF ambiguous > 0 THEN
         RAISE WARNING 'V86: % federated link(s) name an identity-provider alias that is not in exactly one realm; '
-            'they were placed in their user''s home realm and no longer sign in an administrator until a realm admin '
-            'confirms them (listed as AMBIGUOUS at start-up).', ambiguous;
+            'they are resolved at start-up once the realm config folder is loaded; any still ambiguous then is listed '
+            'as AMBIGUOUS and signs no administrator in until a realm admin confirms it.', ambiguous;
     END IF;
     IF unplaced > 0 THEN
         RAISE WARNING 'V86: % federated link(s) could not be placed in a realm and sign no one in.', unplaced;
     END IF;
 END $$;
 ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);
-UPDATE federated_link SET created_via = 'AUTO' WHERE created_via IS NULL AND realm_ambiguous;
+UPDATE federated_link SET created_via = 'UNRESOLVED' WHERE created_via IS NULL AND realm_ambiguous;
 UPDATE federated_link f SET created_via = 'WALLET'
  WHERE f.created_via IS NULL
    AND EXISTS (SELECT 1 FROM identity_provider p

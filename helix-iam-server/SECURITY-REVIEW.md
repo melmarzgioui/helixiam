@@ -436,7 +436,10 @@ service layer, so REST and import share the check. The table, with a guard or a 
 - **One source for a target's privilege (review).** Several checks read a target user's admin permissions in one
   realm only, so an administrator of another realm or of master was not protected there (changing a provider they sign
   in through, the start-up report, acting on them). `effectivePrivilegesEverywhere(userId)` is now the only source, used
-  by every check on a target user. Links the upgrade could only guess the realm of are AUTO until confirmed.
+  by every check on a target user. Links the upgrade could only guess the realm of are held `UNRESOLVED` and resolved
+  at start-up after the realm config folder is loaded (`LEGACY` when the alias is in exactly one realm, else `AUTO`
+  until confirmed). The `TenantUser` profile-attribute mapping, which made a multi-realm user's memberships share one
+  collection, is removed.
 
 Tests: `SignInSurfaceE2eTest` (one scenario per guarded row: the lower admin gets 403, a realm admin of the realm
 gets 2xx, import leaves the protected value unchanged; the IdP takeover is replayed against a stub IdP, AUTO refused and

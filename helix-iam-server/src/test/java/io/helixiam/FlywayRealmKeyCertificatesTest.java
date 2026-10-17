@@ -177,9 +177,10 @@ class FlywayRealmKeyCertificatesTest {
                 .containsEntry("d", "beta").containsEntry("e", "acme");
         assertThat(ids).containsEntry("a", "acme|corp|a").containsEntry("d", "beta|okta|d");
         // Grandfathered: a link of an alias of exactly one realm keeps signing its user in (LEGACY; wallet links WALLET).
-        // A link whose realm is a fallback guess (alias in two realms, or in none) is AUTO until a realm admin confirms.
-        assertThat(via).containsEntry("a", "AUTO").containsEntry("b", "AUTO").containsEntry("c", "WALLET")
-                .containsEntry("d", "LEGACY").containsEntry("e", "AUTO");
+        // A link whose realm is a fallback guess (alias in two realms, or in none: maybe a realm-config-folder provider,
+        // loaded only at start-up) is UNRESOLVED until the start-up reconciler places it.
+        assertThat(via).containsEntry("a", "UNRESOLVED").containsEntry("b", "UNRESOLVED").containsEntry("c", "WALLET")
+                .containsEntry("d", "LEGACY").containsEntry("e", "UNRESOLVED");
         assertThat(jdbc.queryForList("SELECT external_subject FROM federated_link WHERE realm_ambiguous ORDER BY 1",
                 String.class)).containsExactly("a", "b", "e");
         // The same subject of the same provider may now be linked in two realms.

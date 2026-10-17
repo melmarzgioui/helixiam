@@ -45,9 +45,10 @@ satisfies view-X routes.
 > Admins with only `view-clients` can no longer read client secrets; an administrator whose verified e-mail matches
 > an external IdP login is no longer linked automatically.
 > Round 6: V86 places each existing federated link in a realm: the realm that owns the alias. A link whose alias is in
-> several realms or in none (configuration-file providers) goes to the user's home realm and becomes AUTO, so it signs
-> no administrator in until a realm admin confirms it (reported at start-up as AMBIGUOUS,
-> `PRIVILEGED_AMBIGUOUS_LINK`); links it cannot place sign no one in.
+> several realms or in none is held `UNRESOLVED` until start-up: once the realm config folder's providers are loaded,
+> a link whose alias is in exactly one realm moves there and keeps working (`LEGACY`, audited `LEGACY_LINK_RESOLVED`);
+> any other becomes `AUTO` and signs no administrator in until a realm admin confirms it (reported as AMBIGUOUS,
+> `PRIVILEGED_AMBIGUOUS_LINK`); links that cannot be placed at all sign no one in.
 > Existing federated links keep working (`LEGACY`); review the start-up report (WARN and
 > `PRIVILEGED_LEGACY_LINK` audit events: realm, username, provider) and revoke trust in any that is suspect. New links
 > to administrators need the account console's link flow or a realm admin's confirmation. A `manage-realm` admin can

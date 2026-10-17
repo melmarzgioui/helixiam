@@ -16,8 +16,6 @@ import io.helixiam.authorization.service.federation.FederatedLinkService;
 import io.helixiam.common.log.LogSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -30,10 +28,10 @@ import java.util.Set;
  * signing their users in, as in rc.11. Each administrator with such a link is reported at start-up with a WARN and a
  * {@code PRIVILEGED_LEGACY_LINK} audit event (realm, username, provider), so an operator can review it and, if it is
  * suspect, revoke trust in it ({@code POST .../users/{id}/federated-identities/{alias}/revoke-trust}). Never blocks
- * anything; a failure only logs.
+ * anything; a failure only logs. Runs when the application is ready, after the unresolved links are reconciled.
  */
 @Component
-public class PrivilegedLegacyLinkReport implements ApplicationRunner {
+public class PrivilegedLegacyLinkReport {
 
     private static final Logger LOG = LogManager.getLogger(PrivilegedLegacyLinkReport.class);
 
@@ -72,8 +70,8 @@ public class PrivilegedLegacyLinkReport implements ApplicationRunner {
         this.audit = audit;
     }
 
-    @Override
-    public void run(final ApplicationArguments args) {
+    /** Runs the report without ever failing start-up (called by {@code UnresolvedLinkReconciler} when ready). */
+    public void runSafely() {
         try {
             check();
         } catch (final RuntimeException e) {
