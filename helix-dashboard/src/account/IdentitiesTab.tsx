@@ -15,6 +15,7 @@ import type { Note } from "./AccountApp";
 import { useT } from "../i18n/LocaleContext";
 import { isSameSitePath, validateLinkChoice } from "./validation";
 import { subjectLabel } from "../api/federatedIdentities";
+import { absoluteTime } from "../api/datetime";
 
 /** One row of the merged list: a provider of the realm (or a linked one it no longer offers) and its links. */
 export interface IdentityRow {
@@ -48,7 +49,7 @@ export function mergeIdentityRows(providers: LinkableProvider[], identities: Acc
  * automatically) and Disconnect (with a confirmation). The local account and other sign-in methods are untouched.
  */
 export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: Note) => void }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [rows, setRows] = React.useState<IdentityRow[] | null>(null);
   const [confirm, setConfirm] = React.useState<IdentityRow | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -111,7 +112,7 @@ export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: No
                     <div key={l.externalSubject} className="hx-linkrow__hint">
                       <span className="hx-mono">{subjectLabel(l)}</span>
                       {" · "}
-                      {l.linkedAt ? t("account.identities.connectedAt", { date: new Date(l.linkedAt).toLocaleString() }) : t("account.identities.connected")}
+                      {l.linkedAt ? t("account.identities.connectedAt", { date: absoluteTime(new Date(l.linkedAt).toISOString(), locale) }) : t("account.identities.connected")}
                     </div>
                   ))}
                   {r.links.length > 0 && r.linkable && (

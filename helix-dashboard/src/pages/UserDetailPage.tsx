@@ -20,6 +20,8 @@ import { emailBounce } from "./userBounce";
 import { Alert } from "../components/Alert";
 import { UserCredentials } from "./userCredentials";
 import { useT } from "../i18n/LocaleContext";
+import type { Locale } from "../i18n/i18n";
+import { absoluteTime } from "../api/datetime";
 import { FederatedIdentityApi, createFederatedIdentityHttpClient } from "../api/federatedIdentities";
 import { UserLinkedIdentities } from "./userLinkedIdentities";
 
@@ -208,7 +210,7 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
 function UserSessions({ sessionApi, realmId, username, userId, onNote }: {
   sessionApi: SessionApi; realmId: string; username: string; userId: string; onNote: (n: Note) => void;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [sessions, setSessions] = React.useState<IdentitySession[] | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
@@ -249,7 +251,7 @@ function UserSessions({ sessionApi, realmId, username, userId, onNote }: {
                     {s.clients.length ? s.clients.map((c) => <Badge key={c.clientId} tone="neutral">{c.clientId}</Badge>) : "—"}
                   </div>
                   <div className="hx-rowcard__sub">
-                    {s.issuedAt ? t("userDetail.sessions.started", { when: formatWhen(s.issuedAt) }) : t("userDetail.sessions.startUnknown")}{s.expiresAt ? t("userDetail.sessions.expires", { when: formatWhen(s.expiresAt) }) : ""}
+                    {s.issuedAt ? t("userDetail.sessions.started", { when: formatWhen(s.issuedAt, locale) }) : t("userDetail.sessions.startUnknown")}{s.expiresAt ? t("userDetail.sessions.expires", { when: formatWhen(s.expiresAt, locale) }) : ""}
                   </div>
                 </div>
                 <div className="hx-rowcard__actions">
@@ -331,8 +333,6 @@ function RequiredActionsManager({ api, realmId, userId, onNote }: {
   );
 }
 
-function formatWhen(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "unknown";
-  return new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+function formatWhen(iso: string, locale: Locale): string {
+  return absoluteTime(iso, locale);
 }

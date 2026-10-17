@@ -262,7 +262,8 @@
 .hx-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: .45rem; vertical-align: middle; }
 
 /* ---------- Connections: cards (mobile) ---------- */
-.hx-cards { display: grid; gap: .75rem; }
+/* minmax(0, 1fr): a long word in a card (an alias, an id) ellipsizes or wraps instead of widening the page. */
+.hx-cards { display: grid; gap: .75rem; grid-template-columns: minmax(0, 1fr); }
 .hx-conncard {
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--r);
   box-shadow: var(--shadow-sm); padding: 1rem 1.1rem;
@@ -284,6 +285,7 @@
    A clickable card with a title, optional subtitle, a stack of muted-label + value fields, and an
    actions slot — sharing the same surface, border, radius and hover lift as .hx-conncard. */
 .hx-rowcard {
+  min-width: 0;
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--r);
   box-shadow: var(--shadow-sm); padding: 1rem 1.1rem;
   display: flex; flex-direction: column; gap: .6rem;
