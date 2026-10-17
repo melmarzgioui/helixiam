@@ -85,11 +85,11 @@ paths are hardened and tested."
   Done: Jackson 3 for the application code (Spring Boot's deprecated `spring-boot-jackson2` module removed); Express 5,
   `openid-client` 6 and `otplib` 13 in the sandbox RP; cosign 3 (`cosign-installer` 4) in the release workflow (see
   `CHANGES-1.0.md`).
-- **Realm signing keys** — done (after rc.11): bring your own key and CA-signed certificate, a CSR flow (the private
+- **Realm signing keys** — done (`v1.0.0-rc.12`): bring your own key and CA-signed certificate, a CSR flow (the private
   key stays on the server), staged rollover (PENDING → ACTIVE → retained), ES256 realms, `x5c` in the JWKS, CA
   certificates in SAML metadata and daily certificate-expiry warnings (see
-  `docs/superpowers/specs/2026-10-16-byo-realm-keys-design.md`). Still open: HSM/KMS-held keys (`pkcs11:` / `kms:`),
-  scheduled automatic rotation, ACME renewal, P-384/P-521 and EdDSA keys, encrypted private-key PEM on import.
+  `docs/superpowers/specs/2026-10-16-byo-realm-keys-design.md`). Still open: a per-client JARM algorithm (JARM uses the realm default),
+  HSM/KMS-held keys (`pkcs11:` / `kms:`), scheduled automatic rotation, ACME renewal, P-384/P-521 and EdDSA keys, encrypted private-key PEM on import.
 
 ## Later
 
