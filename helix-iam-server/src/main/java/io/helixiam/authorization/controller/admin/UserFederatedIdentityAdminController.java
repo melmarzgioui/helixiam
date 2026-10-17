@@ -48,23 +48,32 @@ public class UserFederatedIdentityAdminController {
         return ResponseEntity.ok(Map.of("identities", links, "canManageTrust", realmAdmin(realmId)));
     }
 
+    /** Which one link: a user may have several links of one provider (one per external subject). */
+    public record LinkRef(@jakarta.validation.constraints.NotBlank(message = "externalSubject is required.")
+                          String externalSubject) {
+    }
+
     @PostMapping("/{alias}/confirm")
     public ResponseEntity<?> confirm(@PathVariable final String realmId, @PathVariable final String userId,
-                                     @PathVariable final String alias) {
+                                     @PathVariable final String alias,
+                                     @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody
+                                     final LinkRef link) {
         if (!realmAdmin(realmId)) {
             return forbidden();
         }
-        return trust.confirm(realmId, userId, alias) ? ResponseEntity.noContent().build()
+        return trust.confirm(realmId, userId, alias, link.externalSubject()) ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
 
     @PostMapping("/{alias}/revoke-trust")
     public ResponseEntity<?> revokeTrust(@PathVariable final String realmId, @PathVariable final String userId,
-                                         @PathVariable final String alias) {
+                                         @PathVariable final String alias,
+                                         @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody
+                                         final LinkRef link) {
         if (!realmAdmin(realmId)) {
             return forbidden();
         }
-        return trust.revokeTrust(realmId, userId, alias) ? ResponseEntity.noContent().build()
+        return trust.revokeTrust(realmId, userId, alias, link.externalSubject()) ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
 

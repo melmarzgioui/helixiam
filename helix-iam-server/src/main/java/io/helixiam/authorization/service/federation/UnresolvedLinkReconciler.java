@@ -29,8 +29,11 @@ import java.util.Map;
  * When the application is ready (after every start-up runner, the config-folder loader included), each such row is
  * resolved once:
  * <ul>
- *   <li>the alias now belongs to exactly one realm: the link moves there and becomes {@code LEGACY} ({@code WALLET} for a
- *       wallet provider), audited as {@code LEGACY_LINK_RESOLVED};</li>
+ *   <li>the alias now belongs to exactly one stored realm (database and realm config folder): the link moves there and
+ *       becomes {@code LEGACY} ({@code WALLET} for a wallet provider), audited as {@code LEGACY_LINK_RESOLVED};</li>
+ *   <li>otherwise, if the login's provider registry (stored, config-folder and static {@code helix.federation.*}
+ *       providers) serves the alias in the link's candidate realm (the user's home realm), the link stays there and
+ *       becomes {@code LEGACY} the same way: that is where it signed its user in under rc.11;</li>
  *   <li>otherwise it becomes {@code AUTO} (it signs no administrator in) and the start-up report lists it as
  *       {@code AMBIGUOUS} until a realm admin confirms it.</li>
  * </ul>
@@ -60,6 +63,14 @@ public class UnresolvedLinkReconciler {
         this.report = report;
     }
 
+    /** The registry the login uses: stored, realm-config-folder and static ({@code helix.federation.*}) providers. */
+    private io.helixiam.authorization.federation.IdentityProviderRegistry registry;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRegistry(final io.helixiam.authorization.federation.IdentityProviderRegistry registry) {
+        this.registry = registry;
+    }
+
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
         try {
@@ -73,12 +84,12 @@ public class UnresolvedLinkReconciler {
     /** Resolves every {@code UNRESOLVED} link; returns what this call changed. */
     public List<Resolution> reconcile() {
         final List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT id, idp_alias, external_subject, user_id FROM federated_link WHERE created_via = ?",
+                "SELECT id, realm_id, idp_alias, external_subject, user_id FROM federated_link WHERE created_via = ?",
                 LinkProvenance.UNRESOLVED);
         final List<Resolution> done = new java.util.ArrayList<>();
         for (final Map<String, Object> row : rows) {
-            final Resolution r = tx.execute(t -> resolve((String) row.get("id"), (String) row.get("idp_alias"),
-                    (String) row.get("external_subject"), (String) row.get("user_id")));
+            final Resolution r = tx.execute(t -> resolve((String) row.get("id"), (String) row.get("realm_id"),
+                    (String) row.get("idp_alias"), (String) row.get("external_subject"), (String) row.get("user_id")));
             if (r != null) {
                 done.add(r);
             }
@@ -86,15 +97,41 @@ public class UnresolvedLinkReconciler {
         return done;
     }
 
-    private Resolution resolve(final String id, final String alias, final String subject, final String userId) {
+    /** The realm a link resolves to and its provenance there, or null when it stays ambiguous. */
+    private record Target(String realm, String via) {
+    }
+
+    private Target target(final String candidate, final String alias) {
         final List<Map<String, Object>> owners = jdbc.queryForList(
                 "SELECT DISTINCT realm_id, lower(protocol) AS protocol FROM identity_provider WHERE alias = ?", alias);
         final long realms = owners.stream().map(o -> o.get("realm_id")).distinct().count();
         if (realms == 1) {
-            final String realm = (String) owners.get(0).get("realm_id");
             final String protocol = String.valueOf(owners.get(0).get("protocol"));
-            final String via = List.of("eudi-wallet", "openid4vp", "wallet").contains(protocol)
-                    ? LinkProvenance.WALLET : LinkProvenance.LEGACY;
+            return new Target((String) owners.get(0).get("realm_id"),
+                    List.of("eudi-wallet", "openid4vp", "wallet").contains(protocol) ? LinkProvenance.WALLET
+                            : LinkProvenance.LEGACY);
+        }
+        // Not exactly one stored realm: ask the registry the login uses (stored, config-folder and static providers).
+        // If one provider serves the alias in the link's candidate realm, the link signed its user in there in rc.11.
+        if (registry != null && candidate != null) {
+            try {
+                final var provider = registry.get(candidate, alias);
+                return new Target(candidate, registry.isWallet(candidate, alias) || provider.metadata().protocol()
+                        == io.helixiam.authorization.federation.spi.IdpMetadata.Protocol.WALLET
+                        ? LinkProvenance.WALLET : LinkProvenance.LEGACY);
+            } catch (final IllegalArgumentException none) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private Resolution resolve(final String id, final String candidate, final String alias, final String subject,
+                               final String userId) {
+        final Target target = target(candidate, alias);
+        if (target != null) {
+            final String realm = target.realm();
+            final String via = target.via();
             final String newId = io.helixiam.authorization.domain.federation.FederatedLinkEntity.key(realm, alias, subject);
             final boolean taken = !newId.equals(id) && Boolean.TRUE.equals(jdbc.queryForObject(
                     "SELECT EXISTS (SELECT 1 FROM federated_link WHERE id = ?)", Boolean.class, newId));

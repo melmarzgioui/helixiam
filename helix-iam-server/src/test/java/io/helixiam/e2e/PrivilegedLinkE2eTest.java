@@ -205,18 +205,18 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         final String path = base() + "/users/" + boss.userId() + "/federated-identities";
         final E2eAdminSession mu = scoped("manage-users");
         assertThat(mu.get(path).json().path("canManageTrust").asBoolean()).isFalse();
-        assertThat(mu.post(path + "/corp/confirm", Map.of()).status()).isEqualTo(403);
+        assertThat(mu.post(path + "/corp/confirm", Map.of("externalSubject", "ext-sub")).status()).isEqualTo(403);
 
         final E2eAdminSession ra = realmAdmin();
         final JsonNode listed = ra.get(path).json();
         assertThat(listed.path("canManageTrust").asBoolean()).isTrue();
         assertThat(listed.path("identities").get(0).path("createdVia").asText()).isEqualTo("AUTO");
-        assertThat(ra.post(path + "/corp/confirm", Map.of()).status()).isEqualTo(204);
+        assertThat(ra.post(path + "/corp/confirm", Map.of("externalSubject", "ext-sub")).status()).isEqualTo(204);
         assertThat(links.provenance(realm, "corp", "ext-sub")).contains(LinkProvenance.ADMIN_CONFIRMED);
         assertThat(adminRolesStatus(brokerLogin())).isEqualTo(200);
 
-        assertThat(mu.post(path + "/corp/revoke-trust", Map.of()).status()).isEqualTo(403);
-        assertThat(ra.post(path + "/corp/revoke-trust", Map.of()).status()).isEqualTo(204);
+        assertThat(mu.post(path + "/corp/revoke-trust", Map.of("externalSubject", "ext-sub")).status()).isEqualTo(403);
+        assertThat(ra.post(path + "/corp/revoke-trust", Map.of("externalSubject", "ext-sub")).status()).isEqualTo(204);
         assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
         assertThat(audited("FEDERATED_LINK_CONFIRMED")).isTrue();
         assertThat(audited("FEDERATED_LINK_TRUST_REVOKED")).isTrue();
@@ -256,11 +256,75 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void anAdminOfAStaticProviderLinkedBeforeTheUpgradeStillSignsIn() throws Exception {
+        // A static helix.federation.* provider: in no database table, served by the registry in every realm. Test
+        // seam: take a provider instance built for another realm and register it as a static one.
+        final String alias = E2eSeed.unique("static");
+        final String scratch = E2eSeed.unique("plinks");
+        seed().realm(scratch);
+        createProvider(scratch, alias);
+        Thread.sleep(1500);
+        final var registry = context.getBean(io.helixiam.authorization.federation.IdentityProviderRegistry.class);
+        final var provider = registry.get(scratch, alias);
+        assertThat(admin.delete("/admin/realms/" + scratch + "/identity-providers/" + alias).status()).isEqualTo(204);
+        final java.lang.reflect.Field field =
+                io.helixiam.authorization.federation.IdentityProviderRegistry.class.getDeclaredField("staticByAlias");
+        field.setAccessible(true);
+        final Map<String, Object> statics = (Map<String, Object>) field.get(registry);
+        statics.put(alias, provider);
+        try {
+            final E2eSeed.SeededUser boss = realmAdminUser();
+            new org.springframework.transaction.support.TransactionTemplate(
+                    context.getBean(org.springframework.transaction.PlatformTransactionManager.class))
+                    .executeWithoutResult(t -> context.getBean(org.springframework.jdbc.core.JdbcTemplate.class).update(
+                            "INSERT INTO federated_link (id, realm_id, idp_alias, external_subject, user_id, created_via, "
+                                    + "realm_ambiguous) VALUES (?, ?, ?, ?, ?, 'UNRESOLVED', true)",
+                            realm + "|" + alias + "|ext-sub", realm, alias, "ext-sub", boss.userId()));
+
+            final var resolved = context.getBean(io.helixiam.authorization.service.federation.UnresolvedLinkReconciler.class)
+                    .reconcile();
+            assertThat(resolved).anyMatch(r -> alias.equals(r.idpAlias()) && realm.equals(r.realm())
+                    && "LEGACY".equals(r.createdVia()));
+            assertThat(adminRolesStatus(brokerLogin(realm, alias))).isEqualTo(200);
+        } finally {
+            statics.remove(alias);
+        }
+    }
+
+    @Test
     void runtimeAutoLinksAreNeverTouchedByTheReconciler() {
         final E2eSeed.SeededUser boss = realmAdminUser();
         links.link(realm, "corp", "runtime-sub", boss.userId(), LinkProvenance.AUTO);
         context.getBean(io.helixiam.authorization.service.federation.UnresolvedLinkReconciler.class).reconcile();
         assertThat(links.provenance(realm, "corp", "runtime-sub")).contains(LinkProvenance.AUTO);
+    }
+
+    @Test
+    void confirmingOneLinkLeavesAnotherLinkOfTheSameProviderUntrusted() {
+        // H6 probe: while ordinary, an e-mail match linked an attacker's identity; later the user became an admin.
+        final E2eSeed.SeededUser v = seed().user(realm, E2eSeed.unique("v"), PASSWORD);
+        links.link(realm, "corp", "attacker-sub", v.userId(), LinkProvenance.AUTO);
+        links.link(realm, "corp", "legit-sub", v.userId(), LinkProvenance.AUTO);
+        assertThat(admin.post(base() + "/users/" + v.userId() + "/roles", Map.of("roleId", adminRoleId)).status())
+                .isBetween(200, 204);
+        final String path = base() + "/users/" + v.userId() + "/federated-identities";
+        final JsonNode listed = admin.get(path).json().path("identities");
+        assertThat(listed).hasSize(2);
+        listed.forEach(l -> assertThat(l.path("subjectHint").asText()).doesNotContain("attacker-sub")
+                .doesNotContain("legit-sub"));
+
+        final E2eAdminSession ra = realmAdmin();
+        assertThat(ra.post(path + "/corp/confirm", Map.of()).status()).as("which link must be named").isEqualTo(400);
+        assertThat(ra.post(path + "/corp/confirm", Map.of("externalSubject", "legit-sub")).status()).isEqualTo(204);
+        assertThat(links.provenance(realm, "corp", "legit-sub")).contains(LinkProvenance.ADMIN_CONFIRMED);
+        assertThat(links.provenance(realm, "corp", "attacker-sub")).contains(LinkProvenance.AUTO);
+        subject.set("attacker-sub");
+        assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
+        subject.set("legit-sub");
+        assertThat(adminRolesStatus(brokerLogin())).isEqualTo(200);
+        // Another user's link cannot be named through this user.
+        assertThat(ra.post(path + "/corp/confirm", Map.of("externalSubject", "nobody-sub")).status()).isEqualTo(404);
     }
 
     // ------------------------------------------------------------------------------------- realm scope
@@ -273,7 +337,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         adminElsewhere(boss, "master");
         links.link(realm, "corp", "boss-sub", boss.userId(), LinkProvenance.AUTO);
         final String bossPath = base() + "/users/" + boss.userId() + "/federated-identities/corp";
-        assertThat(ra.post(bossPath + "/confirm", Map.of()).status()).isEqualTo(403);
+        assertThat(ra.post(bossPath + "/confirm", Map.of("externalSubject", "boss-sub")).status()).isEqualTo(403);
         assertThat(links.provenance(realm, "corp", "boss-sub")).contains(LinkProvenance.AUTO);
 
         // An administrator of another realm who is also a member of this one.
@@ -282,13 +346,13 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         final E2eSeed.SeededUser bAdmin = seed().user(other, E2eSeed.unique("badmin"), PASSWORD);
         adminElsewhere(bAdmin, other);
         links.link(realm, "corp", "b-sub", bAdmin.userId(), LinkProvenance.AUTO);
-        assertThat(ra.post(base() + "/users/" + bAdmin.userId() + "/federated-identities/corp/confirm", Map.of())
-                .status()).isEqualTo(403);
-        assertThat(ra.post(base() + "/users/" + bAdmin.userId() + "/federated-identities/corp/revoke-trust", Map.of())
-                .status()).isEqualTo(403);
+        assertThat(ra.post(base() + "/users/" + bAdmin.userId() + "/federated-identities/corp/confirm",
+                Map.of("externalSubject", "b-sub")).status()).isEqualTo(403);
+        assertThat(ra.post(base() + "/users/" + bAdmin.userId() + "/federated-identities/corp/revoke-trust",
+                Map.of("externalSubject", "b-sub")).status()).isEqualTo(403);
 
         // A master admin may.
-        assertThat(admin.post(bossPath + "/confirm", Map.of()).status()).isEqualTo(204);
+        assertThat(admin.post(bossPath + "/confirm", Map.of("externalSubject", "boss-sub")).status()).isEqualTo(204);
     }
 
     @Test
@@ -375,7 +439,7 @@ class PrivilegedLinkE2eTest extends AbstractE2eTest {
         subject.set("ambiguous-sub");
         assertThat(adminRolesStatus(brokerLogin())).isNotEqualTo(200);
         assertThat(realmAdmin().post(base() + "/users/" + boss.userId() + "/federated-identities/corp/confirm",
-                Map.of()).status()).isEqualTo(204);
+                Map.of("externalSubject", "ambiguous-sub")).status()).isEqualTo(204);
         assertThat(adminRolesStatus(brokerLogin())).isEqualTo(200);
         assertThat(context.getBean(PrivilegedLegacyLinkReport.class).check())
                 .noneMatch(f -> f.kind() == PrivilegedLegacyLinkReport.Kind.AMBIGUOUS && boss.username().equals(f.username()));

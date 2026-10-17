@@ -32,8 +32,8 @@ public class FederatedLinkTrustService {
     private static final Logger LOG = LogManager.getLogger(FederatedLinkTrustService.class);
 
     /** A user's link, for the admin console. */
-    public record LinkView(String idpAlias, String externalSubject, String createdVia, Long linkedAt,
-                           boolean trustedForAdmins) {
+    public record LinkView(String idpAlias, String externalSubject, String subjectHint, String createdVia,
+                           Long linkedAt, boolean trustedForAdmins) {
     }
 
     private final FederatedLinkService links;
@@ -64,20 +64,20 @@ public class FederatedLinkTrustService {
         return links.linksOf(realmId, userId).stream().map(FederatedLinkTrustService::view).toList();
     }
 
-    /** Marks the user's links of {@code alias} confirmed by a realm admin; false when there are none. */
-    public boolean confirm(final String realmId, final String userId, final String alias) {
-        return set(realmId, userId, alias, LinkProvenance.ADMIN_CONFIRMED, "Confirming a federated link",
+    /** Marks one link (alias + external subject) confirmed by a realm admin; false when the user has no such link. */
+    public boolean confirm(final String realmId, final String userId, final String alias, final String subject) {
+        return set(realmId, userId, alias, subject, LinkProvenance.ADMIN_CONFIRMED, "Confirming a federated link",
                 "FEDERATED_LINK_CONFIRMED");
     }
 
-    /** Marks the user's links of {@code alias} untrusted for administrators; false when there are none. */
-    public boolean revokeTrust(final String realmId, final String userId, final String alias) {
-        return set(realmId, userId, alias, LinkProvenance.AUTO, "Revoking trust in a federated link",
+    /** Marks one link untrusted for administrators; false when the user has no such link. */
+    public boolean revokeTrust(final String realmId, final String userId, final String alias, final String subject) {
+        return set(realmId, userId, alias, subject, LinkProvenance.AUTO, "Revoking trust in a federated link",
                 "FEDERATED_LINK_TRUST_REVOKED");
     }
 
-    private boolean set(final String realmId, final String userId, final String alias, final String via,
-                        final String what, final String type) {
+    private boolean set(final String realmId, final String userId, final String alias, final String subject,
+                        final String via, final String what, final String type) {
         grants.requireRealmAdmin(realmId, what);
         if (!member(realmId, userId)) {
             return false;
@@ -87,13 +87,23 @@ public class FederatedLinkTrustService {
         if (privileged != null) {
             privileged.requireMayActOnUserEverywhere(userId, what);
         }
-        final int changed = links.setProvenance(realmId, userId, alias, via);
-        LOG.info("{} {} of user {} in realm {}: {} link(s)", what, LogSafe.sanitize(alias), LogSafe.sanitize(userId),
-                LogSafe.sanitize(realmId), changed);
+        // Round 6 (review): exactly one link, never every link of the user to this provider.
+        final boolean changed = links.setProvenance(realmId, userId, alias, subject, via);
+        LOG.info("{} {} of user {} in realm {}: {}", what, LogSafe.sanitize(alias), LogSafe.sanitize(userId),
+                LogSafe.sanitize(realmId), changed ? "changed" : "no such link");
         audit.emit(AuditEvent.admin(AuditContext.nowIso(), type, realmId, AuditContext.adminActor(), null, "user",
-                userId, changed > 0 ? "SUCCESS" : "FAILURE",
-                Map.of("idpAlias", alias, "createdVia", via, "links", String.valueOf(changed))));
-        return changed > 0;
+                userId, changed ? "SUCCESS" : "FAILURE",
+                Map.of("idpAlias", alias, "externalSubject", mask(subject), "createdVia", via)));
+        return changed;
+    }
+
+    /** The external subject as shown in the console and the audit log: its ends only. */
+    public static String mask(final String subject) {
+        if (subject == null) {
+            return "";
+        }
+        return subject.length() <= 8 ? "…" + subject.substring(Math.max(0, subject.length() - 3))
+                : subject.substring(0, 4) + "…" + subject.substring(subject.length() - 4);
     }
 
     private boolean member(final String realmId, final String userId) {
@@ -101,8 +111,10 @@ public class FederatedLinkTrustService {
     }
 
     private static LinkView view(final FederatedLinkEntity l) {
-        final String via = LinkProvenance.normalize(l.getCreatedVia());
-        return new LinkView(l.getIdpAlias(), l.getExternalSubject(), via,
+        // UNRESOLVED is shown as such (it is never trusted, like AUTO, but the reason differs).
+        final String via = LinkProvenance.UNRESOLVED.equals(l.getCreatedVia()) ? LinkProvenance.UNRESOLVED
+                : LinkProvenance.normalize(l.getCreatedVia());
+        return new LinkView(l.getIdpAlias(), l.getExternalSubject(), mask(l.getExternalSubject()), via,
                 l.getCreationDate() == null ? null : l.getCreationDate().getTime(),
                 LinkProvenance.mayAuthenticateAdmin(via));
     }

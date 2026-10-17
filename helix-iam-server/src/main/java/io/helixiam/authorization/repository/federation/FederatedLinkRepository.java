@@ -46,12 +46,14 @@ public interface FederatedLinkRepository extends JpaRepository<FederatedLinkEnti
     /** Round 6: every link of one provenance (the start-up report of grandfathered links). */
     List<FederatedLinkEntity> findAllByCreatedVia(String createdVia);
 
-    /** Round 6: set the provenance of {@code userId}'s links of {@code alias}; returns how many changed. */
+    /**
+     * Round 6: set the provenance of <b>one</b> link (by id), only while it still belongs to {@code userId}; returns
+     * how many changed (0 or 1). Never by (user, alias): a user may have several links of one provider.
+     */
     @Modifying
-    @Query(value = "UPDATE federated_link SET created_via = :via "
-            + "WHERE realm_id = :realm AND user_id = :userId AND idp_alias = :alias", nativeQuery = true)
-    int updateProvenance(@Param("realm") String realm, @Param("userId") String userId, @Param("alias") String alias,
-                         @Param("via") String via);
+    @Query(value = "UPDATE federated_link SET created_via = :via WHERE id = :id AND user_id = :userId",
+            nativeQuery = true)
+    int updateProvenance(@Param("id") String id, @Param("userId") String userId, @Param("via") String via);
 
     /** Task 21a: delete a link only while {@code userId} still owns it (the stale-link replacement). */
     @Modifying

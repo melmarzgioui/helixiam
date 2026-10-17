@@ -112,12 +112,16 @@ public class FederatedLinkService {
                 }).orElse(false);
     }
 
-    /** Round 6: set how the user's links of the realm's {@code alias} count (confirm or revoke trust). */
+    /** Round 6: set how one link (realm, alias, subject) of {@code userId} counts (confirm or revoke trust). */
     @Transactional
-    public int setProvenance(final String realmId, final String userId, final String idpAlias,
-                             final String createdVia) {
+    public boolean setProvenance(final String realmId, final String userId, final String idpAlias,
+                                 final String externalSubject, final String createdVia) {
         requireRealm(realmId);
-        return repository.updateProvenance(realmId, userId, idpAlias, LinkProvenance.normalize(createdVia));
+        if (idpAlias == null || externalSubject == null || externalSubject.isBlank()) {
+            return false;
+        }
+        return repository.updateProvenance(FederatedLinkEntity.key(realmId, idpAlias, externalSubject), userId,
+                LinkProvenance.normalize(createdVia)) == 1;
     }
 
     /** Round 6: every link of {@code userId} in {@code realmId}. */
