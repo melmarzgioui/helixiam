@@ -63,6 +63,10 @@ public final class E2eAdminSession {
         return http.sendJson("PUT", path, json, withXsrf(path));
     }
 
+    public E2eHttp.Response patch(final String path, final Object json) {
+        return http.sendJson("PATCH", path, json, withXsrf(path));
+    }
+
     public E2eHttp.Response delete(final String path) {
         return http.delete(path, withXsrf(path));
     }

@@ -41,6 +41,14 @@ public class RoleAdminController {
         this.publisher = publisher;
     }
 
+    /** Security review (rc.11): the role's admin permissions must be the caller's own (also checked in the service). */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     // ----- Realm roles -----
 
     @GetMapping("/roles")
@@ -74,6 +82,9 @@ public class RoleAdminController {
     @Operation(summary = "Set the realm's default role",
             description = "Designate the role auto-assigned to new users (clears any prior default). 404 if absent.")
     public ResponseEntity<RoleDto> setDefault(@PathVariable final String realmId, @PathVariable final String roleId) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireNotAdminDefault(realmId, roleId);
+        }
         final RoleDto updated = publisher.setDefault(new RoleRef(realmId, roleId, null));
         return updated == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(updated);
     }
@@ -90,6 +101,9 @@ public class RoleAdminController {
     @Operation(summary = "Assign a role", description = "Grant a realm role to the user.")
     public ResponseEntity<Void> assign(@PathVariable final String realmId, @PathVariable final String userId,
                                        @Valid @RequestBody final RoleIdRequest request) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOf(realmId, request.roleId()), "This role");
+        }
         final boolean ok = Boolean.TRUE.equals(publisher.assign(new RoleAssignment(realmId, userId, request.roleId())));
         return ok ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
@@ -98,6 +112,9 @@ public class RoleAdminController {
     @Operation(summary = "Unassign a role", description = "Revoke a realm role from the user.")
     public ResponseEntity<Void> unassign(@PathVariable final String realmId, @PathVariable final String userId,
                                          @PathVariable final String roleId) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOf(realmId, roleId), "This role");
+        }
         final boolean ok = Boolean.TRUE.equals(publisher.unassign(new RoleAssignment(realmId, userId, roleId)));
         return ok ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }

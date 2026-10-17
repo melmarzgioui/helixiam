@@ -41,6 +41,14 @@ public class ClientAdminService {
         this.repository = repository;
     }
 
+    /** Security review H5: you cannot act on an admin more privileged than you. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
     /** All active clients registered in the realm (never exposes secrets). */
     public List<ClientDto> list(final String realmId) {
         return repository.findAllByTenantIdAndDeleted(realmId, false).stream().map(c -> toDto(c, null)).toList();
@@ -57,6 +65,12 @@ public class ClientAdminService {
         // Invariant guard: a client must have a clientId.
         if (write.clientId() == null || write.clientId().isBlank()) {
             throw new IllegalArgumentException("Client ID is required.");
+        }
+        if (SIGN_IN_CLIENTS.contains(write.clientId().trim()) && adminGrantGuard != null) {
+            // Round 6: whoever creates helix-console or helix-cli in a realm decides where administrators' sign-in
+            // codes go. Only a realm admin (or the system bootstrap) may.
+            adminGrantGuard.requireRealmAdmin(write.realmId(), "Creating the built-in sign-in client "
+                    + write.clientId().trim());
         }
         final boolean publicClient = Boolean.TRUE.equals(write.publicClient());
         final String supplied = write.clientSecret();
@@ -86,11 +100,18 @@ public class ClientAdminService {
      */
     @Transactional
     public Optional<ClientDto> update(final ClientWriteDto write) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(write.realmId(), write.id(), "Changing this client");
+        }
         if (write.clientSecret() != null) {
             requireSettableSecret(write.clientSecret(), Boolean.TRUE.equals(write.publicClient()));
         }
         return inRealm(write.realmId(), write.id()).map(client -> {
+            final ClientDto before = toDto(client, null);
             applyWrite(client, write);
+            // Compare the state the write produces with the stored one (the writer's own normalisation: a null list
+            // is empty, a null flag false, the auth method normalised) — rolled back if refused.
+            requireRealmAdminForSignInChanges(write.realmId(), client.getClientId(), before, toDto(client, null));
             if (write.clientSecret() != null) {
                 client.setClientSecret(write.clientSecret());
             }
@@ -107,6 +128,9 @@ public class ClientAdminService {
      */
     @Transactional
     public SetSecretResult setSecret(final String realmId, final String id, final String secret) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Setting this client's secret");
+        }
         requireSettableSecret(secret, false);
         return inRealm(realmId, id).map(client -> {
             if (Boolean.TRUE.equals(client.getPublicClient())) {
@@ -149,12 +173,18 @@ public class ClientAdminService {
 
     /** Reveals a client's current secret (Credentials tab); the rest of the DTO is the client as-is. */
     public Optional<ClientDto> reveal(final String realmId, final String id) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Revealing this client's secret");
+        }
         return inRealm(realmId, id).map(c -> toDto(c, c.getRawSecret()));
     }
 
     /** Issues a fresh secret for a client; returns it once. */
     @Transactional
     public Optional<ClientDto> regenerateSecret(final String realmId, final String id) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Rotating this client's secret");
+        }
         return inRealm(realmId, id).map(client -> {
             final String secret = generateSecret();
             client.setClientSecret(secret);
@@ -162,9 +192,61 @@ public class ClientAdminService {
         });
     }
 
+    /** The built-in clients admins sign in through (console, CLI): their sign-in settings need realm-admin. */
+    public static final java.util.Set<String> SIGN_IN_CLIENTS = java.util.Set.of(
+            ConsoleClientBootstrapService.CONSOLE_CLIENT_ID, CliClientBootstrapService.CLI_CLIENT_ID);
+
+    /** Security review H5: realm-admin decides how admins sign in. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
+    /** The only fields of a built-in sign-in client a non-realm-admin may change: cosmetic ones. */
+    static final java.util.Set<String> COSMETIC_FIELDS = java.util.Set.of("name", "description", "alwaysDisplayInConsole");
+
+    /**
+     * On a built-in sign-in client (console, CLI) any change outside {@link #COSMETIC_FIELDS} needs realm-admin: those
+     * clients carry the admins' sign-in, so their redirect and logout URIs, origins, grant types, authentication,
+     * flows, scopes, lifespans, consent and FAPI settings decide where an admin's code and tokens go.
+     */
+    private void requireRealmAdminForSignInChanges(final String realmId, final String clientId, final ClientDto before,
+                                                   final ClientDto after) {
+        if (adminGrantGuard == null || !SIGN_IN_CLIENTS.contains(clientId)) {
+            return;
+        }
+        for (final java.lang.reflect.RecordComponent rc : ClientDto.class.getRecordComponents()) {
+            if (COSMETIC_FIELDS.contains(rc.getName()) || "secret".equals(rc.getName())) {
+                continue;
+            }
+            try {
+                final Object a = rc.getAccessor().invoke(before);
+                final Object b = rc.getAccessor().invoke(after);
+                if (!sameValue(a, b)) {
+                    adminGrantGuard.requireRealmAdmin(realmId, "Changing " + rc.getName() + " of the built-in sign-in "
+                            + "client " + clientId);
+                }
+            } catch (final ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+    }
+
+    private static boolean sameValue(final Object a, final Object b) {
+        if (a instanceof java.util.Collection<?> ca && b instanceof java.util.Collection<?> cb) {
+            return new java.util.HashSet<>(ca).equals(new java.util.HashSet<>(cb));
+        }
+        return java.util.Objects.equals(a, b);
+    }
+
     /** Soft-deletes a client (the OAuth server stops resolving it); {@code false} if absent. */
     @Transactional
     public boolean delete(final String realmId, final String id) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnClient(realmId, id, "Deleting this client");
+        }
         return inRealm(realmId, id).map(client -> {
             // Protect the built-in console/CLI clients: deleting them would lock admins out of the console /
             // break the CLI. They self-heal on restart anyway, but refuse the delete so the UI can't remove them.

@@ -127,8 +127,9 @@ public class AccountController {
         }
         final Map<String, String> attributes = request.attributes() == null ? current.attributes() : request.attributes();
         // Preserve username/enabled/locked from the persisted record; only email + attributes are user-editable.
-        final UserAdminDto saved = publisher.update(new UserWriteDto(realm(), user.getUserId(), current.username(),
-                request.email(), null, current.enabled(), current.locked(), attributes));
+        final UserAdminDto saved = io.helixiam.authorization.service.adminrbac.AdminActor.as(io.helixiam.authorization.service.adminrbac.AdminActor.self(user.getUserId()), () -> publisher.update(
+                new UserWriteDto(realm(), user.getUserId(), current.username(), request.email(), null,
+                        current.enabled(), current.locked(), attributes)));
         // B1: a new address is unverified until the user opens the confirmation link sent to it.
         if (saved != null && emailChanges != null && saved.email() != null
                 && !saved.email().equalsIgnoreCase(current.email() == null ? "" : current.email())) {

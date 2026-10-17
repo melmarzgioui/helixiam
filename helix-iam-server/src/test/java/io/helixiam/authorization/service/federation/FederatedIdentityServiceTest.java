@@ -123,14 +123,14 @@ class FederatedIdentityServiceTest {
 
     @Test
     void findLinkedUser_delegatesToTheLinkService() {
-        when(links.findLinkedUser("google", "sub-1")).thenReturn(Optional.of("user-7"));
+        when(links.findLinkedUser("master", "google", "sub-1")).thenReturn(Optional.of("user-7"));
         assertThat(service.findLinkedUser("google", "sub-1")).contains("user-7");
     }
 
     @Test
     void link_delegatesToTheLinkService() {
         service.link("google", "sub-9", "user-9");
-        verify(links).link("google", "sub-9", "user-9");
+        verify(links).link("master", "google", "sub-9", "user-9", null);
     }
 
     @Test

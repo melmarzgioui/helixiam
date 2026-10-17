@@ -55,12 +55,23 @@ public class ImpersonationService {
     public record Result(String userId, String username, String redirectUrl) {
     }
 
+    /** Security review H5: you cannot act on an admin more privileged than you. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
     /**
      * Start impersonating {@code userId}: load them passwordlessly, install an authenticated session,
      * and stamp the impersonating admin on it. Returns the target identity + the landing URL.
      */
     public Result impersonate(final String realm, final String userId, final String adminActor,
                               final HttpServletRequest request, final HttpServletResponse response) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnUser(realm, userId, "Impersonating this user");
+        }
         final UserCredentials user = establisher.loadUser(userId);
         final Authentication auth =
                 io.helixiam.authorization.security.SignInAuthorities.authenticated(user,

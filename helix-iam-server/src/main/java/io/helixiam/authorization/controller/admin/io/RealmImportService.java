@@ -276,6 +276,14 @@ public class RealmImportService {
     }
 
     /** Upserts every present slice into {@code realmId} (overwrite mode); returns the per-slice summary. */
+    /** Security review (rc.11): no import may grant admin permissions the importing admin does not hold. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     public RealmImportResult importInto(final String realmId, final RealmExportDocument doc) {
         return importInto(realmId, doc, ImportOptions.OVERWRITE);
     }
@@ -295,6 +303,12 @@ public class RealmImportService {
         final ImportOptions opts = options == null ? ImportOptions.OVERWRITE : options;
         if (doc == null) {
             return result.build();
+        }
+        // Security review (rc.11): an import that grants admin permissions needs realm-admin — checked before anything
+        // is written. Role assignments in the document are checked again, one by one, by the role services.
+        if (adminGrantGuard != null && doc.adminRoles() != null && doc.adminRoles().stream()
+                .anyMatch(g -> g != null && g.permissions() != null && !g.permissions().isEmpty())) {
+            adminGrantGuard.requireRealmAdmin(realmId, "Importing admin permissions");
         }
         if (!importRealmStage(realmId, doc, opts, result)) {
             return result.build();

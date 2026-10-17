@@ -50,6 +50,14 @@ public class AdminRbacService {
         this.userRolesRepository = userRolesRepository;
     }
 
+    /** Security review (rc.11): no admin may grant admin permissions they do not hold. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     /** The full catalogue of admin permissions (the matrix columns). Independent of realm. */
     public List<AdminPermissionDto> catalog() {
         return Arrays.stream(AdminPermission.values())
@@ -87,11 +95,18 @@ public class AdminRbacService {
         if (role.isEmpty() || !write.realmId().equals(role.get().getTenantId())) {
             throw new IllegalArgumentException("Role does not belong to this realm.");
         }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireRealmAdmin(write.realmId(), "Changing admin permissions");
+        }
         // Validate + normalise every requested permission to its enum (rejects typos up front).
         final Set<AdminPermission> requested = new LinkedHashSet<>();
         for (final String key : write.permissions() == null ? List.<String>of() : write.permissions()) {
             requested.add(AdminPermission.from(key)
                     .orElseThrow(() -> new IllegalArgumentException("Unknown admin permission: " + key)));
+        }
+        if (!requested.isEmpty() && role.get().isDefaultRole()) {
+            throw new AdminGrantGuard.AdminDefaultRoleException("The default role cannot hold admin permissions: every "
+                    + "new user would become an administrator. Choose another default role first.");
         }
         grants.deleteByRealmIdAndRoleId(write.realmId(), write.roleId());
         // Review rc.3 #5: flush the deletes first — Hibernate flushes inserts before deletes, so re-setting the same

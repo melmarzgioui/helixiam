@@ -44,13 +44,7 @@ import org.opensaml.saml.common.SignableSAMLObject;
 import org.springframework.stereotype.Component;
 
 import javax.xml.namespace.QName;
-import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
-import java.security.PrivateKey;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
-import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -218,10 +212,11 @@ public class SamlAssertionIssuer {
     private void signObject(final SignableSAMLObject signable, final SamlIdpConfig idp, final SamlSpOptions o)
             throws Exception {
         final BasicX509Credential credential = new BasicX509Credential(
-                parseCertificate(idp.signingCertificate()), parsePrivateKey(idp.signingPrivateKey()));
+                SamlSigningSupport.parseCertificate(idp.signingCertificate()), SamlSigningSupport.parsePrivateKey(idp.signingPrivateKey()));
         final Signature signature = build(Signature.DEFAULT_ELEMENT_NAME);
         signature.setSigningCredential(credential);
-        signature.setSignatureAlgorithm(signatureAlgorithm(o.signatureAlgorithmOrDefault()));
+        signature.setSignatureAlgorithm(SamlSigningSupport.signatureAlgorithm(credential.getPrivateKey(),
+                signatureAlgorithm(o.signatureAlgorithmOrDefault())));
         signature.setCanonicalizationAlgorithm(SignatureConstants.ALGO_ID_C14N_EXCL_OMIT_COMMENTS);
         signature.setKeyInfo(keyInfo(credential));
         signable.setSignature(signature);
@@ -242,7 +237,7 @@ public class SamlAssertionIssuer {
 
     /** Encrypt an assertion to the SP's cert: AES-256-GCM data key, RSA-OAEP key transport. */
     private EncryptedAssertion encrypt(final Assertion assertion, final String spCertPem) throws Exception {
-        final BasicX509Credential spCredential = new BasicX509Credential(parseCertificate(spCertPem));
+        final BasicX509Credential spCredential = new BasicX509Credential(SamlSigningSupport.parseCertificate(spCertPem));
         final DataEncryptionParameters dataParams = new DataEncryptionParameters();
         dataParams.setAlgorithm(EncryptionConstants.ALGO_ID_BLOCKCIPHER_AES256_GCM);
         final KeyEncryptionParameters kekParams = new KeyEncryptionParameters();
@@ -325,16 +320,5 @@ public class SamlAssertionIssuer {
         return (T) bf.getBuilder(qname).buildObject(qname);
     }
 
-    private static X509Certificate parseCertificate(final String pem) throws Exception {
-        final String base64 = pem.replace("-----BEGIN CERTIFICATE-----", "")
-                .replace("-----END CERTIFICATE-----", "").replaceAll("\\s", "");
-        return (X509Certificate) CertificateFactory.getInstance("X.509")
-                .generateCertificate(new ByteArrayInputStream(Base64.getDecoder().decode(base64)));
-    }
 
-    private static PrivateKey parsePrivateKey(final String pem) throws Exception {
-        final String base64 = pem.replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "").replaceAll("\\s", "");
-        return KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(base64)));
-    }
 }

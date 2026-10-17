@@ -38,8 +38,10 @@ public class AuditAdminInterceptor implements HandlerInterceptor {
         final int status = ex != null && response.getStatus() < 400 ? 500 : response.getStatus();
         final AuditEventMapper.AdminAudit a = AuditEventMapper.map(request.getMethod().toUpperCase(),
                 request.getRequestURI(), status);
+        final java.util.Map<String, String> detail = AuditContext.detail(request);
+        // A write that creates a resource (e.g. POST /keys/import) names the new id in its detail.
+        final String resourceId = a.resourceId() != null || detail == null ? a.resourceId() : detail.get("keyId");
         auditLog.emit(AuditEvent.admin(AuditContext.nowIso(), a.type(), a.realm(), AuditContext.adminActor(),
-                AuditContext.clientIp(request), a.resourceType(), a.resourceId(), a.outcome(),
-                AuditContext.detail(request)));
+                AuditContext.clientIp(request), a.resourceType(), resourceId, a.outcome(), detail));
     }
 }

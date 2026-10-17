@@ -61,10 +61,25 @@ public class MfaPolicyService {
                 .orElse(realmId == null ? "HelixIAM" : realmId);
     }
 
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    /** Round 6: the MFA policy decides how administrators sign in (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
+    private void requireRealmAdmin(final String realmId, final String what) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireRealmAdmin(realmId, what);
+        }
+    }
+
     /** Updates the given fields (null = unchanged). Empty when the realm does not exist. */
     @Transactional
     public Optional<Policy> update(final String realmId, final Boolean requireMfa, final Integer skipGraceDays) {
         return realm(realmId).map(cfg -> {
+            requireRealmAdmin(realmId, "Changing the realm's MFA policy");
             if (requireMfa != null) {
                 cfg.setRequireMfa(requireMfa);
             }

@@ -41,6 +41,14 @@ public class AccountConsoleController {
         this.wallets = wallets;
     }
 
+    /** Round 6: the providers the user can link (absent in slim unit-test wiring). */
+    private AccountIdentityLinkFlow identities;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIdentities(final AccountIdentityLinkFlow identities) {
+        this.identities = identities;
+    }
+
     @GetMapping("/account")
     public String overview(@AuthenticationPrincipal final UserCredentials principal, final HttpServletRequest request,
                            final Model model) {
@@ -55,6 +63,9 @@ public class AccountConsoleController {
                 authMillis != null ? authMillis : authSeconds == null ? null : authSeconds * 1000L,
                 org.springframework.context.i18n.LocaleContextHolder.getLocale()));
         model.addAttribute("wallets", wallets.rows(RealmContextHolder.get(), user.get().userId()));
+        if (identities != null) {
+            model.addAttribute("identities", identities.rows(RealmContextHolder.get(), user.get().userId()));
+        }
         return "account/index";
     }
 

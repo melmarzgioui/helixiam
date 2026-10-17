@@ -98,8 +98,9 @@ public class BootstrapServiceAccountService {
         client.setConsentRequired(false);
         client.setDisplayOnConsentScreen(false);
         clients.save(client);
-        roles.assignServiceAccountRole(new ServiceAccountRoleDto(null, realm, clientId,
-                RealmAdminBootstrapService.ADMIN_ROLE, "REALM", null));
+        io.helixiam.authorization.service.adminrbac.AdminActor.asSystem("bootstrap service account (operator-configured at start-up)",
+                () -> roles.assignServiceAccountRole(new ServiceAccountRoleDto(null, realm, clientId,
+                        RealmAdminBootstrapService.ADMIN_ROLE, "REALM", null)));
         LOG.info("Created bootstrap service account {} in realm {} with the '{}' role",
                 LogSafe.sanitize(clientId), realm, RealmAdminBootstrapService.ADMIN_ROLE);
         return Result.CREATED;

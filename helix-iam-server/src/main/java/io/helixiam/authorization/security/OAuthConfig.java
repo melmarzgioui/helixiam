@@ -62,8 +62,20 @@ public class OAuthConfig {
 
     /** SSO P6: a JwtEncoder over the realm JWKS so we can sign logout_tokens with the realm's active key. */
     @Bean
-    public org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder(final JWKSource<SecurityContext> jwkSource) {
-        return new org.springframework.security.oauth2.jwt.NimbusJwtEncoder(jwkSource);
+    public org.springframework.security.oauth2.jwt.JwtEncoder helixJwtEncoder(final JWKSource<SecurityContext> jwkSource,
+            final org.springframework.beans.factory.ObjectProvider<io.helixiam.authorization.service.key.RealmSigningSettingsService> signingSettings) {
+        final org.springframework.security.oauth2.jwt.JwtEncoder nimbus =
+                new org.springframework.security.oauth2.jwt.NimbusJwtEncoder(jwkSource);
+        // BYO keys: each token gets its own algorithm (ID tokens: the client's; everything else: the realm's
+        // signing.defaultAlg), signed by the matching ACTIVE key from one snapshot of the realm's keys.
+        if (!(jwkSource instanceof RealmJwkSource realm)) {
+            return nimbus;
+        }
+        return new RealmAlgorithmJwtEncoder(realm::snapshot, () -> {
+            final io.helixiam.authorization.service.key.RealmSigningSettingsService s = signingSettings.getIfAvailable();
+            final String current = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+            return s == null ? null : s.get(current == null ? "master" : current).defaultAlg();
+        }, nimbus);
     }
 
     /**
@@ -122,6 +134,11 @@ public class OAuthConfig {
                                                                         final io.helixiam.authorization.service.client.TokenExchangePolicyService tokenExchangePolicy,
                                                                         final io.helixiam.authorization.service.emailverification.EmailVerificationService emailVerification) {
         return context -> {
+            // BYO keys: access tokens use the realm's signing.defaultAlg (RS256 unless the realm chose PS256/ES256);
+            // ID tokens keep the client's id_token_signed_response_alg that Spring Authorization Server set.
+            if (org.springframework.security.oauth2.server.authorization.OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+                context.getJwsHeader().header(RealmAlgorithmJwtEncoder.REALM_DEFAULT_PARAM, Boolean.TRUE);
+            }
             // C3: no user tokens while the user still has to verify their email address (realm setting or the
             // VERIFY_EMAIL required action) — whatever the sign-in method or grant. Deliberately NOT swallowed.
             io.helixiam.authorization.security.requiredactions.EmailVerificationTokenGuard.check(context, emailVerification);

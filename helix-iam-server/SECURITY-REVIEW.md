@@ -165,6 +165,8 @@
 | L4 | LOW | Build hygiene | `pom.xml:177‑181` | `spring-boot-devtools` on the compile/runtime graph (optional, but avoid in release artifacts) |
 | L5 | LOW | Legacy crypto | `AttributeEncryption.java:113‑127` | Legacy AES/ECB (no-IV, no-integrity) decrypt fallback |
 | L6 | LOW | Credential handling | `RealmAdminBootstrapService.java:91` | Bootstrap admin password written to application logs |
+| H4 | **HIGH** — **FIXED 2026-10-16** | Authz | `AdminRoutePermissions.java`, `AdminAuthorizationManager.java` | Admin permission resolved on the **raw** request URI while Spring MVC routes on the decoded path — see [H4](#h4-high-fixed--admin-permission-resolved-on-the-raw-uri) |
+| H5 | **HIGH** — **FIXED 2026-10-16** (present in rc.11) | Authz / privilege escalation | `RoleAdminService`, `GroupAdminService`, `ClientRoleAdminService`, `AdminRbacService`, SCIM, realm import | An admin could hand out admin permissions they do not hold — see [H5](#h5-high-fixed--admins-could-grant-admin-permissions-they-do-not-hold) |
 | I1 | INFO | Positive | `PasswordEncoderService.java:32` | Argon2id (OWASP params) with constant-time legacy verify + transparent upgrade |
 | I2 | INFO | Positive | 25 admin controllers use `@Valid` + `AdminValidationAdvice` | Bean Validation present on admin write APIs |
 | I3 | INFO | Positive | `BreachedPasswordChecker.java`, `PasswordPolicyEnforcer.java`, `LoginFailureService.java` | HIBP k-anonymity, password policy+history, lockout wired |
@@ -291,6 +293,164 @@ column declared encrypted. Alarm on the error.
 all profiles, aiding user/realm enumeration and internal-detail disclosure. (`include-stacktrace` /
 `include-exception` are correctly left at defaults → no stacktrace leak.) **Recommendation:** `never` (or
 `on-param`) in production.
+
+---
+
+## H4 (HIGH, FIXED) — admin permission resolved on the raw URI
+
+**Found 2026-10-16** (automated review of the bring-your-own realm keys branch); the defect predates that branch.
+
+`AdminAuthorizationManager` passed `request.getRequestURI()` — still percent-encoded and with `;matrix` content — to
+`AdminRoutePermissions`, which split it into segments and fell back to `manage-realm` for an unknown route group.
+Spring MVC routes on the **decoded** path. So `POST /admin/realms/r/k%65ys/import` was authorised as `manage-realm`
+but handled by the realm-key controller (which needs `realm-admin`), and the same differential applied to every route
+group (`u%73ers` resolved to `manage-realm` instead of `manage-users`, `cl%69ents` instead of `manage-clients`, …).
+An admin holding one low permission could reach writes guarded by another.
+
+**Fix (three layers).**
+1. `AdminPathEncodingFilter` (first servlet filter) answers `400` to a percent-encoded character in the realm or
+   route part of an admin path (`/admin/realms/{realmId}/{group}`, or the first two segments of other `/admin` paths)
+   and to a double-encoded `%25` anywhere under `/admin`. Realm ids are `[A-Za-z0-9._-]` and route names are fixed,
+   so nothing legitimate is encoded there; deeper id segments (a SAML entity id such as `urn%3Aexample%3Asp`) still
+   work, and they never decide the permission.
+2. The permission is resolved on the decoded path within the application, without `;` content (`UrlPathHelper`), the
+   path Spring MVC routes on; segments match exactly and case-sensitively; an unknown route group (or unknown
+   realm-independent admin path) now fails closed to `realm-admin`. The groups that relied on the old default are
+   listed explicitly (agents, events, scim-targets, webhooks, workload-identity, user-federation, flow, flow-engine,
+   export, import). `admin-roles` is matched as the route group, not as a substring of the path.
+3. The realm-key write endpoints check `realm-admin` themselves (`AdminAuthorizationManager.permits`).
+
+**Tests.** `AdminAuthorizationManagerTest.resolvesThePermissionOnTheDecodedPath_asSpringMvcRoutesIt`,
+`AdminRoutePermissionsTest` (fail-closed and explicit groups), `AdminPathEncodingFilterTest`, and
+`RealmKeyPermissionsE2eTest.encodedCasedAndMatrixPathTricks_neverReachAWriteWithALowerPermission` (through the real
+filter chain: `k%65ys`, `%6Beys`, `KEYS`, `keys;x=1`, `keys/`, `//keys`, `./keys`, `%2565`, and the same tricks
+against `users` and `clients`).
+
+---
+
+## H5 (HIGH, FIXED) — admins could grant admin permissions they do not hold
+
+**Found 2026-10-16, confirmed live against rc.11.** A `manage-users` admin called
+`POST /admin/realms/r/users/{self}/roles` with the `admin` role and became realm admin; a `manage-roles` admin could
+make `admin` the realm's default role, so every new user became an administrator. The same held for group roles and
+group membership, service-account roles (whose realm roles feed admin bearer tokens), the realm import's `adminRoles`
+slice (needs only `manage-realm`) and SCIM group membership.
+
+**Fix.** `AdminGrantGuard`: a role confers its admin-RBAC grants, and the role named `admin` confers `realm-admin` by
+its name (`admin_<realm>` authority). Assigning or removing such a role — user roles, group roles, group membership,
+service-account realm roles, SCIM membership, realm import — needs the role's permissions to be a subset of the
+caller's own, and `realm-admin` for a role conferring `realm-admin`; enforced in the services and in the controllers.
+Changing admin grants needs `realm-admin` (the `admin-roles` route already did; the service now checks too, which
+covers realm import). A role with admin permissions cannot be the default role (`400`), and the default role cannot be
+given admin permissions. Existing default roles with admin permissions are reported at start-up (WARN +
+`DEFAULT_ROLE_HAS_ADMIN_PERMISSIONS` audit event), not changed, and no longer handed to new users. Not applicable:
+identity-provider mappers map claims to attributes only (no role mapping); DCR assigns no roles; organization roles
+carry no admin permissions. Code outside any request (start-up bootstrap) is not restricted; a request without an
+authenticated admin (SCIM) holds no admin permission.
+
+**Second part — acting on a more privileged principal (also present in rc.11, found by live probes).** Without
+handing out a role, a lower admin could still take over an administrator: `view-clients` could read an admin service
+account's client secret (`GET /clients/{id}/secret`) and `manage-clients` could set or rotate it, then sign in as
+that service account; `manage-users` could impersonate a realm admin or reset their password, change their e-mail
+(then reset the password by mail), disable or delete them; SCIM could do the same to admins; an external IdP login
+whose verified e-mail matched an administrator was linked to that administrator automatically; and a service-account
+role of type `CLIENT` without a client was accepted.
+
+**Fix.** `PrivilegedPrincipalGuard`: an admin action that targets a principal whose effective admin permissions (user:
+direct and group roles; client: its service account's realm roles) are not a subset of the caller's own is `403` —
+impersonation, password, credentials (TOTP, WebAuthn, recovery codes, devices), required actions, profile, e-mail,
+username, enable/disable, GDPR erasure and deletion of users; revealing, setting or rotating the secret of, updating
+(authentication method, keys, JWKS, redirect URIs, grant types) and deleting clients. Checked by
+`PrivilegedPrincipalInterceptor` on `/admin/realms/{realm}/users/{id}/**` and `/clients/{id}/**` and again in the
+services (`UserAdminService`, `ClientAdminService`, `ImpersonationService`), and for SCIM. Revoking sessions stays
+allowed. Revealing a client secret needs `manage-clients` (it needed `view-clients`). `IdentityBroker` never links an
+identity by e-mail to a user holding any admin permission: that user links it from the account console (OIDC, SAML,
+eID and LDAP go through it; wallets never link by attribute). A `CLIENT` service-account role needs its client
+(`400`). The unused `TenantService.save(TenantUser)` was removed.
+
+**Trust bindings and sign-in clients** (final round, also present in rc.11): `manage-realm` could bind its own
+workload-identity issuer to an admin service account (and the realm import's workload-identity slice could too), and
+bind an agent to an admin service account or give it admin roles; `manage-clients` could add a redirect URI to the
+built-in `helix-console` client and receive the master admin's authorization code. Workload-identity and agent
+create/update/delete now act on the bound client (`requireMayActOnClient`, controller and service, so the import is
+covered) and agent realm roles go through `AdminGrantGuard`; on the built-in sign-in clients (`helix-console`,
+`helix-cli`) every change except the cosmetic name, description and "always display in console" needs `realm-admin`
+— judged on the state the write produces (a missing list empties it), and including their roles, mappers and other
+sub-resources. A client's privilege includes the realm roles of an agent bound to it, and suspending, activating or
+revoking an agent is acting on it. Verified covered already: `private_key_jwt`/`jwks_uri`, mTLS subject and token-exchange
+policies (client updates and `/clients/{id}/**` writes); DCR binds no existing client. `manage-X` now includes `view-X`
+when permissions are compared.
+
+**Who is acting is declared, never inferred** (review follow-up): an earlier fix decided "admin action" from the raw
+URI and skipped enforcement otherwise (fail-open, the H4 pattern). The acting principal is now an explicit
+`AdminActor`, declared by `AdminAuthorizationManager` where it authorises an admin route, by SCIM and DCR (no admin
+permission) and by self-service (the user's own account only); internal work runs in `AdminActor.asSystem(...)`
+(three reviewed callers, listed in the design doc). Without an actor, actions touching admin permissions are refused.
+A target's privilege is evaluated like the authoriser's: `admin_master` (a master admin administers every realm) and
+`admin_<realm>` reach the realm, so a master admin who is a member of a realm is protected there too.
+
+**Tests.** `AdminGrantEscalationE2eTest` (the live scenario: `manage-users` self-assigns `admin` → 403;
+`manage-roles` sets `admin` as default → 400; groups, service accounts, the grant editor, realm import, SCIM, the
+start-up report) and `PrivilegedPrincipalE2eTest` (client secret reveal/set/rotate, client update and delete,
+impersonation, password, profile and status, required actions, credentials, GDPR erasure, deletion, SCIM; ordinary
+users and clients stay manageable; a realm admin may act on any of them), `IdentityBrokerTest`.
+
+**Systematic sweep (round 6).** Instead of more case-by-case fixes, every admin write endpoint (141), every
+realm-import slice (25) and every SCIM and DCR write was inventoried and classified by what it reaches: (a) a
+privileged principal's credentials, identity, links or status; (b) how it signs in or which tokens it gets; (c) what
+trusts it; (d) the roles and permissions in tokens. Anything in a to d needs the subset rule or realm-admin in the
+service layer, so REST and import share the check. The table, with a guard or a reason for every row (77 endpoints and
+15 slices guarded), is in `docs/superpowers/specs/2026-10-16-byo-realm-keys-design.md` (Revision 3). Closed by the sweep:
+
+- **IdP re-pointing took over a linked admin (HIGH).** A `manage-identity-providers` admin could point an identity
+  provider that a realm admin was linked to at their own issuer and sign in as that admin. Changing or deleting such a
+  provider now needs the linked administrators' permissions; the same applies to trusted lists used by wallet
+  providers. Links record their provenance (`federated_link.created_via`: JIT, AUTO, SELF, WALLET); an administrator
+  signs in only through a link they made themselves (JIT, SELF, WALLET), never through an e-mail-matched (AUTO) or
+  unknown one. No admin API creates links.
+- **Applications of the sign-in clients (MEDIUM).** Their flow, subject claim and enabled flag, and deleting them
+  (which soft-deleted the console client), need realm-admin; deleting any Application needs the permissions of every
+  child client it removes.
+- **Squatting `helix-cli` (MEDIUM).** A `manage-clients` admin could create `helix-cli` with its own redirect URI in a
+  realm that lacked it. Creating either sign-in client id needs realm-admin; `helix-cli` is seeded with every realm,
+  and its redirect URIs, grant types, public flag and secret are reset to the built-in values on every start (WARN +
+  `SIGN_IN_CLIENT_RECONCILED` audit).
+- **Import bypassed the sign-in client sub-resource check (LOW).** Mapper and allowed-resource writes call
+  `requireMayChangeSignInClient` in the services.
+- **Flows.** The browser flow and the flows of the sign-in clients and their Applications need realm-admin to change,
+  rename, create (under that name) or delete.
+- **Found by the inventory:** messaging providers and templates, the MFA policy, magic links, the subject claim and
+  the realm's sign-in policy settings need realm-admin; registering a push device for a user needs that user's
+  permissions; deleting a group or role, or moving a group, needs the permissions it grants.
+- **Route level:** manage-X satisfies view-X routes (users, clients, identity providers, events).
+- **No lockout on upgrade (ruling).** Links that exist at the upgrade are grandfathered (`LEGACY`, trusted) and every
+  administrator with one is reported at start-up (`PRIVILEGED_LEGACY_LINK`); a realm admin can revoke trust in one.
+  New administrator links come from the account console's link flow (fresh sign-in, link intent bound to the session
+  and the broker `state`, `SELF`) or a realm admin's confirmation (`ADMIN_CONFIRMED`). Refusals are audited
+  (`PRIVILEGED_LINK_REFUSED`). The `helix-cli` reconcile corrects only what widens the built-in client.
+- **Realm-scoped links (review).** Links were keyed by (alias, subject) across realms, so a realm-A admin could mark
+  trusted a link of a user who is an admin in realm B or master, and the account-console link treated an owner in
+  another realm as stale and took the link over. Links now carry `realm_id` (key realm + alias + subject); every
+  operation names the realm; trust changes also need the user's admin permissions in every realm they belong to; an
+  owner is stale only when the user no longer exists.
+- **One source for a target's privilege (review).** Several checks read a target user's admin permissions in one
+  realm only, so an administrator of another realm or of master was not protected there (changing a provider they sign
+  in through, the start-up report, acting on them). `effectivePrivilegesEverywhere(userId)` is now the only source, used
+  by every check on a target user. Links the upgrade could only guess the realm of are held `UNRESOLVED` and resolved
+  at start-up after the realm config folder is loaded (`LEGACY` when the alias is in exactly one realm, else `AUTO`
+  until confirmed). The `TenantUser` profile-attribute mapping, which made a multi-realm user's memberships share one
+  collection, is removed.
+- **One link per trust change (round 7, HIGH).** Confirm updated every link of the user to the provider, so an
+  attacker's e-mail-matched link (another external subject) became trusted with the legitimate one. Confirm and
+  revoke-trust now name one link (`externalSubject`) and update it by id. The reconciler's registry fallback applies
+  only to a single static provider definition with no stored provider of the alias.
+
+Tests: `SignInSurfaceE2eTest` (one scenario per guarded row: the lower admin gets 403, a realm admin of the realm
+gets 2xx, import leaves the protected value unchanged; the IdP takeover is replayed against a stub IdP, AUTO refused and
+JIT accepted), `PrivilegedLinkE2eTest` (grandfathered admin still signs in and is reported; a new e-mail link is
+refused and audited; the self-link flow needs a fresh sign-in, writes SELF and then signs in; an identity of someone
+else is refused; confirm and revoke trust; narrowed vs widened `helix-cli`), `IdentityBrokerTest`, `LinkProvenanceTest`,
+`FlywayRealmKeyCertificatesTest` (provenance backfill).
 
 ---
 

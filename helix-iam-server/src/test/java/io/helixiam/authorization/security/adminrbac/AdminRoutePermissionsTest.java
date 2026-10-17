@@ -108,8 +108,27 @@ class AdminRoutePermissionsTest {
     }
 
     @Test
-    void unknownRealmScopedGroup_fallsBackToManageRealm() {
-        assertThat(AdminRoutePermissions.required("/admin/realms/gov/something-new", "POST")).contains("manage-realm");
+    void unknownRealmScopedGroup_failsClosedToRealmAdmin() {
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/something-new", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/something-new", "GET")).contains("realm-admin");
+        // Case matters (Spring MVC matching is case-sensitive): KEYS is not keys — and fails closed.
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/KEYS/import", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/Users", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/other", "GET")).contains("realm-admin");
+    }
+
+    @Test
+    void groupsThatUsedTheDefault_areListedExplicitly() {
+        for (final String g : new String[] {"agents", "events", "scim-targets", "webhooks", "workload-identity",
+                "user-federation", "flow", "flow-engine", "export", "import"}) {
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov/" + g, "POST")).as(g).contains("manage-realm");
+        }
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/metrics", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/admin-roles/r1", "PUT")).contains("realm-admin");
+        // Only the group segment decides: an "admin-roles" deeper in the path is not the admin-RBAC API.
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/users/admin-roles", "GET")).contains("view-users");
     }
 
     @Test
@@ -121,5 +140,31 @@ class AdminRoutePermissionsTest {
             assertThat(AdminRoutePermissions.required("/admin/realms/gov/organizations/o-1/theme", method))
                     .contains("manage-organizations");
         }
+    }
+
+    @Test
+    void signingSettingsWrites_needRealmAdmin() {
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/settings/signing", "PUT")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/settings/signing", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/settings", "PUT")).contains("manage-realm");
+    }
+
+    @Test
+    void realmKeyWrites_needRealmAdmin_readsKeepManageRealm() {
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/keys", "GET")).contains("manage-realm");
+        assertThat(AdminRoutePermissions.required("/admin/realms/gov/keys/k1/csr", "GET")).contains("manage-realm");
+        for (final String[] w : new String[][] {{"POST", "/keys/import"}, {"POST", "/keys/csr"},
+                {"PUT", "/keys/k1/certificate"}, {"POST", "/keys/k1/activate"}, {"POST", "/keys/rotate"},
+                {"DELETE", "/keys/k1"}}) {
+            assertThat(AdminRoutePermissions.required("/admin/realms/gov" + w[1], w[0])).as(w[1]).contains("realm-admin");
+        }
+    }
+
+    @Test
+    void trustInAFederatedLinkIsARealmAdminsDecision() {
+        final String base = "/admin/realms/gov/users/u1/federated-identities";
+        assertThat(AdminRoutePermissions.required(base, "GET")).contains("view-users");
+        assertThat(AdminRoutePermissions.required(base + "/corp/confirm", "POST")).contains("realm-admin");
+        assertThat(AdminRoutePermissions.required(base + "/corp/revoke-trust", "POST")).contains("realm-admin");
     }
 }

@@ -5,7 +5,7 @@
 
 import React from "react";
 
-export type ButtonVariant = "primary" | "ghost" | "danger";
+export type ButtonVariant = "primary" | "ghost" | "danger" | "danger-outline";
 export type ButtonSize = "md" | "lg";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

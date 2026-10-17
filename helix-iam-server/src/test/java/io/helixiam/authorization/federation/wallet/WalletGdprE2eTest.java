@@ -103,7 +103,7 @@ class WalletGdprE2eTest {
     void export_walletLink_carriesAliasAndDisplayName_neverTheSubjectHash() {
         final String hash = hex();
         seedUserAndRealmLink();
-        when(federatedLinks.findAllByUserId(USER_ID)).thenReturn(List.of(
+        when(federatedLinks.findAllByRealmIdAndUserId(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(USER_ID))).thenReturn(List.of(
                 new FederatedLinkEntity(WALLET_ALIAS, hash, USER_ID),
                 new FederatedLinkEntity(OIDC_ALIAS, "ext-123", USER_ID)));
 
@@ -128,7 +128,7 @@ class WalletGdprE2eTest {
         when(credentials.list(USER_ID)).thenReturn(List.of());
         final FederatedLinkEntity walletLink = new FederatedLinkEntity(WALLET_ALIAS, hash, USER_ID);
         final FederatedLinkEntity oidcLink = new FederatedLinkEntity(OIDC_ALIAS, "ext-123", USER_ID);
-        when(federatedLinks.findAllByUserId(USER_ID)).thenReturn(List.of(walletLink, oidcLink));
+        when(federatedLinks.findAllByRealmIdAndUserId(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(USER_ID))).thenReturn(List.of(walletLink, oidcLink));
 
         service.erase(new GdprEraseDto(REALM, USER_ID, "anonymize"));
 
@@ -145,7 +145,7 @@ class WalletGdprE2eTest {
         // federated_link has ON DELETE CASCADE to user_credentials (see GdprAdminService javadoc): the single
         // users.delete(user) below already removes every federated_link row, wallet or not. No separate lookup.
         verify(users).delete(any());
-        verify(federatedLinks, never()).findAllByUserId(any());
+        verify(federatedLinks, never()).findAllByRealmIdAndUserId(any(), any());
         verify(federatedLinks, never()).delete(any());
     }
 

@@ -51,7 +51,7 @@ class AccountIdentitiesWalletE2eTest extends AbstractE2eTest {
         tuple = new WalletSubject.Tuple(hex());
         assertThat(links.link(realm, ada.userId(), walletAlias, number)).isEqualTo(WalletLinkService.LinkResult.LINKED);
         assertThat(links.link(realm, ada.userId(), walletAlias, tuple)).isEqualTo(WalletLinkService.LinkResult.LINKED);
-        context.getBean(FederatedLinkService.class).link(oidcAlias, "oidc-sub-" + UUID.randomUUID(), ada.userId());
+        context.getBean(FederatedLinkService.class).link(realm, oidcAlias, "oidc-sub-" + UUID.randomUUID(), ada.userId(), "JIT");
         session = E2eAdminSession.login(newBrowser(), realm, ada.username(), PASSWORD);
     }
 

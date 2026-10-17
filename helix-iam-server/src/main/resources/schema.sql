@@ -50,14 +50,44 @@ ALTER TABLE realm_config ADD COLUMN IF NOT EXISTS mfa_skip_grace_days integer NO
 CREATE TABLE IF NOT EXISTS realm_key (
     key_id        character varying(255) NOT NULL PRIMARY KEY,
     realm_id      character varying(255) NOT NULL,
-    algorithm     character varying(20)  DEFAULT 'RSA' NOT NULL,
+    algorithm     character varying(20)  DEFAULT 'RS256' NOT NULL,
     public_key    text                   NOT NULL,
     private_key   text                   NOT NULL,
     status        character varying(20)  DEFAULT 'ACTIVE' NOT NULL,
     creation_date timestamp DEFAULT CURRENT_TIMESTAMP,
-    rotated_date  timestamp DEFAULT NULL
+    rotated_date  timestamp DEFAULT NULL,
+    -- V86: bring-your-own keys and certificates (PENDING status, chain, CSR, expiry warnings).
+    certificate_chain_pem text DEFAULT NULL,
+    csr_pem               text DEFAULT NULL,
+    source                character varying(20) DEFAULT 'GENERATED' NOT NULL,
+    activated_date        timestamp DEFAULT NULL,
+    expiry_warned_on      date DEFAULT NULL
     );
 CREATE INDEX IF NOT EXISTS realm_key_realm_status_idx ON realm_key (realm_id, status);
+-- V86: the same key in two realms cannot be repaired automatically: stop with a message naming the realms (an
+-- invalid cast carries the text, since this file is run by the plain SQL-script initializer, without $-quoting).
+SELECT CAST('V86: the same signing key is stored in more than one realm (' || string_agg(DISTINCT realm_id, ', ')
+            || '). Delete the duplicate realm_key rows of all but one of these realms, then restart.' AS integer)
+  FROM realm_key
+ WHERE public_key IN (SELECT public_key FROM realm_key GROUP BY public_key HAVING count(DISTINCT realm_id) > 1)
+HAVING count(*) > 0;
+-- V86: rc.11 could store the same key twice in one realm (two concurrent first-use requests): keep, per realm and
+-- public key, an ACTIVE row (the newest) or, without one, the newest row. Idempotent.
+DELETE FROM realm_key k
+    USING (SELECT key_id,
+                  ROW_NUMBER() OVER (PARTITION BY realm_id, public_key
+                                     ORDER BY (status = 'ACTIVE') DESC, creation_date DESC NULLS LAST, key_id DESC) AS rn
+             FROM realm_key) d
+    WHERE k.key_id = d.key_id AND d.rn > 1;
+-- V86: the same public key can never be stored twice.
+CREATE UNIQUE INDEX IF NOT EXISTS realm_key_public_key_uidx ON realm_key (public_key);
+-- V86: per-realm signing algorithm choices (optional rows; RS256 when absent).
+CREATE TABLE IF NOT EXISTS realm_signing_settings (
+    realm_id    character varying(255) NOT NULL PRIMARY KEY,
+    default_alg character varying(10)  DEFAULT 'RS256' NOT NULL,
+    saml_alg    character varying(10)  DEFAULT 'RS256' NOT NULL,
+    updated_at  timestamp DEFAULT CURRENT_TIMESTAMP
+    );
 
 -- HELIX IAM E2.5: per-realm authentication flows (data-driven, editable from the admin console).
 -- A flow is an ordered tree of executions; nesting is by parent_id, ordering by priority.
@@ -138,9 +168,17 @@ CREATE TABLE IF NOT EXISTS federated_link (
     idp_alias         character varying(255) NOT NULL,
     external_subject  character varying(512) NOT NULL,
     user_id           character varying(255) NOT NULL,
-    creation_date     timestamp DEFAULT CURRENT_TIMESTAMP
+    creation_date     timestamp DEFAULT CURRENT_TIMESTAMP,
+    -- Round 6 (V86): JIT, AUTO, SELF, WALLET, ADMIN_CONFIRMED or LEGACY; AUTO links never sign in an administrator.
+    created_via       character varying(16),
+    -- Round 6 (V86): the realm the link belongs to; the key is (realm_id, idp_alias, external_subject).
+    realm_id          character varying(255)
     );
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS created_via character varying(16);
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_ambiguous boolean DEFAULT false NOT NULL;
 CREATE INDEX IF NOT EXISTS federated_link_user_idx ON federated_link (user_id);
+CREATE INDEX IF NOT EXISTS federated_link_alias_idx ON federated_link (idp_alias);
 
 -- IDENTITY PROVIDER CONFIG (Helix IAM E8.1) --
 -- Per-realm identity-provider connections the admin console (E8.2) manages and the
@@ -1227,3 +1265,38 @@ CREATE TRIGGER realm_config_delete_wallet_secrets
     AFTER DELETE ON realm_config
     FOR EACH ROW
     EXECUTE FUNCTION helix_delete_wallet_secrets_for_realm();
+
+-- Round 6 (V86), at the end because it reads identity_provider, user_credentials.realm_id and tenant_user.
+-- Round 6: links are realm-scoped (key: realm_id, idp_alias, external_subject); a link signs its user in only in its
+-- realm. Backfill: the realm whose identity_provider owns the alias when exactly one does; otherwise (an alias in
+-- several realms, or a provider from configuration files) the user's home realm, else their only realm membership,
+-- and such a link is UNRESOLVED until start-up (see below). Rows still without a realm sign no one in and are reported at start-up.
+-- Idempotent.
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_id character varying(255);
+UPDATE federated_link f SET realm_id = p.realm_id
+  FROM (SELECT alias, min(realm_id) AS realm_id FROM identity_provider GROUP BY alias
+        HAVING count(DISTINCT realm_id) = 1) p
+ WHERE f.realm_id IS NULL AND p.alias = f.idp_alias;
+-- A link placed by the fallbacks below may sit in the wrong realm: it is marked realm_ambiguous and (further down)
+-- created_via UNRESOLVED, which signs no administrator in. At start-up, once the realm config folder's providers are
+-- loaded, UnresolvedLinkReconciler places it in the one realm that has the alias (LEGACY) or makes it AUTO (listed as
+-- AMBIGUOUS until a realm admin confirms it).
+ALTER TABLE federated_link ADD COLUMN IF NOT EXISTS realm_ambiguous boolean DEFAULT false NOT NULL;
+UPDATE federated_link f SET realm_id = u.realm_id, realm_ambiguous = true
+  FROM user_credentials u
+ WHERE f.realm_id IS NULL AND u.user_id = f.user_id AND u.realm_id IS NOT NULL;
+UPDATE federated_link f SET realm_id = t.tenant_id, realm_ambiguous = true
+  FROM (SELECT user_id, min(tenant_id) AS tenant_id FROM tenant_user GROUP BY user_id HAVING count(*) = 1) t
+ WHERE f.realm_id IS NULL AND t.user_id = f.user_id;
+UPDATE federated_link SET id = realm_id || '|' || idp_alias || '|' || external_subject
+ WHERE realm_id IS NOT NULL AND id = idp_alias || '|' || external_subject;
+CREATE UNIQUE INDEX IF NOT EXISTS federated_link_realm_subject_uidx
+    ON federated_link (realm_id, idp_alias, external_subject);
+CREATE INDEX IF NOT EXISTS federated_link_realm_user_idx ON federated_link (realm_id, user_id);
+-- Round 6 (V86): pre-upgrade links are grandfathered (wallet links WALLET, every other LEGACY). Idempotent.
+UPDATE federated_link SET created_via = 'UNRESOLVED' WHERE created_via IS NULL AND realm_ambiguous;
+UPDATE federated_link f SET created_via = 'WALLET'
+ WHERE f.created_via IS NULL
+   AND EXISTS (SELECT 1 FROM identity_provider p
+                WHERE p.alias = f.idp_alias AND lower(p.protocol) IN ('eudi-wallet', 'openid4vp', 'wallet'));
+UPDATE federated_link SET created_via = 'LEGACY' WHERE created_via IS NULL;

@@ -41,6 +41,11 @@ public final class AuditEventMapper {
                     : "DELETE".equals(method) ? "THEME_ASSET_DELETE" : "ADMIN_" + method;
             return new AdminAudit(realm, assetType, "theme-asset", sub, outcome);
         }
+        // BYO realm keys: /keys/import|csr|rotate (new key; the id comes from the audit detail) and /keys/{id}[/sub].
+        if ("keys".equals(resource)) {
+            final boolean verb = "import".equals(id) || "csr".equals(id) || "rotate".equals(id);
+            return new AdminAudit(realm, realmKeyType(method, id, sub), "realm-key", verb ? null : id, outcome);
+        }
         final String type = type(method, resource, sub);
         final String resourceType = singular(resource);
         return new AdminAudit(realm, type != null ? type : "ADMIN_" + method, resourceType, id, outcome);
@@ -93,6 +98,28 @@ public final class AuditEventMapper {
             }
             default -> null;
         };
+    }
+
+    private static String realmKeyType(final String method, final String id, final String sub) {
+        if ("POST".equals(method) && "import".equals(id)) {
+            return "REALM_KEY_IMPORT";
+        }
+        if ("POST".equals(method) && "csr".equals(id)) {
+            return "REALM_KEY_CSR";
+        }
+        if ("POST".equals(method) && "rotate".equals(id)) {
+            return "REALM_KEY_ROTATE";
+        }
+        if ("PUT".equals(method) && "certificate".equals(sub)) {
+            return "REALM_KEY_CERTIFICATE_ATTACH";
+        }
+        if ("POST".equals(method) && "activate".equals(sub)) {
+            return "REALM_KEY_ACTIVATE";
+        }
+        if ("DELETE".equals(method) && id != null && sub == null) {
+            return "REALM_KEY_RETIRE";
+        }
+        return "ADMIN_" + method;
     }
 
     private static String crud(final String method, final String resource) {

@@ -51,17 +51,36 @@ public final class AdminRoutePermissions {
         }
         final boolean read = isRead(method);
 
-        // The admin-RBAC management API is the most sensitive — only full realm admins may grant permissions.
-        if (path.contains("/admin-roles")) {
-            return Optional.of(REALM_ADMIN);
+        // Segments are matched exactly and case-sensitively, on the DECODED path (AdminAuthorizationManager passes
+        // the path Spring MVC routes on). Anything not listed here fails closed to realm-admin.
+        final String[] seg = (path.startsWith("/") ? path.substring(1) : path).split("/", -1);
+        if (seg.length >= 2 && "audit".equals(seg[1])) {
+            return Optional.of(MANAGE_EVENTS); // realm-independent audit config
         }
-        // Realm-independent audit config.
-        if (path.startsWith("/admin/audit")) {
-            return Optional.of(MANAGE_EVENTS);
+        if (seg.length == 2 && ("metrics".equals(seg[1]) || "realms".equals(seg[1]))) {
+            return Optional.of(MANAGE_REALM); // /admin/metrics, /admin/realms (list)
+        }
+        if (seg.length < 3 || !"realms".equals(seg[1])) {
+            return Optional.of(REALM_ADMIN); // an unknown realm-independent admin path
+        }
+        if (seg.length == 3) {
+            return Optional.of(MANAGE_REALM); // /admin/realms/{realmId}
         }
 
         // Realm-scoped resource groups: /admin/realms/{realmId}/<group>...
-        final String group = realmGroup(path);
+        final String group = seg[3];
+        // H5: revealing a client secret hands over the client (and its service account): manage, not view.
+        if ("clients".equals(group) && seg.length >= 6 && "secret".equals(seg[5])) {
+            return Optional.of(MANAGE_CLIENTS);
+        }
+        // Round 6: whether a federated link may sign in an administrator is a realm admin's decision.
+        if ("users".equals(group) && seg.length >= 8 && "federated-identities".equals(seg[5]) && !read) {
+            return Optional.of(REALM_ADMIN);
+        }
+        // The signing settings decide which key and algorithm sign tokens and SAML: realm-admin, like key writes.
+        if ("settings".equals(group) && seg.length >= 5 && "signing".equals(seg[4]) && !read) {
+            return Optional.of(REALM_ADMIN);
+        }
         return Optional.of(switch (group) {
             case "users" -> read ? VIEW_USERS : MANAGE_USERS;
             case "clients", "applications", "saml-clients", "client-scopes" -> read ? VIEW_CLIENTS : MANAGE_CLIENTS;
@@ -79,21 +98,17 @@ public final class AdminRoutePermissions {
             case "settings", "theme", "messaging", "provisioning", "endpoints", "health", "subject-claim" -> MANAGE_REALM;
             // roles + per-user role mappings (RoleAdminController is mapped at /admin/realms/{realmId})
             case "roles" -> MANAGE_ROLES;
+            // BYO realm keys (security review): whoever imports or activates a signing key can mint any token of the
+            // realm, admin service-account tokens included — so every key write needs a full realm admin.
+            case "keys" -> read ? MANAGE_REALM : REALM_ADMIN;
+            // The admin-RBAC management API is the most sensitive — only full realm admins may grant permissions.
+            case "admin-roles" -> REALM_ADMIN;
+            // Groups that relied on the old manage-realm default, listed explicitly (security review: unknown
+            // groups now fail closed to realm-admin).
+            case "agents", "events", "scim-targets", "webhooks", "workload-identity", "user-federation", "flow",
+                 "flow-engine", "export", "import", "" -> MANAGE_REALM;
             // /admin/realms/{realmId}/users/{userId}/roles is covered by the "users" case above.
-            default -> MANAGE_REALM;
+            default -> REALM_ADMIN;
         });
-    }
-
-    /**
-     * The first path segment after {@code /admin/realms/{realmId}/}. Empty string when the path is shorter
-     * (e.g. {@code /admin/realms/{realmId}}), which falls through to the {@code manage-realm} default.
-     */
-    private static String realmGroup(final String path) {
-        // strip leading slash, split: admin / realms / {realmId} / <group> / ...
-        final String[] seg = path.startsWith("/") ? path.substring(1).split("/") : path.split("/");
-        if (seg.length >= 4 && "realms".equals(seg[1])) {
-            return seg[3];
-        }
-        return "";
     }
 }

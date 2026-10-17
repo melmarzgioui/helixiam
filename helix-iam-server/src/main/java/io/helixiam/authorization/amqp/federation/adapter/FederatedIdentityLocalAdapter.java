@@ -46,7 +46,7 @@ public class FederatedIdentityLocalAdapter implements FederatedIdentityPublisher
 
     @Override
     public Boolean link(final FederatedLink link) {
-        federatedIdentityService.link(link.idpAlias(), link.externalSubject(), link.userId());
+        federatedIdentityService.link(link.idpAlias(), link.externalSubject(), link.userId(), link.createdVia());
         return Boolean.TRUE;
     }
 

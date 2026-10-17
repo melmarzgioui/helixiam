@@ -14,7 +14,9 @@ import java.util.Map;
  * (on update) the alias come from the path — never the body — so a connection cannot be written into
  * another realm or silently re-aliased.
  */
-public record IdentityProviderRequest(@NotBlank(message = "Provider alias is required.") String alias,
+public record IdentityProviderRequest(@NotBlank(message = "Provider alias is required.")
+                                      @jakarta.validation.constraints.Pattern(regexp = "[^|]*",
+                                              message = "A provider alias cannot contain \"|\".") String alias,
                                       @NotBlank(message = "Provider protocol is required.") String protocol,
                                       String displayName, boolean enabled,
                                       Map<String, String> config) {

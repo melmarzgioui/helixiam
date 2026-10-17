@@ -32,6 +32,14 @@ public interface ServiceProviderPublisher {
     /** E1.4/MT-3: {@code realm}'s ROTATED public keys to add to its JWKS for the rotation overlap window. */
     ArrayList<RSAPublicKey> retrieveVerificationKeys(final String realm);
 
+    /**
+     * Every key {@code realm} publishes (ACTIVE first, then PENDING, then ROTATED) with its certificate chain. An empty
+     * list means "not available": callers fall back to {@link #retrieveKeyPair} + {@link #retrieveVerificationKeys}.
+     */
+    default java.util.List<io.helixiam.authorization.service.key.PublishedKey> retrievePublishedKeys(final String realm) {
+        return java.util.List.of();
+    }
+
     /** Helix IAM (CORS): {@code realm}'s allowed browser origins (union over its clients' web origins). */
     ArrayList<String> retrieveWebOrigins(final String realm);
 

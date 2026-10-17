@@ -93,6 +93,8 @@ public class AgentIdentityAdminController {
         try {
             final AgentIdentityDto saved = publisher.save(toDto(null, realmId, body));
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+        } catch (final io.helixiam.authorization.service.adminrbac.AdminGrantGuard.AdminGrantDeniedException e) {
+            throw e; // H5: a 403, not a validation error
         } catch (final RuntimeException e) {
             LOG.warn("Agent create failed in realm {}: {}",
                     LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));
@@ -106,6 +108,8 @@ public class AgentIdentityAdminController {
         try {
             final Object saved = publisher.save(toDto(id, realmId, body));
             return saved == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(saved);
+        } catch (final io.helixiam.authorization.service.adminrbac.AdminGrantGuard.AdminGrantDeniedException e) {
+            throw e; // H5: a 403, not a validation error
         } catch (final RuntimeException e) {
             LOG.warn("Agent update failed for {} in realm {}: {}",
                     LogSafe.sanitize(id), LogSafe.sanitize(realmId), LogSafe.sanitize(e.getMessage()));

@@ -31,6 +31,15 @@ public class ResourceIndicatorService {
 
     private final ServiceProviderRepository serviceProviders;
 
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    /** Round 6: guards what administrators sign in through (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
+    }
+
     public ResourceIndicatorService(final ServiceProviderRepository serviceProviders) {
         this.serviceProviders = serviceProviders;
     }
@@ -61,6 +70,9 @@ public class ResourceIndicatorService {
      */
     @Transactional
     public boolean updateAllowedResources(final String realmId, final String clientId, final List<String> resources) {
+        if (privileged != null) {
+            privileged.requireMayChangeSignInClient(realmId, clientId, "Changing the allowed resources");
+        }
         return serviceProviders.findByClientIdAndRealmIdAndDeleted(clientId, realmId, false).map(c -> {
             c.setAllowedResources(join(resources));
             serviceProviders.save(c);

@@ -88,7 +88,8 @@ public class RealmConfigFolderLoader implements ApplicationRunner {
         try {
             final ObjectMapper mapper = file.getName().toLowerCase().endsWith(".json") ? json : yaml;
             final RealmExportDocument doc = mapper.readValue(file, RealmExportDocument.class);
-            final RealmImportResult result = importService.importInto(realmId, doc, options);
+            final RealmImportResult result = io.helixiam.authorization.service.adminrbac.AdminActor.asSystem("realm-config folder applied at start-up (operator files)",
+                    () -> importService.importInto(realmId, doc, options));
             LOG.info("Helix realm-config: applied '{}' → realm '{}' {}", file.getName(), realmId, result.slices());
             if (result.hasFailures()) {
                 LOG.error("Helix realm-config: '{}' FAILED to apply {} entr(y/ies) to realm '{}': {}",

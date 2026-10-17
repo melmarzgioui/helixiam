@@ -60,6 +60,11 @@ public class ServiceProviderLocalAdapter implements ServiceProviderPublisher {
     }
 
     @Override
+    public java.util.List<io.helixiam.authorization.service.key.PublishedKey> retrievePublishedKeys(final String realm) {
+        return keyMaterialService.publishedKeys(realm);
+    }
+
+    @Override
     public ArrayList<String> retrieveWebOrigins(final String realm) {
         return new ArrayList<>(serviceProviderService.webOriginsForRealm(realm));
     }

@@ -46,6 +46,14 @@ public class RoleAdminService {
         this.tenantUserRepository = tenantUserRepository;
     }
 
+    /** Security review (rc.11): no admin may grant admin permissions they do not hold. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     /** Every role defined in the realm. */
     public List<RoleDto> list(final String realmId) {
         return userRolesRepository.findAllByTenantId(realmId).stream().map(r -> toDto(realmId, r)).toList();
@@ -82,6 +90,10 @@ public class RoleAdminService {
         if (role.isEmpty() || !realmId.equals(role.get().getTenantId()) || role.get().isSystemRole()) {
             return false;
         }
+        if (adminGrantGuard != null) {
+            // Round 6: deleting a role takes its admin permissions away from everyone holding it.
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOf(realmId, roleId), "Deleting this role");
+        }
         userInRoleRepository.deleteAll(userInRoleRepository.findAllByRoleId(roleId));
         userRolesRepository.delete(role.get());
         LOG.debug("Deleted realm role {} from {}", LogSafe.sanitize(roleId), LogSafe.sanitize(realmId));
@@ -104,6 +116,9 @@ public class RoleAdminService {
                 userRolesRepository.save(r);
             }
         });
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireNotAdminDefault(realmId, roleId);
+        }
         final UserRoles role = target.get();
         if (!role.isDefaultRole()) {
             role.setDefaultRole(true);
@@ -129,6 +144,9 @@ public class RoleAdminService {
         if (link.isEmpty() || !roleInRealm(realmId, roleId)) {
             return false; // review rc.3 #1: never another realm's role (master's admin role = every realm)
         }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOf(realmId, roleId), "This role");
+        }
         if (userInRoleRepository.findByRoleIdAndUserId(roleId, userId).isEmpty()) {
             userInRoleRepository.save(new UserInRole(roleId, userId, link.get().getTenantUserId()));
             LOG.debug("Assigned role {} to user {} in {}",
@@ -142,6 +160,9 @@ public class RoleAdminService {
     public boolean unassign(final String realmId, final String userId, final String roleId) {
         if (tenantUserRepository.findByTenantIdAndUserId(realmId, userId).isEmpty() || !roleInRealm(realmId, roleId)) {
             return false; // review rc.3 #1
+        }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOf(realmId, roleId), "This role");
         }
         return userInRoleRepository.findByRoleIdAndUserId(roleId, userId).map(uir -> {
             userInRoleRepository.delete(uir);

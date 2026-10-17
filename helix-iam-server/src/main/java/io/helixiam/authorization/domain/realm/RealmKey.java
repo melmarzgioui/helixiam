@@ -21,16 +21,21 @@ import java.util.Date;
  * A per-realm JWT signing key (Helix IAM E1.4).
  *
  * <p>The private key is stored Base64-encoded and <b>encrypted at rest</b> via
- * {@link AttributeEncryption}; the public key is plaintext. Keys move ACTIVE → ROTATED →
- * RETIRED: ACTIVE signs new tokens, ROTATED stays in the published JWKS so tokens signed
- * before rotation still verify (zero-downtime), RETIRED is dropped from the JWKS.
+ * {@link AttributeEncryption}; the public key is plaintext. Keys move PENDING → ACTIVE → ROTATED →
+ * RETIRED: PENDING is published (JWKS, SAML metadata) but does not sign, ACTIVE signs new tokens, ROTATED stays
+ * published so tokens signed before still verify (zero-downtime), RETIRED is dropped. {@code algorithm} is the JWS
+ * algorithm (RS256 or ES256; rc.11 rows said {@code RSA}, see {@link #getJwsAlgorithm()}). An imported or CA-signed
+ * key carries its certificate chain (PEM, leaf first).
  */
 @Entity
 @Table(name = "realm_key")
 @EntityListeners(AuditingEntityListener.class)
 public class RealmKey {
 
-    public enum Status { ACTIVE, ROTATED, RETIRED }
+    public enum Status { PENDING, ACTIVE, ROTATED, RETIRED }
+
+    /** Where a key came from. */
+    public enum Source { GENERATED, IMPORTED, CSR }
 
     @Id
     @Column(name = "key_id")
@@ -40,7 +45,7 @@ public class RealmKey {
     private String realmId;
 
     @Column(name = "algorithm")
-    private String algorithm = "RSA";
+    private String algorithm = "RS256";
 
     @Column(name = "public_key")
     private String publicKey;
@@ -58,6 +63,21 @@ public class RealmKey {
 
     @Column(name = "rotated_date")
     private Date rotatedDate;
+
+    @Column(name = "certificate_chain_pem")
+    private String certificateChainPem;
+
+    @Column(name = "csr_pem")
+    private String csrPem;
+
+    @Column(name = "source")
+    private String source = Source.GENERATED.name();
+
+    @Column(name = "activated_date")
+    private Date activatedDate;
+
+    @Column(name = "expiry_warned_on")
+    private java.time.LocalDate expiryWarnedOn;
 
     public RealmKey() {
     }
@@ -114,5 +134,59 @@ public class RealmKey {
 
     public boolean isActive() {
         return Status.ACTIVE.name().equals(status);
+    }
+
+    public boolean hasStatus(final Status s) {
+        return s.name().equals(status);
+    }
+
+    /** The JWS algorithm: a legacy {@code RSA} row is RS256. */
+    public String getJwsAlgorithm() {
+        return io.helixiam.authorization.service.key.RealmKeyMaterial.normalizeAlgorithm(algorithm);
+    }
+
+    public void setAlgorithm(final String algorithm) {
+        this.algorithm = algorithm;
+    }
+
+    public String getCertificateChainPem() {
+        return certificateChainPem;
+    }
+
+    public void setCertificateChainPem(final String certificateChainPem) {
+        this.certificateChainPem = certificateChainPem;
+    }
+
+    public String getCsrPem() {
+        return csrPem;
+    }
+
+    public void setCsrPem(final String csrPem) {
+        this.csrPem = csrPem;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(final Source source) {
+        this.source = source.name();
+    }
+
+    public Date getActivatedDate() {
+        return activatedDate;
+    }
+
+    public void setActivatedDate(final Date activatedDate) {
+        this.activatedDate = activatedDate;
+    }
+
+    public java.time.LocalDate getExpiryWarnedOn() {
+        return expiryWarnedOn;
+    }
+
+    @Override
+    public String toString() {
+        return "RealmKey[" + keyId + ", " + realmId + ", " + status + "]"; // never key material
     }
 }

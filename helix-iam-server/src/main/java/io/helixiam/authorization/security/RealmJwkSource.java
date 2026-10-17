@@ -27,10 +27,11 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Helix IAM E1.4: JWKSource backed by the realm key store (via AMQP).
+ * Helix IAM E1.4: JWKSource backed by the realm key store.
  *
- * <p>Publishes the realm's ACTIVE key (signs new tokens) plus its ROTATED keys (verify
- * tokens issued before the last rotation) — giving zero-downtime rotation. The key set is
+ * <p>Publishes the realm's ACTIVE key (signs new tokens), its PENDING keys (staged: published so relying parties pick
+ * them up before they sign) and its ROTATED keys (verify tokens issued before the last rotation) — giving
+ * zero-downtime rollover. Keys with a certificate chain carry {@code x5c} and {@code x5t#S256}. The key set is
  * refreshed from the store on a short TTL so a rotation propagates without a restart.
  *
  * <p>Spring's {@code NimbusJwtEncoder} rejects a JWKSource that returns more than one key
@@ -60,17 +61,26 @@ public class RealmJwkSource implements JWKSource<SecurityContext> {
 
     @Override
     public List<JWK> get(final com.nimbusds.jose.jwk.JWKSelector selector, final SecurityContext context) {
-        final JWKSet set = current();
-        final List<JWK> selected = selector.select(set);
+        return select(current(), selector);
+    }
 
+    /**
+     * Selection over a fixed set. A <i>signing</i> selection (the matcher is constrained by key type or algorithm)
+     * that matches several keys returns only the ones holding a private key — the ACTIVE key of that family; an
+     * unconstrained selection (the JWKS publish) returns every key.
+     */
+    static List<JWK> select(final JWKSet set, final com.nimbusds.jose.jwk.JWKSelector selector) {
+        if (set == null) {
+            return List.of();
+        }
+        final List<JWK> selected = selector.select(set);
         final boolean signingSelection =
                 (selector.getMatcher().getKeyTypes() != null && !selector.getMatcher().getKeyTypes().isEmpty())
                         || (selector.getMatcher().getAlgorithms() != null && !selector.getMatcher().getAlgorithms().isEmpty());
-
         if (signingSelection && selected.size() > 1) {
             final List<JWK> withPrivate = new ArrayList<>();
             for (final JWK jwk : selected) {
-                if (jwk instanceof RSAKey rsaKey && rsaKey.isPrivate()) {
+                if (jwk.isPrivate()) {
                     withPrivate.add(jwk);
                 }
             }
@@ -79,6 +89,29 @@ public class RealmJwkSource implements JWKSource<SecurityContext> {
             }
         }
         return selected;
+    }
+
+    /** The current realm's key set, fetched once — for an encoder that must not see the cache change mid-encode. */
+    public JWKSet snapshot() {
+        return current();
+    }
+
+    /** A JWK source over a fixed snapshot, with this source's selection rules. */
+    public static JWKSource<SecurityContext> fixed(final JWKSet snapshot) {
+        return (selector, context) -> select(snapshot, selector);
+    }
+
+    /** The JWS algorithms the ACTIVE (private) keys of {@code set} can sign: RS256 + PS256 (RSA), ES256 (EC). */
+    public static java.util.Set<String> signingAlgorithms(final JWKSet set) {
+        final java.util.Set<String> algs = new java.util.LinkedHashSet<>();
+        if (set != null) {
+            for (final JWK jwk : set.getKeys()) {
+                if (jwk.isPrivate() && jwk.getAlgorithm() != null) {
+                    algs.add(jwk.getAlgorithm().getName());
+                }
+            }
+        }
+        return algs;
     }
 
     private JWKSet current() {
@@ -97,8 +130,44 @@ public class RealmJwkSource implements JWKSource<SecurityContext> {
         return existing == null ? null : existing.set();
     }
 
+    /**
+     * Discovery's {@code id_token_signing_alg_values_supported}: exactly the algorithms of the realm's ACTIVE keys
+     * (PENDING and ROTATED keys are excluded), RS256 first — OpenID Connect requires RS256, and every realm has an
+     * ACTIVE RSA key.
+     */
+    public List<String> publishedAlgorithms() {
+        final java.util.Set<String> active = signingAlgorithms(current());
+        final List<String> out = new ArrayList<>();
+        for (final String alg : List.of("RS256", "PS256", "ES256")) {
+            if (active.contains(alg)) {
+                out.add(alg);
+            }
+        }
+        if (!out.contains("RS256")) {
+            out.add(0, "RS256");
+        }
+        return out;
+    }
+
+    /** A realm's keys changed on this replica: drop its cached set so the change shows at once. */
+    @org.springframework.context.event.EventListener
+    public void onKeysChanged(final io.helixiam.authorization.service.key.RealmKeysChangedEvent event) {
+        if (event.realmId() != null) {
+            byRealm.remove(event.realmId());
+        }
+    }
+
     private JWKSet build(final String realm) {
         try {
+            final List<io.helixiam.authorization.service.key.PublishedKey> published =
+                    serviceProviderPublisher.retrievePublishedKeys(realm);
+            if (published != null && !published.isEmpty()) {
+                final List<JWK> keys = new ArrayList<>();
+                for (final io.helixiam.authorization.service.key.PublishedKey key : published) {
+                    addPublished(keys, key);
+                }
+                return new JWKSet(keys);
+            }
             final List<JWK> keys = new ArrayList<>();
 
             final KeyPair active = serviceProviderPublisher.retrieveKeyPair(realm);
@@ -137,6 +206,53 @@ public class RealmJwkSource implements JWKSource<SecurityContext> {
         final String baseKid = kid(publicKey);
         keys.add(rsaKey(publicKey, privateKey, JWSAlgorithm.RS256, baseKid));
         keys.add(rsaKey(publicKey, privateKey, JWSAlgorithm.PS256, baseKid + "-ps256"));
+    }
+
+    /**
+     * A published key as JWK(s): RSA → RS256 + PS256 twin, EC → ES256; each with {@code kid}, {@code alg},
+     * {@code use: sig}, and — with a certificate chain — {@code x5c} (standard Base64 DER, without a trailing root) and
+     * {@code x5t#S256}. Only the ACTIVE key carries its private part (so only it can be selected to sign).
+     */
+    private void addPublished(final List<JWK> keys, final io.helixiam.authorization.service.key.PublishedKey key)
+            throws Exception {
+        final java.security.PrivateKey priv = key.active() ? key.privateKey() : null;
+        final List<com.nimbusds.jose.util.Base64> x5c = new ArrayList<>();
+        com.nimbusds.jose.util.Base64URL x5t = null;
+        if (key.chain() != null && !key.chain().isEmpty()) {
+            for (final java.security.cert.X509Certificate cert
+                    : io.helixiam.authorization.service.key.RealmKeyMaterial.x5cChain(key.chain())) {
+                x5c.add(com.nimbusds.jose.util.Base64.encode(cert.getEncoded()));
+            }
+            x5t = com.nimbusds.jose.util.Base64URL.encode(
+                    MessageDigest.getInstance("SHA-256").digest(key.chain().get(0).getEncoded()));
+        }
+        final String kid = io.helixiam.authorization.service.key.RealmKeyMaterial.kid(key.publicKey());
+        if (key.publicKey() instanceof java.security.interfaces.ECPublicKey ec) {
+            final com.nimbusds.jose.jwk.ECKey.Builder b = new com.nimbusds.jose.jwk.ECKey.Builder(
+                    com.nimbusds.jose.jwk.Curve.P_256, ec).keyID(kid).keyUse(KeyUse.SIGNATURE)
+                    .algorithm(JWSAlgorithm.ES256);
+            if (priv != null) {
+                b.privateKey(priv);
+            }
+            if (!x5c.isEmpty()) {
+                b.x509CertChain(x5c).x509CertSHA256Thumbprint(x5t);
+            }
+            keys.add(b.build());
+            return;
+        }
+        final RSAPublicKey rsa = (RSAPublicKey) key.publicKey();
+        for (final JWSAlgorithm alg : List.of(JWSAlgorithm.RS256, JWSAlgorithm.PS256)) {
+            final RSAKey.Builder b = new RSAKey.Builder(rsa)
+                    .keyID(JWSAlgorithm.RS256.equals(alg) ? kid : kid + "-ps256")
+                    .keyUse(KeyUse.SIGNATURE).algorithm(alg);
+            if (priv != null) {
+                b.privateKey(priv);
+            }
+            if (!x5c.isEmpty()) {
+                b.x509CertChain(x5c).x509CertSHA256Thumbprint(x5t);
+            }
+            keys.add(b.build());
+        }
     }
 
     private static String kid(final RSAPublicKey publicKey) throws Exception {

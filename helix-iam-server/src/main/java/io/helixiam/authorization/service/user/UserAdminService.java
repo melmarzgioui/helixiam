@@ -78,6 +78,14 @@ public class UserAdminService {
         this.passwordEncoderService = passwordEncoderService;
     }
 
+    /** Security review H5: you cannot act on an admin more privileged than you. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
     /** Every user bound to {@code realmId}, with roles + attributes resolved from the tenant link. */
     public List<UserAdminDto> list(final String realmId) {
         return tenantUserRepository.findAllByTenantId(realmId).stream()
@@ -152,6 +160,9 @@ public class UserAdminService {
     /** Updates the enabled/locked flags and (when supplied) replaces the attribute set. */
     @Transactional
     public Optional<UserAdminDto> update(final UserWriteDto write) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnUser(write.realmId(), write.userId(), "Changing this user");
+        }
         // Review rc.3 #1: only a user of the path realm (never another realm's user by id).
         if (tenantUserRepository.findByTenantIdAndUserId(write.realmId(), write.userId()).isEmpty()) {
             return Optional.empty();
@@ -190,6 +201,9 @@ public class UserAdminService {
     /** Sets a new Argon2id password for a user; {@code false} if the user does not exist. */
     @Transactional
     public boolean resetPassword(final UserPasswordDto reset) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnUser(reset.realmId(), reset.userId(), "Resetting this user's password");
+        }
         if (reset.newPassword() == null || reset.newPassword().isBlank()) {
             throw new IllegalArgumentException("New password is required.");
         }
@@ -253,6 +267,9 @@ public class UserAdminService {
      */
     @Transactional
     public boolean delete(final String realmId, final String userId) {
+        if (principalGuard != null) {
+            principalGuard.requireMayActOnUser(realmId, userId, "Deleting this user");
+        }
         final Optional<TenantUser> link = tenantUserRepository.findByTenantIdAndUserId(realmId, userId);
         if (link.isEmpty()) {
             return false;

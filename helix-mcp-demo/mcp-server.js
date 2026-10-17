@@ -16,7 +16,7 @@
  *      that the token's `aud` is THIS server (RFC 8707 audience binding), so a token minted for another
  *      resource can't be replayed here. It also surfaces the non-human-identity (`nhi`) markers.
  *
- * Zero npm dependencies: Node's built-in `crypto` verifies RS256 straight from a JWK.
+ * Zero npm dependencies: Node's built-in `crypto` verifies RS256, PS256 and ES256 straight from a JWK.
  */
 const http = require('http');
 const crypto = require('crypto');
@@ -29,27 +29,39 @@ const REQUIRED_SCOPE = process.env.MCP_REQUIRED_SCOPE || ''; // optional; empty 
 const b64urlToJson = (s) => JSON.parse(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
 
 let jwksCache = null;
-async function jwks() {
-  if (jwksCache) return jwksCache;
+async function jwks(refresh = false) {
+  if (jwksCache && !refresh) return jwksCache;
   const disc = await (await fetch(`${HELIX_ISSUER}/.well-known/openid-configuration`)).json();
   jwksCache = await (await fetch(disc.jwks_uri)).json();
   return jwksCache;
 }
 
-/** Verify a Helix-issued JWT: RS256 signature via JWKS, issuer, expiry, and audience == this MCP server. */
+// The algorithms a HelixIAM realm signs with: RS256/PS256 (RSA key) or ES256 (EC P-256 key). Never 'none'/HS*.
+const ALGS = {
+  RS256: { hash: 'sha256' },
+  PS256: { hash: 'sha256', padding: crypto.constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 },
+  ES256: { hash: 'sha256', dsaEncoding: 'ieee-p1363' },
+};
+
+/** Verify a Helix-issued JWT: signature via JWKS (RS256/PS256/ES256, key chosen by kid), issuer, expiry, audience. */
 async function verify(token) {
   const [h, p, sig] = token.split('.');
   if (!h || !p || !sig) throw new Error('malformed token');
   const header = b64urlToJson(h);
   const payload = b64urlToJson(p);
-  if (header.alg !== 'RS256') throw new Error(`unsupported alg: ${header.alg}`);
+  const alg = ALGS[header.alg];
+  if (!alg) throw new Error(`unsupported alg: ${header.alg}`);
+  if (!header.kid) throw new Error('token has no kid');
 
-  const keys = (await jwks()).keys || [];
-  const jwk = keys.find((k) => k.kid === header.kid) || keys[0];
-  if (!jwk) throw new Error('no signing key');
+  // A key the realm activated after we cached the JWKS: refetch once (staged keys are normally published already).
+  let jwk = ((await jwks()).keys || []).find((k) => k.kid === header.kid);
+  if (!jwk) jwk = ((await jwks(true)).keys || []).find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error('no signing key for this kid');
+  if (jwk.alg && jwk.alg !== header.alg) throw new Error(`key ${header.kid} is for ${jwk.alg}, token says ${header.alg}`);
   const pub = crypto.createPublicKey({ key: jwk, format: 'jwk' });
-  const ok = crypto.verify('RSA-SHA256', Buffer.from(`${h}.${p}`),
-    pub, Buffer.from(sig.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
+  const ok = crypto.verify(alg.hash, Buffer.from(`${h}.${p}`),
+    { key: pub, padding: alg.padding, saltLength: alg.saltLength, dsaEncoding: alg.dsaEncoding },
+    Buffer.from(sig, 'base64url'));
   if (!ok) throw new Error('bad signature');
 
   if (payload.iss !== HELIX_ISSUER) throw new Error(`wrong issuer: ${payload.iss}`);

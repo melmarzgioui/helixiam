@@ -297,6 +297,14 @@ public class TrustedListService implements TrustedListAnchorSource {
         if (existing.isEmpty()) {
             return Optional.empty();
         }
+        if (privileged != null) {
+            // Round 6: the list's anchors decide which wallets the providers using it accept, and so who signs in as
+            // the administrators linked to those providers.
+            for (final String alias : providersUsing(existing.get())) {
+                privileged.requireMayChangeIdentityProvider(realmId, alias, "Changing trusted list "
+                        + existing.get().config().name() + " (used by " + alias + ")");
+            }
+        }
         if (existing.get().state().configVersion() != expectedConfigVersion) {
             throw new ConcurrentUpdateException();
         }
@@ -339,6 +347,15 @@ public class TrustedListService implements TrustedListAnchorSource {
     /** Wires the lookup of providers that use a source (done after construction to avoid a bean cycle). */
     public void setReferences(final References value) {
         this.references = value == null ? References.NONE : value;
+    }
+
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    /** Round 6: guards what administrators sign in through (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
     }
 
     /** The providers of {@code realm} that use {@code source} (by its name). */

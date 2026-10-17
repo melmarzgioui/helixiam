@@ -85,9 +85,26 @@ public class MagicLinkService {
         return realmId != null && realms.findById(realmId).map(RealmConfig::isMagicLinkEnabled).orElse(false);
     }
 
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    /** Round 6: magic links let anyone with the mailbox sign in, administrators included (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
+    private void requireRealmAdmin(final String realmId, final String what) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireRealmAdmin(realmId, what);
+        }
+    }
+
     @Transactional
     public Optional<Boolean> setEnabled(final String realmId, final boolean enabled) {
         return realms.findById(realmId).map(cfg -> {
+            if (cfg.isMagicLinkEnabled() != enabled) {
+                requireRealmAdmin(realmId, "Turning magic-link sign-in on or off");
+            }
             cfg.setMagicLinkEnabled(enabled);
             realms.save(cfg);
             return enabled;

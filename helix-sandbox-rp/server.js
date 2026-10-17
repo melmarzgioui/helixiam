@@ -62,15 +62,27 @@ async function ensureClient() {
   // Public client + PKCE (no secret) so the sandbox needs no secret provisioning against Helix.
   const publicClient = !cfg.clientSecret || cfg.clientSecret === 'none';
   const issuerUrl = new URL(cfg.issuer);
-  oidcConfig = await oidc.discovery(
+  const metadata = { token_endpoint_auth_method: publicClient ? 'none' : 'client_secret_basic' };
+  const auth = publicClient ? oidc.None() : oidc.ClientSecretBasic(cfg.clientSecret);
+  const discovered = await oidc.discovery(
     issuerUrl,
     cfg.clientId,
-    { token_endpoint_auth_method: publicClient ? 'none' : 'client_secret_basic' },
-    publicClient ? oidc.None() : oidc.ClientSecretBasic(cfg.clientSecret),
+    metadata,
+    auth,
     // The harness normally talks to Helix over plain http://localhost; openid-client 6 enforces
     // HTTPS by default (unlike v5), so opt out of that check only when the issuer itself is http.
     issuerUrl.protocol === 'http:' ? { execute: [oidc.allowInsecureRequests] } : undefined,
   );
+  // openid-client expects RS256 ID tokens unless told otherwise. A realm whose active key is EC signs ES256, and
+  // Helix lists the active key's algorithm first in discovery: expect that one.
+  const idTokenAlg = (discovered.serverMetadata().id_token_signing_alg_values_supported || [])[0];
+  if (idTokenAlg && idTokenAlg !== 'RS256') {
+    oidcConfig = new oidc.Configuration(discovered.serverMetadata(), cfg.clientId,
+      { ...metadata, id_token_signed_response_alg: idTokenAlg }, auth);
+    if (issuerUrl.protocol === 'http:') oidc.allowInsecureRequests(oidcConfig);
+  } else {
+    oidcConfig = discovered;
+  }
   idpUp = true;
   return oidcConfig;
 }

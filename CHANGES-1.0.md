@@ -3,6 +3,115 @@
 Running log for branch **`overhaul/1.0-gaps`**. Every finding, fix, commit, deferred item and open
 question. Newest first within each phase.
 
+## Next release (after `v1.0.0-rc.11`)
+
+### Security: admins could grant admin permissions they do not hold (H5, present in rc.11)
+
+A `manage-users` admin could assign itself the `admin` role, and a `manage-roles` admin could make `admin` the default
+role. Assigning or removing a role through any path (user roles, group roles and membership, service-account roles,
+realm import, SCIM) now needs the role's admin permissions to be the caller's own (`realm-admin` for the admin role);
+changing admin grants needs `realm-admin`; a role with admin permissions cannot be the default role. And **you cannot
+act on an admin more privileged than you**: impersonating, resetting the password or credentials of, changing,
+disabling or deleting a user, and revealing, setting or rotating the secret of, changing or deleting a client (through
+its service account), need the target's admin permissions to be your own; revealing a client secret needs
+`manage-clients`; SCIM cannot change admins; IdP logins never auto-link by e-mail to an administrator; a `CLIENT`
+service-account role needs its client; workload-identity and agent bindings to an admin service account need its
+permissions; redirecting the built-in sign-in clients (`helix-console`, `helix-cli`) needs `realm-admin`. See
+`helix-iam-server/SECURITY-REVIEW.md` (H5).
+
+**Round 6 (systematic sweep).** Every admin write, import slice and SCIM/DCR write was inventoried (design doc,
+Revision 3). Changing or deleting an identity provider that administrators are linked to, or a trusted list their
+wallet providers use, needs those administrators' permissions. Federated links record how they were made (new
+`federated_link.created_via`). Links that exist at the upgrade are grandfathered (`LEGACY`, still trusted; wallet
+links `WALLET`) and every administrator with one is reported at start-up (`PRIVILEGED_LEGACY_LINK`). A link made
+afterwards by matching an e-mail address (`AUTO`) never signs in an administrator; an administrator links a provider
+from the account console (Connected accounts → Link: a fresh sign-in, then the provider in link mode bound to the
+session; `SELF`), or a realm admin confirms the link (`POST .../users/{id}/federated-identities/{alias}/confirm`,
+`ADMIN_CONFIRMED`) and can revoke trust in a suspect one (`.../revoke-trust`; both name one link with
+`{"externalSubject"}` and also need the user's admin permissions in every realm they belong to); refusals are audited (`PRIVILEGED_LINK_REFUSED`). Federated links are now
+realm-scoped (`federated_link.realm_id`, key realm + alias + subject): a link signs its user in only in its realm. Realm-admin is now needed for: the Applications of the sign-in clients; creating `helix-console`/`helix-cli`;
+their mappers and allowed resources (also on import); the browser flow and the sign-in clients' flows; messaging
+providers and templates; the MFA policy; magic links; the subject claim; and the realm's sign-in policy settings.
+`helix-cli` is seeded with every realm; on start, a `helix-cli` that allows more than the built-in one (a
+non-loopback redirect URI, an extra grant type, a secret, a confidential client) is corrected, while narrower choices
+are kept. Push devices for a user
+need the user's permissions. Deleting a role or group, or moving a group, needs the permissions it grants. manage-X
+satisfies view-X routes.
+
+> **Upgrade note (H5).** A realm whose default role carries admin permissions is reported at start-up (WARN and a
+> `DEFAULT_ROLE_HAS_ADMIN_PERMISSIONS` audit event); new users no longer get that role. Pick another default role or
+> remove its admin grants. V86 also removes duplicate `realm_key` rows an rc.11 first-use race could leave (keeping the
+> ACTIVE, else the newest, per realm); if the same key is stored in two realms the migration stops and names them.
+> Admins with only `view-clients` can no longer read client secrets; an administrator whose verified e-mail matches
+> an external IdP login is no longer linked automatically.
+> Round 6: V86 places each existing federated link in a realm: the realm that owns the alias. A link whose alias is in
+> several realms or in none is held `UNRESOLVED` until start-up: once the realm config folder's providers are loaded,
+> a link whose alias is in exactly one realm moves there and keeps working (`LEGACY`, audited `LEGACY_LINK_RESOLVED`);
+> any other becomes `AUTO` and signs no administrator in until a realm admin confirms it (reported as AMBIGUOUS,
+> `PRIVILEGED_AMBIGUOUS_LINK`); links that cannot be placed at all sign no one in.
+> Existing federated links keep working (`LEGACY`); review the start-up report (WARN and
+> `PRIVILEGED_LEGACY_LINK` audit events: realm, username, provider) and revoke trust in any that is suspect. New links
+> to administrators need the account console's link flow or a realm admin's confirmation. A `manage-realm` admin can
+> no longer change messaging, MFA, magic-link, subject-claim or sign-in policy settings. A `helix-cli` that allows more
+> than the built-in client is corrected on start (logged and audited as `SIGN_IN_CLIENT_RECONCILED`). Step by step:
+> `operations/upgrade-rc11-rc12.md` on the docs site.
+
+### Security: admin permissions resolved on the decoded path (H4, predates this release)
+
+The admin permission resolver read the raw request URI while Spring MVC routes on the decoded path, so an encoded
+route name (`k%65ys`, `u%73ers`) resolved to the `manage-realm` default and let a low-permission admin reach writes
+guarded by another permission. Percent-encoding in the realm id or route name of an `/admin` path is now refused with
+`400`, the resolver reads the decoded path, and unknown admin routes fail closed to `realm-admin`. See
+`helix-iam-server/SECURITY-REVIEW.md` (H4).
+
+### Bring your own realm signing keys and certificates
+
+Customers can change the keys and certificates their realm signs OIDC/JWS and SAML with. Design and every decision:
+`docs/superpowers/specs/2026-10-16-byo-realm-keys-design.md`. Docs: `operations/realm-keys.md` on the docs site.
+
+- **Import** (`POST /admin/realms/{realm}/keys/import`): a PEM private key (PKCS#8, PKCS#1, SEC1; RSA ≥ 2048 or EC
+  P-256) and its certificate chain, leaf first. The leaf must match the key, be valid now and have digitalSignature
+  if it has a keyUsage; every certificate must be valid and issued by the next. A self-signed single certificate is
+  allowed; a key already stored in any realm is refused. Refusals are `400 {message, fieldErrors}`.
+- **CSR** (`POST /keys/csr`, `GET /keys/{keyId}/csr`): the server generates the key (RS256 or ES256), keeps the
+  private key and returns a PKCS#10 CSR; `PUT /keys/{keyId}/certificate` attaches the CA-signed chain (PENDING or
+  ACTIVE keys).
+- **Staged rollover**: new keys start PENDING — published in the JWKS and SAML metadata, not signing —
+  until `POST /keys/{keyId}/activate` (after `helix.keys.min-staging`, 5 min, unless `?force=true`); the previous
+  ACTIVE key of the same algorithm becomes ROTATED and stays published. `POST /keys/rotate` still generates and
+  activates at once (no staging) and takes an optional `{"algorithm"}`. Retiring the ACTIVE RS256 key is now refused
+  (`409`; it used to succeed); retiring the ACTIVE ES256 key is refused while clients ask for ES256 ID tokens (names
+  listed) unless `?force=true`. Key ids are realm-scoped on every route (`404` across realms); transitions are
+  serialised per realm.
+- **Permissions**: every key write needs `realm-admin` (it used to be `manage-realm`); reads keep `manage-realm`.
+- **Publishing**: every JWK has `kid`, `alg`, `use: sig`; keys with a chain add `x5c` and `x5t#S256`. SAML metadata
+  and signatures use the ACTIVE key's leaf certificate when it has one (else the deterministic self-signed one, as
+  before); PENDING and ROTATED certificates are extra signing KeyDescriptors.
+- **ES256 alongside RS256**: every realm keeps an ACTIVE RS256 key; an ES256 key can be active beside it. ID tokens
+  use the client's `id_token_signed_response_alg` (validated against the ACTIVE keys); access, logout, delegation,
+  workload-identity tokens and JARM use the new realm setting `signing.defaultAlg`
+  (`/admin/realms/{realm}/settings/signing`, RS256 by default); SAML signs RSA unless `signing.samlAlg` is ES256.
+  Discovery lists exactly the ACTIVE keys' algorithms. The MCP demo verifier now
+  accepts RS256/PS256/ES256 by kid; the sandbox RP takes the ID-token algorithm from discovery and trusts every SAML
+  signing certificate in the metadata.
+- **Expiry**: import/attach refuse expired certificates; ACTIVE/PENDING certificates within 30 days of expiry (or
+  expired) raise `REALM_KEY_CERTIFICATE_EXPIRING|EXPIRED` audit events and a WARN once a day per key; the always-UP
+  `realmSigningKeys` health indicator joins the readiness group. An expired ACTIVE certificate keeps signing.
+- **Audit**: `REALM_KEY_IMPORT|CSR|CERTIFICATE_ATTACH|ACTIVATE|ROTATE|RETIRE`, with key id, algorithm and fingerprint.
+- **Console**: the Realm keys page shows status (Pending / Active / Retained), algorithm, certificate subject/issuer,
+  expiry chips and fingerprint, with Import, Create CSR, Upload signed certificate, Activate (with confirmation),
+  Rotate (generate) and Retire.
+
+> **Upgrade note.** Flyway **V86** (and `schema.sql`) adds `certificate_chain_pem`, `csr_pem`, `source`,
+> `activated_date` and `expiry_warned_on` to `realm_key`, a unique index on `realm_key.public_key`, and the table
+> `realm_signing_settings`, and rewrites `algorithm` from `RSA` to `RS256` (existing keys keep their kid and keep
+> signing). Admins who rotated keys with only `manage-realm` now need `realm-admin`; admin routes not named in the
+> permission catalogue now need `realm-admin` too. Clients whose ID-token algorithm has no ACTIVE key (for example
+> RS384) must be changed before their next save. Rolling upgrade: rc.11 replicas ignore PENDING keys and keep signing with RSA
+> keys, so you can import and stage keys mid-roll — but activate an **ES256** key only once every replica runs this
+> release (an rc.11 replica cannot load an EC key). Changing the signing settings needs `realm-admin`.
+> Realm exports still contain no keys, certificates or signing settings.
+
 ## v1.0.0-rc.11 (2026-10-15)
 
 rc.11 closes out the EUDI Wallet program: the EU reference-wallet interop (SD-JWT VC and mdoc, same-device and

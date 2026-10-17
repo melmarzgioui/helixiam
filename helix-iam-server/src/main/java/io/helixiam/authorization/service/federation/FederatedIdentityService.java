@@ -49,24 +49,33 @@ public class FederatedIdentityService {
 
     /** The local user previously linked to this external subject for the given provider, if any. */
     public Optional<String> findLinkedUser(final String idpAlias, final String externalSubject) {
-        return links.findLinkedUser(idpAlias, externalSubject).filter(this::eligibleInCurrentRealm);
+        return links.findLinkedUser(currentRealm(), idpAlias, externalSubject).filter(this::eligibleInCurrentRealm);
     }
 
     /** Task 21a: the user of {@code realmId} linked to (alias, subject); a stale link counts as none. */
     public Optional<String> findLinkedUserInRealm(final String realmId, final String idpAlias,
                                                   final String externalSubject) {
-        return links.findLinkedUser(idpAlias, externalSubject).filter(userId -> inRealm(realmId, userId));
+        return links.findLinkedUser(realmId, idpAlias, externalSubject).filter(userId -> inRealm(realmId, userId));
     }
 
     /** Task 21a: claim (alias, subject) for {@code userId} of {@code realmId}; see {@link FederatedLinkService#claim}. */
     public io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult claimLink(final String realmId,
             final String idpAlias, final String externalSubject, final String userId) {
+        return claimLink(realmId, idpAlias, externalSubject, userId,
+                io.helixiam.authorization.domain.federation.LinkProvenance.WALLET);
+    }
+
+    /** {@link #claimLink} recording how the link was made. */
+    public io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult claimLink(final String realmId,
+            final String idpAlias, final String externalSubject, final String userId, final String createdVia) {
         if (!inRealm(realmId, userId)) {
             return new io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult(
                     io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.USER_NOT_IN_REALM, null);
         }
         final FederatedLinkService.LinkIfAbsent outcome =
-                links.claim(idpAlias, externalSubject, userId, owner -> inRealm(realmId, owner));
+                // Round 6: links are realm-scoped, so an owner is stale only when that user no longer exists.
+                links.claim(realmId, idpAlias, externalSubject, userId,
+                        owner -> users.findByUserId(owner).isPresent(), createdVia);
         final io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status status =
                 !userId.equals(outcome.ownerUserId())
                         ? io.helixiam.authorization.amqp.federation.FederatedLinkClaimResult.Status.LINKED_TO_ANOTHER_USER
@@ -78,7 +87,7 @@ public class FederatedIdentityService {
 
     /** Task 21a: remove every link {@code userId} of {@code realmId} has for the alias; 0 for a user not in it. */
     public int unlinkAll(final String realmId, final String userId, final String idpAlias) {
-        return inRealm(realmId, userId) ? links.unlinkAll(userId, idpAlias) : 0;
+        return inRealm(realmId, userId) ? links.unlinkAll(realmId, userId, idpAlias) : 0;
     }
 
     /**
@@ -94,9 +103,22 @@ public class FederatedIdentityService {
                 .anyMatch(m -> realmId.equals(m.getTenantId())))).orElse(false);
     }
 
-    /** Record (or overwrite) the federated link. */
+    /** Record (or overwrite) the federated link in the request's realm (provenance unknown: AUTO). */
     public void link(final String idpAlias, final String externalSubject, final String userId) {
-        links.link(idpAlias, externalSubject, userId);
+        link(idpAlias, externalSubject, userId, null);
+    }
+
+    /** Record the federated link in the request's realm with its provenance. */
+    public void link(final String idpAlias, final String externalSubject, final String userId,
+                     final String createdVia) {
+        links.link(currentRealm(), idpAlias, externalSubject, userId, createdVia);
+    }
+
+    /** The request's realm; the broker of the bare login path is the admin realm's. */
+    private static String currentRealm() {
+        final String realm = io.helixiam.authorization.security.realm.RealmContextHolder.get();
+        return realm == null || realm.isBlank() ? io.helixiam.authorization.domain.realm.RealmConfig.ADMIN_REALM_ID
+                : realm;
     }
 
     /** A local user with this email (the username is the email), if any. */

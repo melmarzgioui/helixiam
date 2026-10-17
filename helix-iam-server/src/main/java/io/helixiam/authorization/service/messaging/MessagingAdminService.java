@@ -99,8 +99,23 @@ public class MessagingAdminService {
      * disabling the realm's other EMAIL providers in the same transaction (logged). Saving a disabled one changes no
      * other provider.
      */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    /** Round 6: providers and templates deliver every user's codes, reset and magic links, administrators' included (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
+    private void requireRealmAdmin(final String realmId, final String what) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireRealmAdmin(realmId, what);
+        }
+    }
+
     @Transactional
     public MessagingProviderDto saveProvider(final MessagingProviderWriteDto write) {
+        requireRealmAdmin(write.realmId(), "Changing a messaging provider");
         final boolean email = EMAIL.equalsIgnoreCase(write.channel());
         if (email && jdbc != null) {
             // Two concurrent saves in one realm must not both leave an enabled provider behind.
@@ -175,6 +190,7 @@ public class MessagingAdminService {
 
     @Transactional
     public boolean deleteProvider(final String realmId, final String channel, final String driver) {
+        requireRealmAdmin(realmId, "Deleting a messaging provider");
         return providers.findByRealmIdAndChannelAndDriver(realmId, channel, driver).map(p -> {
             providers.delete(p);
             return true;
@@ -205,6 +221,7 @@ public class MessagingAdminService {
 
     @Transactional
     public MessageTemplateDto saveTemplate(final MessageTemplateDto dto) {
+        requireRealmAdmin(dto.realmId(), "Changing a message template");
         final MessageTemplate entity = templates.findByRealmIdAndTemplateKey(dto.realmId(), dto.templateKey())
                 .orElseGet(MessageTemplate::new);
         entity.setRealmId(dto.realmId());

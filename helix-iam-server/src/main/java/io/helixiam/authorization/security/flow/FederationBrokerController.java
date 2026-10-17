@@ -131,6 +131,15 @@ public class FederationBrokerController {
         this.walletLoginCompleter = walletLoginCompleter;
     }
 
+    /** Round 6: linking a provider from the account console (absent in slim unit-test wiring). */
+    private io.helixiam.authorization.controller.account.console.AccountIdentityLinkFlow linkFlow;
+    private static final String ACCOUNT_IDENTITIES = "redirect:/account#identities";
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLinkFlow(final io.helixiam.authorization.controller.account.console.AccountIdentityLinkFlow linkFlow) {
+        this.linkFlow = linkFlow;
+    }
+
     @GetMapping("/broker/{alias}")
     public String start(@PathVariable final String alias, final HttpServletRequest request, final Model model) {
         final IdentityProvider provider;
@@ -149,6 +158,17 @@ public class FederationBrokerController {
         }
         final String state = stateGenerator.get();
         final HttpSession session = request.getSession();
+        final String linkToken = request.getParameter("link");
+        if (linkToken != null) {
+            // Round 6: an account-console link; only for this session's own, unexpired intent of the signed-in user.
+            if (linkFlow == null || WalletIdentityProvider.from(provider).isPresent()
+                    || !linkFlow.bindState(session, RealmContextHolder.get(), alias, linkToken, state)) {
+                LOG.warn("Federation: refused an account link start at provider {}", LogSafe.sanitize(alias));
+                org.springframework.web.servlet.support.RequestContextUtils.getOutputFlashMap(request)
+                        .put("identityError", "refused");
+                return ACCOUNT_IDENTITIES;
+            }
+        }
         // Task 18 fix round 1: one live wallet login per browser and provider: starting again discards the previous
         // transaction, so one session can never pile transactions up in the store.
         final WalletIdentityProvider wallet = WalletIdentityProvider.from(provider).orElse(null);
@@ -249,6 +269,12 @@ public class FederationBrokerController {
         } catch (final RuntimeException e) {
             LOG.warn("Federation: callback validation failed for provider {}: {}",
                     LogSafe.sanitize(alias), LogSafe.sanitize(e.getMessage()));
+            // Round 6: a cancelled or failed account-console link returns to the console, not to the login page.
+            if (linkFlow != null && linkFlow.take(session, alias, expectedState).isPresent()) {
+                org.springframework.web.servlet.support.RequestContextUtils.getOutputFlashMap(request)
+                        .put("identityError", "cancelled");
+                return ACCOUNT_IDENTITIES;
+            }
             return LOGIN_ERROR;
         }
         BrowserBinding.clear(session, RealmContextHolder.get(), alias);
@@ -267,6 +293,23 @@ public class FederationBrokerController {
                 LOG.warn("Federation: wallet login for provider {} could not be completed: {}",
                         LogSafe.sanitize(alias), e.getClass().getSimpleName());
                 return LOGIN_ERROR;
+            }
+        }
+
+        // Round 6: the callback of an account-console link links the identity to the signed-in user; never a sign-in.
+        if (linkFlow != null) {
+            final java.util.Optional<io.helixiam.authorization.controller.account.console.AccountIdentityLinkFlow.Intent>
+                    intent = linkFlow.take(session, alias, expectedState);
+            if (intent.isPresent()) {
+                final var outcome = linkFlow.complete(intent.get(), identity, request);
+                final boolean ok = outcome == io.helixiam.authorization.controller.account.console
+                        .AccountIdentityLinkFlow.Outcome.LINKED || outcome == io.helixiam.authorization.controller
+                        .account.console.AccountIdentityLinkFlow.Outcome.ALREADY_LINKED;
+                final var flash = org.springframework.web.servlet.support.RequestContextUtils.getOutputFlashMap(request);
+                flash.put(ok ? "identityStatus" : "identityError",
+                        outcome.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-'));
+                flash.put("identityAlias", alias);
+                return ACCOUNT_IDENTITIES;
             }
         }
 

@@ -176,10 +176,22 @@ public class ScimUserController {
             LOG.debug("Rejected SCIM request for realm {} — invalid token", LogSafe.sanitize(realm));
             return scim(HttpStatus.UNAUTHORIZED, ScimError.of(401, "Invalid SCIM token."));
         }
+        // H5: a SCIM client holds no admin permission.
+        io.helixiam.authorization.service.adminrbac.AdminActor.declare(io.helixiam.authorization.service.adminrbac.AdminActor.unprivileged("SCIM"));
         return null;
     }
 
     private static ResponseEntity<Object> scim(final HttpStatus status, final Object body) {
         return ResponseEntity.status(status).header("Content-Type", SCIM_JSON).body(body);
+    }
+
+    /** Security review H5: SCIM holds no admin permission, so it cannot change or delete an admin. */
+    @org.springframework.web.bind.annotation.ExceptionHandler(
+            io.helixiam.authorization.service.adminrbac.AdminGrantGuard.AdminGrantDeniedException.class)
+    public org.springframework.http.ResponseEntity<?> onAdminGrantDenied(final RuntimeException e) {
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                .header("Content-Type", "application/scim+json")
+                .body(ScimError.of(403, "This user holds admin permissions; SCIM cannot change it. Manage it in the "
+                        + "admin console."));
     }
 }

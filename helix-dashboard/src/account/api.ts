@@ -97,6 +97,13 @@ export interface AccountIdentity {
   linkedAt: number | null;
 }
 
+/** Round 6: a provider of the realm the caller can link from the account console. */
+export interface LinkableProvider {
+  alias: string;
+  displayName: string;
+  linked: boolean;
+}
+
 export interface AccountApi {
   getProfile(): Promise<AccountProfile>;
   updateProfile(patch: { email: string | null; attributes: Record<string, string> }): Promise<AccountProfile>;
@@ -110,6 +117,10 @@ export interface AccountApi {
   // B9: connected accounts (federated identities) — list + disconnect.
   listIdentities(): Promise<AccountIdentity[]>;
   unlinkIdentity(alias: string): Promise<void>;
+  // Round 6: link a provider (step-up first when the sign-in is not recent, then the provider's sign-in).
+  listLinkableProviders?(): Promise<LinkableProvider[]>;
+  /** Where the browser goes next: the step-up sign-in or the provider. */
+  startLink?(alias: string): Promise<{ location: string; stepUp: boolean }>;
   // GDPR / Privacy (self-service): export own data, read + withdraw own consent ledger.
   gdprExport(): Promise<GdprExport>;
   gdprConsents(): Promise<GdprConsentRecord[]>;
@@ -167,6 +178,8 @@ export function createAccountHttpClient(realm: string, baseUrl = ""): AccountApi
     listIdentities: () => send("/identities"),
     unlinkIdentity: (alias) =>
       send(`/identities/${encodeURIComponent(alias)}`, { method: "DELETE" }).then(() => undefined),
+    listLinkableProviders: () => send("/identities/providers"),
+    startLink: (alias) => send(`/identities/${encodeURIComponent(alias)}/link`, { method: "POST" }),
     gdprExport: () => send("/gdpr/export"),
     gdprConsents: () => send("/gdpr/consents"),
     gdprWithdrawConsent: (clientId) =>

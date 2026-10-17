@@ -42,6 +42,16 @@ public class TenantService {
     private final DefaultRolesBootstrapService defaultRolesBootstrapService;
     private final ConsoleClientBootstrapService consoleClientBootstrapService;
 
+    private io.helixiam.authorization.service.client.CliClientBootstrapService cliClientBootstrapService;
+
+    /** Round 6: every realm gets helix-cli at creation, like helix-console, so it cannot be squatted. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCliClientBootstrapService(
+            final io.helixiam.authorization.service.client.CliClientBootstrapService cliClientBootstrapService) {
+        this.cliClientBootstrapService = cliClientBootstrapService;
+    }
+
+
     @Autowired
     public TenantService(
             final TenantRepository tenantRepository,
@@ -82,6 +92,9 @@ public class TenantService {
             defaultRolesBootstrapService.ensureDefaultRoles(tenantId);
             // Seed the standard helix-console OIDC client so this realm's admins can log into the console via SSO.
             consoleClientBootstrapService.ensureConsoleClient(tenantId);
+            if (cliClientBootstrapService != null) {
+                cliClientBootstrapService.ensureCliClient(tenantId);
+            }
 
             LOG.debug("Created tenant {} by {}", tenant, userId);
 
@@ -110,20 +123,6 @@ public class TenantService {
      */
     public void save(final List<UserRoles> roles) {
         userRolesRepository.saveAll(roles);
-    }
-
-    /**
-     * Save a tenant user and assign the realm's default role (the curated {@code user} role, falling back to
-     * the legacy {@code ROLE_USER}) if not already present.
-     */
-    public void save(final TenantUser tenantUser) {
-        if (tenantUserRepository.findByTenantIdAndUserId(tenantUser.getTenantId(), tenantUser.getUserId()).isEmpty()) {
-            final TenantUser storedTenantUser = tenantUserRepository.save(tenantUser);
-
-            userRolesRepository.findFirstByTenantIdAndDefaultRoleTrue(tenantUser.getTenantId())
-                    .or(() -> userRolesRepository.findByTenantIdAndName(tenantUser.getTenantId(), "ROLE_USER"))
-                    .ifPresent(role -> grant(role.getRoleId(), tenantUser.getUserId(), storedTenantUser.getTenantUserId()));
-        }
     }
 
     /** Idempotently grants a role to a user via their tenant-user link. */

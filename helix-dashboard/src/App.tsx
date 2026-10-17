@@ -497,7 +497,7 @@ function AppInner() {
       ) : active === "claims" ? (
         <ClaimsPage api={claimApi} realmId={realm} />
       ) : active === "realm" ? (
-        <RealmSettingsPage api={realmApi} realmId={realm} />
+        <RealmSettingsPage api={realmApi} realmId={realm} keysApi={realmKeyApi} />
       ) : active === "keys" ? (
         <RealmKeysPage api={realmKeyApi} realmId={realm} />
       ) : active === "webhooks" ? (

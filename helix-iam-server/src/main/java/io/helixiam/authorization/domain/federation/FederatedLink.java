@@ -12,5 +12,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * provider) to a local user. Two-copy mirror of the publisher's DTO.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record FederatedLink(String idpAlias, String externalSubject, String userId) {
+public record FederatedLink(String idpAlias, String externalSubject, String userId, String createdVia) {
+
+    /** A link of unknown provenance counts as an automatic one (the least trusted). */
+    public FederatedLink(final String idpAlias, final String externalSubject, final String userId) {
+        this(idpAlias, externalSubject, userId, null);
+    }
 }

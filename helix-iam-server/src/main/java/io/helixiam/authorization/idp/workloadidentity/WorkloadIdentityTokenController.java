@@ -224,7 +224,7 @@ public class WorkloadIdentityTokenController {
                     credential.clientId(), e.getMessage());
         }
         return jwtEncoder.encode(JwtEncoderParameters.from(
-                JwsHeader.with(() -> "RS256").build(), claims.build())).getTokenValue();
+                io.helixiam.authorization.security.RealmAlgorithmJwtEncoder.realmDefault().build(), claims.build())).getTokenValue();
     }
 
     /**

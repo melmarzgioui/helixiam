@@ -110,7 +110,8 @@ public class RequiredActionsController {
             response.sendRedirect(request.getContextPath() + "/login");
             return null;
         }
-        final boolean set = Boolean.TRUE.equals(userPublisher.resetPassword(new UserPasswordDto(realm, userId, newPassword)));
+        final boolean set = Boolean.TRUE.equals(io.helixiam.authorization.service.adminrbac.AdminActor.as(io.helixiam.authorization.service.adminrbac.AdminActor.self(userId),
+                () -> userPublisher.resetPassword(new UserPasswordDto(realm, userId, newPassword))));
         if (!set) {
             model.addAttribute("action", UPDATE_PASSWORD);
             model.addAttribute("error", true);

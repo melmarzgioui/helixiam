@@ -26,6 +26,12 @@ public interface FederatedIdentityStore {
     /** Record a federated link from an external subject to a local user. */
     void link(String idpAlias, String externalSubject, String userId);
 
+    /** Round 6: record a link with its provenance ({@link io.helixiam.authorization.domain.federation.LinkProvenance}). */
+    default void link(final String idpAlias, final String externalSubject, final String userId,
+                      final String createdVia) {
+        link(idpAlias, externalSubject, userId);
+    }
+
     /** Just-in-time provision a new local user from the brokered identity + mapped attributes; returns its id. */
     String provisionUser(BrokeredIdentity identity, Map<String, String> attributes);
 }

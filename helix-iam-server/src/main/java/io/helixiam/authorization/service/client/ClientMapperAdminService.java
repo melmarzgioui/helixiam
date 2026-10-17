@@ -34,6 +34,15 @@ public class ClientMapperAdminService {
     private final ClientProtocolMapperRepository repository;
     private final ServiceProviderRepository clients;
 
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged;
+
+    /** Round 6: guards what administrators sign in through (absent in slim unit-test wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrivilegedPrincipalGuard(
+            final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard privileged) {
+        this.privileged = privileged;
+    }
+
     @Autowired
     public ClientMapperAdminService(final ClientProtocolMapperRepository repository,
                                     final ServiceProviderRepository clients) {
@@ -43,6 +52,13 @@ public class ClientMapperAdminService {
 
     /** A client's protocol mappers (by realm + clientId), ordered by name. */
     @Transactional(readOnly = true)
+    /** Round 6: a mapper shapes the client's tokens, so a sign-in client's mappers need realm-admin. */
+    private void guard(final String realmId, final String clientId, final String what) {
+        if (privileged != null) {
+            privileged.requireMayChangeSignInClient(realmId, clientId, what);
+        }
+    }
+
     public List<ProtocolMapperDto> list(final String realmId, final String clientId) {
         return repository.findAllByRealmIdAndClientIdOrderByName(realmId, clientId).stream().map(this::toDto).toList();
     }
@@ -50,6 +66,7 @@ public class ClientMapperAdminService {
     /** Registers a new mapper for a client; returns it with its generated id. */
     @Transactional
     public ProtocolMapperDto create(final ProtocolMapperWriteDto write) {
+        guard(blankToDefault(write.realmId()), write.clientId(), "Adding a protocol mapper");
         final ClientProtocolMapperEntity entity = new ClientProtocolMapperEntity();
         entity.setRealmId(blankToDefault(write.realmId()));
         entity.setClientId(write.clientId());
@@ -62,6 +79,7 @@ public class ClientMapperAdminService {
     /** Updates a mapper, but only when it belongs to the addressed client. */
     @Transactional
     public Optional<ProtocolMapperDto> update(final ProtocolMapperWriteDto write) {
+        guard(blankToDefault(write.realmId()), write.clientId(), "Changing a protocol mapper");
         return repository.findByMapperIdAndRealmIdAndClientId(write.mapperId(), blankToDefault(write.realmId()), write.clientId())
                 .map(entity -> {
                     apply(entity, write);
@@ -72,6 +90,7 @@ public class ClientMapperAdminService {
     /** Removes a mapper; {@code false} when it is absent / not the client's. */
     @Transactional
     public boolean delete(final String realmId, final String clientId, final String mapperId) {
+        guard(realmId, clientId, "Deleting a protocol mapper");
         return repository.findByMapperIdAndRealmIdAndClientId(mapperId, realmId, clientId).map(entity -> {
             repository.delete(entity);
             LOG.debug("Deleted mapper {} from client {} in realm {}",

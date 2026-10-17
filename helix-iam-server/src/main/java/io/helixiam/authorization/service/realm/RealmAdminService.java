@@ -35,6 +35,58 @@ public class RealmAdminService {
     private final AuthFlowService authFlowService;
     private final DefaultRolesBootstrapService defaultRolesBootstrapService;
     private final ConsoleClientBootstrapService consoleClientBootstrapService;
+
+    private io.helixiam.authorization.service.client.CliClientBootstrapService cliClientBootstrapService;
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    /** Round 6: the realm's sign-in policies decide how its administrators sign in (absent in slim wiring). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
+    /**
+     * Round 6: the realm settings a manage-realm admin may change without realm-admin: the display name, the legacy
+     * branding fields and self-registration. Every other field (issuer, token and session lifetimes, MFA, lockout,
+     * password policy, CAPTCHA, session limits, risk policy, enabled) decides how the realm's administrators sign in
+     * or which tokens they get.
+     */
+    static final java.util.Set<String> NON_SECURITY_FIELDS = java.util.Set.of("realmId", "displayName", "logoUrl",
+            "primaryColor", "backgroundColor", "welcomeText", "customCss", "registrationEnabled", "captchaSecretKey");
+
+    /** The names of the sign-in policy fields {@code after} changes against {@code before}. */
+    static java.util.List<String> securityChanges(final RealmSettingsDto before, final RealmSettingsDto after) {
+        final java.util.List<String> changed = new java.util.ArrayList<>();
+        for (final java.lang.reflect.RecordComponent rc : RealmSettingsDto.class.getRecordComponents()) {
+            if (NON_SECURITY_FIELDS.contains(rc.getName())) {
+                continue;
+            }
+            try {
+                if (!java.util.Objects.equals(norm(rc.getAccessor().invoke(before)), norm(rc.getAccessor().invoke(after)))) {
+                    changed.add(rc.getName());
+                }
+            } catch (final ReflectiveOperationException e) {
+                changed.add(rc.getName()); // fail closed
+            }
+        }
+        return changed;
+    }
+
+    private static Object norm(final Object v) {
+        if (v instanceof String s) {
+            final String t = s.trim();
+            return t.isEmpty() ? null : t;
+        }
+        return v;
+    }
+
+    /** Round 6: every realm gets helix-cli at creation, like helix-console, so it cannot be squatted. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCliClientBootstrapService(
+            final io.helixiam.authorization.service.client.CliClientBootstrapService cliClientBootstrapService) {
+        this.cliClientBootstrapService = cliClientBootstrapService;
+    }
+
     private final ThemeService themeService;
 
     @Autowired
@@ -71,6 +123,7 @@ public class RealmAdminService {
     public RealmSettingsDto save(final RealmSettingsDto dto) {
         final boolean isNewRealm = !realmService.exists(dto.realmId());
         final RealmConfig config = realmService.getOrDefault(dto.realmId());
+        final RealmSettingsDto before = isNewRealm || adminGrantGuard == null ? null : toDto(config);
         config.setRealmId(dto.realmId());
         config.setDisplayName(dto.displayName());
         config.setIssuer(blankToNull(dto.issuer()));
@@ -115,6 +168,17 @@ public class RealmAdminService {
         config.setRiskMediumAction(dto.riskMediumAction() == null || dto.riskMediumAction().isBlank() ? "step_up" : dto.riskMediumAction());
         config.setRiskHighAction(dto.riskHighAction() == null || dto.riskHighAction().isBlank() ? "deny" : dto.riskHighAction());
         config.setRegistrationEnabled(dto.registrationEnabled());
+        if (before != null) {
+            // Round 6: compared as stored (after the defaults above), so an unchanged field never counts.
+            final java.util.List<String> changed = securityChanges(before, toDto(config));
+            if (dto.captchaSecretKey() != null && !dto.captchaSecretKey().isBlank()) {
+                changed.add("captchaSecretKey");
+            }
+            if (!changed.isEmpty()) {
+                adminGrantGuard.requireRealmAdmin(dto.realmId(), "Changing the realm's sign-in policy ("
+                        + String.join(", ", changed) + ")");
+            }
+        }
         final RealmConfig saved = realmService.save(config);
         // B2 branding (deprecated): the five legacy fields live on the realm theme now. Validated there (a
         // ThemeValidationException rolls the whole save back); a no-op when they are unchanged.
@@ -131,6 +195,9 @@ public class RealmAdminService {
             // Seed the standard helix-console OIDC client so the new realm's admin can log into the
             // console via SSO (and can't be locked out for lack of a client).
             consoleClientBootstrapService.ensureConsoleClient(dto.realmId());
+            if (cliClientBootstrapService != null) {
+                cliClientBootstrapService.ensureCliClient(dto.realmId());
+            }
             LOG.info("Bootstrapped new realm {} with browser flow + admin + default roles + console client", dto.realmId());
         }
         LOG.debug("Saved realm settings for {}", dto.realmId());

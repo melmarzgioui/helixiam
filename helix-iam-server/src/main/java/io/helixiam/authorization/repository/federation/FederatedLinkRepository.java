@@ -21,22 +21,56 @@ public interface FederatedLinkRepository extends JpaRepository<FederatedLinkEnti
 
     List<FederatedLinkEntity> findAllByUserId(String userId);
 
+    /** Round 6: the user's links in one realm. */
+    List<FederatedLinkEntity> findAllByRealmIdAndUserId(String realmId, String userId);
+
+    /** Round 6: every link of a realm's identity provider. */
+    List<FederatedLinkEntity> findAllByRealmIdAndIdpAlias(String realmId, String idpAlias);
+
+    /** Round 6: links the upgrade placed in a realm by a fallback, still unconfirmed. */
+    List<FederatedLinkEntity> findAllByRealmAmbiguousTrueAndCreatedVia(String createdVia);
+
+    /** Round 6: links whose realm the upgrade could not tell (never used for sign-in). */
+    List<FederatedLinkEntity> findAllByRealmIdIsNull();
+
     /**
      * Task 21a: insert the link only if its {@code (alias, subject)} id is free; never overwrites. Returns the number
      * of rows inserted (0 or 1). Concurrent inserts of the same id serialise on the primary key.
      */
     @Modifying
-    @Query(value = "INSERT INTO federated_link (id, idp_alias, external_subject, user_id) "
-            + "VALUES (:id, :alias, :subject, :userId) ON CONFLICT (id) DO NOTHING", nativeQuery = true)
-    int insertIfAbsent(@Param("id") String id, @Param("alias") String alias, @Param("subject") String subject,
-                       @Param("userId") String userId);
+    @Query(value = "INSERT INTO federated_link (id, realm_id, idp_alias, external_subject, user_id, created_via) "
+            + "VALUES (:id, :realm, :alias, :subject, :userId, :via) ON CONFLICT DO NOTHING", nativeQuery = true)
+    int insertIfAbsent(@Param("id") String id, @Param("realm") String realm, @Param("alias") String alias,
+                       @Param("subject") String subject, @Param("userId") String userId, @Param("via") String via);
+
+    /** Round 6: every link of one provenance (the start-up report of grandfathered links). */
+    List<FederatedLinkEntity> findAllByCreatedVia(String createdVia);
+
+    /** Round 6: one link, matched on its columns (never on the composite id, whose parts may contain "|"). */
+    Optional<FederatedLinkEntity> findByRealmIdAndIdpAliasAndExternalSubject(String realmId, String idpAlias,
+                                                                           String externalSubject);
+
+    /**
+     * Round 6: set the provenance of <b>one</b> link, matched on its columns, only while it still belongs to
+     * {@code userId}; returns how many changed (0 or 1). Never by (user, alias): a user may have several links of one
+     * provider.
+     */
+    @Modifying
+    @Query(value = "UPDATE federated_link SET created_via = :via WHERE realm_id = :realm AND idp_alias = :alias "
+            + "AND external_subject = :subject AND user_id = :userId", nativeQuery = true)
+    int updateProvenance(@Param("realm") String realm, @Param("alias") String alias, @Param("subject") String subject,
+                         @Param("userId") String userId, @Param("via") String via);
 
     /** Task 21a: delete a link only while {@code userId} still owns it (the stale-link replacement). */
     @Modifying
-    @Query(value = "DELETE FROM federated_link WHERE id = :id AND user_id = :userId", nativeQuery = true)
-    int deleteIfOwnedBy(@Param("id") String id, @Param("userId") String userId);
+    @Query(value = "DELETE FROM federated_link WHERE realm_id = :realm AND idp_alias = :alias "
+            + "AND external_subject = :subject AND user_id = :userId", nativeQuery = true)
+    int deleteIfOwnedBy(@Param("realm") String realm, @Param("alias") String alias, @Param("subject") String subject,
+                        @Param("userId") String userId);
 
-    /** Task 21a: the owner of a link id, read from the database (not the persistence context). */
-    @Query(value = "SELECT user_id FROM federated_link WHERE id = :id", nativeQuery = true)
-    Optional<String> findUserIdById(@Param("id") String id);
+    /** Task 21a: the owner of a link, read from the database (not the persistence context), matched on its columns. */
+    @Query(value = "SELECT user_id FROM federated_link WHERE realm_id = :realm AND idp_alias = :alias "
+            + "AND external_subject = :subject", nativeQuery = true)
+    Optional<String> findOwner(@Param("realm") String realm, @Param("alias") String alias,
+                               @Param("subject") String subject);
 }

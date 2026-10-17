@@ -191,6 +191,8 @@ public class DynamicClientRegistrationController {
                 new DcrTokenCheck(realm, clientInternalId, token)))) {
             return error(HttpStatus.UNAUTHORIZED, "invalid_token", "Invalid registration access token.");
         }
+        // H5: the registration-token holder manages its own client and holds no admin permission.
+        io.helixiam.authorization.service.adminrbac.AdminActor.declare(io.helixiam.authorization.service.adminrbac.AdminActor.unprivileged("dynamic client registration"));
         return null;
     }
 

@@ -55,6 +55,9 @@ public class ClientRoleAdminService {
     /** Defines a client role; idempotent on name within the client. */
     @Transactional
     public ClientRoleDto createClientRole(final ClientRoleWriteDto write) {
+        if (principalGuard != null) {
+            principalGuard.requireMayChangeSignInClient(write.realmId(), write.clientId(), "Adding a client role");
+        }
         // Invariant guard: a client role must have a name.
         if (write.name() == null || write.name().isBlank()) {
             throw new IllegalArgumentException("Role name is required.");
@@ -80,6 +83,9 @@ public class ClientRoleAdminService {
     /** Removes a client role; {@code false} when absent. */
     @Transactional
     public boolean deleteClientRole(final String realmId, final String clientId, final String name) {
+        if (principalGuard != null) {
+            principalGuard.requireMayChangeSignInClient(realmId, clientId, "Removing a client role");
+        }
         return roles.findByRealmIdAndClientIdAndName(realmId, clientId, name).map(e -> {
             roles.delete(e);
             LOG.debug("Deleted client role {} from {} in {}",
@@ -94,12 +100,40 @@ public class ClientRoleAdminService {
         return saRoles.findAllByRealmIdAndClientIdOrderByRoleName(realmId, clientId).stream().map(this::toDto).toList();
     }
 
+    /** Security review H5: the built-in sign-in clients' roles need realm-admin. */
+    private io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrincipalGuard(final io.helixiam.authorization.service.adminrbac.PrivilegedPrincipalGuard principalGuard) {
+        this.principalGuard = principalGuard;
+    }
+
+    /** Security review (rc.11): no admin may grant admin permissions they do not hold. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     /** Grants a role to a client's service account; idempotent on (role name, type). */
     @Transactional
     public ServiceAccountRoleDto assignServiceAccountRole(final ServiceAccountRoleDto write) {
         final String type = write.roleType() == null || write.roleType().isBlank() ? "REALM" : write.roleType();
+        // H5: a CLIENT role names its client; without one it must never fall back to the realm scope.
+        if ("CLIENT".equalsIgnoreCase(type) && (write.roleClientId() == null || write.roleClientId().isBlank())) {
+            throw new IllegalArgumentException("A CLIENT role needs the client it belongs to (roleClientId).");
+        }
+        if (!"CLIENT".equalsIgnoreCase(type) && !"REALM".equalsIgnoreCase(type)) {
+            throw new IllegalArgumentException("The role type must be REALM or CLIENT.");
+        }
         if (io.helixiam.authorization.security.SignInAuthorities.isFactorName(write.roleName())) {
             throw new IllegalArgumentException("Role names starting with 'FACTOR_' are reserved.");
+        }
+        // Guard on the effective scope: a REALM role confers its admin permissions.
+        if (adminGrantGuard != null && "REALM".equalsIgnoreCase(type)) {
+            adminGrantGuard.requireMayGrant(write.realmId(), adminGrantGuard.grantsOfName(write.realmId(), write.roleName()),
+                    "This role");
         }
         if (saRoles.findByRealmIdAndClientIdAndRoleNameAndRoleType(write.realmId(), write.clientId(), write.roleName(), type).isPresent()) {
             return write;
@@ -118,6 +152,9 @@ public class ClientRoleAdminService {
     @Transactional
     public boolean unassignServiceAccountRole(final String realmId, final String clientId, final String roleName, final String roleType) {
         final String type = roleType == null || roleType.isBlank() ? "REALM" : roleType;
+        if (adminGrantGuard != null && "REALM".equalsIgnoreCase(type)) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOfName(realmId, roleName), "This role");
+        }
         return saRoles.findByRealmIdAndClientIdAndRoleNameAndRoleType(realmId, clientId, roleName, type).map(e -> {
             saRoles.delete(e);
             LOG.debug("Revoked {} role {} from service account of {} in {}",

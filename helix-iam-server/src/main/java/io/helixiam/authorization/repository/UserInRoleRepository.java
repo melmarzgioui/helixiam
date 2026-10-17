@@ -17,4 +17,7 @@ public interface UserInRoleRepository extends JpaRepository<UserInRole, String> 
     Optional<UserInRole> findByRoleIdAndUserId(final String roleId, final String userId);
 
     List<UserInRole> findAllByRoleId(final String roleId);
+
+    /** Every role link of a user (all realms; callers filter by realm). */
+    List<UserInRole> findAllByUserId(final String userId);
 }

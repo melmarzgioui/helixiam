@@ -95,6 +95,15 @@ public class GroupAdminService {
             return null; // review rc.3 #1
         }
         final UserGroup group = existing.get();
+        if (adminGrantGuard != null && !java.util.Objects.equals(group.getParentId(), write.parentId())) {
+            // Round 6: moving a group moves its members' admin permissions with it (and under the new parent's).
+            final java.util.Set<String> moved = new java.util.LinkedHashSet<>(
+                    adminGrantGuard.grantsOfGroup(write.realmId(), group.getGroupId()));
+            if (write.parentId() != null) {
+                moved.addAll(adminGrantGuard.grantsOfGroup(write.realmId(), write.parentId()));
+            }
+            adminGrantGuard.requireMayGrant(write.realmId(), moved, "Moving this group");
+        }
         group.setName(write.name());
         group.setParentId(write.parentId());
         return toDto(groups.save(group));
@@ -107,9 +116,19 @@ public class GroupAdminService {
         if (group.isEmpty() || !realmId.equals(group.get().getTenantId())) {
             return false;
         }
+        if (adminGrantGuard != null) {
+            // Round 6: deleting a group takes its admin permissions away from its members.
+            adminGrantGuard.requireMayGrant(realmId, grantsOfTree(realmId, group.get()), "Deleting this group");
+        }
         deleteRecursively(group.get());
         LOG.debug("Deleted group {} from realm {}", LogSafe.sanitize(groupId), LogSafe.sanitize(realmId));
         return true;
+    }
+
+    private java.util.Set<String> grantsOfTree(final String realmId, final UserGroup group) {
+        final java.util.Set<String> out = new java.util.LinkedHashSet<>(adminGrantGuard.grantsOfGroup(realmId, group.getGroupId()));
+        groups.findAllByParentId(group.getGroupId()).forEach(child -> out.addAll(grantsOfTree(realmId, child)));
+        return out;
     }
 
     private void deleteRecursively(final UserGroup group) {
@@ -129,6 +148,14 @@ public class GroupAdminService {
                 .toList();
     }
 
+    /** Security review (rc.11): no admin may grant admin permissions they do not hold. */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     /** Adds a user to a group; {@code false} if the user is not a member of the realm. */
     @Transactional
     public boolean addMember(final GroupRef ref) {
@@ -137,6 +164,10 @@ public class GroupAdminService {
         }
         if (tenantUsers.findByTenantIdAndUserId(ref.realmId(), ref.userId()).isEmpty()) {
             return false;
+        }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(ref.realmId(), adminGrantGuard.grantsOfGroup(ref.realmId(), ref.groupId()),
+                    "Membership of this group");
         }
         if (members.findByGroupIdAndUserId(ref.groupId(), ref.userId()).isEmpty()) {
             members.save(new UserGroupMember(ref.groupId(), ref.userId()));
@@ -150,6 +181,10 @@ public class GroupAdminService {
     public boolean removeMember(final GroupRef ref) {
         if (!inRealm(ref.realmId(), ref.groupId())) {
             return false;
+        }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(ref.realmId(), adminGrantGuard.grantsOfGroup(ref.realmId(), ref.groupId()),
+                    "Membership of this group");
         }
         return members.findByGroupIdAndUserId(ref.groupId(), ref.userId()).map(m -> {
             members.delete(m);
@@ -180,6 +215,9 @@ public class GroupAdminService {
         if (role.isEmpty() || !ref.realmId().equals(role.get().getTenantId())) {
             return false;
         }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(ref.realmId(), adminGrantGuard.grantsOf(ref.realmId(), ref.roleId()), "This role");
+        }
         if (groupRoles.findByGroupIdAndRoleId(ref.groupId(), ref.roleId()).isEmpty()) {
             groupRoles.save(new UserGroupRole(ref.groupId(), ref.roleId()));
             LOG.debug("Mapped role {} onto group {}", ref.roleId(), ref.groupId());
@@ -192,6 +230,9 @@ public class GroupAdminService {
     public boolean unassignRole(final GroupRef ref) {
         if (!inRealm(ref.realmId(), ref.groupId())) {
             return false;
+        }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(ref.realmId(), adminGrantGuard.grantsOf(ref.realmId(), ref.roleId()), "This role");
         }
         return groupRoles.findByGroupIdAndRoleId(ref.groupId(), ref.roleId()).map(gr -> {
             groupRoles.delete(gr);

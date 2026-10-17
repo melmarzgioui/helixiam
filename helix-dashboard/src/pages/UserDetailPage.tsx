@@ -20,6 +20,10 @@ import { emailBounce } from "./userBounce";
 import { Alert } from "../components/Alert";
 import { UserCredentials } from "./userCredentials";
 import { useT } from "../i18n/LocaleContext";
+import type { Locale } from "../i18n/i18n";
+import { absoluteTime } from "../api/datetime";
+import { FederatedIdentityApi, createFederatedIdentityHttpClient } from "../api/federatedIdentities";
+import { UserLinkedIdentities } from "./userLinkedIdentities";
 
 export interface UserDetailPageProps {
   api: UserApi;
@@ -29,6 +33,8 @@ export interface UserDetailPageProps {
   realmId: string;
   userId: string;
   onBack: () => void;
+  /** Round 6: the user's linked identities; defaults to the HTTP client. */
+  identityApi?: FederatedIdentityApi;
 }
 
 /**
@@ -36,14 +42,16 @@ export interface UserDetailPageProps {
  * mappings, their authentication factors (Device & passkeys) and active SSO sessions. Reached by opening
  * a row on the Users screen; the per-user credential/session views live here rather than as standalone pages.
  */
-export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmId, userId, onBack }: UserDetailPageProps) {
+export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmId, userId, onBack, identityApi }: UserDetailPageProps) {
   const { t, locale } = useT();
+  const identities = React.useMemo(() => identityApi ?? createFederatedIdentityHttpClient(), [identityApi]);
 
   const TABS = [
     { id: "details", label: t("userDetail.tab.details") },
     { id: "roles", label: t("userDetail.tab.roles") },
     { id: "credentials", label: t("userDetail.tab.credentials") },
     { id: "sessions", label: t("userDetail.tab.sessions") },
+    { id: "identities", label: t("userDetail.tab.identities") },
   ];
 
   const [user, setUser] = React.useState<UserSummary | null>(null);
@@ -174,6 +182,10 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
           <UserCredentials api={credentialApi} realmId={realmId} userId={user.userId} username={user.username} onNote={toast.show} />
         )}
 
+        {tab === "identities" && (
+          <UserLinkedIdentities api={identities} realmId={realmId} userId={user.userId} onNote={toast.show} />
+        )}
+
         {tab === "sessions" && (
           <UserSessions sessionApi={sessionApi} realmId={realmId} username={user.username} userId={user.userId} onNote={toast.show} />
         )}
@@ -198,7 +210,7 @@ export function UserDetailPage({ api, roleApi, credentialApi, sessionApi, realmI
 function UserSessions({ sessionApi, realmId, username, userId, onNote }: {
   sessionApi: SessionApi; realmId: string; username: string; userId: string; onNote: (n: Note) => void;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [sessions, setSessions] = React.useState<IdentitySession[] | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
@@ -239,7 +251,7 @@ function UserSessions({ sessionApi, realmId, username, userId, onNote }: {
                     {s.clients.length ? s.clients.map((c) => <Badge key={c.clientId} tone="neutral">{c.clientId}</Badge>) : "—"}
                   </div>
                   <div className="hx-rowcard__sub">
-                    {s.issuedAt ? t("userDetail.sessions.started", { when: formatWhen(s.issuedAt) }) : t("userDetail.sessions.startUnknown")}{s.expiresAt ? t("userDetail.sessions.expires", { when: formatWhen(s.expiresAt) }) : ""}
+                    {s.issuedAt ? t("userDetail.sessions.started", { when: formatWhen(s.issuedAt, locale) }) : t("userDetail.sessions.startUnknown")}{s.expiresAt ? t("userDetail.sessions.expires", { when: formatWhen(s.expiresAt, locale) }) : ""}
                   </div>
                 </div>
                 <div className="hx-rowcard__actions">
@@ -321,8 +333,6 @@ function RequiredActionsManager({ api, realmId, userId, onNote }: {
   );
 }
 
-function formatWhen(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "unknown";
-  return new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+function formatWhen(iso: string, locale: Locale): string {
+  return absoluteTime(iso, locale);
 }

@@ -45,6 +45,12 @@ public class AmqpFederatedIdentityStore implements FederatedIdentityStore {
     }
 
     @Override
+    public void link(final String idpAlias, final String externalSubject, final String userId,
+                     final String createdVia) {
+        publisher.link(new FederatedLink(idpAlias, externalSubject, userId, createdVia));
+    }
+
+    @Override
     public String provisionUser(final BrokeredIdentity identity, final Map<String, String> attributes) {
         return publisher.provisionUser(new FederatedUserProvision(identity.email(), attributes));
     }

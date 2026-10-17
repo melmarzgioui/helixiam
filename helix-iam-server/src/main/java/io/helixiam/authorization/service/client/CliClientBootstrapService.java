@@ -44,15 +44,34 @@ public class CliClientBootstrapService {
     private static final int REFRESH_TOKEN_LIFESPAN_SECONDS = 30 * 24 * 60 * 60;
 
     private final ServiceProviderRepository repository;
+    private io.helixiam.authorization.security.audit.AuditLog audit;
 
     public CliClientBootstrapService(final ServiceProviderRepository repository) {
         this.repository = repository;
     }
 
-    /** Ensures the {@code helix-cli} public client exists in {@code realmId}. Idempotent. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditLog(final io.helixiam.authorization.security.audit.AuditLog audit) {
+        this.audit = audit;
+    }
+
+    /**
+     * Ensures the {@code helix-cli} public client exists in {@code realmId} and reconciles its sign-in settings.
+     * Idempotent.
+     *
+     * <p>Round 6: before 1.0 a client manager could create a client named {@code helix-cli} in a realm that did not
+     * have one yet, with its own redirect URIs or a secret, and so receive the authorization codes of administrators
+     * signing in with the CLI. Creating a client with that id now needs realm-admin, and every start corrects a
+     * client that allows more than the built-in one: a redirect URI that is not a loopback address, a grant type
+     * outside the built-in set, a secret, or a confidential client. A correction is logged as a warning and audited
+     * ({@code SIGN_IN_CLIENT_RECONCILED}); narrower choices and every other setting stay as they are.
+     */
     @Transactional
     public void ensureCliClient(final String realmId) {
-        if (repository.findByClientIdAndRealmIdAndDeleted(CLI_CLIENT_ID, realmId, false).isPresent()) {
+        final java.util.Optional<ServiceProviderOAuthClient> existing =
+                repository.findByClientIdAndRealmIdAndDeleted(CLI_CLIENT_ID, realmId, false);
+        if (existing.isPresent()) {
+            reconcile(realmId, existing.get());
             return;
         }
         final ServiceProviderOAuthClient client = new ServiceProviderOAuthClient();
@@ -73,5 +92,60 @@ public class CliClientBootstrapService {
         client.setDisplayOnConsentScreen(false);
         repository.save(client);
         LOG.info("Seeded built-in '{}' public CLI client in realm {}", CLI_CLIENT_ID, realmId);
+    }
+
+    /**
+     * Corrects only a dangerous state: a redirect URI that is not a loopback address, a grant type outside the built-in
+     * set, a secret, or a client that is not public. Narrower choices (dropping {@code device_code}, a custom loopback
+     * path or port) are left alone. Anything corrected is logged as a WARN and audited.
+     */
+    private void reconcile(final String realmId, final ServiceProviderOAuthClient client) {
+        final java.util.List<String> changed = new java.util.ArrayList<>();
+        if (!Boolean.TRUE.equals(client.getPublicClient())) {
+            changed.add("publicClient");
+            client.setPublicClient(true);
+        }
+        if (client.getClientSecret() != null && !client.getClientSecret().isBlank()) {
+            changed.add("clientSecret");
+            client.setClientSecret(null);
+        }
+        final java.util.List<String> loopback = client.getRedirectUris().stream()
+                .filter(CliClientBootstrapService::isLoopback).sorted().toList();
+        if (loopback.size() != client.getRedirectUris().size()) {
+            changed.add("redirectUris");
+            client.setRedirectUris(loopback.isEmpty() ? REDIRECT_URIS : String.join(",", loopback));
+        }
+        final java.util.Set<String> builtIn = java.util.Set.of(GRANT_TYPES.split(","));
+        final java.util.List<String> grants = new java.util.ArrayList<>();
+        client.getAuthorizationGrantTypes().forEach(g -> grants.add(g.getValue()));
+        if (!builtIn.containsAll(grants)) {
+            changed.add("grantTypes");
+            final java.util.List<String> kept = grants.stream().filter(builtIn::contains).sorted().toList();
+            client.setAuthorizationGrantTypes(kept.isEmpty() ? GRANT_TYPES : String.join(",", kept));
+        }
+        if (changed.isEmpty()) {
+            return;
+        }
+        repository.save(client);
+        LOG.warn("The built-in '{}' client of realm {} allowed more than the built-in sign-in settings ({}); corrected. "
+                + "Check who created or changed it.", CLI_CLIENT_ID, realmId, String.join(", ", changed));
+        if (audit != null) {
+            audit.emit(io.helixiam.authorization.security.audit.AuditEvent.admin(
+                    io.helixiam.authorization.security.audit.AuditContext.nowIso(), "SIGN_IN_CLIENT_RECONCILED",
+                    realmId, "system", null, "client", CLI_CLIENT_ID, "SUCCESS",
+                    java.util.Map.of("fields", String.join(",", changed))));
+        }
+    }
+
+    /** An {@code http} redirect URI to the loopback interface (RFC 8252 §7.3), any port and path. */
+    static boolean isLoopback(final String uri) {
+        try {
+            final java.net.URI u = java.net.URI.create(uri.trim());
+            final String host = u.getHost();
+            return "http".equalsIgnoreCase(u.getScheme()) && u.getRawUserInfo() == null && host != null
+                    && (host.equals("127.0.0.1") || host.equalsIgnoreCase("localhost") || host.equals("[::1]"));
+        } catch (final IllegalArgumentException e) {
+            return false;
+        }
     }
 }

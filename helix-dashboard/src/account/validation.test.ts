@@ -49,3 +49,32 @@ describe("isValid", () => {
     expect(isValid({ a: undefined, b: "boom" })).toBe(false);
   });
 });
+
+describe("link a provider", () => {
+  it("needs a provider the realm offers", async () => {
+    const { validateLinkChoice } = await import("./validation");
+    expect(validateLinkChoice("", ["corp"])).toBe("account.identities.error.choose");
+    expect(validateLinkChoice("evil", ["corp"])).toBe("account.identities.error.unknown");
+    expect(validateLinkChoice("corp", ["corp"])).toBeUndefined();
+  });
+  it("follows only same-site paths", async () => {
+    const { isSameSitePath } = await import("./validation");
+    expect(isSameSitePath("/realms/acme/broker/corp?link=x")).toBe(true);
+    expect(isSameSitePath("https://evil.example/")).toBe(false);
+    expect(isSameSitePath("//evil.example/")).toBe(false);
+    expect(isSameSitePath(null)).toBe(false);
+  });
+});
+
+describe("connected accounts list", () => {
+  it("merges providers and links by display name, keeping links of providers no longer offered", async () => {
+    const { mergeIdentityRows } = await import("./IdentitiesTab");
+    const rows = mergeIdentityRows(
+      [{ alias: "corp", displayName: "Corporate sign-in", linked: true }, { alias: "gh", displayName: "GitHub", linked: false }],
+      [{ idpAlias: "corp", externalSubject: "s-1", linkedAt: null }, { idpAlias: "old", externalSubject: "s-2", linkedAt: null }],
+    );
+    expect(rows.map((r) => [r.displayName, r.linkable, r.links.length])).toEqual([
+      ["Corporate sign-in", true, 1], ["GitHub", true, 0], ["old", false, 1],
+    ]);
+  });
+});

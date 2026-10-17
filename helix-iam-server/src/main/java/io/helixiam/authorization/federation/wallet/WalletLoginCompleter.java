@@ -153,7 +153,9 @@ public class WalletLoginCompleter {
         }
         // Lost the race: another login linked this number first. The number wins; remove the fresh account.
         final Optional<String> owner = links.find(realm, alias, subject);
-        users.delete(new UserAdminRef(realm, created));
+        final UserAdminRef fresh = new UserAdminRef(realm, created);
+        io.helixiam.authorization.service.adminrbac.AdminActor.asSystem("wallet JIT race: remove the account this login just created",
+                () -> users.delete(fresh));
         audit.emit(AuditEvent.admin(AuditContext.nowIso(), "USER_DELETE", realm, AUDIT_ACTOR,
                 AuditContext.clientIp(request), "user", created, "SUCCESS", Map.of("reason", "wallet_jit_race_lost",
                         "idpAlias", alias)));

@@ -50,6 +50,16 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
     private static final Logger LOG = LogManager.getLogger(AdminAuthorizationManager.class);
     private static final long CACHE_TTL_MS = 30_000L;
 
+    private static final org.springframework.web.util.UrlPathHelper DECODED = decodingPathHelper();
+
+    private static org.springframework.web.util.UrlPathHelper decodingPathHelper() {
+        final org.springframework.web.util.UrlPathHelper helper = new org.springframework.web.util.UrlPathHelper();
+        helper.setUrlDecode(true);
+        helper.setRemoveSemicolonContent(true);
+        helper.setDefaultEncoding("UTF-8");
+        return helper;
+    }
+
     private final AdminRbacPublisher publisher;
     private final boolean devOpen;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
@@ -62,14 +72,15 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
     @Override
     public AuthorizationDecision authorize(final Supplier<? extends Authentication> authentication,
                                        final RequestAuthorizationContext context) {
+        final HttpServletRequest request = context.getRequest();
         if (devOpen) {
+            request.setAttribute(io.helixiam.authorization.service.adminrbac.AdminActor.ATTRIBUTE,
+                    io.helixiam.authorization.service.adminrbac.AdminActor.devOpen());
             return new AuthorizationDecision(true); // LOCAL-DEV: admin API is wide open, never enforce.
         }
-        final HttpServletRequest request = context.getRequest();
-        final String path = request.getRequestURI();
-        final String contextPath = request.getContextPath();
-        final String adminPath = (contextPath != null && !contextPath.isEmpty() && path.startsWith(contextPath))
-                ? path.substring(contextPath.length()) : path;
+        // Security review: resolve on the DECODED path within the application (without ;matrix content) — the path
+        // Spring MVC routes on — never on the raw request URI (k%65ys would otherwise not be "keys").
+        final String adminPath = DECODED.getPathWithinApplication(request);
 
         final Optional<String> required = AdminRoutePermissions.required(adminPath, request.getMethod());
         if (required.isEmpty()) {
@@ -89,11 +100,43 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
             // Realm-independent admin path (e.g. /admin/audit/**): per-realm grants cannot be resolved, so
             // require the caller to be an admin of SOME realm. Previously this allowed ANY authenticated
             // user (a normal end user could reach realm-independent admin routes).
-            return new AuthorizationDecision(RealmAdminAuthorities.isAdminOfAny(auth));
+            return declared(request, auth, RealmAdminAuthorities.isAdminOfAny(auth));
         }
 
+        return declared(request, auth, decide(auth, realmId, required.get(), request.getMethod(), adminPath));
+    }
+
+    /**
+     * H5: where an admin route is authorised, the acting administrator is declared for the guards downstream
+     * ({@link io.helixiam.authorization.service.adminrbac.AdminActor}) — they never infer it from the URI.
+     */
+    private static AuthorizationDecision declared(final HttpServletRequest request, final Authentication auth,
+                                                  final boolean granted) {
+        if (granted) {
+            request.setAttribute(io.helixiam.authorization.service.adminrbac.AdminActor.ATTRIBUTE,
+                    io.helixiam.authorization.service.adminrbac.AdminActor.admin(auth));
+        }
+        return new AuthorizationDecision(granted);
+    }
+
+    /**
+     * The same decision for a controller that checks a permission itself (defence in depth, independent of URI
+     * matching): whether {@code auth} holds {@code permission} in {@code realmId}.
+     */
+    public boolean permits(final Authentication auth, final String realmId, final String permission) {
+        if (devOpen) {
+            return true;
+        }
+        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken || realmId == null) {
+            return false;
+        }
+        return decide(auth, realmId, permission, "-", "-");
+    }
+
+    private boolean decide(final Authentication auth, final String realmId, final String permission,
+                           final String method, final String adminPath) {
         if (RealmAdminAuthorities.isMasterAdmin(auth)) {
-            return new AuthorizationDecision(true); // master-realm admins administer every realm
+            return true; // master-realm admins administer every realm
         }
 
         // Roles only: Spring Security 7's sign-in factor (FACTOR_PASSWORD on a password login) is never a role name,
@@ -106,16 +149,18 @@ public class AdminAuthorizationManager implements AuthorizationManager<RequestAu
             // authenticated principal — a privilege-escalation path, since the default state of a realm
             // is "no grant model". Fall back to requiring realm-admin for THIS realm instead: real admins
             // keep working (including during an RBAC outage), ordinary users are denied.
-            return new AuthorizationDecision(RealmAdminAuthorities.isAdminOf(auth, realmId));
+            return RealmAdminAuthorities.isAdminOf(auth, realmId);
         }
-        final boolean granted = eff.permissions().contains(AdminRoutePermissions.REALM_ADMIN)
-                || eff.permissions().contains(required.get());
+        // Round 6: manage-X includes view-X (users, clients, identity providers, events), as in the grant guard.
+        final java.util.Set<String> held = io.helixiam.authorization.service.adminrbac.AdminGrantGuard.withIncluded(
+                new java.util.LinkedHashSet<>(eff.permissions()));
+        final boolean granted = held.contains(AdminRoutePermissions.REALM_ADMIN) || held.contains(permission);
         if (!granted) {
             LOG.debug("Admin RBAC denied {} {} (needs {}) for roles {} in realm {}",
-                    LogSafe.sanitize(request.getMethod()), LogSafe.sanitize(adminPath),
-                    LogSafe.sanitize(required.get()), LogSafe.sanitize(roleNames), LogSafe.sanitize(realmId));
+                    LogSafe.sanitize(method), LogSafe.sanitize(adminPath),
+                    LogSafe.sanitize(permission), LogSafe.sanitize(roleNames), LogSafe.sanitize(realmId));
         }
-        return new AuthorizationDecision(granted);
+        return granted;
     }
 
     private AdminEffectivePermissionsDto resolve(final String realmId, final List<String> roleNames) {

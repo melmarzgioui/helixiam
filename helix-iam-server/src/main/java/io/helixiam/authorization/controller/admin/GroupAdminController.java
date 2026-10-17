@@ -40,6 +40,14 @@ public class GroupAdminController {
         this.publisher = publisher;
     }
 
+    /** Security review (rc.11): the role's admin permissions must be the caller's own (also checked in the service). */
+    private io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAdminGrantGuard(final io.helixiam.authorization.service.adminrbac.AdminGrantGuard adminGrantGuard) {
+        this.adminGrantGuard = adminGrantGuard;
+    }
+
     @GetMapping
     public List<GroupDto> list(@PathVariable final String realmId) {
         return publisher.list(realmId);
@@ -76,6 +84,9 @@ public class GroupAdminController {
         if (publisher.members(new GroupRef(realmId, groupId, null, null)) == null) {
             return ResponseEntity.notFound().build(); // review rc.3 #1: not a group of this realm
         }
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOfGroup(realmId, groupId), "Membership of this group");
+        }
         return Boolean.TRUE.equals(publisher.addMember(new GroupRef(realmId, groupId, userId, null)))
                 ? ResponseEntity.noContent().build() : ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
@@ -96,6 +107,9 @@ public class GroupAdminController {
     @PutMapping("/{groupId}/roles/{roleId}")
     public ResponseEntity<Void> assignRole(@PathVariable final String realmId, @PathVariable final String groupId,
                                            @PathVariable final String roleId) {
+        if (adminGrantGuard != null) {
+            adminGrantGuard.requireMayGrant(realmId, adminGrantGuard.grantsOf(realmId, roleId), "This role");
+        }
         return Boolean.TRUE.equals(publisher.assignRole(new GroupRef(realmId, groupId, null, roleId)))
                 ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }

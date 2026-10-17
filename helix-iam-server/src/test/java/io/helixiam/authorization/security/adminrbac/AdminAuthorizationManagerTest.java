@@ -52,6 +52,32 @@ class AdminAuthorizationManagerTest {
     }
 
     @Test
+    void resolvesThePermissionOnTheDecodedPath_asSpringMvcRoutesIt() {
+        // Security review: /keys percent-encoded as k%65ys used to resolve to the manage-realm default.
+        when(publisher.effective(any())).thenReturn(
+                new AdminEffectivePermissionsDto("gov", true, List.of("manage-realm", "manage-users")));
+        final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
+        assertThat(mgr.authorize(principal("r"), ctx("POST", "/admin/realms/gov/k%65ys/import")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("r"), ctx("POST", "/admin/realms/gov/%6Beys/rotate")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("r"), ctx("POST", "/admin/realms/gov/keys;x=1/import")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("r"), ctx("POST", "/admin/realms/gov/cl%69ents")).isGranted()).isFalse();
+        assertThat(mgr.authorize(principal("r"), ctx("POST", "/admin/realms/gov/u%73ers")).isGranted()).isTrue();
+        assertThat(mgr.authorize(principal("r"), ctx("GET", "/admin/realms/gov/keys")).isGranted()).isTrue();
+    }
+
+    @Test
+    void permits_isTheSameDecisionForControllers() {
+        when(publisher.effective(any())).thenReturn(
+                new AdminEffectivePermissionsDto("gov", true, List.of("manage-realm")));
+        final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, false);
+        assertThat(mgr.permits(principal("r").get(), "gov", "realm-admin")).isFalse();
+        assertThat(mgr.permits(principal("r").get(), "gov", "manage-realm")).isTrue();
+        assertThat(mgr.permits(principal("admin_master").get(), "gov", "realm-admin")).isTrue();
+        assertThat(mgr.permits(null, "gov", "manage-realm")).isFalse();
+        assertThat(new AdminAuthorizationManager(publisher, true).permits(null, "gov", "realm-admin")).isTrue();
+    }
+
+    @Test
     void devOpen_alwaysGrants_neverCallsPublisher() {
         final AdminAuthorizationManager mgr = new AdminAuthorizationManager(publisher, true);
         assertThat(mgr.authorize(principal("anything"), ctx("DELETE", "/admin/realms/gov/users/u-9")).isGranted()).isTrue();

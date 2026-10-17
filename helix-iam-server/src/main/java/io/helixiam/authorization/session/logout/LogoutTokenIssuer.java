@@ -77,7 +77,7 @@ public class LogoutTokenIssuer {
         if (sid != null && !sid.isBlank()) {
             claims.claim("sid", sid);
         }
-        final JwtEncoderParameters parameters = JwtEncoderParameters.from(JwsHeader.with(() -> "RS256").build(),
+        final JwtEncoderParameters parameters = JwtEncoderParameters.from(io.helixiam.authorization.security.RealmAlgorithmJwtEncoder.realmDefault().build(),
                 claims.build());
         final String previousRealm = RealmContextHolder.get();
         try {

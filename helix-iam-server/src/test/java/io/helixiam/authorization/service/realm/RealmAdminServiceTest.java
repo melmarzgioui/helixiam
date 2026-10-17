@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -178,5 +179,22 @@ class RealmAdminServiceTest {
         // A freshly-defaulted realm config reports registration enabled.
         when(realmService.getOrDefault("beta")).thenReturn(RealmConfig.defaults("beta"));
         assertTrue(service.get("beta").registrationEnabled());
+    }
+
+    private static RealmSettingsDto settings(final String displayName, final int maxLoginFailures, final String css) {
+        return new RealmSettingsDto("acme3", displayName, null,
+                900, 1_209_600, false, false, 8, true, 1_800, 36_000, true, 2_592_000,
+                true, maxLoginFailures, 900, 600, false,
+                false, false, false, false, false, 0,
+                false, "none", null, null, 2, false, false, 30, 80, "allow", "step_up", "deny",
+                null, null, null, null, css,
+                true);
+    }
+
+    @Test
+    void securityChanges_ignoreDisplayAndBrandingButNameSignInPolicy() {
+        assertThat(RealmAdminService.securityChanges(settings("A", 5, null), settings("B", 5, "body{}"))).isEmpty();
+        assertThat(RealmAdminService.securityChanges(settings("A", 5, null), settings("A", 6, null)))
+                .containsExactly("maxLoginFailures");
     }
 }
