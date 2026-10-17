@@ -10,7 +10,7 @@ import { Badge } from "../components/Badge";
 import { Spinner } from "../components/Spinner";
 import { Alert } from "../components/Alert";
 import { ConfirmDialog } from "../components/Modal";
-import { FederatedIdentityApi, LinkedIdentity, linkActions, provenanceKey } from "../api/federatedIdentities";
+import { FederatedIdentityApi, LinkedIdentity, linkActions, provenanceKey, subjectLabel } from "../api/federatedIdentities";
 import type { Note } from "./UsersPage";
 import { useT } from "../i18n/LocaleContext";
 
@@ -38,9 +38,10 @@ export function UserLinkedIdentities({ api, realmId, userId, onNote }: {
   const run = () => {
     if (!pending) return;
     setBusy(true);
+    // One link: the alias and its external subject (a user may have several links of one provider).
     const call = pending.action === "confirm"
-      ? api.confirm(realmId, userId, pending.link.idpAlias)
-      : api.revokeTrust(realmId, userId, pending.link.idpAlias);
+      ? api.confirm(realmId, userId, pending.link.idpAlias, pending.link.externalSubject)
+      : api.revokeTrust(realmId, userId, pending.link.idpAlias, pending.link.externalSubject);
     call
       .then(() => {
         onNote({ tone: "success", title: t(pending.action === "confirm" ? "userIdentities.confirmed" : "userIdentities.revoked"), message: pending.link.idpAlias });
@@ -62,20 +63,23 @@ export function UserLinkedIdentities({ api, realmId, userId, onNote }: {
           <div className="hx-cards">
             {links.map((l) => (
               <div key={`${l.idpAlias}|${l.externalSubject}`} className="hx-rowcard">
-                <div className="hx-rowcard__head">
-                  <div className="hx-rowcard__grow">
-                    <div className="hx-rowcard__title">{l.idpAlias}</div>
+                <div className="hx-linkrow">
+                  <div className="hx-linkrow__main">
+                    <div className="hx-linkrow__alias" title={l.idpAlias}>{l.idpAlias}</div>
+                    <div className="hx-linkrow__hint hx-mono">{t("userIdentities.subject", { subject: subjectLabel(l) })}</div>
                     <div className="hx-badges">
-                      <Badge tone="neutral">{t(provenanceKey(l.createdVia))}</Badge>
+                      <span title={t(`${provenanceKey(l.createdVia)}.hint`)}>
+                        <Badge tone="neutral">{t(provenanceKey(l.createdVia))}</Badge>
+                      </span>
                       <Badge tone={l.trustedForAdmins ? "success" : "warning"}>
                         {t(l.trustedForAdmins ? "userIdentities.trusted" : "userIdentities.untrusted")}
                       </Badge>
                     </div>
-                    <div className="hx-rowcard__sub hx-mono">{l.externalSubject}</div>
+                    <div className="hx-linkrow__hint">{t(`${provenanceKey(l.createdVia)}.hint`)}</div>
                   </div>
-                  <div className="hx-rowcard__actions">
+                  <div className="hx-linkrow__actions">
                     {linkActions(l, canManage).map((a) => (
-                      <Button key={a} variant="ghost" className={a === "revoke" ? "hx-btn--danger" : undefined}
+                      <Button key={a} variant={a === "revoke" ? "danger-outline" : "ghost"}
                               disabled={busy} onClick={() => setPending({ link: l, action: a })}>
                         {t(a === "confirm" ? "userIdentities.confirm" : "userIdentities.revoke")}
                       </Button>
@@ -90,7 +94,13 @@ export function UserLinkedIdentities({ api, realmId, userId, onNote }: {
       <ConfirmDialog
         open={pending !== null}
         title={t(pending?.action === "revoke" ? "userIdentities.revoke.dialog.title" : "userIdentities.confirm.dialog.title")}
-        message={pending ? t(pending.action === "revoke" ? "userIdentities.revoke.dialog.message" : "userIdentities.confirm.dialog.message", { provider: pending.link.idpAlias }) : ""}
+        message={pending ? (
+          <>
+            <p>{t(pending.action === "revoke" ? "userIdentities.revoke.dialog.message" : "userIdentities.confirm.dialog.message", { provider: pending.link.idpAlias })}</p>
+            <p className="hx-mono">{t("userIdentities.subject", { subject: subjectLabel(pending.link) })}</p>
+          </>
+        ) : ""}
+        tone={pending?.action === "revoke" ? "danger" : "primary"}
         confirmLabel={busy ? t("userIdentities.working") : t(pending?.action === "revoke" ? "userIdentities.revoke" : "userIdentities.confirm")}
         onConfirm={run}
         onCancel={() => setPending(null)}

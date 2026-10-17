@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { linkActions, provenanceKey, type LinkedIdentity } from "./federatedIdentities";
+import { linkActions, provenanceKey, subjectLabel, type LinkedIdentity } from "./federatedIdentities";
 
 const link = (trustedForAdmins: boolean): LinkedIdentity =>
   ({ idpAlias: "corp", externalSubject: "s", createdVia: "AUTO", linkedAt: null, trustedForAdmins });
@@ -23,5 +23,14 @@ describe("linked identity actions", () => {
     expect(provenanceKey(" self ")).toBe("userIdentities.via.SELF");
     expect(provenanceKey("admin-api")).toBe("userIdentities.via.AUTO");
     expect(provenanceKey(null)).toBe("userIdentities.via.AUTO");
+    expect(provenanceKey("UNRESOLVED")).toBe("userIdentities.via.UNRESOLVED");
+  });
+});
+
+describe("subject label", () => {
+  it("never shows the whole external subject", () => {
+    expect(subjectLabel({ externalSubject: "3f9a2c1e-7d4b-4a8e-9c2d-1b5e6f7a8b9c" })).toBe("3f9a…8b9c");
+    expect(subjectLabel({ externalSubject: "abc12345" })).toBe("…345");
+    expect(subjectLabel({ externalSubject: "x", subjectHint: "server…hint" })).toBe("server…hint");
   });
 });

@@ -5,6 +5,7 @@
 
 import React from "react";
 import { Button } from "./Button";
+import { useT } from "../i18n/LocaleContext";
 
 export interface ModalProps {
   open: boolean;
@@ -110,14 +111,19 @@ export interface ConfirmDialogProps {
   open: boolean;
   title: React.ReactNode;
   message: React.ReactNode;
+  /** Defaults to the localised "Delete". */
   confirmLabel?: string;
+  /** Defaults to the localised "Cancel". */
   cancelLabel?: string;
+  /** The confirm button's style: `danger` (default, destructive) or `primary` (a positive decision). */
+  tone?: "danger" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-/** A Modal preset for destructive confirmation (e.g. delete a connection). */
-export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", cancelLabel = "Cancel", onConfirm, onCancel }: ConfirmDialogProps) {
+/** A Modal preset for a confirmation: destructive by default (e.g. delete a connection), or `tone="primary"`. */
+export function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel, tone = "danger", onConfirm, onCancel }: ConfirmDialogProps) {
+  const { t } = useT();
   return (
     <Modal
       open={open}
@@ -126,8 +132,8 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", c
       width={440}
       footer={
         <>
-          <Button variant="ghost" onClick={onCancel}>{cancelLabel}</Button>
-          <Button variant="danger" onClick={onConfirm}>{confirmLabel}</Button>
+          <Button variant="ghost" onClick={onCancel}>{cancelLabel ?? t("common.cancel")}</Button>
+          <Button variant={tone === "primary" ? "primary" : "danger"} onClick={onConfirm}>{confirmLabel ?? t("common.delete")}</Button>
         </>
       }
     >

@@ -33,6 +33,19 @@
 [data-theme="dark"] .hx-btn--ghost:hover:not(:disabled) { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.5); }
 .hx-btn--danger { background: var(--danger); color: #fff; box-shadow: 0 1px 2px rgba(120,20,16,.2), 0 8px 18px -10px rgba(179,38,30,.5); }
 .hx-btn--danger:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
+/* A destructive action in a list row: outlined, so solid red stays for the confirming dialog button. */
+.hx-btn--danger-outline { background: transparent; border-color: var(--danger); color: var(--danger-fg, var(--danger)); }
+.hx-btn--danger-outline:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 8%, transparent); transform: translateY(-1px); }
+/* Linked identities rows: alias + badges, then the action; stacked on phones; the alias never breaks mid-word. */
+.hx-linkrow { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.hx-linkrow__main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: .35rem; }
+.hx-linkrow__alias { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hx-linkrow__hint { color: var(--fg-faint); font-size: .8rem; }
+.hx-linkrow__actions { display: flex; gap: .4rem; flex-shrink: 0; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .hx-linkrow { flex-direction: column; align-items: stretch; }
+  .hx-linkrow__actions { justify-content: flex-start; }
+}
 
 /* ===================== Form controls ===================== */
 .hx-input, .hx-select-trigger {

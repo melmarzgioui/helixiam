@@ -11,67 +11,126 @@ import { Spinner } from "../components/Spinner";
 import { EmptyState } from "../components/EmptyState";
 import { ConfirmDialog } from "../components/Modal";
 import { AccountApi, AccountIdentity, LinkableProvider } from "./api";
-import { isSameSitePath, validateLinkChoice } from "./validation";
 import type { Note } from "./AccountApp";
 import { useT } from "../i18n/LocaleContext";
+import { isSameSitePath, validateLinkChoice } from "./validation";
+import { subjectLabel } from "../api/federatedIdentities";
+
+/** One row of the merged list: a provider of the realm (or a linked one it no longer offers) and its links. */
+export interface IdentityRow {
+  alias: string;
+  displayName: string;
+  /** Whether the realm offers it for linking here. */
+  linkable: boolean;
+  links: AccountIdentity[];
+}
 
 /**
- * Helix IAM B9: the account "Connected accounts" tab — the identity providers (Google, DigiD, an
- * upstream OIDC/SAML IdP, …) the signed-in user can sign in through. Disconnecting removes that login
- * method; the local account and any other linked logins are untouched.
+ * Round 6: one list of the realm's linkable providers and the user's links, by provider display name. A linked
+ * provider the realm no longer offers is still listed (by alias) so it can be disconnected.
+ */
+export function mergeIdentityRows(providers: LinkableProvider[], identities: AccountIdentity[]): IdentityRow[] {
+  const rows: IdentityRow[] = providers.map((p) => ({
+    alias: p.alias, displayName: p.displayName || p.alias, linkable: true,
+    links: identities.filter((i) => i.idpAlias === p.alias),
+  }));
+  for (const i of identities) {
+    if (!rows.some((r) => r.alias === i.idpAlias)) {
+      rows.push({ alias: i.idpAlias, displayName: i.idpAlias, linkable: false, links: identities.filter((x) => x.idpAlias === i.idpAlias) });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Helix IAM B9 + round 6: Connected accounts. Each provider of the realm with its state: Link (a fresh sign-in here,
+ * then the provider's sign-in), Confirm again (prove the link is yours, which administrators need for links made
+ * automatically) and Disconnect (with a confirmation). The local account and other sign-in methods are untouched.
  */
 export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: Note) => void }) {
   const { t } = useT();
-  const [identities, setIdentities] = React.useState<AccountIdentity[] | null>(null);
-  const [confirm, setConfirm] = React.useState<AccountIdentity | null>(null);
-  const [busy, setBusy] = React.useState(false);
+  const [rows, setRows] = React.useState<IdentityRow[] | null>(null);
+  const [confirm, setConfirm] = React.useState<IdentityRow | null>(null);
+  const [busy, setBusy] = React.useState<string | null>(null);
 
   const reload = React.useCallback(() => {
-    setIdentities(null);
-    api.listIdentities()
-      .then(setIdentities)
-      .catch((e) => { setIdentities([]); onNote({ tone: "error", title: t("account.identities.loadError"), message: String(e.message ?? e) }); });
+    setRows(null);
+    Promise.all([
+      api.listIdentities(),
+      api.listLinkableProviders ? api.listLinkableProviders().catch(() => [] as LinkableProvider[]) : Promise.resolve([] as LinkableProvider[]),
+    ])
+      .then(([identities, providers]) => setRows(mergeIdentityRows(providers, identities)))
+      .catch((e) => { setRows([]); onNote({ tone: "error", title: t("account.identities.loadError"), message: String(e.message ?? e) }); });
   }, [api, onNote, t]);
   React.useEffect(reload, [reload]);
 
-  const unlink = (i: AccountIdentity) => {
-    setBusy(true);
-    api.unlinkIdentity(i.idpAlias)
-      .then(() => {
-        setIdentities((prev) => (prev ?? []).filter((x) => x.idpAlias !== i.idpAlias));
-        onNote({ tone: "success", title: t("account.identities.disconnectedToast"), message: i.idpAlias });
+  const link = (row: IdentityRow) => {
+    const error = validateLinkChoice(row.alias, (rows ?? []).filter((r) => r.linkable).map((r) => r.alias));
+    if (error || !api.startLink) {
+      onNote({ tone: "error", title: t(error ?? "account.identities.link.error") });
+      return;
+    }
+    setBusy(row.alias);
+    api.startLink(row.alias)
+      .then((r) => {
+        if (!isSameSitePath(r.location)) throw new Error(t("account.identities.link.error"));
+        window.location.assign(r.location);
       })
-      .catch((e) => onNote({ tone: "error", title: t("account.identities.disconnectError"), message: String(e.message ?? e) }))
-      .finally(() => { setBusy(false); setConfirm(null); });
+      .catch((e) => { setBusy(null); onNote({ tone: "error", title: t("account.identities.link.error"), message: String(e.message ?? e) }); });
   };
 
-  if (identities === null) {
+  const unlink = (row: IdentityRow) => {
+    setBusy(row.alias);
+    api.unlinkIdentity(row.alias)
+      .then(() => { onNote({ tone: "success", title: t("account.identities.disconnectedToast"), message: row.displayName }); reload(); })
+      .catch((e) => onNote({ tone: "error", title: t("account.identities.disconnectError"), message: String(e.message ?? e) }))
+      .finally(() => { setBusy(null); setConfirm(null); });
+  };
+
+  if (rows === null) {
     return <div className="hx-loadwrap"><Spinner size={24} label={t("account.identities.loading")} /></div>;
   }
 
   return (
-    <>
-    <LinkProviders api={api} onNote={onNote} />
-    <Card title={t("account.identities.card.title")} subtitle={t("account.identities.card.subtitle")}>
-      {identities.length === 0 ? (
+    <Card title={t("account.identities.card.title")} subtitle={t("account.identities.available.subtitle")}>
+      {rows.length === 0 ? (
         <EmptyState title={t("account.identities.empty")} message={t("account.identities.empty.msg")} />
       ) : (
         <div className="hx-acctlist">
-          {identities.map((i) => (
-            <div key={i.idpAlias} className="hx-card hx-acctrow">
-              <div className="hx-acctrow__body hx-acctrow__body--center">
-                <div className="hx-acctrow__main">
+          {rows.map((r) => (
+            <div key={r.alias} className="hx-card hx-acctrow">
+              <div className="hx-linkrow">
+                <div className="hx-linkrow__main">
                   <div className="hx-acctrow__title hx-acctrow__title--row">
-                    {i.idpAlias}<Badge tone="accent">{t("account.identities.connectedBadge")}</Badge>
+                    <span className="hx-linkrow__alias" title={r.displayName}>{r.displayName}</span>
+                    {r.links.length > 0
+                      ? <Badge tone="accent">{t("account.identities.connectedBadge")}</Badge>
+                      : <Badge tone="neutral">{t("account.identities.notConnected")}</Badge>}
                   </div>
-                  <div className="hx-acctrow__meta hx-acctrow__meta--ellipsis">
-                    {i.externalSubject}
-                  </div>
-                  <div className="hx-acctrow__sub">
-                    {i.linkedAt ? t("account.identities.connectedAt", { date: new Date(i.linkedAt).toLocaleString() }) : t("account.identities.connected")}
-                  </div>
+                  {r.links.map((l) => (
+                    <div key={l.externalSubject} className="hx-linkrow__hint">
+                      <span className="hx-mono">{subjectLabel(l)}</span>
+                      {" · "}
+                      {l.linkedAt ? t("account.identities.connectedAt", { date: new Date(l.linkedAt).toLocaleString() }) : t("account.identities.connected")}
+                    </div>
+                  ))}
+                  {r.links.length > 0 && r.linkable && (
+                    <div className="hx-linkrow__hint">{t("account.identities.relink.hint")}</div>
+                  )}
                 </div>
-                <Button variant="ghost" onClick={() => setConfirm(i)} className="hx-acctrow__action">{t("account.identities.disconnect")}</Button>
+                <div className="hx-linkrow__actions">
+                  {r.linkable && (
+                    <Button variant={r.links.length > 0 ? "ghost" : "primary"} disabled={busy !== null} onClick={() => link(r)}
+                            aria-label={t("account.identities.linkNamed", { provider: r.displayName })}>
+                      {busy === r.alias ? <Spinner size={14} /> : t(r.links.length > 0 ? "account.identities.relink" : "account.identities.link")}
+                    </Button>
+                  )}
+                  {r.links.length > 0 && (
+                    <Button variant="danger-outline" disabled={busy !== null} onClick={() => setConfirm(r)}>
+                      {t("account.identities.disconnect")}
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -81,67 +140,11 @@ export function IdentitiesTab({ api, onNote }: { api: AccountApi; onNote: (n: No
       <ConfirmDialog
         open={confirm !== null}
         title={t("account.identities.disconnectDialog.title")}
-        message={confirm ? t("account.identities.disconnectDialog.message", { provider: confirm.idpAlias }) : ""}
+        message={confirm ? t("account.identities.disconnectDialog.message", { provider: confirm.displayName }) : ""}
         confirmLabel={busy ? t("account.identities.disconnecting") : t("account.identities.disconnect")}
         onConfirm={() => confirm && unlink(confirm)}
         onCancel={() => setConfirm(null)}
       />
-    </Card>
-    </>
-  );
-}
-
-/**
- * Round 6: link a provider of the realm. The server answers where to go: the step-up sign-in when this sign-in is not
- * recent (it then continues the link), else the provider's sign-in, which links the identity and returns to the
- * account console.
- */
-function LinkProviders({ api, onNote }: { api: AccountApi; onNote: (n: Note) => void }) {
-  const { t } = useT();
-  const [providers, setProviders] = React.useState<LinkableProvider[] | null>(null);
-  const [busy, setBusy] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!api.listLinkableProviders) { setProviders([]); return; }
-    api.listLinkableProviders().then(setProviders).catch(() => setProviders([]));
-  }, [api]);
-
-  const link = (alias: string) => {
-    const offered = (providers ?? []).map((p) => p.alias);
-    const error = validateLinkChoice(alias, offered);
-    if (error || !api.startLink) {
-      onNote({ tone: "error", title: t(error ?? "account.identities.link.error") });
-      return;
-    }
-    setBusy(alias);
-    api.startLink(alias)
-      .then((r) => {
-        if (!isSameSitePath(r.location)) throw new Error(t("account.identities.link.error"));
-        window.location.assign(r.location);
-      })
-      .catch((e) => { setBusy(null); onNote({ tone: "error", title: t("account.identities.link.error"), message: String(e.message ?? e) }); });
-  };
-
-  if (providers === null || providers.length === 0) return null;
-  return (
-    <Card title={t("account.identities.available.title")} subtitle={t("account.identities.available.subtitle")}>
-      <div className="hx-acctlist">
-        {providers.map((p) => (
-          <div key={p.alias} className="hx-card hx-acctrow">
-            <div className="hx-acctrow__body hx-acctrow__body--center">
-              <div className="hx-acctrow__main">
-                <div className="hx-acctrow__title hx-acctrow__title--row">
-                  {p.displayName}{p.linked && <Badge tone="accent">{t("account.identities.connectedBadge")}</Badge>}
-                </div>
-              </div>
-              <Button variant="ghost" disabled={busy !== null} onClick={() => link(p.alias)} className="hx-acctrow__action"
-                      aria-label={t("account.identities.linkNamed", { provider: p.displayName })}>
-                {busy === p.alias ? <Spinner size={14} /> : t(p.linked ? "account.identities.relink" : "account.identities.link")}
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
     </Card>
   );
 }
